@@ -10,6 +10,7 @@ mod helpers;
 
 use flowdiff_core::llm::schema::{
     JudgeRequest, JudgeResponse, Pass1Request, Pass1Response, Pass2Request, Pass2Response,
+    RefinementRequest, RefinementResponse,
 };
 use flowdiff_core::llm::vcr::{CacheEntry, VcrMode, VcrProvider};
 use flowdiff_core::llm::LlmProvider;
@@ -87,6 +88,12 @@ async fn test_replay_from_prerecorded_pass1_fixture() {
             &self,
             _: &JudgeRequest,
         ) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+            panic!("Should not be called in replay mode")
+        }
+        async fn refine_groups(
+            &self,
+            _: &RefinementRequest,
+        ) -> Result<RefinementResponse, flowdiff_core::llm::LlmError> {
             panic!("Should not be called in replay mode")
         }
     }
@@ -174,6 +181,12 @@ async fn test_replay_from_prerecorded_pass2_fixture() {
         ) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
             panic!("Should not be called")
         }
+        async fn refine_groups(
+            &self,
+            _: &RefinementRequest,
+        ) -> Result<RefinementResponse, flowdiff_core::llm::LlmError> {
+            panic!("Should not be called")
+        }
     }
 
     let vcr = VcrProvider::new(
@@ -249,6 +262,19 @@ async fn test_auto_mode_records_on_first_call_replays_on_second() {
                 overall_score: 3.0,
                 failure_explanations: vec![],
                 strengths: vec![],
+            })
+        }
+        async fn refine_groups(
+            &self,
+            _: &RefinementRequest,
+        ) -> Result<RefinementResponse, flowdiff_core::llm::LlmError> {
+            self.count.fetch_add(1, Ordering::SeqCst);
+            Ok(RefinementResponse {
+                splits: vec![],
+                merges: vec![],
+                re_ranks: vec![],
+                reclassifications: vec![],
+                reasoning: "counted".to_string(),
             })
         }
     }
@@ -360,6 +386,14 @@ async fn test_live_vcr_record_replay_anthropic() {
                 "This should not be called".to_string(),
             ))
         }
+        async fn refine_groups(
+            &self,
+            _: &RefinementRequest,
+        ) -> Result<RefinementResponse, flowdiff_core::llm::LlmError> {
+            Err(flowdiff_core::llm::LlmError::AuthError(
+                "This should not be called".to_string(),
+            ))
+        }
     }
 
     let vcr_replay = VcrProvider::new(
@@ -439,6 +473,12 @@ async fn test_live_vcr_record_replay_pass2_anthropic() {
         ) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
             Err(flowdiff_core::llm::LlmError::AuthError("no".to_string()))
         }
+        async fn refine_groups(
+            &self,
+            _: &RefinementRequest,
+        ) -> Result<RefinementResponse, flowdiff_core::llm::LlmError> {
+            Err(flowdiff_core::llm::LlmError::AuthError("no".to_string()))
+        }
     }
 
     let vcr_replay = VcrProvider::new(
@@ -515,6 +555,12 @@ async fn test_live_vcr_full_pipeline() {
             &self,
             _: &JudgeRequest,
         ) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+            panic!("replaying, should not call")
+        }
+        async fn refine_groups(
+            &self,
+            _: &RefinementRequest,
+        ) -> Result<RefinementResponse, flowdiff_core::llm::LlmError> {
             panic!("replaying, should not call")
         }
     }

@@ -13,8 +13,12 @@ use sha2::{Digest, Sha256};
 
 use super::schema::{
     JudgeRequest, JudgeResponse, Pass1Request, Pass1Response, Pass2Request, Pass2Response,
+    RefinementRequest, RefinementResponse,
 };
-use super::{judge_system_prompt, pass1_system_prompt, pass2_system_prompt, LlmError, LlmProvider};
+use super::{
+    judge_system_prompt, pass1_system_prompt, pass2_system_prompt, refinement_system_prompt,
+    LlmError, LlmProvider,
+};
 
 /// VCR operating mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +102,11 @@ impl VcrProvider {
     /// Get the current prompt template hash for judge evaluation.
     pub fn judge_template_hash() -> String {
         Self::sha256_hex(judge_system_prompt().as_bytes())
+    }
+
+    /// Get the current prompt template hash for refinement.
+    pub fn refinement_template_hash() -> String {
+        Self::sha256_hex(refinement_system_prompt().as_bytes())
     }
 
     /// Build the cache file path for a given pass type and cache key.
@@ -309,6 +318,45 @@ impl LlmProvider for VcrProvider {
             }
         }
     }
+
+    async fn refine_groups(
+        &self,
+        request: &RefinementRequest,
+    ) -> Result<RefinementResponse, LlmError> {
+        let request_json = serde_json::to_string(request).map_err(|e| {
+            LlmError::ParseResponse(format!("Failed to serialize request for VCR key: {}", e))
+        })?;
+        let template_hash = Self::refinement_template_hash();
+        let key =
+            Self::cache_key(self.inner.name(), self.inner.model(), &request_json, &template_hash);
+        let path = self.cache_path("refinement", &key);
+
+        match self.mode {
+            VcrMode::Replay => self
+                .read_cache::<RefinementResponse>(&path, &template_hash)
+                .ok_or_else(|| {
+                    LlmError::ParseResponse(format!(
+                        "VCR replay: no cached entry at {}",
+                        path.display()
+                    ))
+                }),
+            VcrMode::Record => {
+                let response = self.inner.refine_groups(request).await?;
+                self.write_cache(&path, &key, &template_hash, &response)?;
+                Ok(response)
+            }
+            VcrMode::Auto => {
+                if let Some(cached) =
+                    self.read_cache::<RefinementResponse>(&path, &template_hash)
+                {
+                    return Ok(cached);
+                }
+                let response = self.inner.refine_groups(request).await?;
+                self.write_cache(&path, &key, &template_hash, &response)?;
+                Ok(response)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -316,7 +364,7 @@ mod tests {
     use super::*;
     use crate::llm::schema::{
         JudgeCriterionScore, JudgeSourceFile, Pass1GroupAnnotation, Pass1GroupInput,
-        Pass2FileAnnotation, Pass2FileInput,
+        Pass2FileAnnotation, Pass2FileInput, RefinementGroupInput,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -396,6 +444,20 @@ mod tests {
                 overall_score: 4.0,
                 failure_explanations: vec![],
                 strengths: vec!["Mock strength".to_string()],
+            })
+        }
+
+        async fn refine_groups(
+            &self,
+            _request: &RefinementRequest,
+        ) -> Result<RefinementResponse, LlmError> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+            Ok(RefinementResponse {
+                splits: vec![],
+                merges: vec![],
+                re_ranks: vec![],
+                reclassifications: vec![],
+                reasoning: "Mock: no refinements needed".to_string(),
             })
         }
     }

@@ -12,6 +12,7 @@ pub mod anthropic;
 pub mod gemini;
 pub mod judge;
 pub mod openai;
+pub mod refinement;
 pub mod schema;
 pub mod vcr;
 
@@ -22,6 +23,7 @@ use async_trait::async_trait;
 use crate::config::LlmConfig;
 use schema::{
     JudgeRequest, JudgeResponse, Pass1Request, Pass1Response, Pass2Request, Pass2Response,
+    RefinementRequest, RefinementResponse,
 };
 
 /// Errors that can occur during LLM operations.
@@ -82,6 +84,16 @@ pub trait LlmProvider: Send + Sync {
 
     /// Run LLM-as-judge evaluation of analysis quality.
     async fn evaluate_quality(&self, request: &JudgeRequest) -> Result<JudgeResponse, LlmError>;
+
+    /// Run LLM refinement pass on deterministic flow groups.
+    ///
+    /// Takes the deterministic analysis output and suggests structural improvements:
+    /// splits, merges, re-ranks, and reclassifications. Returns empty operations
+    /// if no refinements are needed.
+    async fn refine_groups(
+        &self,
+        request: &RefinementRequest,
+    ) -> Result<RefinementResponse, LlmError>;
 }
 
 /// Resolve the API key for an LLM provider.
@@ -309,6 +321,52 @@ pub fn judge_user_prompt(request: &JudgeRequest) -> String {
     prompt
 }
 
+/// Build the system prompt for the LLM refinement pass.
+pub fn refinement_system_prompt() -> String {
+    format!(
+        "You are a senior software architect reviewing the output of an automated diff analysis tool. \
+         The tool has grouped changed files into semantic flow groups using static analysis \
+         (symbol graph reachability from entrypoints). Your task is to refine these groupings \
+         by identifying cases where static analysis got it wrong.\n\n\
+         You can suggest four types of refinements:\n\
+         1. **Splits**: Break a group that contains logically unrelated changes into separate groups\n\
+         2. **Merges**: Combine groups that are actually part of the same logical change\n\
+         3. **Re-ranks**: Change the review order when semantic ordering differs from risk-based ordering\n\
+         4. **Reclassifications**: Move a file from one group to another when static reachability assigned it wrong\n\n\
+         Be conservative — only suggest refinements where the static grouping is clearly suboptimal. \
+         If the grouping looks reasonable, return empty arrays.\n\n\
+         {}\n\n\
+         Respond ONLY with valid JSON matching the schema above. No markdown, no explanation outside the JSON.",
+        schema::refinement_schema_description()
+    )
+}
+
+/// Build the user prompt for the refinement pass from a request.
+pub fn refinement_user_prompt(request: &RefinementRequest) -> String {
+    let mut prompt = format!("## Diff Summary\n{}\n\n", request.diff_summary);
+    prompt.push_str("## Current Flow Groups (from static analysis)\n");
+    for group in &request.groups {
+        prompt.push_str(&format!(
+            "\n### {} ({})\n- Entrypoint: {}\n- Risk score: {:.2}\n- Review order: {}\n- Files: {}\n",
+            group.name,
+            group.id,
+            group.entrypoint.as_deref().unwrap_or("none"),
+            group.risk_score,
+            group.review_order,
+            group.files.join(", "),
+        ));
+    }
+    prompt.push_str(&format!(
+        "\n## Full Analysis JSON\n```json\n{}\n```\n",
+        request.analysis_json
+    ));
+    prompt.push_str(
+        "\nReview the groups above. Suggest refinements only where the static grouping \
+         is clearly wrong or suboptimal. If the grouping looks reasonable, return empty arrays.",
+    );
+    prompt
+}
+
 /// Build the user prompt for Pass 2 from a request.
 pub fn pass2_user_prompt(request: &Pass2Request) -> String {
     let mut prompt = format!(
@@ -344,6 +402,7 @@ mod tests {
             provider: Some("anthropic".to_string()),
             model: None,
             key_cmd: Some("echo flowdiff-key-test".to_string()),
+            ..Default::default()
         };
         let key = resolve_api_key(&config, "anthropic").unwrap();
         assert_eq!(key, "flowdiff-key-test");
@@ -356,6 +415,7 @@ mod tests {
             provider: Some("anthropic".to_string()),
             model: None,
             key_cmd: Some("echo provider-key-test".to_string()),
+            ..Default::default()
         };
         let key = resolve_api_key(&config, "anthropic").unwrap();
         assert_eq!(key, "provider-key-test");
@@ -367,6 +427,7 @@ mod tests {
             provider: Some("anthropic".to_string()),
             model: None,
             key_cmd: Some("echo test-key-from-cmd".to_string()),
+            ..Default::default()
         };
         let key = resolve_api_key(&config, "anthropic").unwrap();
         assert_eq!(key, "test-key-from-cmd");
@@ -378,6 +439,7 @@ mod tests {
             provider: Some("anthropic".to_string()),
             model: None,
             key_cmd: Some("false".to_string()), // always exits 1
+            ..Default::default()
         };
         let result = resolve_api_key(&config, "anthropic");
         assert!(result.is_err());
@@ -393,6 +455,7 @@ mod tests {
             provider: Some("anthropic".to_string()),
             model: None,
             key_cmd: Some("printf ''".to_string()),
+            ..Default::default()
         };
         let result = resolve_api_key(&config, "anthropic");
         assert!(result.is_err());
@@ -410,6 +473,7 @@ mod tests {
             provider: Some("unknown".to_string()),
             model: None,
             key_cmd: None,
+            ..Default::default()
         };
         let result = resolve_api_key(&config, "unknown");
         assert!(result.is_err());
@@ -426,6 +490,7 @@ mod tests {
             provider: Some("openai".to_string()),
             model: None,
             key_cmd: Some("false".to_string()), // exits 1
+            ..Default::default()
         };
         let result = resolve_api_key(&config, "openai");
         assert!(result.is_err());
@@ -442,6 +507,7 @@ mod tests {
             provider: Some("anthropic".to_string()),
             model: None,
             key_cmd: Some("echo cmd-key".to_string()),
+            ..Default::default()
         };
         let key = resolve_api_key(&config, "anthropic").unwrap();
         assert_eq!(key, "cmd-key");
@@ -607,6 +673,72 @@ mod tests {
         assert!(prompt.contains("```py"));
     }
 
+    // ── Refinement Prompt Tests ──
+
+    #[test]
+    fn test_refinement_system_prompt_content() {
+        let prompt = refinement_system_prompt();
+        assert!(prompt.contains("senior software architect"));
+        assert!(prompt.contains("splits"));
+        assert!(prompt.contains("merges"));
+        assert!(prompt.contains("re_ranks"));
+        assert!(prompt.contains("reclassifications"));
+        assert!(prompt.contains("JSON"));
+    }
+
+    #[test]
+    fn test_refinement_user_prompt_includes_groups() {
+        let request = schema::RefinementRequest {
+            analysis_json: r#"{"version":"1.0.0"}"#.to_string(),
+            diff_summary: "20 files changed".to_string(),
+            groups: vec![schema::RefinementGroupInput {
+                id: "g1".to_string(),
+                name: "Auth flow".to_string(),
+                entrypoint: Some("src/auth.ts::login".to_string()),
+                files: vec!["src/auth.ts".to_string(), "src/token.ts".to_string()],
+                risk_score: 0.75,
+                review_order: 1,
+            }],
+        };
+        let prompt = refinement_user_prompt(&request);
+        assert!(prompt.contains("20 files changed"));
+        assert!(prompt.contains("Auth flow"));
+        assert!(prompt.contains("src/auth.ts, src/token.ts"));
+        assert!(prompt.contains("0.75"));
+        assert!(prompt.contains(r#"{"version":"1.0.0"}"#));
+    }
+
+    #[test]
+    fn test_refinement_user_prompt_multiple_groups() {
+        let request = schema::RefinementRequest {
+            analysis_json: "{}".to_string(),
+            diff_summary: "diff".to_string(),
+            groups: vec![
+                schema::RefinementGroupInput {
+                    id: "g1".to_string(),
+                    name: "Group 1".to_string(),
+                    entrypoint: None,
+                    files: vec!["a.ts".to_string()],
+                    risk_score: 0.5,
+                    review_order: 1,
+                },
+                schema::RefinementGroupInput {
+                    id: "g2".to_string(),
+                    name: "Group 2".to_string(),
+                    entrypoint: Some("entry".to_string()),
+                    files: vec!["b.ts".to_string()],
+                    risk_score: 0.3,
+                    review_order: 2,
+                },
+            ],
+        };
+        let prompt = refinement_user_prompt(&request);
+        assert!(prompt.contains("Group 1"));
+        assert!(prompt.contains("Group 2"));
+        assert!(prompt.contains("g1"));
+        assert!(prompt.contains("g2"));
+    }
+
     // ── Error Display Tests ──
 
     #[test]
@@ -642,6 +774,7 @@ mod tests {
             provider: Some("anthropic".to_string()),
             model: None,
             key_cmd: Some("echo test-key".to_string()),
+            ..Default::default()
         };
         let provider = create_provider(&config).unwrap();
         assert_eq!(provider.name(), "anthropic");
@@ -654,6 +787,7 @@ mod tests {
             provider: Some("openai".to_string()),
             model: None,
             key_cmd: Some("echo test-key".to_string()),
+            ..Default::default()
         };
         let provider = create_provider(&config).unwrap();
         assert_eq!(provider.name(), "openai");
@@ -666,6 +800,7 @@ mod tests {
             provider: Some("anthropic".to_string()),
             model: Some("claude-3-7-sonnet-20250219".to_string()),
             key_cmd: Some("echo test-key".to_string()),
+            ..Default::default()
         };
         let provider = create_provider(&config).unwrap();
         assert_eq!(provider.model(), "claude-3-7-sonnet-20250219");
@@ -677,6 +812,7 @@ mod tests {
             provider: Some("gemini".to_string()),
             model: None,
             key_cmd: Some("echo test-key".to_string()),
+            ..Default::default()
         };
         let provider = create_provider(&config).unwrap();
         assert_eq!(provider.name(), "gemini");
@@ -689,6 +825,7 @@ mod tests {
             provider: Some("gemini".to_string()),
             model: Some("gemini-2.5-pro".to_string()),
             key_cmd: Some("echo test-key".to_string()),
+            ..Default::default()
         };
         let provider = create_provider(&config).unwrap();
         assert_eq!(provider.name(), "gemini");
@@ -701,6 +838,7 @@ mod tests {
             provider: Some("unsupported".to_string()),
             model: None,
             key_cmd: Some("echo test-key".to_string()),
+            ..Default::default()
         };
         let result = create_provider(&config);
         assert!(result.is_err());
@@ -712,6 +850,7 @@ mod tests {
             provider: None, // No provider specified → defaults to anthropic
             model: None,
             key_cmd: Some("echo test-key".to_string()),
+            ..Default::default()
         };
         let provider = create_provider(&config).unwrap();
         assert_eq!(provider.name(), "anthropic");

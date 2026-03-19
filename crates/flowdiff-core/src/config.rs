@@ -102,6 +102,51 @@ pub struct LlmConfig {
     /// Shell command to retrieve the API key (e.g. `op read op://vault/item/field`).
     #[serde(default)]
     pub key_cmd: Option<String>,
+    /// Optional LLM refinement pass configuration.
+    #[serde(default)]
+    pub refinement: RefinementConfig,
+}
+
+/// Configuration for the optional LLM refinement pass.
+///
+/// The refinement pass takes deterministic groups (v1) and asks an LLM to improve them:
+/// split coincidental groupings, merge scattered refactors, re-rank by semantic review
+/// order, reclassify misplaced files. Uses an evaluator-optimizer loop: refine → score →
+/// refine again if score improved, up to `max_iterations`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RefinementConfig {
+    /// Whether refinement is enabled (default: false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Provider for refinement (can differ from annotation provider).
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// Model for refinement (user-selectable).
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Shell command to retrieve the refinement API key.
+    #[serde(default)]
+    pub key_cmd: Option<String>,
+    /// Maximum evaluator-optimizer loop iterations (default: 1).
+    /// 1 = single refinement pass, 2+ = iterative improvement.
+    #[serde(default = "default_max_iterations")]
+    pub max_iterations: u32,
+}
+
+fn default_max_iterations() -> u32 {
+    1
+}
+
+impl Default for RefinementConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: None,
+            model: None,
+            key_cmd: None,
+            max_iterations: 1,
+        }
+    }
 }
 
 impl Default for LlmConfig {
@@ -110,6 +155,7 @@ impl Default for LlmConfig {
             provider: None,
             model: None,
             key_cmd: None,
+            refinement: RefinementConfig::default(),
         }
     }
 }
@@ -176,6 +222,25 @@ impl FlowdiffConfig {
                     valid.join(", ")
                 )));
             }
+        }
+
+        // Validate refinement provider if specified
+        if let Some(ref provider) = self.llm.refinement.provider {
+            let valid = ["anthropic", "openai", "gemini"];
+            if !valid.contains(&provider.as_str()) {
+                return Err(ConfigError::Validation(format!(
+                    "Unknown refinement provider '{}'. Valid providers: {}",
+                    provider,
+                    valid.join(", ")
+                )));
+            }
+        }
+
+        // Validate max_iterations is at least 1
+        if self.llm.refinement.max_iterations == 0 {
+            return Err(ConfigError::Validation(
+                "Refinement max_iterations must be at least 1".to_string(),
+            ));
         }
 
         Ok(())
@@ -582,6 +647,7 @@ events = ["src/handlers/events/**/*.ts"]
                 provider: Some("anthropic".to_string()),
                 model: Some("claude-3-7-sonnet-20250219".to_string()),
                 key_cmd: None,
+                ..Default::default()
             },
             ranking: RankWeights {
                 risk: 0.4,
@@ -609,6 +675,116 @@ events = ["src/handlers/events/**/*.ts"]
     fn test_layer_for_path_no_layers() {
         let config = FlowdiffConfig::default();
         assert_eq!(config.layer_for_path("src/anything.ts"), None);
+    }
+
+    // ── Refinement Config Tests ──
+
+    #[test]
+    fn test_refinement_config_defaults() {
+        let config = FlowdiffConfig::default();
+        assert!(!config.llm.refinement.enabled);
+        assert_eq!(config.llm.refinement.provider, None);
+        assert_eq!(config.llm.refinement.model, None);
+        assert_eq!(config.llm.refinement.key_cmd, None);
+        assert_eq!(config.llm.refinement.max_iterations, 1);
+    }
+
+    #[test]
+    fn test_parse_refinement_config() {
+        let toml_str = r#"
+[llm]
+provider = "anthropic"
+
+[llm.refinement]
+enabled = true
+provider = "openai"
+model = "gpt-4o"
+max_iterations = 3
+"#;
+        let config = FlowdiffConfig::from_str(toml_str).unwrap();
+        assert!(config.llm.refinement.enabled);
+        assert_eq!(config.llm.refinement.provider, Some("openai".to_string()));
+        assert_eq!(config.llm.refinement.model, Some("gpt-4o".to_string()));
+        assert_eq!(config.llm.refinement.max_iterations, 3);
+    }
+
+    #[test]
+    fn test_refinement_disabled_by_default() {
+        let toml_str = r#"
+[llm]
+provider = "anthropic"
+"#;
+        let config = FlowdiffConfig::from_str(toml_str).unwrap();
+        assert!(!config.llm.refinement.enabled);
+        assert_eq!(config.llm.refinement.max_iterations, 1);
+    }
+
+    #[test]
+    fn test_refinement_invalid_provider_rejected() {
+        let toml_str = r#"
+[llm.refinement]
+enabled = true
+provider = "invalid"
+"#;
+        let result = FlowdiffConfig::from_str(toml_str);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigError::Validation(msg) => {
+                assert!(msg.contains("refinement provider"));
+                assert!(msg.contains("invalid"));
+            }
+            err => panic!("Expected validation error, got: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_refinement_zero_iterations_rejected() {
+        let toml_str = r#"
+[llm.refinement]
+enabled = true
+max_iterations = 0
+"#;
+        let result = FlowdiffConfig::from_str(toml_str);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigError::Validation(msg) => {
+                assert!(msg.contains("max_iterations"));
+            }
+            err => panic!("Expected validation error, got: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_refinement_different_provider_from_annotation() {
+        let toml_str = r#"
+[llm]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+
+[llm.refinement]
+enabled = true
+provider = "gemini"
+model = "gemini-2.5-pro"
+max_iterations = 2
+"#;
+        let config = FlowdiffConfig::from_str(toml_str).unwrap();
+        assert_eq!(config.llm.provider, Some("anthropic".to_string()));
+        assert_eq!(config.llm.refinement.provider, Some("gemini".to_string()));
+    }
+
+    #[test]
+    fn test_refinement_key_cmd() {
+        let toml_str = r#"
+[llm.refinement]
+enabled = true
+provider = "anthropic"
+key_cmd = "op read op://vault/flowdiff/refinement-key"
+"#;
+        let config = FlowdiffConfig::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.llm.refinement.key_cmd,
+            Some("op read op://vault/flowdiff/refinement-key".to_string())
+        );
     }
 
     // ── Property-Based Tests ──

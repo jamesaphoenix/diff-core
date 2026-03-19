@@ -8,12 +8,13 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::schema::{JudgeResponse, Pass1Response, Pass2Response};
+use super::schema::{JudgeResponse, Pass1Response, Pass2Response, RefinementResponse};
 use super::{
     judge_system_prompt, judge_user_prompt, pass1_system_prompt, pass1_user_prompt,
-    pass2_system_prompt, pass2_user_prompt, truncate_to_token_budget, LlmError, LlmProvider,
+    pass2_system_prompt, pass2_user_prompt, refinement_system_prompt, refinement_user_prompt,
+    truncate_to_token_budget, LlmError, LlmProvider,
 };
-use crate::llm::schema::{JudgeRequest, Pass1Request, Pass2Request};
+use crate::llm::schema::{JudgeRequest, Pass1Request, Pass2Request, RefinementRequest};
 
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
 
@@ -220,6 +221,16 @@ impl LlmProvider for OpenAIProvider {
         let user = judge_user_prompt(request);
         let response_text = self.send_message(&system, &user).await?;
         parse_json_response::<JudgeResponse>(&response_text)
+    }
+
+    async fn refine_groups(
+        &self,
+        request: &RefinementRequest,
+    ) -> Result<RefinementResponse, LlmError> {
+        let system = refinement_system_prompt();
+        let user = refinement_user_prompt(request);
+        let response_text = self.send_message(&system, &user).await?;
+        parse_json_response::<RefinementResponse>(&response_text)
     }
 }
 
