@@ -8,7 +8,7 @@ pub struct Symbol {
     pub kind: SymbolKind,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum SymbolKind {
     Function,
     Class,
@@ -20,7 +20,7 @@ pub enum SymbolKind {
 }
 
 /// Edge types in the symbol graph.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum EdgeType {
     Imports,
     Calls,

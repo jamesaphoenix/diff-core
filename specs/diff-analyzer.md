@@ -546,7 +546,7 @@ flowdiff/
 - [x] Cargo workspace setup
 - [x] Git diff extraction via git2
 - [x] Tree-sitter AST parsing (TS/JS + Python grammars first)
-- [ ] Symbol graph construction (imports, exports, calls)
+- [x] Symbol graph construction (imports, exports, calls)
 - [ ] Basic entrypoint detection
 - [ ] Semantic clustering (forward reachability from entrypoints)
 - [x] Review ranking (composite score)
@@ -557,6 +557,8 @@ flowdiff/
 - [x] Property-based tests for ranking (proptest — 11 properties)
 - [x] Unit tests for ranking (26 tests — scoring, risk, surface area, path detection)
 - [x] Unit tests for AST parsing (25 tests — TS/JS imports, exports, definitions, calls; Python imports, functions, class hierarchy; changed symbol detection; performance)
+- [x] Unit tests for graph construction (25 tests — import edges, call edges, namespace/default/aliased imports, cyclic imports, re-export chains, index file resolution, cross-directory imports, Python imports/calls, serialization roundtrip, node lookup, determinism)
+- [x] Property-based tests for graph construction (6 tests — every definition has node, node count ≥ file count, no self-edges, serialization roundtrip, determinism, empty input)
 
 ### Phase 2: Data Flow Depth (Week 2-3)
 - [ ] Full data flow tracing (parameters, return values, assignments)
