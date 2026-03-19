@@ -214,6 +214,7 @@ Default weights: `w₁=0.35, w₂=0.25, w₃=0.20, w₄=0.20`
 | Provider | API | Models |
 |----------|-----|--------|
 | Anthropic | Messages API | Claude reasoning models (claude-3-7-sonnet with extended thinking, future reasoning models) |
+| Google | Gemini API | Gemini 2.5 Pro, Gemini 2.5 Flash |
 | OpenAI | Chat Completions API | o1, o3-mini, o3, GPT-4o |
 
 BYOK (Bring Your Own Key): user provides API key via `.flowdiff.toml` or environment variable.
@@ -583,7 +584,7 @@ flowdiff/
 - [x] Mermaid graph generation in JSON output
 - [x] Commit range and staged/unstaged support
 - [ ] Full data flow tracing (parameters, return values, variable assignments across call chains)
-- [ ] Config file support (`.flowdiff.toml`)
+- [x] Config file support (config.rs — `.flowdiff.toml` parsing, validation, defaults merging, entrypoint glob resolution, ignore patterns, layer names, LLM config; 17 unit tests + 6 property-based tests)
 
 ### Phase 3: Tauri App (Week 3-4)
 - [ ] Tauri project setup with React frontend
@@ -603,6 +604,10 @@ flowdiff/
 - [ ] Pass 2: on-demand deep group analysis
 - [ ] LLM results rendering in Tauri app
 - [ ] API key configuration (env var, config file, 1Password via `op read`)
+- [ ] Live integration tests — Anthropic (real API call, Pass 1 overview returns valid structured output, Pass 2 deep analysis returns file-level annotations, extended thinking produces richer output)
+- [ ] Live integration tests — Google Gemini (real API call, Pass 1 overview, structured output compliance, context window handling)
+- [ ] Live integration tests — OpenAI (real API call, Pass 1 overview with o1/o3, structured output compliance, context window truncation for large diffs)
+- [ ] Live integration tests — end-to-end (run full pipeline on a real multi-file diff with LLM annotation enabled, verify annotations attach to correct flow groups, gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`)
 
 ### Phase 5: VS Code Extension (Week 5-6)
 - [ ] Extension scaffold

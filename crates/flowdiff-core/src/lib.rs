@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod cluster;
+pub mod config;
 pub mod entrypoint;
 pub mod flow;
 pub mod git;
