@@ -109,8 +109,27 @@ impl QueryWithCaptures {
 /// Owned representation of a single query match.
 /// Extracted from the streaming iterator so we can process after iteration.
 struct CollectedMatch<'tree> {
-    pattern_index: usize,
     captures: Vec<(u32, Node<'tree>)>,
+}
+
+impl<'tree> CollectedMatch<'tree> {
+    /// Check whether this match contains a capture with the given index.
+    fn has_capture(&self, idx: Option<u32>) -> bool {
+        match idx {
+            Some(i) => self.captures.iter().any(|&(ci, _)| ci == i),
+            None => false,
+        }
+    }
+
+    /// Get the first node captured at the given index.
+    fn get_capture(&self, idx: Option<u32>) -> Option<Node<'tree>> {
+        idx.and_then(|i| {
+            self.captures
+                .iter()
+                .find(|&&(ci, _)| ci == i)
+                .map(|&(_, n)| n)
+        })
+    }
 }
 
 /// Collect all matches from a streaming iterator into owned data.
@@ -128,10 +147,7 @@ fn collect_matches<'tree>(
             Some(m) => {
                 let caps: Vec<(u32, Node)> =
                     m.captures.iter().map(|c| (c.index, c.node)).collect();
-                result.push(CollectedMatch {
-                    pattern_index: m.pattern_index,
-                    captures: caps,
-                });
+                result.push(CollectedMatch { captures: caps });
             }
             None => break,
         }
@@ -394,7 +410,6 @@ impl QueryEngine {
         let mut import_map: Vec<(usize, ImportBuilder)> = Vec::new();
 
         for m in &matches {
-            let pattern = m.pattern_index;
             let mut stmt_start = 0usize;
             let mut source_text = String::new();
             let mut line = 0usize;
@@ -411,67 +426,59 @@ impl QueryEngine {
 
             let entry = get_or_insert_import(&mut import_map, stmt_start, &source_text, line);
 
-            match pattern {
-                0 => {
-                    // Default import
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == default_name_idx {
-                            entry.is_default = true;
-                            entry.names.push(ImportedName {
-                                name: node_text(&node, source).to_string(),
-                                alias: None,
-                            });
-                        }
-                    }
-                }
-                1 => {
-                    // Named import (may also match aliased — engine deduplicates)
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == named_name_idx {
-                            let name = node_text(&node, source).to_string();
-                            if !entry.names.iter().any(|n| n.name == name) {
-                                entry.names.push(ImportedName { name, alias: None });
-                            }
-                        }
-                    }
-                }
-                2 => {
-                    // Named import with alias
-                    let mut name = String::new();
-                    let mut alias = String::new();
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == aliased_name_idx {
-                            name = node_text(&node, source).to_string();
-                        }
-                        if Some(idx) == alias_idx {
-                            alias = node_text(&node, source).to_string();
-                        }
-                    }
-                    if !name.is_empty() {
-                        entry.names.retain(|n| n.name != name);
+            if m.has_capture(default_name_idx) {
+                // Default import
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == default_name_idx {
+                        entry.is_default = true;
                         entry.names.push(ImportedName {
-                            name,
-                            alias: Some(alias),
+                            name: node_text(&node, source).to_string(),
+                            alias: None,
                         });
                     }
                 }
-                3 => {
-                    // Namespace import
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == ns_name_idx {
-                            entry.is_namespace = true;
-                            entry.names.push(ImportedName {
-                                name: node_text(&node, source).to_string(),
-                                alias: None,
-                            });
+            } else if m.has_capture(aliased_name_idx) {
+                // Named import with alias (check before named_name since aliased also has named_name)
+                let mut name = String::new();
+                let mut alias = String::new();
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == aliased_name_idx {
+                        name = node_text(&node, source).to_string();
+                    }
+                    if Some(idx) == alias_idx {
+                        alias = node_text(&node, source).to_string();
+                    }
+                }
+                if !name.is_empty() {
+                    entry.names.retain(|n| n.name != name);
+                    entry.names.push(ImportedName {
+                        name,
+                        alias: Some(alias),
+                    });
+                }
+            } else if m.has_capture(ns_name_idx) {
+                // Namespace import
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == ns_name_idx {
+                        entry.is_namespace = true;
+                        entry.names.push(ImportedName {
+                            name: node_text(&node, source).to_string(),
+                            alias: None,
+                        });
+                    }
+                }
+            } else if m.has_capture(named_name_idx) {
+                // Named import
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == named_name_idx {
+                        let name = node_text(&node, source).to_string();
+                        if !entry.names.iter().any(|n| n.name == name) {
+                            entry.names.push(ImportedName { name, alias: None });
                         }
                     }
                 }
-                4 => {
-                    // Side-effect import — source already captured, no names
-                }
-                _ => {}
             }
+            // else: side-effect import — source already captured, no names
         }
 
         Ok(import_map.into_iter().map(|(_, b)| b.build()).collect())
@@ -493,15 +500,13 @@ impl QueryEngine {
         let imported_name_idx = qwc.capture_index("imported_name");
         let aliased_imported_name_idx = qwc.capture_index("aliased_imported_name");
         let imported_alias_idx = qwc.capture_index("imported_alias");
-        let _wildcard_idx = qwc.capture_index("wildcard");
+        let wildcard_idx = qwc.capture_index("wildcard");
         let relative_source_idx = qwc.capture_index("relative_source");
         let relative_imported_name_idx = qwc.capture_index("relative_imported_name");
 
         let mut import_map: Vec<(usize, ImportBuilder)> = Vec::new();
 
         for m in &matches {
-            let pattern = m.pattern_index;
-
             let mut stmt_start = 0usize;
             let mut line = 0usize;
 
@@ -512,136 +517,128 @@ impl QueryEngine {
                 }
             }
 
-            match pattern {
-                0 => {
-                    // import foo
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == module_name_idx {
-                            let name = node_text(&node, source).to_string();
-                            let entry =
-                                get_or_insert_import(&mut import_map, stmt_start, &name, line);
-                            entry.is_namespace = true;
-                            entry.names.push(ImportedName {
-                                name: name.clone(),
-                                alias: None,
-                            });
-                        }
+            if m.has_capture(relative_source_idx) {
+                // from .bar import baz (relative import)
+                let mut src = String::new();
+                let mut imported = String::new();
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == relative_source_idx {
+                        src = node_text(&node, source).to_string();
+                    }
+                    if Some(idx) == relative_imported_name_idx {
+                        imported = node_text(&node, source).to_string();
                     }
                 }
-                1 => {
-                    // import foo as bar
-                    let mut name = String::new();
-                    let mut alias = String::new();
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == module_name_idx {
-                            name = node_text(&node, source).to_string();
-                        }
-                        if Some(idx) == alias_idx {
-                            alias = node_text(&node, source).to_string();
-                        }
-                    }
-                    if !name.is_empty() {
-                        let entry =
-                            get_or_insert_import(&mut import_map, stmt_start, &name, line);
-                        entry.is_namespace = true;
-                        entry.names.push(ImportedName {
-                            name,
-                            alias: if alias.is_empty() { None } else { Some(alias) },
-                        });
-                    }
-                }
-                2 => {
-                    // from foo import bar
-                    let mut src = String::new();
-                    let mut imported = String::new();
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == source_cap_idx {
-                            src = node_text(&node, source).to_string();
-                        }
-                        if Some(idx) == imported_name_idx {
-                            imported = node_text(&node, source).to_string();
-                        }
-                    }
-                    if !src.is_empty() {
-                        let entry =
-                            get_or_insert_import(&mut import_map, stmt_start, &src, line);
-                        if !imported.is_empty()
-                            && !entry.names.iter().any(|n| n.name == imported)
-                        {
-                            entry.names.push(ImportedName {
-                                name: imported,
-                                alias: None,
-                            });
-                        }
-                    }
-                }
-                3 => {
-                    // from foo import bar as baz
-                    let mut src = String::new();
-                    let mut imported = String::new();
-                    let mut alias = String::new();
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == source_cap_idx {
-                            src = node_text(&node, source).to_string();
-                        }
-                        if Some(idx) == aliased_imported_name_idx {
-                            imported = node_text(&node, source).to_string();
-                        }
-                        if Some(idx) == imported_alias_idx {
-                            alias = node_text(&node, source).to_string();
-                        }
-                    }
-                    if !src.is_empty() && !imported.is_empty() {
-                        let entry =
-                            get_or_insert_import(&mut import_map, stmt_start, &src, line);
-                        entry.names.retain(|n| n.name != imported);
+                if !src.is_empty() {
+                    let entry =
+                        get_or_insert_import(&mut import_map, stmt_start, &src, line);
+                    if !imported.is_empty() {
                         entry.names.push(ImportedName {
                             name: imported,
-                            alias: if alias.is_empty() { None } else { Some(alias) },
-                        });
-                    }
-                }
-                4 => {
-                    // from foo import *
-                    let mut src = String::new();
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == source_cap_idx {
-                            src = node_text(&node, source).to_string();
-                        }
-                    }
-                    if !src.is_empty() {
-                        let entry =
-                            get_or_insert_import(&mut import_map, stmt_start, &src, line);
-                        entry.names.push(ImportedName {
-                            name: "*".to_string(),
                             alias: None,
                         });
                     }
                 }
-                5 => {
-                    // from .bar import baz (relative import)
-                    let mut src = String::new();
-                    let mut imported = String::new();
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == relative_source_idx {
-                            src = node_text(&node, source).to_string();
-                        }
-                        if Some(idx) == relative_imported_name_idx {
-                            imported = node_text(&node, source).to_string();
-                        }
+            } else if m.has_capture(aliased_imported_name_idx) {
+                // from foo import bar as baz
+                let mut src = String::new();
+                let mut imported = String::new();
+                let mut alias = String::new();
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == source_cap_idx {
+                        src = node_text(&node, source).to_string();
                     }
-                    if !src.is_empty() {
-                        let entry =
-                            get_or_insert_import(&mut import_map, stmt_start, &src, line);
-                        if !imported.is_empty() {
-                            entry.names.push(ImportedName {
-                                name: imported,
-                                alias: None,
-                            });
-                        }
+                    if Some(idx) == aliased_imported_name_idx {
+                        imported = node_text(&node, source).to_string();
+                    }
+                    if Some(idx) == imported_alias_idx {
+                        alias = node_text(&node, source).to_string();
                     }
                 }
-                _ => {}
+                if !src.is_empty() && !imported.is_empty() {
+                    let entry =
+                        get_or_insert_import(&mut import_map, stmt_start, &src, line);
+                    entry.names.retain(|n| n.name != imported);
+                    entry.names.push(ImportedName {
+                        name: imported,
+                        alias: if alias.is_empty() { None } else { Some(alias) },
+                    });
+                }
+            } else if m.has_capture(wildcard_idx) {
+                // from foo import *
+                let mut src = String::new();
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == source_cap_idx {
+                        src = node_text(&node, source).to_string();
+                    }
+                }
+                if !src.is_empty() {
+                    let entry =
+                        get_or_insert_import(&mut import_map, stmt_start, &src, line);
+                    entry.names.push(ImportedName {
+                        name: "*".to_string(),
+                        alias: None,
+                    });
+                }
+            } else if m.has_capture(imported_name_idx) {
+                // from foo import bar
+                let mut src = String::new();
+                let mut imported = String::new();
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == source_cap_idx {
+                        src = node_text(&node, source).to_string();
+                    }
+                    if Some(idx) == imported_name_idx {
+                        imported = node_text(&node, source).to_string();
+                    }
+                }
+                if !src.is_empty() {
+                    let entry =
+                        get_or_insert_import(&mut import_map, stmt_start, &src, line);
+                    if !imported.is_empty()
+                        && !entry.names.iter().any(|n| n.name == imported)
+                    {
+                        entry.names.push(ImportedName {
+                            name: imported,
+                            alias: None,
+                        });
+                    }
+                }
+            } else if m.has_capture(alias_idx) {
+                // import foo as bar
+                let mut name = String::new();
+                let mut alias = String::new();
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == module_name_idx {
+                        name = node_text(&node, source).to_string();
+                    }
+                    if Some(idx) == alias_idx {
+                        alias = node_text(&node, source).to_string();
+                    }
+                }
+                if !name.is_empty() {
+                    let entry =
+                        get_or_insert_import(&mut import_map, stmt_start, &name, line);
+                    entry.is_namespace = true;
+                    entry.names.push(ImportedName {
+                        name,
+                        alias: if alias.is_empty() { None } else { Some(alias) },
+                    });
+                }
+            } else if m.has_capture(module_name_idx) {
+                // import foo
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == module_name_idx {
+                        let name = node_text(&node, source).to_string();
+                        let entry =
+                            get_or_insert_import(&mut import_map, stmt_start, &name, line);
+                        entry.is_namespace = true;
+                        entry.names.push(ImportedName {
+                            name: name.clone(),
+                            alias: None,
+                        });
+                    }
+                }
             }
         }
 
@@ -676,8 +673,19 @@ impl QueryEngine {
 
         let mut exports = Vec::new();
 
+        // Exported declaration name captures — order doesn't matter,
+        // we dispatch by which capture is present.
+        let decl_name_captures: &[(Option<u32>, SymbolKind)] = &[
+            (decl_fn_name_idx, SymbolKind::Function),
+            (decl_gen_name_idx, SymbolKind::Function),
+            (decl_class_name_idx, SymbolKind::Class),
+            (decl_abstract_name_idx, SymbolKind::Class),
+            (decl_iface_name_idx, SymbolKind::Interface),
+            (decl_type_name_idx, SymbolKind::TypeAlias),
+            (decl_var_name_idx, SymbolKind::Constant),
+        ];
+
         for m in &matches {
-            let pattern = m.pattern_index;
             let mut line = 0usize;
             let mut stmt_node: Option<Node> = None;
 
@@ -692,149 +700,82 @@ impl QueryEngine {
                 .map(|n| has_default_keyword(&n))
                 .unwrap_or(false);
 
-            match pattern {
-                0 => {
-                    // export { foo, bar }
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == export_name_idx {
-                            exports.push(ExportInfo {
-                                name: node_text(&node, source).to_string(),
-                                is_default: false,
-                                is_reexport: false,
-                                source: None,
-                                line,
-                            });
-                        }
+            if m.has_capture(reexport_name_idx) {
+                // export { baz } from './other'
+                let mut reexport_src = String::new();
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == reexport_source_idx {
+                        reexport_src = node_text(&node, source).to_string();
                     }
                 }
-                1 => {
-                    // export { baz } from './other'
-                    let mut reexport_src = String::new();
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == reexport_source_idx {
-                            reexport_src = node_text(&node, source).to_string();
-                        }
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == reexport_name_idx {
+                        exports.push(ExportInfo {
+                            name: node_text(&node, source).to_string(),
+                            is_default: false,
+                            is_reexport: true,
+                            source: Some(reexport_src.clone()),
+                            line,
+                        });
                     }
+                }
+            } else if m.has_capture(export_name_idx) {
+                // export { foo, bar }
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == export_name_idx {
+                        exports.push(ExportInfo {
+                            name: node_text(&node, source).to_string(),
+                            is_default: false,
+                            is_reexport: false,
+                            source: None,
+                            line,
+                        });
+                    }
+                }
+            } else if m.has_capture(wildcard_source_idx) {
+                // export * from './other'
+                // Only treat as wildcard if there's no export_clause child
+                // (re-export pattern already handles those).
+                let has_export_clause = stmt_node
+                    .map(|n| {
+                        let mut c = n.walk();
+                        let result = n
+                            .named_children(&mut c)
+                            .any(|ch| ch.kind() == "export_clause");
+                        result
+                    })
+                    .unwrap_or(false);
+                if !has_export_clause {
                     for &(idx, node) in &m.captures {
-                        if Some(idx) == reexport_name_idx {
+                        if Some(idx) == wildcard_source_idx {
                             exports.push(ExportInfo {
-                                name: node_text(&node, source).to_string(),
+                                name: "*".to_string(),
                                 is_default: false,
                                 is_reexport: true,
-                                source: Some(reexport_src.clone()),
+                                source: Some(node_text(&node, source).to_string()),
                                 line,
                             });
                         }
                     }
                 }
-                2 => {
-                    // export * from './other' (or export * as ns from '...')
-                    // This pattern matches any export_statement with source field.
-                    // Only treat as wildcard if there's no export_clause child
-                    // (pattern 1 already handles re-exports with export_clause).
-                    let has_export_clause = stmt_node
-                        .map(|n| {
-                            let mut c = n.walk();
-                            let result = n.named_children(&mut c)
-                                .any(|ch| ch.kind() == "export_clause");
-                            result
-                        })
-                        .unwrap_or(false);
-                    if !has_export_clause {
+            } else {
+                // Exported declarations: function, generator, class, abstract, interface, type, variable
+                for &(name_cap_idx, _) in decl_name_captures {
+                    if m.has_capture(name_cap_idx) {
                         for &(idx, node) in &m.captures {
-                            if Some(idx) == wildcard_source_idx {
+                            if Some(idx) == name_cap_idx {
                                 exports.push(ExportInfo {
-                                    name: "*".to_string(),
-                                    is_default: false,
-                                    is_reexport: true,
-                                    source: Some(node_text(&node, source).to_string()),
+                                    name: node_text(&node, source).to_string(),
+                                    is_default,
+                                    is_reexport: false,
+                                    source: None,
                                     line,
                                 });
                             }
                         }
+                        break;
                     }
                 }
-                3 | 4 => {
-                    // Exported function / generator
-                    let name_idx = if pattern == 3 {
-                        decl_fn_name_idx
-                    } else {
-                        decl_gen_name_idx
-                    };
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == name_idx {
-                            exports.push(ExportInfo {
-                                name: node_text(&node, source).to_string(),
-                                is_default,
-                                is_reexport: false,
-                                source: None,
-                                line,
-                            });
-                        }
-                    }
-                }
-                5 | 6 => {
-                    // Exported class / abstract class
-                    let name_idx = if pattern == 5 {
-                        decl_class_name_idx
-                    } else {
-                        decl_abstract_name_idx
-                    };
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == name_idx {
-                            exports.push(ExportInfo {
-                                name: node_text(&node, source).to_string(),
-                                is_default,
-                                is_reexport: false,
-                                source: None,
-                                line,
-                            });
-                        }
-                    }
-                }
-                7 => {
-                    // Exported interface
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == decl_iface_name_idx {
-                            exports.push(ExportInfo {
-                                name: node_text(&node, source).to_string(),
-                                is_default,
-                                is_reexport: false,
-                                source: None,
-                                line,
-                            });
-                        }
-                    }
-                }
-                8 => {
-                    // Exported type alias
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == decl_type_name_idx {
-                            exports.push(ExportInfo {
-                                name: node_text(&node, source).to_string(),
-                                is_default,
-                                is_reexport: false,
-                                source: None,
-                                line,
-                            });
-                        }
-                    }
-                }
-                9 => {
-                    // Exported variable
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == decl_var_name_idx {
-                            exports.push(ExportInfo {
-                                name: node_text(&node, source).to_string(),
-                                is_default,
-                                is_reexport: false,
-                                source: None,
-                                line,
-                            });
-                        }
-                    }
-                }
-                _ => {}
             }
         }
 
@@ -843,7 +784,8 @@ impl QueryEngine {
         Ok(exports)
     }
 
-    /// Extract definitions from exported declarations (patterns 3-9 in exports.scm).
+    /// Extract definitions from exported declarations in exports.scm.
+    /// Only matches that have a `decl_*_name` capture are declarations.
     fn extract_export_definitions(
         &self,
         root: &Node,
@@ -862,16 +804,20 @@ impl QueryEngine {
         let decl_var_name_idx = qwc.capture_index("decl_var_name");
         let stmt_idx = qwc.capture_index("stmt");
 
+        let decl_name_captures: &[(Option<u32>, SymbolKind)] = &[
+            (decl_fn_name_idx, SymbolKind::Function),
+            (decl_gen_name_idx, SymbolKind::Function),
+            (decl_class_name_idx, SymbolKind::Class),
+            (decl_abstract_name_idx, SymbolKind::Class),
+            (decl_iface_name_idx, SymbolKind::Interface),
+            (decl_type_name_idx, SymbolKind::TypeAlias),
+            (decl_var_name_idx, SymbolKind::Constant),
+        ];
+
         let mut definitions = Vec::new();
 
         for m in &matches {
-            let pattern = m.pattern_index;
-            if pattern < 3 {
-                continue;
-            }
-
             let mut decl_node: Option<Node> = None;
-            let mut name_text = String::new();
 
             for &(idx, node) in &m.captures {
                 if Some(idx) == stmt_idx {
@@ -881,76 +827,34 @@ impl QueryEngine {
                 }
             }
 
-            let kind = match pattern {
-                3 | 4 => {
-                    let target_idx = if pattern == 3 {
-                        decl_fn_name_idx
-                    } else {
-                        decl_gen_name_idx
-                    };
+            // Find which declaration capture is present
+            let mut found = false;
+            for &(name_cap_idx, kind) in decl_name_captures {
+                if m.has_capture(name_cap_idx) {
+                    let mut name_text = String::new();
                     for &(idx, node) in &m.captures {
-                        if Some(idx) == target_idx {
+                        if Some(idx) == name_cap_idx {
                             name_text = node_text(&node, source).to_string();
                         }
                     }
-                    SymbolKind::Function
-                }
-                5 => {
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == decl_class_name_idx {
-                            name_text = node_text(&node, source).to_string();
-                        }
+                    if !name_text.is_empty() {
+                        let (start_line, end_line) = if let Some(dn) = decl_node {
+                            (dn.start_position().row + 1, dn.end_position().row + 1)
+                        } else {
+                            (0, 0)
+                        };
+                        definitions.push(Definition {
+                            name: name_text,
+                            kind,
+                            start_line,
+                            end_line,
+                        });
                     }
-                    SymbolKind::Class
+                    found = true;
+                    break;
                 }
-                6 => {
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == decl_abstract_name_idx {
-                            name_text = node_text(&node, source).to_string();
-                        }
-                    }
-                    SymbolKind::Class
-                }
-                7 => {
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == decl_iface_name_idx {
-                            name_text = node_text(&node, source).to_string();
-                        }
-                    }
-                    SymbolKind::Interface
-                }
-                8 => {
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == decl_type_name_idx {
-                            name_text = node_text(&node, source).to_string();
-                        }
-                    }
-                    SymbolKind::TypeAlias
-                }
-                9 => {
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == decl_var_name_idx {
-                            name_text = node_text(&node, source).to_string();
-                        }
-                    }
-                    SymbolKind::Constant
-                }
-                _ => continue,
-            };
-
-            if !name_text.is_empty() {
-                let (start_line, end_line) = if let Some(dn) = decl_node {
-                    (dn.start_position().row + 1, dn.end_position().row + 1)
-                } else {
-                    (0, 0)
-                };
-                definitions.push(Definition {
-                    name: name_text,
-                    kind,
-                    start_line,
-                    end_line,
-                });
             }
+            let _ = found; // suppress unused warning
         }
 
         Ok(definitions)
@@ -970,135 +874,165 @@ impl QueryEngine {
         let mut cursor = QueryCursor::new();
         let matches = collect_matches(&mut cursor, &qwc.query, *root, source);
 
-        let name_idx = qwc.capture_index("name");
-        let node_idx = qwc.capture_index("node");
-        let value_idx = qwc.capture_index("value");
-
-        // Python-specific captures
-        let method_name_idx = qwc.capture_index("method_name");
-        let method_node_idx = qwc.capture_index("method_node");
-        let decorated_method_name_idx = qwc.capture_index("decorated_method_name");
-        let decorated_method_node_idx = qwc.capture_index("decorated_method_node");
-
         let mut definitions = Vec::new();
         let mut seen_nodes: Vec<(usize, usize)> = Vec::new();
 
-        for m in &matches {
-            let pattern = m.pattern_index;
+        match language {
+            Language::TypeScript | Language::JavaScript => {
+                // TS/JS: each definition kind has a distinct capture name pair
+                let fn_name_idx = qwc.capture_index("fn_name");
+                let fn_node_idx = qwc.capture_index("fn_node");
+                let gen_name_idx = qwc.capture_index("gen_name");
+                let gen_node_idx = qwc.capture_index("gen_node");
+                let class_name_idx = qwc.capture_index("class_name");
+                let class_node_idx = qwc.capture_index("class_node");
+                let abstract_name_idx = qwc.capture_index("abstract_name");
+                let abstract_node_idx = qwc.capture_index("abstract_node");
+                let iface_name_idx = qwc.capture_index("iface_name");
+                let iface_node_idx = qwc.capture_index("iface_node");
+                let type_name_idx = qwc.capture_index("type_name");
+                let type_node_idx = qwc.capture_index("type_node");
+                let arrow_name_idx = qwc.capture_index("arrow_name");
+                let arrow_node_idx = qwc.capture_index("arrow_node");
+                let fn_expr_name_idx = qwc.capture_index("fn_expr_name");
+                let fn_expr_node_idx = qwc.capture_index("fn_expr_node");
+                let const_name_idx = qwc.capture_index("const_name");
+                let const_value_idx = qwc.capture_index("const_value");
+                let const_node_idx = qwc.capture_index("const_node");
+                let method_name_idx = qwc.capture_index("method_name");
+                let method_node_idx = qwc.capture_index("method_node");
 
-            match language {
-                Language::TypeScript | Language::JavaScript => {
-                    let kind = match pattern {
-                        0 | 1 => SymbolKind::Function,
-                        2 | 3 => SymbolKind::Class,
-                        4 => SymbolKind::Interface,
-                        5 => SymbolKind::TypeAlias,
-                        6 | 7 => SymbolKind::Function,
-                        8 => {
-                            let mut is_fn = false;
-                            for &(idx, node) in &m.captures {
-                                if Some(idx) == value_idx {
-                                    let kind = node.kind();
-                                    is_fn = kind == "arrow_function" || kind == "function";
-                                }
-                            }
-                            if is_fn {
-                                SymbolKind::Function
-                            } else {
-                                SymbolKind::Constant
-                            }
-                        }
-                        9 => SymbolKind::Function,
-                        _ => continue,
-                    };
+                // Ordered list: (name_capture, node_capture, kind).
+                // const_name/const_value is special-cased below.
+                let ts_def_captures: &[(Option<u32>, Option<u32>, SymbolKind)] = &[
+                    (fn_name_idx, fn_node_idx, SymbolKind::Function),
+                    (gen_name_idx, gen_node_idx, SymbolKind::Function),
+                    (class_name_idx, class_node_idx, SymbolKind::Class),
+                    (abstract_name_idx, abstract_node_idx, SymbolKind::Class),
+                    (iface_name_idx, iface_node_idx, SymbolKind::Interface),
+                    (type_name_idx, type_node_idx, SymbolKind::TypeAlias),
+                    (arrow_name_idx, arrow_node_idx, SymbolKind::Function),
+                    (fn_expr_name_idx, fn_expr_node_idx, SymbolKind::Function),
+                    (method_name_idx, method_node_idx, SymbolKind::Function),
+                ];
 
-                    // Skip pattern 8 for arrow/function values (already captured by 6/7)
-                    if pattern == 8 {
-                        let mut has_fn_value = false;
-                        for &(idx, node) in &m.captures {
-                            if Some(idx) == value_idx {
-                                let k = node.kind();
-                                has_fn_value = k == "arrow_function" || k == "function";
-                            }
-                        }
+                for m in &matches {
+                    // Skip the const_name pattern if the value is an arrow/function
+                    // (those are already captured by arrow_name/fn_expr_name patterns)
+                    if m.has_capture(const_name_idx) {
+                        let has_fn_value = m
+                            .get_capture(const_value_idx)
+                            .map(|n| {
+                                let k = n.kind();
+                                k == "arrow_function" || k == "function" || k == "function_expression"
+                            })
+                            .unwrap_or(false);
                         if has_fn_value {
                             continue;
                         }
+                        // Non-function constant
+                        let name_text = m
+                            .get_capture(const_name_idx)
+                            .map(|n| node_text(&n, source).to_string())
+                            .unwrap_or_default();
+                        let (start_line, end_line, node_start) =
+                            node_span(&m, const_node_idx);
+                        if !name_text.is_empty() {
+                            let key = (node_start, hash_str(&name_text));
+                            if !seen_nodes.contains(&key) {
+                                seen_nodes.push(key);
+                                definitions.push(Definition {
+                                    name: name_text,
+                                    kind: SymbolKind::Constant,
+                                    start_line,
+                                    end_line,
+                                });
+                            }
+                        }
+                        continue;
                     }
 
-                    let mut name_text = String::new();
-                    let mut start_line = 0;
-                    let mut end_line = 0;
-                    let mut node_start = 0usize;
-
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == name_idx {
-                            name_text = node_text(&node, source).to_string();
-                        }
-                        if Some(idx) == node_idx {
-                            start_line = node.start_position().row + 1;
-                            end_line = node.end_position().row + 1;
-                            node_start = node.start_byte();
-                        }
-                    }
-
-                    if !name_text.is_empty() {
-                        let key = (node_start, hash_str(&name_text));
-                        if !seen_nodes.contains(&key) {
-                            seen_nodes.push(key);
-                            definitions.push(Definition {
-                                name: name_text,
-                                kind,
-                                start_line,
-                                end_line,
-                            });
-                        }
-                    }
-                }
-                Language::Python => {
-                    let (target_name_idx, target_node_idx, kind) = match pattern {
-                        0 | 2 => (name_idx, node_idx, SymbolKind::Function),
-                        1 | 3 => (name_idx, node_idx, SymbolKind::Class),
-                        4 => (method_name_idx, method_node_idx, SymbolKind::Function),
-                        5 => (
-                            decorated_method_name_idx,
-                            decorated_method_node_idx,
-                            SymbolKind::Function,
-                        ),
-                        _ => continue,
-                    };
-
-                    let mut name_text = String::new();
-                    let mut start_line = 0;
-                    let mut end_line = 0;
-                    let mut node_start = 0usize;
-
-                    for &(idx, node) in &m.captures {
-                        if Some(idx) == target_name_idx {
-                            name_text = node_text(&node, source).to_string();
-                        }
-                        if Some(idx) == target_node_idx {
-                            start_line = node.start_position().row + 1;
-                            end_line = node.end_position().row + 1;
-                            node_start = node.start_byte();
-                        }
-                    }
-
-                    if !name_text.is_empty() {
-                        let key = (node_start, hash_str(&name_text));
-                        if !seen_nodes.contains(&key) {
-                            seen_nodes.push(key);
-                            definitions.push(Definition {
-                                name: name_text,
-                                kind,
-                                start_line,
-                                end_line,
-                            });
+                    // Check each distinct definition capture
+                    for &(name_cap, node_cap, kind) in ts_def_captures {
+                        if m.has_capture(name_cap) {
+                            let name_text = m
+                                .get_capture(name_cap)
+                                .map(|n| node_text(&n, source).to_string())
+                                .unwrap_or_default();
+                            let (start_line, end_line, node_start) =
+                                node_span(&m, node_cap);
+                            if !name_text.is_empty() {
+                                let key = (node_start, hash_str(&name_text));
+                                if !seen_nodes.contains(&key) {
+                                    seen_nodes.push(key);
+                                    definitions.push(Definition {
+                                        name: name_text,
+                                        kind,
+                                        start_line,
+                                        end_line,
+                                    });
+                                }
+                            }
+                            break;
                         }
                     }
                 }
-                _ => {}
             }
+            Language::Python => {
+                // Python: each definition kind has a distinct capture name pair
+                let fn_name_idx = qwc.capture_index("fn_name");
+                let fn_node_idx = qwc.capture_index("fn_node");
+                let class_name_idx = qwc.capture_index("class_name");
+                let class_node_idx = qwc.capture_index("class_node");
+                let decorated_fn_name_idx = qwc.capture_index("decorated_fn_name");
+                let decorated_fn_node_idx = qwc.capture_index("decorated_fn_node");
+                let decorated_class_name_idx = qwc.capture_index("decorated_class_name");
+                let decorated_class_node_idx = qwc.capture_index("decorated_class_node");
+                let method_name_idx = qwc.capture_index("method_name");
+                let method_node_idx = qwc.capture_index("method_node");
+                let decorated_method_name_idx = qwc.capture_index("decorated_method_name");
+                let decorated_method_node_idx = qwc.capture_index("decorated_method_node");
+
+                let py_def_captures: &[(Option<u32>, Option<u32>, SymbolKind)] = &[
+                    (fn_name_idx, fn_node_idx, SymbolKind::Function),
+                    (class_name_idx, class_node_idx, SymbolKind::Class),
+                    (decorated_fn_name_idx, decorated_fn_node_idx, SymbolKind::Function),
+                    (decorated_class_name_idx, decorated_class_node_idx, SymbolKind::Class),
+                    (method_name_idx, method_node_idx, SymbolKind::Function),
+                    (
+                        decorated_method_name_idx,
+                        decorated_method_node_idx,
+                        SymbolKind::Function,
+                    ),
+                ];
+
+                for m in &matches {
+                    for &(name_cap, node_cap, kind) in py_def_captures {
+                        if m.has_capture(name_cap) {
+                            let name_text = m
+                                .get_capture(name_cap)
+                                .map(|n| node_text(&n, source).to_string())
+                                .unwrap_or_default();
+                            let (start_line, end_line, node_start) =
+                                node_span(&m, node_cap);
+                            if !name_text.is_empty() {
+                                let key = (node_start, hash_str(&name_text));
+                                if !seen_nodes.contains(&key) {
+                                    seen_nodes.push(key);
+                                    definitions.push(Definition {
+                                        name: name_text,
+                                        kind,
+                                        start_line,
+                                        end_line,
+                                    });
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
 
         Ok(definitions)
@@ -1301,6 +1235,19 @@ impl ImportBuilder {
 
 fn node_text<'a>(node: &Node, source: &'a [u8]) -> &'a str {
     node.utf8_text(source).unwrap_or("")
+}
+
+/// Extract (start_line, end_line, start_byte) from a node capture.
+fn node_span(m: &CollectedMatch, node_cap: Option<u32>) -> (usize, usize, usize) {
+    m.get_capture(node_cap)
+        .map(|n| {
+            (
+                n.start_position().row + 1,
+                n.end_position().row + 1,
+                n.start_byte(),
+            )
+        })
+        .unwrap_or((0, 0, 0))
 }
 
 fn get_or_insert_import<'a>(

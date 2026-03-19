@@ -1,31 +1,32 @@
 ; Python definition patterns
-; Pattern index determines the SymbolKind.
+; Each pattern uses distinct capture names so the engine can dispatch
+; by capture-name presence instead of fragile pattern_index ordering.
 
-; Pattern 0: Function definition
+; Function definition
 (function_definition
-  name: (identifier) @name) @node
+  name: (identifier) @fn_name) @fn_node
 
-; Pattern 1: Class definition
+; Class definition
 (class_definition
-  name: (identifier) @name) @node
+  name: (identifier) @class_name) @class_node
 
-; Pattern 2: Decorated function
+; Decorated function
 (decorated_definition
   definition: (function_definition
-    name: (identifier) @name)) @node
+    name: (identifier) @decorated_fn_name)) @decorated_fn_node
 
-; Pattern 3: Decorated class
+; Decorated class
 (decorated_definition
   definition: (class_definition
-    name: (identifier) @name)) @node
+    name: (identifier) @decorated_class_name)) @decorated_class_node
 
-; Pattern 4: Class method (function inside class body)
+; Class method (function inside class body)
 (class_definition
   body: (block
     (function_definition
       name: (identifier) @method_name) @method_node))
 
-; Pattern 5: Decorated class method
+; Decorated class method
 (class_definition
   body: (block
     (decorated_definition
