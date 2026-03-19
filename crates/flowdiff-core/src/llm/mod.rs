@@ -236,8 +236,7 @@ pub fn pass1_system_prompt() -> String {
          Your task is to analyze the semantic flow groups identified by static analysis \
          and provide a high-level overview of the changes.\n\n\
          For each group, explain what it does, assess its risk, and suggest a review order.\n\n\
-         {}\n\n\
-         Respond ONLY with valid JSON matching the schema above. No markdown, no explanation outside the JSON.",
+         {}",
         schema::pass1_schema_description()
     )
 }
@@ -248,8 +247,7 @@ pub fn pass2_system_prompt() -> String {
         "You are a senior software engineer performing a deep code review of a specific \
          change group. Analyze how data flows through the changed files, identify risks, \
          and suggest improvements.\n\n\
-         {}\n\n\
-         Respond ONLY with valid JSON matching the schema above. No markdown, no explanation outside the JSON.",
+         {}",
         schema::pass2_schema_description()
     )
 }
@@ -284,8 +282,7 @@ pub fn judge_system_prompt() -> String {
          Evaluate the analysis across 5 criteria, scoring each from 1 (poor) to 5 (excellent).\n\
          Be strict but fair — a score of 3 means the analysis is acceptable but not great.\n\
          A score of 5 means the analysis is essentially perfect for that criterion.\n\n\
-         {}\n\n\
-         Respond ONLY with valid JSON matching the schema above. No markdown, no explanation outside the JSON.",
+         {}",
         schema::judge_schema_description()
     )
 }
@@ -335,8 +332,7 @@ pub fn refinement_system_prompt() -> String {
          4. **Reclassifications**: Move a file from one group to another when static reachability assigned it wrong\n\n\
          Be conservative — only suggest refinements where the static grouping is clearly suboptimal. \
          If the grouping looks reasonable, return empty arrays.\n\n\
-         {}\n\n\
-         Respond ONLY with valid JSON matching the schema above. No markdown, no explanation outside the JSON.",
+         {}",
         schema::refinement_schema_description()
     )
 }

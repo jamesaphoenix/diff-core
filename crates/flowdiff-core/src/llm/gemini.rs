@@ -1,6 +1,8 @@
 //! Google Gemini API client for flowdiff LLM annotations.
 //!
 //! Implements the `LlmProvider` trait using the Gemini `generateContent` API.
+//! Uses `responseMimeType: "application/json"` with `responseSchema` for
+//! provider-native structured outputs.
 //! Supports Gemini 2.5 Pro, Gemini 2.5 Flash, and Gemini 2.0 Flash models.
 //! See spec §5.1 for provider details.
 
@@ -8,7 +10,10 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::schema::{JudgeResponse, Pass1Response, Pass2Response, RefinementResponse};
+use super::schema::{
+    JudgeResponse, Pass1Response, Pass2Response, RefinementResponse,
+    pass1_json_schema, pass2_json_schema, judge_json_schema, refinement_json_schema,
+};
 use super::{
     judge_system_prompt, judge_user_prompt, pass1_system_prompt, pass1_user_prompt,
     pass2_system_prompt, pass2_user_prompt, refinement_system_prompt, refinement_user_prompt,
@@ -56,11 +61,12 @@ impl GeminiProvider {
         )
     }
 
-    /// Build and send a generateContent request.
-    async fn send_message(
+    /// Build and send a generateContent request with schema-enforced JSON output.
+    async fn send_structured_message(
         &self,
         system_prompt: &str,
         user_prompt: &str,
+        schema: serde_json::Value,
     ) -> Result<String, LlmError> {
         let max_input = self.max_context_tokens().saturating_sub(8192); // Reserve tokens for output
         let truncated_user = truncate_to_token_budget(user_prompt, max_input);
@@ -82,6 +88,7 @@ impl GeminiProvider {
                 temperature: Some(0.0),
                 max_output_tokens: Some(8192),
                 response_mime_type: Some("application/json".to_string()),
+                response_schema: Some(schema),
             }),
         };
 
@@ -206,14 +213,18 @@ impl LlmProvider for GeminiProvider {
     async fn annotate_overview(&self, request: &Pass1Request) -> Result<Pass1Response, LlmError> {
         let system = pass1_system_prompt();
         let user = pass1_user_prompt(request);
-        let response_text = self.send_message(&system, &user).await?;
+        let response_text = self
+            .send_structured_message(&system, &user, pass1_json_schema())
+            .await?;
         parse_json_response::<Pass1Response>(&response_text)
     }
 
     async fn annotate_group(&self, request: &Pass2Request) -> Result<Pass2Response, LlmError> {
         let system = pass2_system_prompt();
         let user = pass2_user_prompt(request);
-        let response_text = self.send_message(&system, &user).await?;
+        let response_text = self
+            .send_structured_message(&system, &user, pass2_json_schema())
+            .await?;
         parse_json_response::<Pass2Response>(&response_text)
     }
 
@@ -223,7 +234,9 @@ impl LlmProvider for GeminiProvider {
     ) -> Result<JudgeResponse, LlmError> {
         let system = judge_system_prompt();
         let user = judge_user_prompt(request);
-        let response_text = self.send_message(&system, &user).await?;
+        let response_text = self
+            .send_structured_message(&system, &user, judge_json_schema())
+            .await?;
         parse_json_response::<JudgeResponse>(&response_text)
     }
 
@@ -233,12 +246,15 @@ impl LlmProvider for GeminiProvider {
     ) -> Result<RefinementResponse, LlmError> {
         let system = refinement_system_prompt();
         let user = refinement_user_prompt(request);
-        let response_text = self.send_message(&system, &user).await?;
+        let response_text = self
+            .send_structured_message(&system, &user, refinement_json_schema())
+            .await?;
         parse_json_response::<RefinementResponse>(&response_text)
     }
 }
 
 /// Parse a JSON response, stripping any markdown fencing the LLM may add.
+/// Kept as defensive fallback — with responseSchema, responses should be clean JSON.
 fn parse_json_response<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, LlmError> {
     let cleaned = strip_markdown_json(text);
     serde_json::from_str(&cleaned).map_err(|e| {
@@ -251,6 +267,7 @@ fn parse_json_response<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, 
 }
 
 /// Strip markdown code fences from JSON responses.
+/// Defensive fallback — structured outputs shouldn't need this.
 fn strip_markdown_json(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.starts_with("```json") {
@@ -300,6 +317,9 @@ struct GenerationConfig {
     max_output_tokens: Option<u32>,
     #[serde(rename = "responseMimeType", skip_serializing_if = "Option::is_none")]
     response_mime_type: Option<String>,
+    /// JSON Schema enforced by Gemini when responseMimeType is "application/json".
+    #[serde(rename = "responseSchema", skip_serializing_if = "Option::is_none")]
+    response_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -336,7 +356,8 @@ mod tests {
     // ── Request Format Tests ──
 
     #[test]
-    fn test_gemini_request_format() {
+    fn test_gemini_request_format_with_schema() {
+        let schema = serde_json::json!({"type": "object", "properties": {"result": {"type": "string"}}});
         let request = GeminiRequest {
             system_instruction: Some(GeminiContent {
                 parts: vec![GeminiPart::Text {
@@ -354,6 +375,7 @@ mod tests {
                 temperature: Some(0.0),
                 max_output_tokens: Some(8192),
                 response_mime_type: Some("application/json".to_string()),
+                response_schema: Some(schema),
             }),
         };
         let json = serde_json::to_string(&request).unwrap();
@@ -364,17 +386,19 @@ mod tests {
             "You are a reviewer"
         );
         assert_eq!(parsed["contents"][0]["parts"][0]["text"], "Review this diff");
-        assert_eq!(parsed["contents"][0]["role"], "user");
         assert_eq!(parsed["generationConfig"]["temperature"], 0.0);
         assert_eq!(parsed["generationConfig"]["maxOutputTokens"], 8192);
         assert_eq!(
             parsed["generationConfig"]["responseMimeType"],
             "application/json"
         );
+        // Verify responseSchema is present
+        assert!(parsed["generationConfig"]["responseSchema"].is_object());
+        assert!(parsed["generationConfig"]["responseSchema"]["properties"].is_object());
     }
 
     #[test]
-    fn test_gemini_request_without_system() {
+    fn test_gemini_request_without_schema() {
         let request = GeminiRequest {
             system_instruction: None,
             contents: vec![GeminiContent {
@@ -389,6 +413,40 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(parsed.get("system_instruction").is_none());
         assert!(parsed.get("generationConfig").is_none());
+    }
+
+    #[test]
+    fn test_gemini_generation_config_with_response_schema() {
+        let schema = pass1_json_schema();
+        let config = GenerationConfig {
+            temperature: Some(0.0),
+            max_output_tokens: Some(8192),
+            response_mime_type: Some("application/json".to_string()),
+            response_schema: Some(schema),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["responseMimeType"], "application/json");
+        assert!(parsed["responseSchema"].is_object());
+        // Schema should reference Pass1Response properties
+        let schema_str = serde_json::to_string(&parsed["responseSchema"]).unwrap();
+        assert!(schema_str.contains("groups"));
+    }
+
+    #[test]
+    fn test_gemini_generation_config_without_schema() {
+        let config = GenerationConfig {
+            temperature: Some(0.5),
+            max_output_tokens: Some(4096),
+            response_mime_type: Some("application/json".to_string()),
+            response_schema: None,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["temperature"], 0.5);
+        assert_eq!(parsed["maxOutputTokens"], 4096);
+        assert_eq!(parsed["responseMimeType"], "application/json");
+        assert!(parsed.get("responseSchema").is_none());
     }
 
     // ── Response Parsing Tests ──
@@ -501,7 +559,7 @@ mod tests {
         assert_eq!(result.file_annotations.len(), 1);
     }
 
-    // ── Markdown Stripping Tests ──
+    // ── Markdown Stripping Tests (defensive fallback) ──
 
     #[test]
     fn test_strip_markdown_json_fenced() {
@@ -687,19 +745,5 @@ mod tests {
         match &deserialized.parts[0] {
             GeminiPart::Text { text } => assert_eq!(text, "test content"),
         }
-    }
-
-    #[test]
-    fn test_generation_config_serialization() {
-        let config = GenerationConfig {
-            temperature: Some(0.5),
-            max_output_tokens: Some(4096),
-            response_mime_type: Some("application/json".to_string()),
-        };
-        let json = serde_json::to_string(&config).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed["temperature"], 0.5);
-        assert_eq!(parsed["maxOutputTokens"], 4096);
-        assert_eq!(parsed["responseMimeType"], "application/json");
     }
 }

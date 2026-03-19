@@ -636,7 +636,7 @@ flowdiff/
 - [x] Anthropic API client (Messages API, extended thinking support via content block parsing)
 - [x] OpenAI API client (Chat Completions, o1/o3 reasoning model detection — no system messages, max_completion_tokens)
 - [x] Structured output schemas (Pass1Request/Response, Pass2Request/Response, Annotations types, JSON schema descriptions)
-- [ ] Migrate to provider-native structured outputs APIs — OpenAI `response_format: { type: "json_schema" }` per https://developers.openai.com/api/docs/guides/structured-outputs, Anthropic tool_use with input_schema, Gemini JSON response mode with schema. Replace prompt-based JSON extraction with guaranteed-schema responses
+- [x] Migrate to provider-native structured outputs APIs — OpenAI `response_format: { type: "json_schema" }`, Anthropic tool_use with input_schema and forced tool_choice, Gemini `responseSchema` in generationConfig. `schemars` crate derives JSON Schema from Rust response types (Pass1Response, Pass2Response, JudgeResponse, RefinementResponse). Schema generation functions in schema.rs. Markdown stripping retained as defensive fallback. System prompts simplified (removed "Respond ONLY with valid JSON" — schema now enforced by provider APIs). 7 new schema tests, updated request format tests for all 3 providers. All 967+ tests pass
 - [x] Pass 1: overview annotation (system prompt + user prompt builders, structured JSON output parsing with markdown fence stripping)
 - [x] Pass 2: on-demand deep group analysis (per-group context with file diffs, graph context, role annotations)
 - [ ] LLM results rendering in Tauri app

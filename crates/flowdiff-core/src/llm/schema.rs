@@ -3,6 +3,7 @@
 //! These types define the JSON schemas sent to LLM providers (via structured outputs)
 //! and the response types we deserialize back. See spec §5.2 for details.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 // ── Pass 1: Overview ──
@@ -30,7 +31,7 @@ pub struct Pass1GroupInput {
 }
 
 /// Pass 1 structured output: overview annotation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct Pass1Response {
     /// Per-group annotations.
     pub groups: Vec<Pass1GroupAnnotation>,
@@ -41,7 +42,7 @@ pub struct Pass1Response {
 }
 
 /// Per-group annotation from Pass 1.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct Pass1GroupAnnotation {
     pub id: String,
     /// Human-readable name (may differ from deterministic name).
@@ -81,7 +82,7 @@ pub struct Pass2FileInput {
 }
 
 /// Pass 2 structured output: deep analysis of one group.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct Pass2Response {
     pub group_id: String,
     /// Narrative of how data flows through this group's changes.
@@ -93,7 +94,7 @@ pub struct Pass2Response {
 }
 
 /// Per-file annotation from Pass 2.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct Pass2FileAnnotation {
     pub file: String,
     /// The file's role in the data flow.
@@ -140,7 +141,7 @@ pub struct JudgeSourceFile {
 }
 
 /// LLM-as-judge structured response with per-criterion scores.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct JudgeResponse {
     /// Per-criterion scores (1-5 scale).
     pub criteria: Vec<JudgeCriterionScore>,
@@ -153,7 +154,7 @@ pub struct JudgeResponse {
 }
 
 /// A single criterion score from the LLM judge.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct JudgeCriterionScore {
     /// Criterion name (e.g., "group_coherence", "review_ordering").
     pub criterion: String,
@@ -192,7 +193,7 @@ pub struct RefinementGroupInput {
 }
 
 /// LLM refinement response with structural operations.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct RefinementResponse {
     /// Groups to split (one group → two or more).
     pub splits: Vec<RefinementSplit>,
@@ -207,7 +208,7 @@ pub struct RefinementResponse {
 }
 
 /// Split operation: break one group into multiple.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct RefinementSplit {
     /// ID of the group to split.
     pub source_group_id: String,
@@ -218,7 +219,7 @@ pub struct RefinementSplit {
 }
 
 /// A new group created by a split operation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct RefinementNewGroup {
     /// Suggested name for the new group.
     pub name: String,
@@ -227,7 +228,7 @@ pub struct RefinementNewGroup {
 }
 
 /// Merge operation: combine multiple groups into one.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct RefinementMerge {
     /// IDs of the groups to merge.
     pub group_ids: Vec<String>,
@@ -238,7 +239,7 @@ pub struct RefinementMerge {
 }
 
 /// Re-rank operation: change a group's review order.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct RefinementReRank {
     /// ID of the group to re-rank.
     pub group_id: String,
@@ -249,7 +250,7 @@ pub struct RefinementReRank {
 }
 
 /// Reclassify operation: move a file between groups or change its role.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct RefinementReclassify {
     /// File path to reclassify.
     pub file: String,
@@ -374,6 +375,29 @@ pub fn pass2_schema_description() -> &'static str {
   ],
   "cross_cutting_concerns": ["string (concerns spanning multiple files)"]
 }"#
+}
+
+// ── JSON Schema Generation ── (for provider-native structured outputs)
+
+/// Generate the JSON Schema for Pass1Response as a serde_json::Value.
+/// Used by OpenAI `response_format`, Anthropic `tool_use`, and Gemini `responseSchema`.
+pub fn pass1_json_schema() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(Pass1Response)).unwrap_or_default()
+}
+
+/// Generate the JSON Schema for Pass2Response.
+pub fn pass2_json_schema() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(Pass2Response)).unwrap_or_default()
+}
+
+/// Generate the JSON Schema for JudgeResponse.
+pub fn judge_json_schema() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(JudgeResponse)).unwrap_or_default()
+}
+
+/// Generate the JSON Schema for RefinementResponse.
+pub fn refinement_json_schema() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(RefinementResponse)).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -907,5 +931,73 @@ mod tests {
         };
         assert_eq!(response.criteria.len(), 5);
         assert!((response.overall_score - 4.0).abs() < f64::EPSILON);
+    }
+
+    // ── JSON Schema Generation Tests ──
+
+    #[test]
+    fn test_pass1_json_schema_valid() {
+        let schema = pass1_json_schema();
+        assert!(schema.is_object());
+        let schema_str = serde_json::to_string(&schema).unwrap();
+        assert!(schema_str.contains("groups"));
+        assert!(schema_str.contains("overall_summary"));
+        assert!(schema_str.contains("suggested_review_order"));
+    }
+
+    #[test]
+    fn test_pass2_json_schema_valid() {
+        let schema = pass2_json_schema();
+        assert!(schema.is_object());
+        let schema_str = serde_json::to_string(&schema).unwrap();
+        assert!(schema_str.contains("group_id"));
+        assert!(schema_str.contains("flow_narrative"));
+        assert!(schema_str.contains("file_annotations"));
+        assert!(schema_str.contains("cross_cutting_concerns"));
+    }
+
+    #[test]
+    fn test_judge_json_schema_valid() {
+        let schema = judge_json_schema();
+        assert!(schema.is_object());
+        let schema_str = serde_json::to_string(&schema).unwrap();
+        assert!(schema_str.contains("criteria"));
+        assert!(schema_str.contains("overall_score"));
+        assert!(schema_str.contains("failure_explanations"));
+        assert!(schema_str.contains("strengths"));
+    }
+
+    #[test]
+    fn test_refinement_json_schema_valid() {
+        let schema = refinement_json_schema();
+        assert!(schema.is_object());
+        let schema_str = serde_json::to_string(&schema).unwrap();
+        assert!(schema_str.contains("splits"));
+        assert!(schema_str.contains("merges"));
+        assert!(schema_str.contains("re_ranks"));
+        assert!(schema_str.contains("reclassifications"));
+        assert!(schema_str.contains("reasoning"));
+    }
+
+    #[test]
+    fn test_json_schemas_are_deterministic() {
+        assert_eq!(pass1_json_schema(), pass1_json_schema());
+        assert_eq!(pass2_json_schema(), pass2_json_schema());
+        assert_eq!(judge_json_schema(), judge_json_schema());
+        assert_eq!(refinement_json_schema(), refinement_json_schema());
+    }
+
+    #[test]
+    fn test_json_schemas_are_distinct() {
+        let p1 = pass1_json_schema();
+        let p2 = pass2_json_schema();
+        let j = judge_json_schema();
+        let r = refinement_json_schema();
+        assert_ne!(p1, p2);
+        assert_ne!(p1, j);
+        assert_ne!(p1, r);
+        assert_ne!(p2, j);
+        assert_ne!(p2, r);
+        assert_ne!(j, r);
     }
 }

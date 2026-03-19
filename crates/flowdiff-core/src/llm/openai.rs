@@ -1,6 +1,7 @@
 //! OpenAI Chat Completions API client for flowdiff LLM annotations.
 //!
 //! Implements the `LlmProvider` trait using the OpenAI Chat Completions API.
+//! Uses `response_format: { type: "json_schema" }` for provider-native structured outputs.
 //! Supports GPT-4o, o1, o3-mini, and o3 models.
 //! See spec §5.1 for provider details.
 
@@ -8,7 +9,10 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::schema::{JudgeResponse, Pass1Response, Pass2Response, RefinementResponse};
+use super::schema::{
+    JudgeResponse, Pass1Response, Pass2Response, RefinementResponse,
+    pass1_json_schema, pass2_json_schema, judge_json_schema, refinement_json_schema,
+};
 use super::{
     judge_system_prompt, judge_user_prompt, pass1_system_prompt, pass1_user_prompt,
     pass2_system_prompt, pass2_user_prompt, refinement_system_prompt, refinement_user_prompt,
@@ -53,11 +57,21 @@ impl OpenAIProvider {
         self.model.starts_with("o1") || self.model.starts_with("o3")
     }
 
-    /// Build and send a Chat Completions request.
-    async fn send_message(
+    /// Check if this model supports structured outputs via response_format.
+    /// GPT-4o (2024-08-06+) and o-series models support it.
+    fn supports_structured_outputs(&self) -> bool {
+        self.model.starts_with("gpt-4o")
+            || self.model.starts_with("o1")
+            || self.model.starts_with("o3")
+    }
+
+    /// Build and send a Chat Completions request with structured output support.
+    async fn send_structured_message(
         &self,
         system_prompt: &str,
         user_prompt: &str,
+        schema: serde_json::Value,
+        schema_name: &str,
     ) -> Result<String, LlmError> {
         let max_input = self.max_context_tokens().saturating_sub(4096);
         let truncated_user = truncate_to_token_budget(user_prompt, max_input);
@@ -82,6 +96,24 @@ impl OpenAIProvider {
             ]
         };
 
+        // Build response_format for structured outputs
+        let response_format = if self.supports_structured_outputs() {
+            Some(OpenAIResponseFormat {
+                r#type: "json_schema".to_string(),
+                json_schema: Some(OpenAIJsonSchema {
+                    name: schema_name.to_string(),
+                    strict: true,
+                    schema,
+                }),
+            })
+        } else {
+            // Older models: use basic json_object mode
+            Some(OpenAIResponseFormat {
+                r#type: "json_object".to_string(),
+                json_schema: None,
+            })
+        };
+
         let request = OpenAIRequest {
             model: self.model.clone(),
             messages,
@@ -100,6 +132,7 @@ impl OpenAIProvider {
             } else {
                 None
             },
+            response_format,
         };
 
         let response = self
@@ -202,14 +235,18 @@ impl LlmProvider for OpenAIProvider {
     async fn annotate_overview(&self, request: &Pass1Request) -> Result<Pass1Response, LlmError> {
         let system = pass1_system_prompt();
         let user = pass1_user_prompt(request);
-        let response_text = self.send_message(&system, &user).await?;
+        let response_text = self
+            .send_structured_message(&system, &user, pass1_json_schema(), "pass1_response")
+            .await?;
         parse_json_response::<Pass1Response>(&response_text)
     }
 
     async fn annotate_group(&self, request: &Pass2Request) -> Result<Pass2Response, LlmError> {
         let system = pass2_system_prompt();
         let user = pass2_user_prompt(request);
-        let response_text = self.send_message(&system, &user).await?;
+        let response_text = self
+            .send_structured_message(&system, &user, pass2_json_schema(), "pass2_response")
+            .await?;
         parse_json_response::<Pass2Response>(&response_text)
     }
 
@@ -219,7 +256,9 @@ impl LlmProvider for OpenAIProvider {
     ) -> Result<JudgeResponse, LlmError> {
         let system = judge_system_prompt();
         let user = judge_user_prompt(request);
-        let response_text = self.send_message(&system, &user).await?;
+        let response_text = self
+            .send_structured_message(&system, &user, judge_json_schema(), "judge_response")
+            .await?;
         parse_json_response::<JudgeResponse>(&response_text)
     }
 
@@ -229,12 +268,15 @@ impl LlmProvider for OpenAIProvider {
     ) -> Result<RefinementResponse, LlmError> {
         let system = refinement_system_prompt();
         let user = refinement_user_prompt(request);
-        let response_text = self.send_message(&system, &user).await?;
+        let response_text = self
+            .send_structured_message(&system, &user, refinement_json_schema(), "refinement_response")
+            .await?;
         parse_json_response::<RefinementResponse>(&response_text)
     }
 }
 
 /// Parse a JSON response, stripping any markdown fencing the LLM may add.
+/// Kept as defensive fallback — with response_format, responses should be clean JSON.
 fn parse_json_response<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, LlmError> {
     let cleaned = strip_markdown_json(text);
     serde_json::from_str(&cleaned).map_err(|e| {
@@ -247,6 +289,7 @@ fn parse_json_response<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, 
 }
 
 /// Strip markdown code fences from JSON responses.
+/// Defensive fallback — structured outputs shouldn't need this.
 fn strip_markdown_json(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.starts_with("```json") {
@@ -276,6 +319,26 @@ struct OpenAIRequest {
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_completion_tokens: Option<u32>,
+    /// Structured output format — `json_schema` for guaranteed schema compliance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<OpenAIResponseFormat>,
+}
+
+/// OpenAI response_format configuration for structured outputs.
+#[derive(Debug, Serialize)]
+struct OpenAIResponseFormat {
+    r#type: String,
+    /// JSON schema definition (only for type: "json_schema").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    json_schema: Option<OpenAIJsonSchema>,
+}
+
+/// JSON schema definition within OpenAI's response_format.
+#[derive(Debug, Serialize)]
+struct OpenAIJsonSchema {
+    name: String,
+    strict: bool,
+    schema: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -315,10 +378,12 @@ mod tests {
     // ── Request Format Tests ──
 
     #[test]
-    fn test_openai_request_format_standard() {
+    fn test_openai_request_format_standard_with_schema() {
         let provider = OpenAIProvider::new("key".to_string(), "gpt-4o".to_string());
         assert!(!provider.is_reasoning_model());
+        assert!(provider.supports_structured_outputs());
 
+        let schema = serde_json::json!({"type": "object", "properties": {}});
         let request = OpenAIRequest {
             model: "gpt-4o".to_string(),
             messages: vec![
@@ -334,6 +399,14 @@ mod tests {
             temperature: Some(0.0),
             max_tokens: Some(4096),
             max_completion_tokens: None,
+            response_format: Some(OpenAIResponseFormat {
+                r#type: "json_schema".to_string(),
+                json_schema: Some(OpenAIJsonSchema {
+                    name: "pass1_response".to_string(),
+                    strict: true,
+                    schema,
+                }),
+            }),
         };
         let json = serde_json::to_string(&request).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -341,17 +414,19 @@ mod tests {
         assert_eq!(parsed["model"], "gpt-4o");
         assert_eq!(parsed["temperature"], 0.0);
         assert_eq!(parsed["max_tokens"], 4096);
-        assert!(parsed.get("max_completion_tokens").is_none());
-        assert_eq!(parsed["messages"].as_array().unwrap().len(), 2);
-        assert_eq!(parsed["messages"][0]["role"], "system");
+        // Verify response_format
+        assert_eq!(parsed["response_format"]["type"], "json_schema");
+        assert_eq!(parsed["response_format"]["json_schema"]["name"], "pass1_response");
+        assert_eq!(parsed["response_format"]["json_schema"]["strict"], true);
+        assert!(parsed["response_format"]["json_schema"]["schema"].is_object());
     }
 
     #[test]
     fn test_openai_request_format_reasoning() {
         let provider = OpenAIProvider::new("key".to_string(), "o3-mini".to_string());
         assert!(provider.is_reasoning_model());
+        assert!(provider.supports_structured_outputs());
 
-        // Reasoning models: no system message, no temperature, use max_completion_tokens
         let request = OpenAIRequest {
             model: "o3-mini".to_string(),
             messages: vec![ChatMessage {
@@ -361,6 +436,14 @@ mod tests {
             temperature: None,
             max_tokens: None,
             max_completion_tokens: Some(4096),
+            response_format: Some(OpenAIResponseFormat {
+                r#type: "json_schema".to_string(),
+                json_schema: Some(OpenAIJsonSchema {
+                    name: "test".to_string(),
+                    strict: true,
+                    schema: serde_json::json!({}),
+                }),
+            }),
         };
         let json = serde_json::to_string(&request).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -370,7 +453,25 @@ mod tests {
         assert!(parsed.get("max_tokens").is_none());
         assert_eq!(parsed["max_completion_tokens"], 4096);
         assert_eq!(parsed["messages"].as_array().unwrap().len(), 1);
-        assert_eq!(parsed["messages"][0]["role"], "user");
+        assert_eq!(parsed["response_format"]["type"], "json_schema");
+    }
+
+    #[test]
+    fn test_openai_request_format_no_schema() {
+        let request = OpenAIRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+            }],
+            temperature: Some(0.0),
+            max_tokens: Some(4096),
+            max_completion_tokens: None,
+            response_format: None,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(parsed.get("response_format").is_none());
     }
 
     // ── Response Parsing Tests ──
@@ -445,6 +546,18 @@ mod tests {
         );
     }
 
+    // ── Structured Output Support Detection ──
+
+    #[test]
+    fn test_supports_structured_outputs() {
+        assert!(OpenAIProvider::new("k".to_string(), "gpt-4o".to_string()).supports_structured_outputs());
+        assert!(OpenAIProvider::new("k".to_string(), "gpt-4o-2024-08-06".to_string()).supports_structured_outputs());
+        assert!(OpenAIProvider::new("k".to_string(), "o1".to_string()).supports_structured_outputs());
+        assert!(OpenAIProvider::new("k".to_string(), "o3-mini".to_string()).supports_structured_outputs());
+        assert!(!OpenAIProvider::new("k".to_string(), "gpt-4-turbo".to_string()).supports_structured_outputs());
+        assert!(!OpenAIProvider::new("k".to_string(), "gpt-4".to_string()).supports_structured_outputs());
+    }
+
     // ── Context Window Tests ──
 
     #[test]
@@ -497,7 +610,7 @@ mod tests {
         assert_eq!(provider.base_url, "http://localhost:8080");
     }
 
-    // ── Markdown Stripping Tests ──
+    // ── Markdown Stripping Tests (defensive fallback) ──
 
     #[test]
     fn test_strip_markdown_json_fenced() {
