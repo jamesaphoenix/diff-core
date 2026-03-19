@@ -206,4 +206,325 @@ export function handle(req: any) {
         let data_flow_edges = crate::flow::trace_data_flow_ir(&ir_files);
         let _ = data_flow_edges;
     }
+
+    // ── Empty / edge-case inputs ─────────────────────────────────────
+
+    #[test]
+    fn parse_to_ir_empty_source() {
+        let engine = QueryEngine::new().unwrap();
+        let ir = parse_to_ir(&engine, "src/empty.ts", "").unwrap();
+        assert_eq!(ir.path, "src/empty.ts");
+        assert!(ir.functions.is_empty());
+        assert!(ir.imports.is_empty());
+        assert!(ir.exports.is_empty());
+        assert!(ir.call_expressions.is_empty());
+    }
+
+    #[test]
+    fn parse_to_ir_whitespace_only_source() {
+        let engine = QueryEngine::new().unwrap();
+        let ir = parse_to_ir(&engine, "src/blank.ts", "   \n\n  \t  \n").unwrap();
+        assert_eq!(ir.path, "src/blank.ts");
+        assert!(ir.functions.is_empty());
+    }
+
+    #[test]
+    fn parse_to_ir_comments_only() {
+        let engine = QueryEngine::new().unwrap();
+        let ir = parse_to_ir(&engine, "src/comments.ts", "// just a comment\n/* block */\n").unwrap();
+        assert_eq!(ir.path, "src/comments.ts");
+        assert!(ir.functions.is_empty());
+    }
+
+    #[test]
+    fn parse_all_to_ir_empty_list() {
+        let engine = QueryEngine::new().unwrap();
+        let (ir_files, errors) = parse_all_to_ir(&engine, &[]);
+        assert!(ir_files.is_empty());
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn parse_all_to_ir_single_file() {
+        let engine = QueryEngine::new().unwrap();
+        let files = vec![("src/one.ts", "function one() {}")];
+        let (ir_files, errors) = parse_all_to_ir(&engine, &files);
+        assert_eq!(ir_files.len(), 1);
+        assert!(errors.is_empty());
+        assert_eq!(ir_files[0].path, "src/one.ts");
+    }
+
+    #[test]
+    fn parse_all_to_ir_preserves_order() {
+        let engine = QueryEngine::new().unwrap();
+        let files = vec![
+            ("c.ts", "function c() {}"),
+            ("a.ts", "function a() {}"),
+            ("b.ts", "function b() {}"),
+        ];
+        let (ir_files, errors) = parse_all_to_ir(&engine, &files);
+        assert!(errors.is_empty());
+        assert_eq!(ir_files[0].path, "c.ts");
+        assert_eq!(ir_files[1].path, "a.ts");
+        assert_eq!(ir_files[2].path, "b.ts");
+    }
+
+    #[test]
+    fn parse_all_to_ir_mixed_languages() {
+        let engine = QueryEngine::new().unwrap();
+        let files = vec![
+            ("handler.ts", "export function handler() {}"),
+            ("views.py", "def handler(): pass"),
+            ("data.json", r#"{"key": "value"}"#),
+        ];
+        let (ir_files, errors) = parse_all_to_ir(&engine, &files);
+        assert!(errors.is_empty());
+        assert_eq!(ir_files.len(), 3);
+        // TS and Python should have functions, JSON should not
+        assert!(!ir_files[0].functions.is_empty());
+        assert!(!ir_files[1].functions.is_empty());
+        assert!(ir_files[2].functions.is_empty());
+    }
+
+    // ── Syntax error tolerance ───────────────────────────────────────
+
+    #[test]
+    fn parse_to_ir_tolerates_ts_syntax_errors() {
+        let engine = QueryEngine::new().unwrap();
+        let source = "function broken( { return; }\nfunction ok() { return 1; }";
+        // Should not error — tree-sitter is error-tolerant
+        let ir = parse_to_ir(&engine, "src/broken.ts", source).unwrap();
+        assert_eq!(ir.path, "src/broken.ts");
+    }
+
+    #[test]
+    fn parse_to_ir_tolerates_python_syntax_errors() {
+        let engine = QueryEngine::new().unwrap();
+        let source = "def broken(\n    pass\ndef ok():\n    return 1";
+        let ir = parse_to_ir(&engine, "broken.py", source).unwrap();
+        assert_eq!(ir.path, "broken.py");
+    }
+
+    // ── Path handling ────────────────────────────────────────────────
+
+    #[test]
+    fn parse_to_ir_deeply_nested_path() {
+        let engine = QueryEngine::new().unwrap();
+        let ir = parse_to_ir(
+            &engine,
+            "packages/core/src/modules/auth/handlers/login.ts",
+            "export function login() {}",
+        )
+        .unwrap();
+        assert_eq!(
+            ir.path,
+            "packages/core/src/modules/auth/handlers/login.ts"
+        );
+    }
+
+    #[test]
+    fn parse_to_ir_nextjs_dynamic_route_path() {
+        let engine = QueryEngine::new().unwrap();
+        let ir = parse_to_ir(
+            &engine,
+            "src/app/[slug]/page.tsx",
+            "export default function Page() { return null; }",
+        )
+        .unwrap();
+        assert_eq!(ir.path, "src/app/[slug]/page.tsx");
+    }
+
+    #[test]
+    fn parse_to_ir_dotfile_path() {
+        let engine = QueryEngine::new().unwrap();
+        let ir = parse_to_ir(&engine, ".eslintrc.js", "module.exports = {};").unwrap();
+        assert_eq!(ir.path, ".eslintrc.js");
+    }
+
+    // ── Data flow enrichment ─────────────────────────────────────────
+
+    #[test]
+    fn parse_to_ir_enriches_ts_variable_assignments() {
+        let engine = QueryEngine::new().unwrap();
+        let source = r#"
+function processOrder() {
+    const user = getUser();
+    const order = createOrder(user);
+    const receipt = sendReceipt(order);
+    return receipt;
+}
+"#;
+        let ir = parse_to_ir(&engine, "src/order.ts", source).unwrap();
+        assert!(!ir.functions.is_empty());
+        // Data flow enrichment should populate assignments
+        assert!(
+            !ir.assignments.is_empty(),
+            "should have enriched assignments from data flow"
+        );
+    }
+
+    #[test]
+    fn parse_to_ir_enriches_python_assignments() {
+        let engine = QueryEngine::new().unwrap();
+        let source = r#"
+def process():
+    data = fetch_data()
+    result = transform(data)
+    return result
+"#;
+        let ir = parse_to_ir(&engine, "src/process.py", source).unwrap();
+        assert!(!ir.functions.is_empty());
+        assert!(
+            !ir.assignments.is_empty(),
+            "should have enriched Python assignments"
+        );
+    }
+
+    // ── PipelineError display ────────────────────────────────────────
+
+    #[test]
+    fn pipeline_error_parse_display() {
+        let err = PipelineError::Parse("file.ts: unexpected token".into());
+        let msg = format!("{}", err);
+        assert!(msg.contains("parse error"));
+        assert!(msg.contains("file.ts"));
+        assert!(msg.contains("unexpected token"));
+    }
+
+    #[test]
+    fn pipeline_error_query_engine_display() {
+        let err = PipelineError::QueryEngine("failed to compile query".into());
+        let msg = format!("{}", err);
+        assert!(msg.contains("query engine error"));
+        assert!(msg.contains("failed to compile query"));
+    }
+
+    #[test]
+    fn pipeline_error_is_debug() {
+        let err = PipelineError::Parse("test".into());
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("Parse"));
+    }
+
+    // ── Determinism ──────────────────────────────────────────────────
+
+    #[test]
+    fn parse_to_ir_deterministic() {
+        let engine = QueryEngine::new().unwrap();
+        let source = r#"
+import { a } from './a';
+import { b } from './b';
+export function handler() {
+    a();
+    b();
+}
+"#;
+        let ir1 = parse_to_ir(&engine, "src/h.ts", source).unwrap();
+        let ir2 = parse_to_ir(&engine, "src/h.ts", source).unwrap();
+        assert_eq!(ir1.path, ir2.path);
+        assert_eq!(ir1.functions.len(), ir2.functions.len());
+        assert_eq!(ir1.imports.len(), ir2.imports.len());
+        assert_eq!(ir1.exports.len(), ir2.exports.len());
+        assert_eq!(ir1.call_expressions.len(), ir2.call_expressions.len());
+    }
+
+    #[test]
+    fn parse_all_to_ir_deterministic() {
+        let engine = QueryEngine::new().unwrap();
+        let files = vec![
+            ("a.ts", "export function a() {}"),
+            ("b.ts", "import { a } from './a'; export function b() { a(); }"),
+            ("c.py", "def c(): pass"),
+        ];
+        let (ir1, err1) = parse_all_to_ir(&engine, &files);
+        let (ir2, err2) = parse_all_to_ir(&engine, &files);
+        assert_eq!(ir1.len(), ir2.len());
+        assert_eq!(err1.len(), err2.len());
+        for (a, b) in ir1.iter().zip(ir2.iter()) {
+            assert_eq!(a.path, b.path);
+            assert_eq!(a.functions.len(), b.functions.len());
+        }
+    }
+
+    // ── Property-based tests ─────────────────────────────────────────
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn arb_ts_function_name() -> impl Strategy<Value = String> {
+            "[a-z][a-zA-Z0-9]{0,15}".prop_map(|s| s.to_string())
+        }
+
+        fn arb_ts_file() -> impl Strategy<Value = (String, String)> {
+            (
+                arb_ts_function_name(),
+                proptest::collection::vec(arb_ts_function_name(), 0..5),
+            )
+                .prop_map(|(main_fn, extra_fns)| {
+                    let mut source = format!("function {}() {{}}\n", main_fn);
+                    for f in &extra_fns {
+                        source.push_str(&format!("function {}() {{}}\n", f));
+                    }
+                    let path = format!("src/{}.ts", main_fn);
+                    (path, source)
+                })
+        }
+
+        proptest! {
+            #[test]
+            fn prop_parse_to_ir_never_panics(source in ".*") {
+                let engine = QueryEngine::new().unwrap();
+                // Should never panic, even on garbage input
+                let _ = parse_to_ir(&engine, "test.ts", &source);
+            }
+
+            #[test]
+            fn prop_parse_to_ir_path_preserved(
+                path in "[a-z/]{1,30}\\.(ts|py|js|tsx|jsx)"
+            ) {
+                let engine = QueryEngine::new().unwrap();
+                let ir = parse_to_ir(&engine, &path, "function f() {}").unwrap();
+                prop_assert_eq!(&ir.path, &path);
+            }
+
+            #[test]
+            fn prop_parse_all_to_ir_file_count(
+                files in proptest::collection::vec(arb_ts_file(), 0..10)
+            ) {
+                let engine = QueryEngine::new().unwrap();
+                let file_refs: Vec<(&str, &str)> = files
+                    .iter()
+                    .map(|(p, s)| (p.as_str(), s.as_str()))
+                    .collect();
+                let (ir_files, errors) = parse_all_to_ir(&engine, &file_refs);
+                // Total IR files + errors should equal input count
+                prop_assert_eq!(ir_files.len() + errors.len(), files.len());
+            }
+
+            #[test]
+            fn prop_parse_to_ir_deterministic(
+                (path, source) in arb_ts_file()
+            ) {
+                let engine = QueryEngine::new().unwrap();
+                let ir1 = parse_to_ir(&engine, &path, &source).unwrap();
+                let ir2 = parse_to_ir(&engine, &path, &source).unwrap();
+                prop_assert_eq!(ir1.path, ir2.path);
+                prop_assert_eq!(ir1.functions.len(), ir2.functions.len());
+                prop_assert_eq!(ir1.imports.len(), ir2.imports.len());
+            }
+
+            #[test]
+            fn prop_parse_to_ir_empty_source_has_no_definitions(
+                path in "[a-z]{1,10}\\.(ts|py|js)"
+            ) {
+                let engine = QueryEngine::new().unwrap();
+                let ir = parse_to_ir(&engine, &path, "").unwrap();
+                prop_assert!(ir.functions.is_empty());
+                prop_assert!(ir.imports.is_empty());
+                prop_assert!(ir.exports.is_empty());
+                prop_assert!(ir.call_expressions.is_empty());
+            }
+        }
+    }
 }
