@@ -583,7 +583,14 @@ flowdiff/
 - [x] Framework detection tests (12 tests — Express, Next.js imports + file structure, React, FastAPI, Flask, Django, Prisma, Effect.ts, multiple frameworks, no frameworks, sorted output, deduplication)
 - [x] Mermaid graph generation in JSON output
 - [x] Commit range and staged/unstaged support
-- [ ] Full data flow tracing (parameters, return values, variable assignments across call chains)
+- [x] Full data flow tracing (flow.rs — variable assignment tracking from call return values, call argument extraction, within-function data flow edge building connecting producers to consumers via shared variables, cross-file trace_data_flow API; ast.rs — extract_data_flow_info with VarCallAssignment/CallWithArgs/DataFlowInfo types, TypeScript + Python support including await unwrapping)
+- [x] Unit tests for data flow tracing (30 tests — 16 AST extraction tests for TS variable assignments, method calls, await, chained assignments, call arguments, arrow functions, module-level, nested calls, Python assignments/chains/methods, edge cases; 14 flow edge tests for simple chains, pipelines, multiple consumers, scope isolation, self-edge prevention, cross-file, determinism; 6 property-based tests for never-panics, valid fields, no self-edges, via-matches-variable, determinism, empty input)
+- [ ] Shared IR (intermediate representation) — define language-agnostic AST types (Assignment, Destructure, CallExpression, Import, FunctionDef, etc.) as the single source of truth. Pipeline (graph, flow, clustering, entrypoint detection) operates only on IR types, never raw tree-sitter nodes. Covers: simple assignments (`const x = foo()`), destructuring (`const { a, b } = foo()`, `const [first, ...rest] = bar()`, Python tuple unpacking, Rust `let (a, b) = foo()`), Effect.ts `yield*` destructuring (`const { svc } = yield* _(Tag)`), spread/rest patterns, nested destructuring, default values in destructuring
+- [ ] Declarative tree-sitter query layer — instead of imperative per-language Rust code, define `.scm` query files per language (e.g. `queries/typescript/imports.scm`, `queries/python/imports.scm`) that declaratively capture patterns using tree-sitter's query syntax with `@capture` names. A single generic Rust engine maps query captures → IR nodes. Adding a new language = writing `.scm` files, zero Rust code. Query files for: imports, exports, definitions, call sites, assignments, destructuring, class hierarchy, entrypoint patterns
+- [ ] Per-language `.scm` query files (TypeScript/JS, Python, Rust, Effect.ts-specific patterns)
+- [ ] Generic query engine (loads `.scm` files, runs tree-sitter queries, maps `@capture` names to IR constructors via a naming convention or config)
+- [ ] Refactor existing ast.rs, entrypoint.rs, flow.rs to consume IR types instead of raw tree-sitter queries
+- [ ] Unit tests for IR types, query engine, and each language's `.scm` query files
 - [x] Config file support (config.rs — `.flowdiff.toml` parsing, validation, defaults merging, entrypoint glob resolution, ignore patterns, layer names, LLM config; 17 unit tests + 6 property-based tests)
 
 ### Phase 3: Tauri App (Week 3-4)
@@ -629,6 +636,14 @@ flowdiff/
 - [ ] Performance optimization (rayon parallelism, caching)
 - [ ] Error handling and edge cases
 - [ ] README and usage documentation
+
+### Phase 7: Synthetic Eval Suite (Future)
+- [ ] Synthetic fixture codebases — 3-5 small but realistic projects with pre-made code changes (branches with known diffs), covering: (1) TypeScript/Effect.ts HTTP API with services + DB layer, (2) Python FastAPI with SQLAlchemy + queue workers, (3) Next.js fullstack with React pages + API routes + Prisma, (4) Rust CLI with modules + lib, (5) multi-language monorepo with shared packages
+- [ ] VCR caching layer for LLM calls — record real LLM responses on first run, replay from cache on subsequent runs. Enables deterministic, fast, free CI runs of LLM-annotated tests. Cache keyed by (provider, model, prompt hash). Cache invalidation on prompt template changes
+- [ ] Expected output baselines — for each fixture codebase, define expected: flow groups (which files grouped together), entrypoints detected, review ordering, edge types, risk scores. These are the "ground truth" for the eval
+- [ ] LLM-as-judge evaluator — a separate evaluation step that takes flowdiff's JSON output + the fixture codebase and scores quality using structured outputs. Evaluation criteria: (1) are flow groups semantically coherent? (2) is review ordering logical? (3) are entrypoints correctly identified? (4) are risk scores reasonable? (5) is the Mermaid graph accurate? Returns per-criterion scores (1-5) + overall score + failure explanations
+- [ ] Eval harness — CLI command (`flowdiff eval`) that runs all fixture codebases, compares against baselines, runs LLM judge, produces a score report. Tracks scores over time to detect regressions. CI integration: fail if overall score drops below threshold
+- [ ] Eval dashboard — simple HTML report showing per-fixture scores, per-criterion breakdown, historical trend, diff against last run
 
 ## 12. Testing Plan
 

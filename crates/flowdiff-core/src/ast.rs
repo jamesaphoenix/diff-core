@@ -98,6 +98,42 @@ pub enum SymbolChange {
     Modified { old: Definition, new: Definition },
 }
 
+/// A local variable assigned from a function call return value.
+/// Captures patterns like `const x = funcA()` or `x = func_a()`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VarCallAssignment {
+    /// Name of the variable being assigned.
+    pub variable: String,
+    /// The callee expression (function being called).
+    pub callee: String,
+    /// Line number of the assignment.
+    pub line: usize,
+    /// Function containing this assignment.
+    pub containing_function: Option<String>,
+}
+
+/// A function call with its resolved argument expressions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CallWithArgs {
+    /// The callee expression.
+    pub callee: String,
+    /// Argument expression texts (variable names, literals, nested calls, etc.).
+    pub arguments: Vec<String>,
+    /// Line number.
+    pub line: usize,
+    /// Function containing this call.
+    pub containing_function: Option<String>,
+}
+
+/// Data flow information extracted from a source file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataFlowInfo {
+    /// Variables assigned from function call return values.
+    pub assignments: Vec<VarCallAssignment>,
+    /// Function calls with their argument expressions.
+    pub calls_with_args: Vec<CallWithArgs>,
+}
+
 /// Parse a source file and extract symbols, imports, exports, and call sites.
 pub fn parse_file(path: &str, source: &str) -> Result<ParsedFile, AstError> {
     let language = Language::from_path(path);
@@ -172,6 +208,20 @@ pub fn get_python_class_bases(source: &str, class_name: &str) -> Result<Vec<Stri
     let mut bases = Vec::new();
     find_class_bases(&root, src, class_name, &mut bases);
     Ok(bases)
+}
+
+/// Extract data flow information from source code for tracking how data moves
+/// through variable assignments and function calls within function bodies.
+pub fn extract_data_flow_info(path: &str, source: &str) -> Result<DataFlowInfo, AstError> {
+    let language = Language::from_path(path);
+    match language {
+        Language::TypeScript | Language::JavaScript => extract_ts_data_flow(source),
+        Language::Python => extract_python_data_flow(source),
+        Language::Unknown => Ok(DataFlowInfo {
+            assignments: vec![],
+            calls_with_args: vec![],
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -897,6 +947,268 @@ fn extract_callee(node: &Node, source: &[u8]) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// Data flow extraction: TypeScript / JavaScript
+// ---------------------------------------------------------------------------
+
+fn extract_ts_data_flow(source: &str) -> Result<DataFlowInfo, AstError> {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
+        .map_err(|e| AstError::LanguageError(e.to_string()))?;
+
+    let tree = parser
+        .parse(source, None)
+        .ok_or_else(|| AstError::ParseError("tree-sitter failed to parse".into()))?;
+
+    let root = tree.root_node();
+    let src = source.as_bytes();
+    let mut assignments = Vec::new();
+    let mut calls_with_args = Vec::new();
+
+    collect_ts_data_flow(&root, src, &mut assignments, &mut calls_with_args, &None);
+
+    Ok(DataFlowInfo {
+        assignments,
+        calls_with_args,
+    })
+}
+
+fn collect_ts_data_flow(
+    node: &Node,
+    source: &[u8],
+    assignments: &mut Vec<VarCallAssignment>,
+    calls: &mut Vec<CallWithArgs>,
+    containing: &Option<String>,
+) {
+    // Update containing function context (same logic as collect_call_sites).
+    let new_containing = match node.kind() {
+        "function_declaration"
+        | "generator_function_declaration"
+        | "function_definition"
+        | "method_definition" => node
+            .child_by_field_name("name")
+            .map(|n| node_text(&n, source).to_string()),
+        "variable_declarator" => {
+            let is_fn = node
+                .child_by_field_name("value")
+                .map(|v| v.kind() == "arrow_function" || v.kind() == "function")
+                .unwrap_or(false);
+            if is_fn {
+                node.child_by_field_name("name")
+                    .filter(|n| n.kind() == "identifier")
+                    .map(|n| node_text(&n, source).to_string())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+
+    let effective = if new_containing.is_some() {
+        &new_containing
+    } else {
+        containing
+    };
+
+    // Detect variable assignment from a call: `const x = funcA()` or `const x = await funcA()`
+    if node.kind() == "variable_declarator" {
+        if let (Some(name_node), Some(value_node)) = (
+            node.child_by_field_name("name"),
+            node.child_by_field_name("value"),
+        ) {
+            if name_node.kind() == "identifier" {
+                if let Some(callee) = extract_call_from_value(&value_node, source) {
+                    assignments.push(VarCallAssignment {
+                        variable: node_text(&name_node, source).to_string(),
+                        callee,
+                        line: node.start_position().row + 1,
+                        containing_function: effective.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Detect call expression with arguments.
+    if node.kind() == "call_expression" {
+        if let Some(callee) = extract_callee(node, source) {
+            let arguments = extract_argument_texts(node, source);
+            calls.push(CallWithArgs {
+                callee,
+                arguments,
+                line: node.start_position().row + 1,
+                containing_function: effective.clone(),
+            });
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_ts_data_flow(&child, source, assignments, calls, effective);
+    }
+}
+
+/// Extract the callee from a value that might be a call or an await wrapping a call.
+fn extract_call_from_value(node: &Node, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "call_expression" => extract_callee(node, source),
+        "await_expression" => {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                if child.kind() == "call_expression" {
+                    return extract_callee(&child, source);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Extract the text of each argument in a call expression's argument list.
+fn extract_argument_texts(call_node: &Node, source: &[u8]) -> Vec<String> {
+    let args_node = match call_node.child_by_field_name("arguments") {
+        Some(n) => n,
+        None => return vec![],
+    };
+
+    let mut args = Vec::new();
+    let mut cursor = args_node.walk();
+    for child in args_node.named_children(&mut cursor) {
+        let text = node_text(&child, source).to_string();
+        if !text.is_empty() {
+            args.push(text);
+        }
+    }
+    args
+}
+
+// ---------------------------------------------------------------------------
+// Data flow extraction: Python
+// ---------------------------------------------------------------------------
+
+fn extract_python_data_flow(source: &str) -> Result<DataFlowInfo, AstError> {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_python::LANGUAGE.into())
+        .map_err(|e| AstError::LanguageError(e.to_string()))?;
+
+    let tree = parser
+        .parse(source, None)
+        .ok_or_else(|| AstError::ParseError("tree-sitter failed to parse".into()))?;
+
+    let root = tree.root_node();
+    let src = source.as_bytes();
+    let mut assignments = Vec::new();
+    let mut calls_with_args = Vec::new();
+
+    collect_python_data_flow(&root, src, &mut assignments, &mut calls_with_args, &None);
+
+    Ok(DataFlowInfo {
+        assignments,
+        calls_with_args,
+    })
+}
+
+fn collect_python_data_flow(
+    node: &Node,
+    source: &[u8],
+    assignments: &mut Vec<VarCallAssignment>,
+    calls: &mut Vec<CallWithArgs>,
+    containing: &Option<String>,
+) {
+    // Update containing function context.
+    let new_containing = match node.kind() {
+        "function_definition" => node
+            .child_by_field_name("name")
+            .map(|n| node_text(&n, source).to_string()),
+        _ => None,
+    };
+
+    let effective = if new_containing.is_some() {
+        &new_containing
+    } else {
+        containing
+    };
+
+    // Detect assignment from a call: `x = func_a()` or `x = await func_a()`
+    if node.kind() == "assignment" {
+        if let (Some(left), Some(right)) = (
+            node.child_by_field_name("left"),
+            node.child_by_field_name("right"),
+        ) {
+            if left.kind() == "identifier" {
+                let callee = match right.kind() {
+                    "call" => extract_callee(&right, source),
+                    "await" => {
+                        let mut c = right.walk();
+                        let call_node = right
+                            .named_children(&mut c)
+                            .find(|ch| ch.kind() == "call");
+                        call_node.and_then(|call| extract_callee(&call, source))
+                    }
+                    _ => None,
+                };
+                if let Some(callee) = callee {
+                    assignments.push(VarCallAssignment {
+                        variable: node_text(&left, source).to_string(),
+                        callee,
+                        line: node.start_position().row + 1,
+                        containing_function: effective.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Detect call with arguments.
+    if node.kind() == "call" {
+        if let Some(callee) = extract_callee(node, source) {
+            let arguments = extract_python_argument_texts(node, source);
+            calls.push(CallWithArgs {
+                callee,
+                arguments,
+                line: node.start_position().row + 1,
+                containing_function: effective.clone(),
+            });
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_python_data_flow(&child, source, assignments, calls, effective);
+    }
+}
+
+/// Extract argument texts from a Python call's argument_list.
+fn extract_python_argument_texts(call_node: &Node, source: &[u8]) -> Vec<String> {
+    let args_node = match call_node.child_by_field_name("arguments") {
+        Some(n) => n,
+        None => return vec![],
+    };
+
+    let mut args = Vec::new();
+    let mut cursor = args_node.walk();
+    for child in args_node.named_children(&mut cursor) {
+        // Skip keyword argument names (only get the value)
+        if child.kind() == "keyword_argument" {
+            if let Some(val) = child.child_by_field_name("value") {
+                let text = node_text(&val, source).to_string();
+                if !text.is_empty() {
+                    args.push(text);
+                }
+            }
+            continue;
+        }
+        let text = node_text(&child, source).to_string();
+        if !text.is_empty() {
+            args.push(text);
+        }
+    }
+    args
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1582,5 +1894,314 @@ export class Router {
             .collect();
         assert!(methods.contains(&"get"));
         assert!(methods.contains(&"post"));
+    }
+
+    // ========================================================================
+    // Data flow extraction — TypeScript
+    // ========================================================================
+
+    #[test]
+    fn test_data_flow_ts_simple_assignment() {
+        let source = r#"
+function handler(req: any) {
+    const data = parseBody(req);
+    return respond(data);
+}
+"#;
+        let info = extract_data_flow_info("handler.ts", source).unwrap();
+
+        // Should detect `const data = parseBody(req)`
+        assert_eq!(info.assignments.len(), 1);
+        assert_eq!(info.assignments[0].variable, "data");
+        assert_eq!(info.assignments[0].callee, "parseBody");
+        assert_eq!(
+            info.assignments[0].containing_function,
+            Some("handler".to_string())
+        );
+
+        // Should detect both calls with their arguments
+        let parse_call = info
+            .calls_with_args
+            .iter()
+            .find(|c| c.callee == "parseBody")
+            .unwrap();
+        assert!(parse_call.arguments.contains(&"req".to_string()));
+
+        let respond_call = info
+            .calls_with_args
+            .iter()
+            .find(|c| c.callee == "respond")
+            .unwrap();
+        assert!(respond_call.arguments.contains(&"data".to_string()));
+    }
+
+    #[test]
+    fn test_data_flow_ts_method_call_assignment() {
+        let source = r#"
+function process() {
+    const user = db.findOne(id);
+    return transform(user);
+}
+"#;
+        let info = extract_data_flow_info("service.ts", source).unwrap();
+
+        assert_eq!(info.assignments.len(), 1);
+        assert_eq!(info.assignments[0].variable, "user");
+        assert_eq!(info.assignments[0].callee, "db.findOne");
+    }
+
+    #[test]
+    fn test_data_flow_ts_await_assignment() {
+        let source = r#"
+async function handler(req: any) {
+    const data = await fetchData(req.id);
+    return process(data);
+}
+"#;
+        let info = extract_data_flow_info("handler.ts", source).unwrap();
+
+        // Should unwrap the await and capture the call
+        assert_eq!(info.assignments.len(), 1);
+        assert_eq!(info.assignments[0].variable, "data");
+        assert_eq!(info.assignments[0].callee, "fetchData");
+    }
+
+    #[test]
+    fn test_data_flow_ts_chained_assignments() {
+        let source = r#"
+function pipeline(input: any) {
+    const validated = validate(input);
+    const processed = transform(validated);
+    const result = save(processed);
+    return result;
+}
+"#;
+        let info = extract_data_flow_info("pipeline.ts", source).unwrap();
+
+        assert_eq!(info.assignments.len(), 3);
+
+        let vars: Vec<&str> = info.assignments.iter().map(|a| a.variable.as_str()).collect();
+        assert!(vars.contains(&"validated"));
+        assert!(vars.contains(&"processed"));
+        assert!(vars.contains(&"result"));
+
+        let callees: Vec<&str> = info.assignments.iter().map(|a| a.callee.as_str()).collect();
+        assert!(callees.contains(&"validate"));
+        assert!(callees.contains(&"transform"));
+        assert!(callees.contains(&"save"));
+    }
+
+    #[test]
+    fn test_data_flow_ts_call_arguments_multiple() {
+        let source = r#"
+function merge(a: any, b: any) {
+    const x = getFirst();
+    const y = getSecond();
+    return combine(x, y, 42);
+}
+"#;
+        let info = extract_data_flow_info("merge.ts", source).unwrap();
+
+        let combine_call = info
+            .calls_with_args
+            .iter()
+            .find(|c| c.callee == "combine")
+            .unwrap();
+        assert!(combine_call.arguments.contains(&"x".to_string()));
+        assert!(combine_call.arguments.contains(&"y".to_string()));
+        // 42 is a literal, should also be captured as argument text
+        assert!(combine_call.arguments.contains(&"42".to_string()));
+    }
+
+    #[test]
+    fn test_data_flow_ts_arrow_function() {
+        let source = r#"
+const handler = (req: any) => {
+    const data = parseBody(req);
+    return respond(data);
+};
+"#;
+        let info = extract_data_flow_info("handler.ts", source).unwrap();
+
+        assert_eq!(info.assignments.len(), 1);
+        assert_eq!(info.assignments[0].variable, "data");
+        assert_eq!(info.assignments[0].callee, "parseBody");
+        assert_eq!(
+            info.assignments[0].containing_function,
+            Some("handler".to_string())
+        );
+    }
+
+    #[test]
+    fn test_data_flow_ts_no_assignments() {
+        let source = r#"
+function simple() {
+    console.log("hello");
+    return 42;
+}
+"#;
+        let info = extract_data_flow_info("simple.ts", source).unwrap();
+        assert!(info.assignments.is_empty());
+    }
+
+    #[test]
+    fn test_data_flow_ts_module_level() {
+        let source = r#"
+const config = loadConfig();
+startServer(config);
+"#;
+        let info = extract_data_flow_info("main.ts", source).unwrap();
+
+        assert_eq!(info.assignments.len(), 1);
+        assert_eq!(info.assignments[0].variable, "config");
+        assert_eq!(info.assignments[0].callee, "loadConfig");
+        // Module-level has no containing function
+        assert_eq!(info.assignments[0].containing_function, None);
+
+        let start_call = info
+            .calls_with_args
+            .iter()
+            .find(|c| c.callee == "startServer")
+            .unwrap();
+        assert!(start_call.arguments.contains(&"config".to_string()));
+    }
+
+    #[test]
+    fn test_data_flow_ts_nested_call_as_argument() {
+        let source = r#"
+function process() {
+    return save(transform(input));
+}
+"#;
+        let info = extract_data_flow_info("process.ts", source).unwrap();
+
+        // The inner call `transform(input)` should be captured
+        let save_call = info
+            .calls_with_args
+            .iter()
+            .find(|c| c.callee == "save")
+            .unwrap();
+        // The argument to save is the full nested call text
+        assert_eq!(save_call.arguments.len(), 1);
+        assert!(save_call.arguments[0].contains("transform"));
+    }
+
+    #[test]
+    fn test_data_flow_ts_non_call_value_ignored() {
+        let source = r#"
+function process() {
+    const x = 42;
+    const y = "hello";
+    const z = someVar;
+    return x;
+}
+"#;
+        let info = extract_data_flow_info("process.ts", source).unwrap();
+
+        // None of these are function call assignments
+        assert!(
+            info.assignments.is_empty(),
+            "literal and variable assignments should not be captured"
+        );
+    }
+
+    // ========================================================================
+    // Data flow extraction — Python
+    // ========================================================================
+
+    #[test]
+    fn test_data_flow_python_simple_assignment() {
+        let source = r#"
+def handler(req):
+    data = parse_body(req)
+    return respond(data)
+"#;
+        let info = extract_data_flow_info("handler.py", source).unwrap();
+
+        assert_eq!(info.assignments.len(), 1);
+        assert_eq!(info.assignments[0].variable, "data");
+        assert_eq!(info.assignments[0].callee, "parse_body");
+        assert_eq!(
+            info.assignments[0].containing_function,
+            Some("handler".to_string())
+        );
+
+        let respond_call = info
+            .calls_with_args
+            .iter()
+            .find(|c| c.callee == "respond")
+            .unwrap();
+        assert!(respond_call.arguments.contains(&"data".to_string()));
+    }
+
+    #[test]
+    fn test_data_flow_python_chained() {
+        let source = r#"
+def pipeline(raw):
+    validated = validate(raw)
+    processed = transform(validated)
+    save(processed)
+"#;
+        let info = extract_data_flow_info("pipeline.py", source).unwrap();
+
+        assert_eq!(info.assignments.len(), 2);
+
+        let vars: Vec<&str> = info.assignments.iter().map(|a| a.variable.as_str()).collect();
+        assert!(vars.contains(&"validated"));
+        assert!(vars.contains(&"processed"));
+    }
+
+    #[test]
+    fn test_data_flow_python_method_call() {
+        let source = r#"
+def get_user(user_id):
+    user = db.find_one(user_id)
+    return serialize(user)
+"#;
+        let info = extract_data_flow_info("service.py", source).unwrap();
+
+        assert_eq!(info.assignments.len(), 1);
+        assert_eq!(info.assignments[0].callee, "db.find_one");
+    }
+
+    #[test]
+    fn test_data_flow_unknown_language() {
+        let info = extract_data_flow_info("main.go", "package main").unwrap();
+        assert!(info.assignments.is_empty());
+        assert!(info.calls_with_args.is_empty());
+    }
+
+    #[test]
+    fn test_data_flow_empty_source() {
+        let info = extract_data_flow_info("empty.ts", "").unwrap();
+        assert!(info.assignments.is_empty());
+        assert!(info.calls_with_args.is_empty());
+    }
+
+    #[test]
+    fn test_data_flow_ts_multiple_consumers() {
+        let source = r#"
+function process() {
+    const data = fetchData();
+    validate(data);
+    transform(data);
+    save(data);
+}
+"#;
+        let info = extract_data_flow_info("process.ts", source).unwrap();
+
+        // One assignment, three consumers
+        assert_eq!(info.assignments.len(), 1);
+        assert_eq!(info.assignments[0].variable, "data");
+
+        let consumers_using_data: Vec<&str> = info
+            .calls_with_args
+            .iter()
+            .filter(|c| c.arguments.contains(&"data".to_string()))
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(consumers_using_data.contains(&"validate"));
+        assert!(consumers_using_data.contains(&"transform"));
+        assert!(consumers_using_data.contains(&"save"));
     }
 }

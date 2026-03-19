@@ -65,6 +65,26 @@ pub struct FlowAnalysis {
     pub frameworks_detected: Vec<String>,
 }
 
+/// A data flow edge connecting a producer function to a consumer function
+/// through a shared variable within the same function scope.
+///
+/// Example: `const x = funcA(); funcB(x)` creates an edge from funcA → funcB via "x".
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DataFlowEdge {
+    /// Callee of the assignment (the function producing data).
+    pub producer: String,
+    /// Callee of the consuming call (the function receiving the data).
+    pub consumer: String,
+    /// Variable name connecting the producer to the consumer.
+    pub via: String,
+    /// Symbol ID of the function containing both calls.
+    pub containing_function: String,
+    /// File path.
+    pub file: String,
+    /// Line of the consumer call.
+    pub line: usize,
+}
+
 /// Configuration for flow analysis.
 #[derive(Debug, Clone)]
 pub struct FlowConfig {
@@ -776,6 +796,82 @@ pub fn trace_call_chain(graph: &SymbolGraph, start: &str, max_depth: usize) -> V
     }
 
     result
+}
+
+// ---------------------------------------------------------------------------
+// Full data flow tracing
+// ---------------------------------------------------------------------------
+
+/// Build data flow edges from extracted data flow info for a single file.
+///
+/// Connects variable assignments from calls to subsequent calls that use those
+/// variables as arguments within the same function scope.
+///
+/// Example: in `function f() { const x = funcA(); funcB(x); }`,
+/// produces `DataFlowEdge { producer: "funcA", consumer: "funcB", via: "x" }`.
+pub fn build_data_flow_edges(
+    info: &crate::ast::DataFlowInfo,
+    file_path: &str,
+) -> Vec<DataFlowEdge> {
+    use std::collections::HashMap;
+
+    let mut edges = Vec::new();
+
+    // Group assignments by containing function for scope-aware matching.
+    let mut assignments_by_scope: HashMap<Option<&str>, Vec<&crate::ast::VarCallAssignment>> =
+        HashMap::new();
+    for assignment in &info.assignments {
+        let key = assignment.containing_function.as_deref();
+        assignments_by_scope.entry(key).or_default().push(assignment);
+    }
+
+    // For each call, check if any argument matches a variable assigned from another call.
+    for call in &info.calls_with_args {
+        let scope_key = call.containing_function.as_deref();
+        if let Some(scope_assignments) = assignments_by_scope.get(&scope_key) {
+            for arg in &call.arguments {
+                for assignment in scope_assignments {
+                    if assignment.variable == *arg && assignment.callee != call.callee {
+                        let containing = match &call.containing_function {
+                            Some(f) => format!("{}::{}", file_path, f),
+                            None => file_path.to_string(),
+                        };
+                        edges.push(DataFlowEdge {
+                            producer: assignment.callee.clone(),
+                            consumer: call.callee.clone(),
+                            via: arg.clone(),
+                            containing_function: containing,
+                            file: file_path.to_string(),
+                            line: call.line,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+/// Trace data flow across all files, producing edges that show how data moves
+/// through variable assignments and function calls.
+///
+/// Requires source code for each file (re-parses with tree-sitter for finer-grained
+/// extraction of variable assignments and call arguments).
+pub fn trace_data_flow(files_with_source: &[(&str, &str)]) -> Vec<DataFlowEdge> {
+    let mut all_edges = Vec::new();
+
+    for &(path, source) in files_with_source {
+        match crate::ast::extract_data_flow_info(path, source) {
+            Ok(info) => {
+                let edges = build_data_flow_edges(&info, path);
+                all_edges.extend(edges);
+            }
+            Err(_) => continue,
+        }
+    }
+
+    all_edges
 }
 
 // ---------------------------------------------------------------------------
@@ -2220,6 +2316,373 @@ function outer() {
                 let a2 = analyze_data_flow(&[file], &FlowConfig::default());
                 prop_assert_eq!(a1.heuristic_edges.len(), a2.heuristic_edges.len());
                 prop_assert_eq!(a1.frameworks_detected, a2.frameworks_detected);
+            }
+        }
+    }
+
+    // ========================================================================
+    // Full data flow tracing — unit tests
+    // ========================================================================
+
+    #[test]
+    fn test_data_flow_simple_variable_chain() {
+        let edges = trace_data_flow(&[(
+            "src/handler.ts",
+            r#"
+function handler(req: any) {
+    const data = parseBody(req);
+    return respond(data);
+}
+"#,
+        )]);
+
+        // parseBody produces `data`, respond consumes `data`
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].producer, "parseBody");
+        assert_eq!(edges[0].consumer, "respond");
+        assert_eq!(edges[0].via, "data");
+        assert_eq!(edges[0].containing_function, "src/handler.ts::handler");
+        assert_eq!(edges[0].file, "src/handler.ts");
+    }
+
+    #[test]
+    fn test_data_flow_chained_pipeline() {
+        let edges = trace_data_flow(&[(
+            "src/pipeline.ts",
+            r#"
+function pipeline(input: any) {
+    const validated = validate(input);
+    const processed = transform(validated);
+    const result = save(processed);
+    return result;
+}
+"#,
+        )]);
+
+        // validate → transform via "validated"
+        let e1 = edges
+            .iter()
+            .find(|e| e.producer == "validate" && e.consumer == "transform")
+            .expect("should have validate → transform edge");
+        assert_eq!(e1.via, "validated");
+
+        // transform → save via "processed"
+        let e2 = edges
+            .iter()
+            .find(|e| e.producer == "transform" && e.consumer == "save")
+            .expect("should have transform → save edge");
+        assert_eq!(e2.via, "processed");
+
+        assert_eq!(edges.len(), 2);
+    }
+
+    #[test]
+    fn test_data_flow_multiple_consumers() {
+        let edges = trace_data_flow(&[(
+            "src/process.ts",
+            r#"
+function process() {
+    const data = fetchData();
+    validate(data);
+    transform(data);
+    save(data);
+}
+"#,
+        )]);
+
+        // fetchData → validate, transform, save (all via "data")
+        assert_eq!(edges.len(), 3);
+        for edge in &edges {
+            assert_eq!(edge.producer, "fetchData");
+            assert_eq!(edge.via, "data");
+        }
+        let consumers: Vec<&str> = edges.iter().map(|e| e.consumer.as_str()).collect();
+        assert!(consumers.contains(&"validate"));
+        assert!(consumers.contains(&"transform"));
+        assert!(consumers.contains(&"save"));
+    }
+
+    #[test]
+    fn test_data_flow_no_variable_sharing() {
+        let edges = trace_data_flow(&[(
+            "src/independent.ts",
+            r#"
+function handler() {
+    funcA();
+    funcB();
+    funcC();
+}
+"#,
+        )]);
+
+        assert!(
+            edges.is_empty(),
+            "independent calls with no shared variables should produce no edges"
+        );
+    }
+
+    #[test]
+    fn test_data_flow_module_level() {
+        let edges = trace_data_flow(&[(
+            "src/main.ts",
+            r#"
+const config = loadConfig();
+startServer(config);
+"#,
+        )]);
+
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].producer, "loadConfig");
+        assert_eq!(edges[0].consumer, "startServer");
+        assert_eq!(edges[0].via, "config");
+        assert_eq!(edges[0].containing_function, "src/main.ts");
+    }
+
+    #[test]
+    fn test_data_flow_python_simple() {
+        let edges = trace_data_flow(&[(
+            "src/handler.py",
+            r#"
+def handler(req):
+    data = parse_body(req)
+    return respond(data)
+"#,
+        )]);
+
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].producer, "parse_body");
+        assert_eq!(edges[0].consumer, "respond");
+        assert_eq!(edges[0].via, "data");
+    }
+
+    #[test]
+    fn test_data_flow_python_chained() {
+        let edges = trace_data_flow(&[(
+            "src/pipeline.py",
+            r#"
+def pipeline(raw):
+    validated = validate(raw)
+    processed = transform(validated)
+    save(processed)
+"#,
+        )]);
+
+        let e1 = edges
+            .iter()
+            .find(|e| e.producer == "validate" && e.consumer == "transform");
+        assert!(e1.is_some(), "should have validate → transform edge");
+
+        let e2 = edges
+            .iter()
+            .find(|e| e.producer == "transform" && e.consumer == "save");
+        assert!(e2.is_some(), "should have transform → save edge");
+    }
+
+    #[test]
+    fn test_data_flow_empty_input() {
+        let edges = trace_data_flow(&[]);
+        assert!(edges.is_empty());
+    }
+
+    #[test]
+    fn test_data_flow_unknown_language() {
+        let edges = trace_data_flow(&[("main.go", "package main")]);
+        assert!(edges.is_empty());
+    }
+
+    #[test]
+    fn test_data_flow_cross_scope_no_leaking() {
+        let edges = trace_data_flow(&[(
+            "src/service.ts",
+            r#"
+function funcA() {
+    const x = getX();
+    return x;
+}
+function funcB() {
+    useX(x);
+}
+"#,
+        )]);
+
+        // `x` in funcA is not the same scope as `x` in funcB
+        // funcA has assignment x=getX() but funcB's call useX(x)
+        // is in a different scope, so no data flow edge should be created.
+        assert!(
+            edges.is_empty(),
+            "variables in different function scopes should not create edges"
+        );
+    }
+
+    #[test]
+    fn test_data_flow_same_producer_consumer_ignored() {
+        let edges = trace_data_flow(&[(
+            "src/recursive.ts",
+            r#"
+function process() {
+    const result = transform(input);
+    transform(result);
+}
+"#,
+        )]);
+
+        // transform → transform would be a self-edge, should be excluded
+        assert!(
+            edges.is_empty(),
+            "same producer and consumer should not create an edge"
+        );
+    }
+
+    #[test]
+    fn test_data_flow_multiple_files() {
+        let edges = trace_data_flow(&[
+            (
+                "src/a.ts",
+                r#"
+function handleA() {
+    const x = getA();
+    processA(x);
+}
+"#,
+            ),
+            (
+                "src/b.ts",
+                r#"
+function handleB() {
+    const y = getB();
+    processB(y);
+}
+"#,
+            ),
+        ]);
+
+        assert_eq!(edges.len(), 2);
+        assert!(edges.iter().any(|e| e.file == "src/a.ts"));
+        assert!(edges.iter().any(|e| e.file == "src/b.ts"));
+    }
+
+    #[test]
+    fn test_data_flow_deterministic() {
+        let source = r#"
+function handler() {
+    const data = fetch();
+    process(data);
+}
+"#;
+        let e1 = trace_data_flow(&[("src/a.ts", source)]);
+        let e2 = trace_data_flow(&[("src/a.ts", source)]);
+        assert_eq!(e1, e2, "data flow tracing should be deterministic");
+    }
+
+    // ========================================================================
+    // Full data flow tracing — property-based tests
+    // ========================================================================
+
+    mod data_flow_proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn func_name() -> impl Strategy<Value = String> {
+            "[a-z][a-zA-Z]{0,8}".prop_map(|s| s)
+        }
+
+        proptest! {
+            #[test]
+            fn prop_trace_never_panics(
+                func in func_name(),
+                var in func_name(),
+                callee1 in func_name(),
+                callee2 in func_name()
+            ) {
+                let source = format!(
+                    "function {}() {{\n  const {} = {}();\n  {}({});\n}}\n",
+                    func, var, callee1, callee2, var
+                );
+                // Should never panic
+                let _ = trace_data_flow(&[("test.ts", &source)]);
+            }
+
+            #[test]
+            fn prop_edges_have_valid_fields(
+                func in func_name(),
+                var in func_name(),
+                callee1 in func_name(),
+                callee2 in func_name()
+            ) {
+                let source = format!(
+                    "function {}() {{\n  const {} = {}();\n  {}({});\n}}\n",
+                    func, var, callee1, callee2, var
+                );
+                let edges = trace_data_flow(&[("test.ts", &source)]);
+                for edge in &edges {
+                    prop_assert!(!edge.producer.is_empty(), "producer should not be empty");
+                    prop_assert!(!edge.consumer.is_empty(), "consumer should not be empty");
+                    prop_assert!(!edge.via.is_empty(), "via should not be empty");
+                    prop_assert!(!edge.file.is_empty(), "file should not be empty");
+                    prop_assert!(edge.line > 0, "line should be positive");
+                    prop_assert!(!edge.containing_function.is_empty());
+                }
+            }
+
+            #[test]
+            fn prop_no_self_edges(
+                func in func_name(),
+                var in func_name(),
+                callee in func_name()
+            ) {
+                let source = format!(
+                    "function {}() {{\n  const {} = {}();\n  {}({});\n}}\n",
+                    func, var, callee, callee, var
+                );
+                let edges = trace_data_flow(&[("test.ts", &source)]);
+                for edge in &edges {
+                    prop_assert!(
+                        edge.producer != edge.consumer,
+                        "self-edge detected: {} → {}",
+                        edge.producer, edge.consumer
+                    );
+                }
+            }
+
+            #[test]
+            fn prop_via_matches_variable(
+                func in func_name(),
+                var in func_name(),
+                callee1 in func_name(),
+                callee2 in func_name()
+            ) {
+                let source = format!(
+                    "function {}() {{\n  const {} = {}();\n  {}({});\n}}\n",
+                    func, var, callee1, callee2, var
+                );
+                let edges = trace_data_flow(&[("test.ts", &source)]);
+                for edge in &edges {
+                    // The via field should be a variable that was assigned in the same scope
+                    prop_assert_eq!(&edge.via, &var,
+                        "via should match the variable name");
+                }
+            }
+
+            #[test]
+            fn prop_deterministic(
+                func in func_name(),
+                var in func_name(),
+                callee1 in func_name(),
+                callee2 in func_name()
+            ) {
+                let source = format!(
+                    "function {}() {{\n  const {} = {}();\n  {}({});\n}}\n",
+                    func, var, callee1, callee2, var
+                );
+                let e1 = trace_data_flow(&[("test.ts", &source)]);
+                let e2 = trace_data_flow(&[("test.ts", &source)]);
+                prop_assert_eq!(e1, e2, "should be deterministic");
+            }
+
+            #[test]
+            fn prop_empty_input_empty_output(_dummy in 0u32..1) {
+                let edges = trace_data_flow(&[]);
+                prop_assert!(edges.is_empty());
             }
         }
     }
