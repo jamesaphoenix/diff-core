@@ -277,6 +277,7 @@ fn infer_file_role(path: &str) -> FileRole {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 mod tests {
     use super::*;
     use crate::graph::{SerializableEdge, SerializableGraph, SymbolGraph, SymbolNode};

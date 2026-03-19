@@ -61,10 +61,15 @@ pub fn validate_refinement(
                 split.source_group_id.clone(),
             ));
         }
-        let source_group = groups
-            .iter()
-            .find(|g| g.id == split.source_group_id)
-            .unwrap(); // Safe: we just checked
+        // group_ids.contains() above guarantees this find succeeds
+        let source_group = match groups.iter().find(|g| g.id == split.source_group_id) {
+            Some(g) => g,
+            None => {
+                return Err(RefinementError::UnknownSplitSource(
+                    split.source_group_id.clone(),
+                ));
+            }
+        };
         let source_files: HashSet<&str> =
             source_group.files.iter().map(|f| f.path.as_str()).collect();
 
@@ -444,6 +449,7 @@ fn apply_split(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 mod tests {
     use super::*;
     use crate::llm::schema::{

@@ -1,8 +1,18 @@
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::panic)]
+#![deny(clippy::todo)]
+#![deny(clippy::unimplemented)]
+#![deny(clippy::dbg_macro)]
+#![deny(clippy::print_stdout)]
+#![deny(clippy::print_stderr)]
+
 use std::path::PathBuf;
 use std::process;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use git2::Repository;
+use log::{error, info, warn};
 
 use flowdiff_core::cache;
 use flowdiff_core::cluster;
@@ -136,18 +146,19 @@ struct LaunchArgs {
 }
 
 fn main() {
+    env_logger::init();
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Analyze(args) => {
             if let Err(e) = run_analyze(args) {
-                eprintln!("Error: {}", e);
+                error!("Error: {}", e);
                 process::exit(1);
             }
         }
         Commands::Launch(args) => {
             if let Err(e) = run_launch(args) {
-                eprintln!("Error: {}", e);
+                error!("Error: {}", e);
                 process::exit(1);
             }
         }
@@ -287,7 +298,7 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
         match rt.block_on(run_refinement(&config, &mut analysis_output)) {
             Ok(()) => {}
             Err(e) => {
-                eprintln!("Warning: LLM refinement failed, using deterministic groups: {}", e);
+                warn!("LLM refinement failed, using deterministic groups: {}", e);
             }
         }
     }
@@ -298,7 +309,7 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
         match rt.block_on(run_annotation(&config, &mut analysis_output)) {
             Ok(()) => {}
             Err(e) => {
-                eprintln!("Warning: LLM annotation failed: {}", e);
+                warn!("LLM annotation failed: {}", e);
             }
         }
     }
@@ -534,7 +545,7 @@ fn run_launch(args: LaunchArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     // Launch the diff tool
     let exe = args.tool.executable();
-    eprintln!(
+    info!(
         "Launching {} for group '{}' ({} files)...",
         args.tool.display_name(),
         group.name,
@@ -570,6 +581,7 @@ fn write_output(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 mod tests {
     use super::*;
 

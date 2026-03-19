@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 //! Synthetic Eval Suite (Phase 7) — validates the full flowdiff pipeline against
 //! known-good baselines for realistic fixture codebases.
 //!

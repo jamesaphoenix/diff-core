@@ -1179,6 +1179,7 @@ fn add_ir_extends_edges(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 mod tests {
     use super::*;
     use crate::ast::{self, ParsedFile};

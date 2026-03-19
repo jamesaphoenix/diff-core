@@ -281,6 +281,7 @@ fn edge_type_label(edge_type: &crate::types::EdgeType) -> &'static str {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 mod tests {
     use super::*;
     use crate::types::*;

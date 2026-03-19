@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 //! LLM-as-judge integration tests.
 //!
 //! Tests the judge evaluator against synthetic fixture codebases.
@@ -378,7 +379,7 @@ async fn test_live_anthropic_judge() {
     let response = provider.evaluate_quality(&request).await.unwrap();
 
     eprintln!("\n=== Live Anthropic Judge Response ===");
-    flowdiff_core::llm::judge::print_judge_report("TS Express API", &response);
+    eprintln!("{}", flowdiff_core::llm::judge::format_judge_report("TS Express API", &response));
 
     // Validate response structure
     let errors = validate_judge_response(&response);

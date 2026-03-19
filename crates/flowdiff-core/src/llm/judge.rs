@@ -11,6 +11,7 @@
 //! Returns per-criterion scores (1-5) + overall score + failure explanations.
 //! Supports VCR caching for deterministic CI replay.
 
+use std::fmt::Write as FmtWrite;
 use std::path::Path;
 
 use crate::types::AnalysisOutput;
@@ -225,43 +226,51 @@ pub async fn run_judge_evaluation(
     Ok(response)
 }
 
-/// Print a formatted judge evaluation report.
-pub fn print_judge_report(fixture_name: &str, response: &JudgeResponse) {
+/// Format a judge evaluation report as a string.
+///
+/// Returns the formatted report text. Callers decide how to display it
+/// (e.g. `eprintln!` in CLI, `log::info!` in library code).
+pub fn format_judge_report(fixture_name: &str, response: &JudgeResponse) -> String {
     let normalized = normalize_judge_scores(response);
+    let mut buf = String::new();
 
-    eprintln!("\n╔══════════════════════════════════════════════╗");
-    eprintln!("║  LLM Judge: {:<33}║", fixture_name);
-    eprintln!("╠══════════════════════════════════════════════╣");
+    let _ = writeln!(buf, "\n╔══════════════════════════════════════════════╗");
+    let _ = writeln!(buf, "║  LLM Judge: {:<33}║", fixture_name);
+    let _ = writeln!(buf, "╠══════════════════════════════════════════════╣");
     for criterion in &response.criteria {
-        eprintln!(
+        let _ = writeln!(
+            buf,
             "║  {:<25} {}/5  ({:.2})       ║",
             criterion.criterion,
             criterion.score,
             (criterion.score as f64 - 1.0) / 4.0
         );
     }
-    eprintln!("╠══════════════════════════════════════════════╣");
-    eprintln!(
+    let _ = writeln!(buf, "╠══════════════════════════════════════════════╣");
+    let _ = writeln!(
+        buf,
         "║  OVERALL:             {:.1}/5  ({:.2})       ║",
         response.overall_score, normalized.overall
     );
-    eprintln!("╚══════════════════════════════════════════════╝");
+    let _ = writeln!(buf, "╚══════════════════════════════════════════════╝");
 
     if !response.strengths.is_empty() {
-        eprintln!("  Strengths:");
+        let _ = writeln!(buf, "  Strengths:");
         for s in &response.strengths {
-            eprintln!("    + {}", s);
+            let _ = writeln!(buf, "    + {}", s);
         }
     }
     if !response.failure_explanations.is_empty() {
-        eprintln!("  Issues:");
+        let _ = writeln!(buf, "  Issues:");
         for f in &response.failure_explanations {
-            eprintln!("    - {}", f);
+            let _ = writeln!(buf, "    - {}", f);
         }
     }
+    buf
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 mod tests {
     use super::*;
     use crate::types::*;

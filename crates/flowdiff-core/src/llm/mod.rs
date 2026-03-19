@@ -383,6 +383,7 @@ pub fn pass2_user_prompt(request: &Pass2Request) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 mod tests {
     use super::*;
 

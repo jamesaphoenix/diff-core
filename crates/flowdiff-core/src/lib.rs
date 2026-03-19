@@ -1,3 +1,12 @@
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::panic)]
+#![deny(clippy::todo)]
+#![deny(clippy::unimplemented)]
+#![deny(clippy::dbg_macro)]
+#![deny(clippy::print_stdout)]
+#![deny(clippy::print_stderr)]
+
 pub mod ast;
 pub mod cache;
 pub mod cluster;

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 //! Live LLM integration tests.
 //!
 //! These tests hit real LLM APIs and are gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`.

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 //! End-to-end integration tests for the full flowdiff analysis pipeline.
 //!
 //! These tests create real git repositories with known file structures,

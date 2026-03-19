@@ -476,7 +476,10 @@ fn extract_file_diffs(
     let mut files: Vec<FileDiff> = Vec::with_capacity(num_deltas);
 
     for delta_idx in 0..num_deltas {
-        let delta = diff.deltas().nth(delta_idx).unwrap();
+        let delta = match diff.deltas().nth(delta_idx) {
+            Some(d) => d,
+            None => continue,
+        };
 
         // Skip binary files
         if delta.flags().is_binary() {
@@ -620,6 +623,7 @@ fn is_blob_binary(repo: &Repository, oid: Oid) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 mod tests {
     use super::*;
     use std::fs;

@@ -1,12 +1,20 @@
 // Prevents an additional console window on Windows in release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::panic)]
+#![deny(clippy::todo)]
+#![deny(clippy::unimplemented)]
+#![deny(clippy::dbg_macro)]
+#![deny(clippy::print_stdout)]
+#![deny(clippy::print_stderr)]
 
 mod commands;
 
 use commands::AppState;
 
 fn main() {
-    tauri::Builder::default()
+    if let Err(e) = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
@@ -26,5 +34,8 @@ fn main() {
             commands::refine_groups,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running flowdiff");
+    {
+        log::error!("Fatal: flowdiff failed to start: {}", e);
+        std::process::exit(1);
+    }
 }
