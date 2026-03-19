@@ -32,3 +32,10 @@
 (import_from_statement
   module_name: (relative_import) @relative_source
   name: (dotted_name) @relative_imported_name) @stmt
+
+; Pattern 6: Relative import with alias — from .models import User as U
+(import_from_statement
+  module_name: (relative_import) @relative_source
+  name: (aliased_import
+    name: (dotted_name) @relative_aliased_name
+    alias: (identifier) @relative_alias)) @stmt

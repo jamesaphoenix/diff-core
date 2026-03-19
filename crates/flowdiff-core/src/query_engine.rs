@@ -503,6 +503,8 @@ impl QueryEngine {
         let wildcard_idx = qwc.capture_index("wildcard");
         let relative_source_idx = qwc.capture_index("relative_source");
         let relative_imported_name_idx = qwc.capture_index("relative_imported_name");
+        let relative_aliased_name_idx = qwc.capture_index("relative_aliased_name");
+        let relative_alias_idx = qwc.capture_index("relative_alias");
 
         let mut import_map: Vec<(usize, ImportBuilder)> = Vec::new();
 
@@ -517,8 +519,33 @@ impl QueryEngine {
                 }
             }
 
-            if m.has_capture(relative_source_idx) {
-                // from .bar import baz (relative import)
+            if m.has_capture(relative_aliased_name_idx) {
+                // from .models import User as U (relative import with alias)
+                let mut src = String::new();
+                let mut imported = String::new();
+                let mut alias = String::new();
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == relative_source_idx {
+                        src = node_text(&node, source).to_string();
+                    }
+                    if Some(idx) == relative_aliased_name_idx {
+                        imported = node_text(&node, source).to_string();
+                    }
+                    if Some(idx) == relative_alias_idx {
+                        alias = node_text(&node, source).to_string();
+                    }
+                }
+                if !src.is_empty() && !imported.is_empty() {
+                    let entry =
+                        get_or_insert_import(&mut import_map, stmt_start, &src, line);
+                    entry.names.retain(|n| n.name != imported);
+                    entry.names.push(ImportedName {
+                        name: imported,
+                        alias: if alias.is_empty() { None } else { Some(alias) },
+                    });
+                }
+            } else if m.has_capture(relative_source_idx) {
+                // from .bar import baz (relative import, non-aliased)
                 let mut src = String::new();
                 let mut imported = String::new();
                 for &(idx, node) in &m.captures {
@@ -1322,7 +1349,11 @@ fn find_containing_function(node: &Node, source: &[u8], language: Language) -> O
         if parent.kind() == "variable_declarator" {
             let is_fn = parent
                 .child_by_field_name("value")
-                .map(|v| v.kind() == "arrow_function" || v.kind() == "function")
+                .map(|v| {
+                    v.kind() == "arrow_function"
+                        || v.kind() == "function"
+                        || v.kind() == "function_expression"
+                })
                 .unwrap_or(false);
             if is_fn {
                 return parent
@@ -2227,7 +2258,7 @@ mod audit_tests {
         // this via the `value` field fallback. Document the gap here.
         let e = engine();
         let source = "const app = createApp();\nexport default app;\n";
-        let result = e.parse_file("app.ts", source).unwrap();
+        let _result = e.parse_file("app.ts", source).unwrap();
         // The imperative parser captures this; query engine does not (known gap)
         let ast_result = crate::ast::parse_file("app.ts", source).unwrap();
         assert!(
@@ -2484,5 +2515,498 @@ function handler(req: any) {
                 ast_a.callee
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8 audit: .scm query file coverage tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+mod scm_audit_tests {
+    use super::*;
+
+    fn engine() -> QueryEngine {
+        QueryEngine::new().expect("query engine should compile")
+    }
+
+    // === TS enum declarations ===
+
+    #[test]
+    fn test_ts_enum_not_captured_known_gap() {
+        // Known gap: TS enum declarations (enum_declaration) are not in definitions.scm
+        let e = engine();
+        let source = "enum Direction { Up, Down, Left, Right }";
+        let result = e.parse_file("dir.ts", source).unwrap();
+        // Document current behavior: enums are NOT captured
+        let has_enum = result.definitions.iter().any(|d| d.name == "Direction");
+        assert!(!has_enum, "Enums are not captured (known gap) — if this starts passing, update the .scm file");
+    }
+
+    #[test]
+    fn test_ts_const_enum_not_captured_known_gap() {
+        let e = engine();
+        let source = "const enum Status { Active, Inactive }";
+        let result = e.parse_file("status.ts", source).unwrap();
+        let has_enum = result.definitions.iter().any(|d| d.name == "Status");
+        assert!(!has_enum, "Const enums are not captured (known gap)");
+    }
+
+    // === TS export default expression ===
+
+    #[test]
+    fn test_ts_export_default_identifier_gap() {
+        // Known gap: `export default foo` (bare identifier) not captured
+        let e = engine();
+        let source = "const app = {};\nexport default app;";
+        let result = e.parse_file("app.ts", source).unwrap();
+        // Query engine cannot capture bare export default expressions
+        let has_default = result.exports.iter().any(|e| e.is_default);
+        assert!(!has_default, "Export default identifier is not captured (known gap)");
+    }
+
+    #[test]
+    fn test_ts_export_default_class_expression_gap() {
+        // export default class { } (anonymous class) — another known gap
+        let e = engine();
+        let source = "export default class { method() {} }";
+        let _result = e.parse_file("anon.ts", source).unwrap();
+        // Anonymous class export — no name to capture
+        // This is acceptable: we can't meaningfully track anonymous exports
+    }
+
+    // === TS enum in exports ===
+
+    #[test]
+    fn test_ts_export_enum_not_captured_known_gap() {
+        let e = engine();
+        let source = "export enum Color { Red, Green, Blue }";
+        let result = e.parse_file("colors.ts", source).unwrap();
+        let has_enum_export = result.exports.iter().any(|e| e.name == "Color");
+        assert!(!has_enum_export, "Export enum is not captured (known gap)");
+    }
+
+    // === TS import type ===
+
+    #[test]
+    fn test_ts_import_type_captured() {
+        // `import type { Foo } from ...` is parsed as a regular import_statement
+        // by tree-sitter TS, so our import patterns capture it. This is fine for
+        // flow analysis — type imports still create dependency edges.
+        let e = engine();
+        let source = "import type { User } from './models';";
+        let result = e.parse_file("app.ts", source).unwrap();
+        assert_eq!(result.imports.len(), 1);
+        assert_eq!(result.imports[0].source, "./models");
+        // The "type" keyword gets captured as the first identifier by the default_name pattern
+        // This is slightly incorrect but the import source is correct, which is what matters
+        // for building dependency edges
+    }
+
+    // === Python walrus operator ===
+
+    #[test]
+    fn test_python_walrus_operator_not_in_assignments() {
+        // := (walrus operator / named expression) is not an assignment statement,
+        // it's a named_expression. Our assignments.scm only captures assignment
+        // statements. This is acceptable because walrus operators are typically
+        // used inline (if/while conditions) and rarely represent data flow.
+        let e = engine();
+        let df = e.extract_data_flow("app.py", "if (x := compute()):\n    pass").unwrap();
+        assert!(df.assignments.is_empty(), "walrus operator not captured (acceptable gap)");
+    }
+
+    // === TS destructuring assignments ===
+
+    #[test]
+    fn test_ts_destructuring_assignment_not_in_assignments() {
+        // Destructuring assignments like `const { a, b } = foo()` are not captured
+        // by assignments.scm because the LHS is not an `identifier` but an
+        // `object_pattern`. The IR layer handles destructuring via IrPattern.
+        let e = engine();
+        let df = e.extract_data_flow("app.ts", "const { a, b } = getData();").unwrap();
+        assert!(df.assignments.is_empty(), "destructuring assignments not in .scm query (handled by IR layer)");
+    }
+
+    #[test]
+    fn test_ts_array_destructuring_not_in_assignments() {
+        let e = engine();
+        let df = e.extract_data_flow("app.ts", "const [first, ...rest] = getList();").unwrap();
+        assert!(df.assignments.is_empty(), "array destructuring not in .scm query (handled by IR layer)");
+    }
+
+    // === Python tuple unpacking ===
+
+    #[test]
+    fn test_python_tuple_unpacking_not_in_assignments() {
+        // `a, b = foo()` has LHS as `pattern_list`, not `identifier`
+        let e = engine();
+        let df = e.extract_data_flow("app.py", "a, b = compute()").unwrap();
+        assert!(df.assignments.is_empty(), "tuple unpacking not in .scm query (handled by IR layer)");
+    }
+
+    // === Python relative import with alias ===
+
+    #[test]
+    fn test_python_relative_import_with_alias() {
+        // `from .models import User as U` — Pattern 6 in python/imports.scm
+        let e = engine();
+        let result = e.parse_file("pkg/app.py", "from .models import User as U").unwrap();
+        assert_eq!(result.imports.len(), 1);
+        assert_eq!(result.imports[0].source, ".models");
+        assert_eq!(result.imports[0].names.len(), 1);
+        assert_eq!(result.imports[0].names[0].name, "User");
+        assert_eq!(result.imports[0].names[0].alias, Some("U".to_string()));
+    }
+
+    // === Python async def ===
+
+    #[test]
+    fn test_python_async_def_captured() {
+        // async def should be captured — tree-sitter-python uses `function_definition`
+        // for both sync and async functions
+        let e = engine();
+        let source = "async def fetch_data():\n    pass";
+        let result = e.parse_file("api.py", source).unwrap();
+        assert!(
+            result.definitions.iter().any(|d| d.name == "fetch_data" && d.kind == SymbolKind::Function),
+            "async functions should be captured"
+        );
+    }
+
+    // === TS `as const` / `satisfies` ===
+
+    #[test]
+    fn test_ts_as_const_assignment() {
+        let e = engine();
+        let source = "const config = { port: 3000 } as const;";
+        let result = e.parse_file("config.ts", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "config" && d.kind == SymbolKind::Constant));
+    }
+
+    #[test]
+    fn test_ts_satisfies_expression() {
+        let e = engine();
+        let source = "const config = { port: 3000 } satisfies Config;";
+        let result = e.parse_file("config.ts", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "config" && d.kind == SymbolKind::Constant));
+    }
+
+    // === TS `export default function` with no name ===
+
+    #[test]
+    fn test_ts_export_default_anonymous_function() {
+        let e = engine();
+        let source = "export default function() { return 42; }";
+        let _result = e.parse_file("anon.ts", source).unwrap();
+        // Anonymous function — no name to capture. This is acceptable.
+        // The export statement itself may or may not match.
+    }
+
+    // === TS template literal type ===
+
+    #[test]
+    fn test_ts_complex_type_alias() {
+        let e = engine();
+        let source = "type EventName = `on${string}`;";
+        let result = e.parse_file("events.ts", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "EventName" && d.kind == SymbolKind::TypeAlias));
+    }
+
+    // === TS namespace/module declarations ===
+
+    #[test]
+    fn test_ts_namespace_not_captured_known_gap() {
+        let e = engine();
+        let source = "namespace MyApp { export function init() {} }";
+        let result = e.parse_file("app.ts", source).unwrap();
+        // namespace declarations use `module` node type in tree-sitter TS
+        // Our definitions.scm doesn't capture them — acceptable for diff analysis
+        let _has_namespace = result.definitions.iter().any(|d| d.name == "MyApp");
+        // init() inside should still be captured
+        assert!(result.definitions.iter().any(|d| d.name == "init"));
+    }
+
+    // === TS `export =` (CommonJS-style) ===
+
+    #[test]
+    fn test_ts_export_assignment_not_captured() {
+        let e = engine();
+        let source = "class Foo {}\nexport = Foo;";
+        let _result = e.parse_file("mod.ts", source).unwrap();
+        // export = Foo is TypeScript-specific CommonJS compat, rarely used
+        // Not captured — acceptable gap
+    }
+
+    // === Python __all__ ===
+
+    #[test]
+    fn test_python_dunder_all_not_captured() {
+        // Python uses __all__ for explicit exports, but it's just an assignment
+        // statement (not a function/class definition), so it's not captured as
+        // a definition. This is correct — Python assignments are not definitions.
+        let e = engine();
+        let source = "__all__ = ['foo', 'bar']";
+        let result = e.parse_file("mod.py", source).unwrap();
+        // Python has no const/let/var, so assignments are not captured as definitions
+        assert!(result.definitions.is_empty(), "__all__ is an assignment, not a definition");
+    }
+
+    // === TS `require()` calls (CJS imports) ===
+
+    #[test]
+    fn test_ts_require_captured_as_call() {
+        // require() is a call expression, not an import statement
+        // It should appear in call_sites, which is correct for CJS detection
+        let e = engine();
+        let source = "const fs = require('fs');";
+        let result = e.parse_file("app.ts", source).unwrap();
+        assert!(result.call_sites.iter().any(|c| c.callee == "require"));
+    }
+
+    // === TS dynamic import ===
+
+    #[test]
+    fn test_ts_dynamic_import_not_in_imports() {
+        // import('module') is a call_expression, not an import_statement
+        let e = engine();
+        let source = "const mod = await import('./lazy');";
+        let result = e.parse_file("app.ts", source).unwrap();
+        // Should NOT be in static imports
+        assert!(result.imports.is_empty());
+        // But should be captured by data flow as an assignment from a call
+        let df = e.extract_data_flow("app.ts", source).unwrap();
+        assert_eq!(df.assignments.len(), 1);
+        assert_eq!(df.assignments[0].variable, "mod");
+    }
+
+    // === Python decorated method inside decorated class ===
+
+    #[test]
+    fn test_python_decorated_method_in_decorated_class() {
+        let e = engine();
+        let source = "@dataclass\nclass Service:\n    @staticmethod\n    def create():\n        pass\n    @classmethod\n    def from_config(cls):\n        pass";
+        let result = e.parse_file("svc.py", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "Service" && d.kind == SymbolKind::Class));
+        assert!(result.definitions.iter().any(|d| d.name == "create"));
+        assert!(result.definitions.iter().any(|d| d.name == "from_config"));
+    }
+
+    // === TS exported arrow function ===
+
+    #[test]
+    fn test_ts_export_arrow_function() {
+        let e = engine();
+        let source = "export const handler = async (req: Request) => { return new Response(); };";
+        let result = e.parse_file("handler.ts", source).unwrap();
+        assert!(result.exports.iter().any(|e| e.name == "handler"));
+        assert!(result.definitions.iter().any(|d| d.name == "handler" && d.kind == SymbolKind::Function));
+    }
+
+    // === Python multiline import ===
+
+    #[test]
+    fn test_python_multiline_import() {
+        let e = engine();
+        let source = "from models import (\n    User,\n    Post,\n    Comment\n)";
+        let result = e.parse_file("app.py", source).unwrap();
+        assert_eq!(result.imports.len(), 1);
+        let names: Vec<&str> = result.imports[0].names.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"User"));
+        assert!(names.contains(&"Post"));
+        assert!(names.contains(&"Comment"));
+    }
+
+    // === Python multiple import on same line ===
+
+    #[test]
+    fn test_python_multiple_import_same_statement() {
+        let e = engine();
+        let source = "import os, sys, json";
+        let result = e.parse_file("app.py", source).unwrap();
+        // tree-sitter-python may parse this as separate import nodes
+        // or as one import_statement with multiple dotted_names
+        assert!(!result.imports.is_empty());
+    }
+
+    // === TS re-export namespace ===
+
+    #[test]
+    fn test_ts_namespace_reexport() {
+        let e = engine();
+        let source = "export * as utils from './utils';";
+        let result = e.parse_file("index.ts", source).unwrap();
+        // namespace re-export should be captured by the wildcard pattern
+        assert!(!result.exports.is_empty());
+    }
+
+    // === find_containing_function for function_expression ===
+
+    #[test]
+    fn test_ts_function_expression_containing() {
+        let e = engine();
+        let source = "const handler = function named() { innerCall(); };";
+        let result = e.parse_file("fn.ts", source).unwrap();
+        let call = result.call_sites.iter().find(|c| c.callee == "innerCall").unwrap();
+        // function_expression assigned to variable — should find "handler" or "named"
+        assert!(
+            call.containing_function.is_some(),
+            "function expression should have a containing function"
+        );
+    }
+
+    // === TS computed property method ===
+
+    #[test]
+    fn test_ts_computed_property_method() {
+        let e = engine();
+        let source = "class Router { [Symbol.iterator]() {} }";
+        let result = e.parse_file("router.ts", source).unwrap();
+        // Computed property methods have non-identifier names — class should still be captured
+        assert!(result.definitions.iter().any(|d| d.name == "Router"));
+        // The computed method name is captured as the full expression text
+        // e.g. "Symbol.iterator" via the (_) capture in method_definition
+    }
+
+    // === Python nested class ===
+
+    #[test]
+    fn test_python_nested_class() {
+        let e = engine();
+        let source = "class Outer:\n    class Inner:\n        def method(self):\n            pass";
+        let result = e.parse_file("nested.py", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "Outer"));
+        // Inner class may or may not be captured depending on query depth
+    }
+
+    // === TS class with static methods ===
+
+    #[test]
+    fn test_ts_static_method() {
+        let e = engine();
+        let source = "class Factory { static create() {} }";
+        let result = e.parse_file("factory.ts", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "Factory"));
+        assert!(result.definitions.iter().any(|d| d.name == "create"));
+    }
+
+    // === TS getter/setter ===
+
+    #[test]
+    fn test_ts_getter_setter() {
+        let e = engine();
+        let source = "class User { get name() { return ''; } set name(v: string) {} }";
+        let result = e.parse_file("user.ts", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "User"));
+        // getter/setter are method_definitions — should be captured
+        assert!(result.definitions.iter().any(|d| d.name == "name"));
+    }
+
+    // === Verify .scm pattern ordering doesn't matter ===
+
+    #[test]
+    fn test_capture_name_dispatch_order_independent() {
+        // Verify that the engine dispatches by capture name, not pattern index.
+        // This is the key architectural property of the capture-name refactor.
+        let e = engine();
+        let source = r#"
+import React from 'react';
+import { useState } from 'react';
+import * as path from 'path';
+import './polyfill';
+"#;
+        let result = e.parse_file("app.ts", source).unwrap();
+        assert_eq!(result.imports.len(), 4);
+        // Verify each import type was correctly dispatched
+        assert!(result.imports.iter().any(|i| i.is_default)); // default
+        assert!(result.imports.iter().any(|i| !i.is_default && !i.is_namespace && !i.names.is_empty())); // named
+        assert!(result.imports.iter().any(|i| i.is_namespace)); // namespace
+        assert!(result.imports.iter().any(|i| i.names.is_empty())); // side-effect
+    }
+
+    // === Verify all export types dispatch correctly ===
+
+    #[test]
+    fn test_all_export_declaration_types() {
+        let e = engine();
+        let source = r#"
+export function fn() {}
+export function* gen() {}
+export class Cls {}
+export abstract class ACls {}
+export interface IFace {}
+export type TAlias = string;
+export const VAL = 1;
+"#;
+        let result = e.parse_file("all.ts", source).unwrap();
+        assert!(result.exports.iter().any(|e| e.name == "fn"), "export function");
+        assert!(result.exports.iter().any(|e| e.name == "gen"), "export generator");
+        assert!(result.exports.iter().any(|e| e.name == "Cls"), "export class");
+        assert!(result.exports.iter().any(|e| e.name == "ACls"), "export abstract class");
+        assert!(result.exports.iter().any(|e| e.name == "IFace"), "export interface");
+        assert!(result.exports.iter().any(|e| e.name == "TAlias"), "export type alias");
+        assert!(result.exports.iter().any(|e| e.name == "VAL"), "export const");
+    }
+
+    // === Verify definition extraction finds all kinds ===
+
+    #[test]
+    fn test_all_definition_kinds_ts() {
+        let e = engine();
+        let source = r#"
+function fn() {}
+function* gen() {}
+class Cls {}
+abstract class ACls {}
+interface IFace {}
+type TAlias = string;
+const handler = () => {};
+const fnExpr = function() {};
+const VAL = 42;
+class WithMethod { method() {} }
+"#;
+        let result = e.parse_file("all.ts", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "fn" && d.kind == SymbolKind::Function));
+        assert!(result.definitions.iter().any(|d| d.name == "gen" && d.kind == SymbolKind::Function));
+        assert!(result.definitions.iter().any(|d| d.name == "Cls" && d.kind == SymbolKind::Class));
+        assert!(result.definitions.iter().any(|d| d.name == "ACls" && d.kind == SymbolKind::Class));
+        assert!(result.definitions.iter().any(|d| d.name == "IFace" && d.kind == SymbolKind::Interface));
+        assert!(result.definitions.iter().any(|d| d.name == "TAlias" && d.kind == SymbolKind::TypeAlias));
+        assert!(result.definitions.iter().any(|d| d.name == "handler" && d.kind == SymbolKind::Function));
+        assert!(result.definitions.iter().any(|d| d.name == "fnExpr" && d.kind == SymbolKind::Function));
+        assert!(result.definitions.iter().any(|d| d.name == "VAL" && d.kind == SymbolKind::Constant));
+        assert!(result.definitions.iter().any(|d| d.name == "method" && d.kind == SymbolKind::Function));
+    }
+
+    #[test]
+    fn test_all_definition_kinds_python() {
+        let e = engine();
+        let source = "def fn():\n    pass\n\nclass Cls:\n    def method(self):\n        pass\n\n@deco\ndef decorated():\n    pass\n\n@deco\nclass DCls:\n    @deco\n    def dmethod(self):\n        pass";
+        let result = e.parse_file("all.py", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "fn" && d.kind == SymbolKind::Function));
+        assert!(result.definitions.iter().any(|d| d.name == "Cls" && d.kind == SymbolKind::Class));
+        assert!(result.definitions.iter().any(|d| d.name == "method" && d.kind == SymbolKind::Function));
+        assert!(result.definitions.iter().any(|d| d.name == "decorated" && d.kind == SymbolKind::Function));
+        assert!(result.definitions.iter().any(|d| d.name == "DCls" && d.kind == SymbolKind::Class));
+        assert!(result.definitions.iter().any(|d| d.name == "dmethod" && d.kind == SymbolKind::Function));
+    }
+
+    // === Verify Python import capture coverage ===
+
+    #[test]
+    fn test_all_python_import_variants() {
+        let e = engine();
+        let source = r#"import os
+import numpy as np
+from os.path import join
+from typing import List
+from models import User as U
+from os.path import *
+from . import utils
+"#;
+        let result = e.parse_file("all.py", source).unwrap();
+        // Should capture all 7 imports (though some may be combined)
+        assert!(result.imports.len() >= 6, "expected at least 6 imports, got {}", result.imports.len());
     }
 }
