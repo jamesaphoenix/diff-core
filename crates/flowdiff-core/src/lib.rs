@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod cache;
 pub mod cluster;
 pub mod config;
 pub mod entrypoint;

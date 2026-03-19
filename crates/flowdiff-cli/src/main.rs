@@ -4,7 +4,7 @@ use std::process;
 use clap::{Parser, Subcommand, ValueEnum};
 use git2::Repository;
 
-use flowdiff_core::ast;
+use flowdiff_core::cache;
 use flowdiff_core::cluster;
 use flowdiff_core::config::FlowdiffConfig;
 use flowdiff_core::entrypoint;
@@ -14,6 +14,7 @@ use flowdiff_core::graph::SymbolGraph;
 use flowdiff_core::llm;
 use flowdiff_core::llm::refinement;
 use flowdiff_core::output::{self, build_analysis_output};
+use flowdiff_core::pipeline;
 use flowdiff_core::rank;
 use flowdiff_core::types::{AnalysisOutput, GroupRankInput};
 
@@ -196,21 +197,29 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
         return write_output(&empty_output, args.output.as_deref());
     }
 
-    // Parse all changed files
-    let mut parsed_files = Vec::new();
-    for file_diff in &diff_result.files {
-        let content = file_diff.new_content.as_deref()
-            .or(file_diff.old_content.as_deref());
-        if let Some(content) = content {
-            let path = file_diff.path();
-            if config.is_ignored(path) {
-                continue;
-            }
-            if let Ok(parsed) = ast::parse_file(path, content) {
-                parsed_files.push(parsed);
-            }
+    // Check cache (skip if LLM annotation or refinement requested — those are additive)
+    let cache_key = cache::compute_cache_key(&diff_result);
+    if !args.annotate && !args.refine && args.refine_model.is_none() {
+        if let Some(cached) = cache::load_cached(&workdir, &cache_key) {
+            return write_output(&cached, args.output.as_deref());
         }
     }
+
+    // Parse all changed files in parallel
+    let file_inputs: Vec<(&str, &str)> = diff_result
+        .files
+        .iter()
+        .filter_map(|file_diff| {
+            let content = file_diff.new_content.as_deref()
+                .or(file_diff.old_content.as_deref())?;
+            let path = file_diff.path();
+            if config.is_ignored(path) {
+                return None;
+            }
+            Some((path, content))
+        })
+        .collect();
+    let parsed_files = pipeline::parse_files_parallel(&file_inputs);
 
     // Build symbol graph
     let mut graph = SymbolGraph::build(&parsed_files);
@@ -268,6 +277,9 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
         &cluster_result,
         &ranked,
     );
+
+    // Cache the deterministic analysis result (before LLM steps)
+    cache::store_cached(&workdir, &cache_key, &analysis_output);
 
     // Apply LLM refinement if enabled
     if config.llm.refinement.enabled {

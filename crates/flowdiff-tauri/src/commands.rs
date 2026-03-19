@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use flowdiff_core::ast;
+use flowdiff_core::cache;
 use flowdiff_core::cluster;
 use flowdiff_core::config::FlowdiffConfig;
 use flowdiff_core::entrypoint;
@@ -16,6 +16,7 @@ use flowdiff_core::llm;
 use flowdiff_core::llm::refinement;
 use flowdiff_core::llm::schema::{Pass1Response, Pass2Response, RefinementResponse};
 use flowdiff_core::output::{self, build_analysis_output};
+use flowdiff_core::pipeline;
 use flowdiff_core::rank;
 use flowdiff_core::types::{AnalysisOutput, GroupRankInput};
 
@@ -120,23 +121,32 @@ pub fn analyze(
         return Ok(empty_output);
     }
 
-    // Parse all changed files
-    let mut parsed_files = Vec::new();
-    for file_diff in &diff_result.files {
-        let content = file_diff
-            .new_content
-            .as_deref()
-            .or(file_diff.old_content.as_deref());
-        if let Some(content) = content {
+    // Check cache for previously computed results
+    let cache_key = cache::compute_cache_key(&diff_result);
+    if let Some(cached) = cache::load_cached(&workdir, &cache_key) {
+        if let Ok(mut last) = state.last_analysis.lock() {
+            *last = Some(cached.clone());
+        }
+        return Ok(cached);
+    }
+
+    // Parse all changed files in parallel
+    let file_inputs: Vec<(&str, &str)> = diff_result
+        .files
+        .iter()
+        .filter_map(|file_diff| {
+            let content = file_diff
+                .new_content
+                .as_deref()
+                .or(file_diff.old_content.as_deref())?;
             let path = file_diff.path();
             if config.is_ignored(path) {
-                continue;
+                return None;
             }
-            if let Ok(parsed) = ast::parse_file(path, content) {
-                parsed_files.push(parsed);
-            }
-        }
-    }
+            Some((path, content))
+        })
+        .collect();
+    let parsed_files = pipeline::parse_files_parallel(&file_inputs);
 
     // Build symbol graph
     let mut graph = SymbolGraph::build(&parsed_files);
@@ -193,6 +203,9 @@ pub fn analyze(
     // Build output
     let analysis_output =
         build_analysis_output(&diff_result, diff_source, &parsed_files, &cluster_result, &ranked);
+
+    // Cache the deterministic analysis result
+    cache::store_cached(&workdir, &cache_key, &analysis_output);
 
     // Store for subsequent queries
     if let Ok(mut last) = state.last_analysis.lock() {

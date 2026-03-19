@@ -17,6 +17,9 @@
 //!             → cluster + rank (unchanged, operate on graph/entrypoints)
 //! ```
 
+use rayon::prelude::*;
+
+use crate::ast::{self, ParsedFile};
 use crate::ir::IrFile;
 use crate::query_engine::QueryEngine;
 
@@ -40,24 +43,55 @@ pub fn parse_to_ir(engine: &QueryEngine, path: &str, source: &str) -> Result<IrF
     Ok(ir)
 }
 
-/// Parse multiple files into IR representations.
+/// Parse multiple files into IR representations in parallel using rayon.
 ///
 /// Files that fail to parse are skipped (with errors collected).
+/// Results are sorted by file path to ensure deterministic output regardless
+/// of thread scheduling.
 pub fn parse_all_to_ir(
     engine: &QueryEngine,
     files: &[(&str, &str)],
 ) -> (Vec<IrFile>, Vec<PipelineError>) {
+    let results: Vec<Result<IrFile, PipelineError>> = files
+        .par_iter()
+        .map(|&(path, source)| parse_to_ir(engine, path, source))
+        .collect();
+
     let mut ir_files = Vec::with_capacity(files.len());
     let mut errors = Vec::new();
 
-    for &(path, source) in files {
-        match parse_to_ir(engine, path, source) {
+    for result in results {
+        match result {
             Ok(ir) => ir_files.push(ir),
             Err(e) => errors.push(e),
         }
     }
 
+    // Sort by path to ensure deterministic output regardless of thread ordering.
+    ir_files.sort_by(|a, b| a.path.cmp(&b.path));
+
     (ir_files, errors)
+}
+
+/// Parse multiple source files into `ParsedFile` representations in parallel.
+///
+/// This is the parallel equivalent of calling `ast::parse_file` in a loop —
+/// used by the CLI and Tauri analysis pipelines. Each file is parsed
+/// independently via rayon, then results are collected and sorted by path
+/// for determinism.
+///
+/// Files that fail to parse are silently skipped (tree-sitter is error-tolerant,
+/// so failures are rare — typically only unsupported languages or empty content).
+pub fn parse_files_parallel(files: &[(&str, &str)]) -> Vec<ParsedFile> {
+    let mut parsed: Vec<ParsedFile> = files
+        .par_iter()
+        .filter_map(|&(path, source)| ast::parse_file(path, source).ok())
+        .collect();
+
+    // Sort by path for deterministic ordering.
+    parsed.sort_by(|a, b| a.path.cmp(&b.path));
+
+    parsed
 }
 
 /// Errors from the pipeline.
@@ -136,8 +170,10 @@ def list_users():
 
         assert_eq!(ir_files.len(), 2);
         assert!(errors.is_empty());
-        assert_eq!(ir_files[0].path, "src/a.ts");
-        assert_eq!(ir_files[1].path, "src/b.ts");
+        // Sorted by path
+        let paths: Vec<&str> = ir_files.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"src/a.ts"));
+        assert!(paths.contains(&"src/b.ts"));
     }
 
     #[test]
@@ -255,7 +291,7 @@ export function handle(req: any) {
     }
 
     #[test]
-    fn parse_all_to_ir_preserves_order() {
+    fn parse_all_to_ir_sorted_by_path() {
         let engine = QueryEngine::new().unwrap();
         let files = vec![
             ("c.ts", "function c() {}"),
@@ -264,9 +300,10 @@ export function handle(req: any) {
         ];
         let (ir_files, errors) = parse_all_to_ir(&engine, &files);
         assert!(errors.is_empty());
-        assert_eq!(ir_files[0].path, "c.ts");
-        assert_eq!(ir_files[1].path, "a.ts");
-        assert_eq!(ir_files[2].path, "b.ts");
+        // Parallel output is sorted by path for determinism
+        assert_eq!(ir_files[0].path, "a.ts");
+        assert_eq!(ir_files[1].path, "b.ts");
+        assert_eq!(ir_files[2].path, "c.ts");
     }
 
     #[test]
@@ -280,10 +317,13 @@ export function handle(req: any) {
         let (ir_files, errors) = parse_all_to_ir(&engine, &files);
         assert!(errors.is_empty());
         assert_eq!(ir_files.len(), 3);
-        // TS and Python should have functions, JSON should not
-        assert!(!ir_files[0].functions.is_empty());
-        assert!(!ir_files[1].functions.is_empty());
-        assert!(ir_files[2].functions.is_empty());
+        // Check by path (sorted: data.json, handler.ts, views.py)
+        let ts = ir_files.iter().find(|f| f.path == "handler.ts").unwrap();
+        let py = ir_files.iter().find(|f| f.path == "views.py").unwrap();
+        let json = ir_files.iter().find(|f| f.path == "data.json").unwrap();
+        assert!(!ts.functions.is_empty());
+        assert!(!py.functions.is_empty());
+        assert!(json.functions.is_empty());
     }
 
     // ── Syntax error tolerance ───────────────────────────────────────
@@ -446,6 +486,96 @@ export function handler() {
         }
     }
 
+    // ── Parallel parse_files_parallel tests ────────────────────────────
+
+    #[test]
+    fn parse_files_parallel_basic() {
+        let files = vec![
+            ("src/a.ts", "export function a() {}"),
+            ("src/b.ts", "function b() {}"),
+        ];
+        let parsed = parse_files_parallel(&files);
+        assert_eq!(parsed.len(), 2);
+        let paths: Vec<&str> = parsed.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"src/a.ts"));
+        assert!(paths.contains(&"src/b.ts"));
+    }
+
+    #[test]
+    fn parse_files_parallel_empty() {
+        let parsed = parse_files_parallel(&[]);
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn parse_files_parallel_single_file() {
+        let files = vec![("main.ts", "function main() {}")];
+        let parsed = parse_files_parallel(&files);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].path, "main.ts");
+    }
+
+    #[test]
+    fn parse_files_parallel_mixed_languages() {
+        let files = vec![
+            ("app.ts", "export function app() {}"),
+            ("views.py", "def view(): pass"),
+            ("config.json", "{}"),
+        ];
+        let parsed = parse_files_parallel(&files);
+        assert_eq!(parsed.len(), 3);
+        let ts = parsed.iter().find(|f| f.path == "app.ts").unwrap();
+        let py = parsed.iter().find(|f| f.path == "views.py").unwrap();
+        assert!(!ts.definitions.is_empty());
+        assert!(!py.definitions.is_empty());
+    }
+
+    #[test]
+    fn parse_files_parallel_deterministic() {
+        let files = vec![
+            ("c.ts", "function c() {}"),
+            ("a.ts", "function a() {}"),
+            ("b.ts", "function b() {}"),
+        ];
+        let r1 = parse_files_parallel(&files);
+        let r2 = parse_files_parallel(&files);
+        assert_eq!(r1.len(), r2.len());
+        for (a, b) in r1.iter().zip(r2.iter()) {
+            assert_eq!(a.path, b.path);
+            assert_eq!(a.definitions.len(), b.definitions.len());
+        }
+    }
+
+    #[test]
+    fn parse_files_parallel_sorted_by_path() {
+        let files = vec![
+            ("z.ts", "function z() {}"),
+            ("a.ts", "function a() {}"),
+            ("m.ts", "function m() {}"),
+        ];
+        let parsed = parse_files_parallel(&files);
+        assert_eq!(parsed[0].path, "a.ts");
+        assert_eq!(parsed[1].path, "m.ts");
+        assert_eq!(parsed[2].path, "z.ts");
+    }
+
+    #[test]
+    fn parse_files_parallel_many_files() {
+        let sources: Vec<(String, String)> = (0..50)
+            .map(|i| (format!("src/file_{:03}.ts", i), format!("function f{}() {{}}", i)))
+            .collect();
+        let files: Vec<(&str, &str)> = sources
+            .iter()
+            .map(|(p, s)| (p.as_str(), s.as_str()))
+            .collect();
+        let parsed = parse_files_parallel(&files);
+        assert_eq!(parsed.len(), 50);
+        // Verify sorted
+        for w in parsed.windows(2) {
+            assert!(w[0].path <= w[1].path);
+        }
+    }
+
     // ── Property-based tests ─────────────────────────────────────────
 
     mod proptests {
@@ -524,6 +654,36 @@ export function handler() {
                 prop_assert!(ir.imports.is_empty());
                 prop_assert!(ir.exports.is_empty());
                 prop_assert!(ir.call_expressions.is_empty());
+            }
+
+            #[test]
+            fn prop_parse_files_parallel_deterministic(
+                files in proptest::collection::vec(arb_ts_file(), 0..10)
+            ) {
+                let file_refs: Vec<(&str, &str)> = files
+                    .iter()
+                    .map(|(p, s)| (p.as_str(), s.as_str()))
+                    .collect();
+                let r1 = parse_files_parallel(&file_refs);
+                let r2 = parse_files_parallel(&file_refs);
+                prop_assert_eq!(r1.len(), r2.len());
+                for (a, b) in r1.iter().zip(r2.iter()) {
+                    prop_assert_eq!(&a.path, &b.path);
+                    prop_assert_eq!(a.definitions.len(), b.definitions.len());
+                }
+            }
+
+            #[test]
+            fn prop_parse_files_parallel_count_matches(
+                files in proptest::collection::vec(arb_ts_file(), 0..10)
+            ) {
+                let file_refs: Vec<(&str, &str)> = files
+                    .iter()
+                    .map(|(p, s)| (p.as_str(), s.as_str()))
+                    .collect();
+                let parsed = parse_files_parallel(&file_refs);
+                // All valid TS files should parse successfully
+                prop_assert_eq!(parsed.len(), files.len());
             }
         }
     }
