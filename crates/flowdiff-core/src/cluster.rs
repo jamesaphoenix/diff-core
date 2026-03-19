@@ -246,6 +246,7 @@ fn generate_group_name(ep: &Entrypoint) -> String {
         EntrypointType::ReactPage => format!("{} page flow", ep.symbol),
         EntrypointType::TestFile => format!("{} test flow", ep.symbol),
         EntrypointType::EventHandler => format!("{} event flow", ep.symbol),
+        EntrypointType::EffectService => format!("{} Effect service flow", ep.symbol),
     }
 }
 

@@ -567,11 +567,11 @@ flowdiff/
 - [x] Unit tests for AST parsing (25 tests — TS/JS imports, exports, definitions, calls; Python imports, functions, class hierarchy; changed symbol detection; performance)
 - [x] Unit tests for graph construction (25 tests — import edges, call edges, namespace/default/aliased imports, cyclic imports, re-export chains, index file resolution, cross-directory imports, Python imports/calls, serialization roundtrip, node lookup, determinism)
 - [x] Property-based tests for graph construction (6 tests — every definition has node, node count ≥ file count, no self-edges, serialization roundtrip, determinism, empty input)
-- [x] Unit tests for entrypoint detection (41 tests — HTTP routes for Express/FastAPI/Flask/Next.js, CLI commands with click/commander/argparse, test file detection, queue consumers, cron jobs, React pages, event handlers, deduplication, edge cases)
+- [x] Unit tests for entrypoint detection (75 tests — HTTP routes for Express/FastAPI/Flask/Next.js, CLI commands with click/commander/argparse, test file detection, queue consumers, cron jobs, React pages, event handlers, deduplication, edge cases, plus 34 Effect.ts tests)
 - [x] Unit tests for semantic clustering (16 tests — single/multiple entrypoint groups, shared file assignment by shortest path, infrastructure group, empty diff, disconnected components, file ordering by flow position, determinism, entrypoint not in graph, internal edges, file role inference, group name generation)
 - [x] Property-based tests for semantic clustering (6 tests — every file in exactly one group, empty diff → empty result, single file → single group, no entrypoints → all infrastructure, determinism, no edges → only entrypoint files grouped)
-- [ ] Effect.ts entrypoint detection (`HttpApi`/`HttpApiEndpoint`/`HttpApiGroup`/`HttpRouter`, `@effect/cli` Command, `Queue`/`PubSub` consumers, `Schedule`/`@effect/cron`, `@effect/vitest` test patterns, `Stream`/`Hub` handlers, `Effect.Service`/`Context.Tag`/`Layer` definitions)
-- [ ] Unit tests for Effect.ts entrypoint detection
+- [x] Effect.ts entrypoint detection (`HttpApi`/`HttpApiEndpoint`/`HttpApiGroup`/`HttpRouter`, `@effect/cli` Command, `Queue`/`PubSub` consumers, `Schedule`/`@effect/cron`, `@effect/vitest` test patterns, `Stream`/`Hub` handlers, `Effect.Service`/`Context.Tag`/`Layer` definitions)
+- [x] Unit tests for Effect.ts entrypoint detection (34 tests — HTTP routes via HttpApiEndpoint/HttpApi/HttpApiGroup/HttpRouter, CLI commands via @effect/cli Command, queue consumers via Queue/PubSub, cron jobs via Schedule/@effect/cron, test files via @effect/vitest, event handlers via Stream/Hub, services via Effect.Service/Context.Tag/Layer, edge cases for import validation and deduplication)
 
 ### Phase 2: Data Flow Depth (Week 2-3)
 - [ ] Full data flow tracing (parameters, return values, assignments)

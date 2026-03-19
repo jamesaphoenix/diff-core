@@ -26,6 +26,7 @@ fn detect_file_entrypoints(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     detect_cron_jobs(file, out);
     detect_react_pages(file, out);
     detect_event_handlers(file, out);
+    detect_effect_ts(file, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -593,6 +594,351 @@ fn detect_event_handlers(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
 }
 
 // ---------------------------------------------------------------------------
+// Effect.ts entrypoint detection
+// ---------------------------------------------------------------------------
+
+fn detect_effect_ts(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    if !matches!(file.language, Language::TypeScript | Language::JavaScript) {
+        return;
+    }
+
+    detect_effect_http_routes(file, out);
+    detect_effect_cli_commands(file, out);
+    detect_effect_queue_consumers(file, out);
+    detect_effect_cron_jobs(file, out);
+    detect_effect_test_files(file, out);
+    detect_effect_event_handlers(file, out);
+    detect_effect_services(file, out);
+}
+
+/// Check if an import source is from the Effect platform HTTP packages.
+fn has_effect_http_import(imports: &[ImportInfo]) -> bool {
+    imports.iter().any(|i| {
+        i.source == "@effect/platform"
+            || i.source.starts_with("@effect/platform/Http")
+            || i.source == "@effect/platform-node"
+            || i.source == "@effect/platform-bun"
+    })
+}
+
+/// Check if specific Effect HTTP names are imported.
+fn has_effect_http_name(imports: &[ImportInfo]) -> bool {
+    let http_names = [
+        "HttpApi",
+        "HttpApiEndpoint",
+        "HttpApiGroup",
+        "HttpRouter",
+        "HttpServer",
+        "HttpApiBuilder",
+    ];
+    imports.iter().any(|i| {
+        // Direct subpath import like @effect/platform/HttpApi
+        if let Some(last) = i.source.rsplit('/').next() {
+            if http_names.contains(&last) {
+                return true;
+            }
+        }
+        // Named import from @effect/platform
+        i.names.iter().any(|n| http_names.contains(&n.name.as_str()))
+    })
+}
+
+/// Detect Effect.ts HTTP routes: HttpApi, HttpApiEndpoint, HttpApiGroup, HttpRouter, HttpServer.
+fn detect_effect_http_routes(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    if !has_effect_http_import(&file.imports) && !has_effect_http_name(&file.imports) {
+        return;
+    }
+
+    let route_call_prefixes = [
+        "HttpApiEndpoint.get",
+        "HttpApiEndpoint.post",
+        "HttpApiEndpoint.put",
+        "HttpApiEndpoint.del",
+        "HttpApiEndpoint.delete",
+        "HttpApiEndpoint.patch",
+        "HttpApiEndpoint.head",
+        "HttpApiEndpoint.options",
+        "HttpApiEndpoint.make",
+        "HttpApi.make",
+        "HttpApi.empty",
+        "HttpApiGroup.make",
+        "HttpRouter.get",
+        "HttpRouter.post",
+        "HttpRouter.put",
+        "HttpRouter.del",
+        "HttpRouter.delete",
+        "HttpRouter.patch",
+        "HttpRouter.all",
+        "HttpRouter.mount",
+        "HttpRouter.route",
+    ];
+
+    for call in &file.call_sites {
+        if route_call_prefixes.iter().any(|p| call.callee == *p) {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::HttpRoute,
+            });
+        }
+    }
+
+    // Also check definitions that reference HttpApi/HttpRouter types
+    let http_def_names = ["HttpApi", "HttpApiGroup", "HttpRouter"];
+    for def in &file.definitions {
+        if http_def_names.iter().any(|n| def.name.contains(n)) {
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol: def.name.clone(),
+                entrypoint_type: EntrypointType::HttpRoute,
+            });
+        }
+    }
+}
+
+/// Detect Effect.ts CLI commands: @effect/cli Command, Args, Options.
+fn detect_effect_cli_commands(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    let has_cli_import = file.imports.iter().any(|i| {
+        i.source == "@effect/cli"
+            || i.source.starts_with("@effect/cli/")
+            || i.names
+                .iter()
+                .any(|n| n.name == "Command" || n.name == "Args" || n.name == "Options")
+                && i.source.starts_with("@effect/cli")
+    });
+
+    if !has_cli_import {
+        return;
+    }
+
+    let cli_calls = [
+        "Command.make",
+        "Command.run",
+        "Command.provide",
+        "Command.withHandler",
+    ];
+
+    for call in &file.call_sites {
+        if cli_calls.iter().any(|c| call.callee == *c) {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::CliCommand,
+            });
+        }
+    }
+}
+
+/// Detect Effect.ts queue consumers: Queue, PubSub consumer patterns.
+fn detect_effect_queue_consumers(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    let has_queue_import = file.imports.iter().any(|i| {
+        (i.source == "effect"
+            || i.source == "effect/Queue"
+            || i.source == "effect/PubSub")
+            && i.names
+                .iter()
+                .any(|n| n.name == "Queue" || n.name == "PubSub")
+            || i.source == "effect/Queue"
+            || i.source == "effect/PubSub"
+    });
+
+    if !has_queue_import {
+        return;
+    }
+
+    let consumer_calls = [
+        "Queue.take",
+        "Queue.poll",
+        "Queue.dequeue",
+        "Queue.takeBetween",
+        "Queue.takeAll",
+        "Queue.takeUpTo",
+        "PubSub.subscribe",
+        "PubSub.subscribeScopedWith",
+    ];
+
+    for call in &file.call_sites {
+        if consumer_calls.iter().any(|c| call.callee == *c) {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::QueueConsumer,
+            });
+        }
+    }
+}
+
+/// Detect Effect.ts cron jobs: Schedule, @effect/cron patterns.
+fn detect_effect_cron_jobs(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    let has_schedule_import = file.imports.iter().any(|i| {
+        i.source == "@effect/cron"
+            || i.source.starts_with("@effect/cron/")
+            || ((i.source == "effect" || i.source == "effect/Schedule")
+                && i.names.iter().any(|n| n.name == "Schedule"))
+            || i.source == "effect/Schedule"
+    });
+
+    if !has_schedule_import {
+        return;
+    }
+
+    let schedule_calls = [
+        "Schedule.cron",
+        "Schedule.fixed",
+        "Schedule.spaced",
+        "Schedule.recurring",
+        "Schedule.forever",
+        "Schedule.once",
+        "Schedule.dayOfWeek",
+        "Schedule.hourOfDay",
+        "Cron.make",
+        "Cron.parse",
+        "Cron.match",
+    ];
+
+    for call in &file.call_sites {
+        if schedule_calls.iter().any(|c| call.callee == *c) {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::CronJob,
+            });
+        }
+    }
+}
+
+/// Detect Effect.ts test files: @effect/vitest it.effect, it.scoped patterns.
+fn detect_effect_test_files(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    let has_vitest_import = file.imports.iter().any(|i| {
+        i.source == "@effect/vitest"
+            || i.source.starts_with("@effect/vitest/")
+    });
+
+    if !has_vitest_import {
+        return;
+    }
+
+    let test_calls = ["it.effect", "it.scoped", "it.live", "it.flakyTest"];
+
+    for call in &file.call_sites {
+        if test_calls.iter().any(|c| call.callee == *c) {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::TestFile,
+            });
+        }
+    }
+}
+
+/// Detect Effect.ts event handlers: Stream, PubSub, Hub listener patterns.
+fn detect_effect_event_handlers(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    let has_stream_import = file.imports.iter().any(|i| {
+        (i.source == "effect"
+            && i.names
+                .iter()
+                .any(|n| n.name == "Stream" || n.name == "Hub"))
+            || i.source == "effect/Stream"
+            || i.source == "effect/Hub"
+    });
+
+    if !has_stream_import {
+        return;
+    }
+
+    let handler_calls = [
+        "Stream.run",
+        "Stream.runForEach",
+        "Stream.runCollect",
+        "Stream.runDrain",
+        "Stream.runFold",
+        "Stream.runScoped",
+        "Hub.subscribe",
+        "Hub.publishAll",
+    ];
+
+    for call in &file.call_sites {
+        if handler_calls.iter().any(|c| call.callee == *c) {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::EventHandler,
+            });
+        }
+    }
+}
+
+/// Detect Effect.ts services: Effect.Service, Context.Tag, Layer definitions.
+fn detect_effect_services(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    let has_effect_import = file.imports.iter().any(|i| {
+        (i.source == "effect"
+            && i.names.iter().any(|n| {
+                n.name == "Effect"
+                    || n.name == "Context"
+                    || n.name == "Layer"
+            }))
+            || i.source == "effect/Effect"
+            || i.source == "effect/Context"
+            || i.source == "effect/Layer"
+    });
+
+    if !has_effect_import {
+        return;
+    }
+
+    let service_calls = [
+        "Effect.Service",
+        "Context.Tag",
+        "Context.GenericTag",
+        "Layer.effect",
+        "Layer.succeed",
+        "Layer.scoped",
+        "Layer.sync",
+        "Layer.fail",
+        "Layer.provide",
+        "Layer.merge",
+    ];
+
+    for call in &file.call_sites {
+        if service_calls.iter().any(|c| call.callee == *c) {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::EffectService,
+            });
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
 
@@ -1110,6 +1456,436 @@ mod tests {
 
     // ========================================================================
     // Edge cases
+    // ========================================================================
+
+    // ========================================================================
+    // Effect.ts HTTP route detection
+    // ========================================================================
+
+    #[test]
+    fn test_detect_effect_http_api_endpoint() {
+        let mut file = make_file("src/api/users.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names(
+            "@effect/platform",
+            vec!["HttpApiEndpoint", "HttpApi"],
+        )];
+        file.call_sites = vec![
+            make_call("HttpApiEndpoint.get", Some("getUserEndpoint")),
+            make_call("HttpApiEndpoint.post", Some("createUserEndpoint")),
+        ];
+        let result = detect_entrypoints(&[file]);
+        let http: Vec<_> = result
+            .iter()
+            .filter(|e| e.entrypoint_type == EntrypointType::HttpRoute)
+            .collect();
+        assert_eq!(http.len(), 2);
+        assert!(http.iter().any(|e| e.symbol == "getUserEndpoint"));
+        assert!(http.iter().any(|e| e.symbol == "createUserEndpoint"));
+    }
+
+    #[test]
+    fn test_detect_effect_http_api_make() {
+        let mut file = make_file("src/api/index.ts", Language::TypeScript);
+        file.imports = vec![make_import("@effect/platform/HttpApi")];
+        file.call_sites = vec![make_call("HttpApi.make", Some("makeApi"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .any(|e| e.symbol == "makeApi" && e.entrypoint_type == EntrypointType::HttpRoute));
+    }
+
+    #[test]
+    fn test_detect_effect_http_api_group() {
+        let mut file = make_file("src/api/group.ts", Language::TypeScript);
+        file.imports = vec![make_import("@effect/platform/HttpApiGroup")];
+        file.call_sites = vec![make_call("HttpApiGroup.make", Some("usersGroup"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .any(|e| e.symbol == "usersGroup" && e.entrypoint_type == EntrypointType::HttpRoute));
+    }
+
+    #[test]
+    fn test_detect_effect_http_router() {
+        let mut file = make_file("src/router.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names(
+            "@effect/platform",
+            vec!["HttpRouter"],
+        )];
+        file.call_sites = vec![
+            make_call("HttpRouter.get", Some("getHandler")),
+            make_call("HttpRouter.post", Some("postHandler")),
+        ];
+        let result = detect_entrypoints(&[file]);
+        let http: Vec<_> = result
+            .iter()
+            .filter(|e| e.entrypoint_type == EntrypointType::HttpRoute)
+            .collect();
+        assert_eq!(http.len(), 2);
+        assert!(http.iter().any(|e| e.symbol == "getHandler"));
+        assert!(http.iter().any(|e| e.symbol == "postHandler"));
+    }
+
+    #[test]
+    fn test_detect_effect_http_subpath_import() {
+        let mut file = make_file("src/api/endpoint.ts", Language::TypeScript);
+        file.imports = vec![make_import("@effect/platform/HttpApiEndpoint")];
+        file.call_sites = vec![make_call("HttpApiEndpoint.put", Some("updateUser"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .any(|e| e.symbol == "updateUser" && e.entrypoint_type == EntrypointType::HttpRoute));
+    }
+
+    #[test]
+    fn test_no_effect_http_without_import() {
+        let mut file = make_file("src/api/users.ts", Language::TypeScript);
+        file.call_sites = vec![make_call("HttpApiEndpoint.get", Some("getUser"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .all(|e| e.entrypoint_type != EntrypointType::HttpRoute));
+    }
+
+    // ========================================================================
+    // Effect.ts CLI command detection
+    // ========================================================================
+
+    #[test]
+    fn test_detect_effect_cli_command_make() {
+        let mut file = make_file("src/cli/main.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names("@effect/cli", vec!["Command", "Args"])];
+        file.call_sites = vec![make_call("Command.make", Some("myCommand"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "myCommand"
+            && e.entrypoint_type == EntrypointType::CliCommand));
+    }
+
+    #[test]
+    fn test_detect_effect_cli_command_run() {
+        let mut file = make_file("src/cli.ts", Language::TypeScript);
+        file.imports = vec![make_import("@effect/cli/Command")];
+        file.call_sites = vec![make_call("Command.run", Some("runCli"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "runCli"
+            && e.entrypoint_type == EntrypointType::CliCommand));
+    }
+
+    #[test]
+    fn test_no_effect_cli_without_import() {
+        let mut file = make_file("src/cli.ts", Language::TypeScript);
+        file.call_sites = vec![make_call("Command.make", Some("myCmd"))];
+        let result = detect_entrypoints(&[file]);
+        // Without @effect/cli import, should not detect via Effect.ts CLI path
+        // (may detect via other paths if path matches cli patterns)
+        assert!(result
+            .iter()
+            .all(|e| e.symbol != "myCmd" || e.entrypoint_type != EntrypointType::CliCommand));
+    }
+
+    // ========================================================================
+    // Effect.ts queue consumer detection
+    // ========================================================================
+
+    #[test]
+    fn test_detect_effect_queue_take() {
+        let mut file = make_file("src/workers/processor.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names("effect", vec!["Queue"])];
+        file.call_sites = vec![make_call("Queue.take", Some("processMessages"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "processMessages"
+            && e.entrypoint_type == EntrypointType::QueueConsumer));
+    }
+
+    #[test]
+    fn test_detect_effect_pubsub_subscribe() {
+        let mut file = make_file("src/events/subscriber.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names("effect", vec!["PubSub"])];
+        file.call_sites = vec![make_call("PubSub.subscribe", Some("handleEvents"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "handleEvents"
+            && e.entrypoint_type == EntrypointType::QueueConsumer));
+    }
+
+    #[test]
+    fn test_detect_effect_queue_subpath_import() {
+        let mut file = make_file("src/worker.ts", Language::TypeScript);
+        file.imports = vec![make_import("effect/Queue")];
+        file.call_sites = vec![make_call("Queue.dequeue", Some("drain"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .any(|e| e.symbol == "drain" && e.entrypoint_type == EntrypointType::QueueConsumer));
+    }
+
+    // ========================================================================
+    // Effect.ts cron job detection
+    // ========================================================================
+
+    #[test]
+    fn test_detect_effect_schedule_cron() {
+        let mut file = make_file("src/cron/cleanup.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names("effect", vec!["Schedule"])];
+        file.call_sites = vec![make_call("Schedule.cron", Some("dailyCleanup"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "dailyCleanup"
+            && e.entrypoint_type == EntrypointType::CronJob));
+    }
+
+    #[test]
+    fn test_detect_effect_schedule_spaced() {
+        let mut file = make_file("src/scheduler.ts", Language::TypeScript);
+        file.imports = vec![make_import("effect/Schedule")];
+        file.call_sites = vec![make_call("Schedule.spaced", Some("heartbeat"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .any(|e| e.symbol == "heartbeat" && e.entrypoint_type == EntrypointType::CronJob));
+    }
+
+    #[test]
+    fn test_detect_effect_cron_make() {
+        let mut file = make_file("src/cron.ts", Language::TypeScript);
+        file.imports = vec![make_import("@effect/cron")];
+        file.call_sites = vec![make_call("Cron.make", Some("setupCron"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .any(|e| e.symbol == "setupCron" && e.entrypoint_type == EntrypointType::CronJob));
+    }
+
+    #[test]
+    fn test_no_effect_cron_without_import() {
+        let mut file = make_file("src/utils.ts", Language::TypeScript);
+        file.call_sites = vec![make_call("Schedule.cron", Some("nope"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .all(|e| e.entrypoint_type != EntrypointType::CronJob));
+    }
+
+    // ========================================================================
+    // Effect.ts test file detection
+    // ========================================================================
+
+    #[test]
+    fn test_detect_effect_vitest_it_effect() {
+        let mut file = make_file("src/services/auth.test.ts", Language::TypeScript);
+        file.imports = vec![make_import("@effect/vitest")];
+        file.call_sites = vec![make_call("it.effect", Some("describe"))];
+        let result = detect_entrypoints(&[file]);
+        // Should be detected via both test path and Effect.ts vitest
+        assert!(result
+            .iter()
+            .any(|e| e.entrypoint_type == EntrypointType::TestFile));
+    }
+
+    #[test]
+    fn test_detect_effect_vitest_it_scoped() {
+        let mut file = make_file("src/services/db.test.ts", Language::TypeScript);
+        file.imports = vec![make_import("@effect/vitest")];
+        file.call_sites = vec![make_call("it.scoped", Some("dbTests"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .any(|e| e.entrypoint_type == EntrypointType::TestFile));
+    }
+
+    #[test]
+    fn test_detect_effect_vitest_it_live() {
+        let mut file = make_file("test/integration.test.ts", Language::TypeScript);
+        file.imports = vec![make_import("@effect/vitest")];
+        file.call_sites = vec![make_call("it.live", Some("liveTest"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .any(|e| e.entrypoint_type == EntrypointType::TestFile));
+    }
+
+    // ========================================================================
+    // Effect.ts event handler detection
+    // ========================================================================
+
+    #[test]
+    fn test_detect_effect_stream_run() {
+        let mut file = make_file("src/streams/processor.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names("effect", vec!["Stream"])];
+        file.call_sites = vec![make_call("Stream.runForEach", Some("processStream"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "processStream"
+            && e.entrypoint_type == EntrypointType::EventHandler));
+    }
+
+    #[test]
+    fn test_detect_effect_hub_subscribe() {
+        let mut file = make_file("src/events/hub.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names("effect", vec!["Hub"])];
+        file.call_sites = vec![make_call("Hub.subscribe", Some("listenForEvents"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "listenForEvents"
+            && e.entrypoint_type == EntrypointType::EventHandler));
+    }
+
+    #[test]
+    fn test_detect_effect_stream_subpath_import() {
+        let mut file = make_file("src/stream.ts", Language::TypeScript);
+        file.imports = vec![make_import("effect/Stream")];
+        file.call_sites = vec![make_call("Stream.runDrain", Some("drainEvents"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "drainEvents"
+            && e.entrypoint_type == EntrypointType::EventHandler));
+    }
+
+    #[test]
+    fn test_no_effect_event_without_import() {
+        let mut file = make_file("src/stream.ts", Language::TypeScript);
+        file.call_sites = vec![make_call("Stream.run", Some("noImport"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .all(|e| e.entrypoint_type != EntrypointType::EventHandler));
+    }
+
+    // ========================================================================
+    // Effect.ts service detection
+    // ========================================================================
+
+    #[test]
+    fn test_detect_effect_service() {
+        let mut file = make_file("src/services/user.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names("effect", vec!["Effect", "Context"])];
+        file.call_sites = vec![make_call("Effect.Service", Some("UserService"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "UserService"
+            && e.entrypoint_type == EntrypointType::EffectService));
+    }
+
+    #[test]
+    fn test_detect_context_tag() {
+        let mut file = make_file("src/services/db.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names("effect", vec!["Context"])];
+        file.call_sites = vec![make_call("Context.Tag", Some("DatabaseService"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "DatabaseService"
+            && e.entrypoint_type == EntrypointType::EffectService));
+    }
+
+    #[test]
+    fn test_detect_context_generic_tag() {
+        let mut file = make_file("src/services/config.ts", Language::TypeScript);
+        file.imports = vec![make_import("effect/Context")];
+        file.call_sites = vec![make_call("Context.GenericTag", Some("ConfigService"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "ConfigService"
+            && e.entrypoint_type == EntrypointType::EffectService));
+    }
+
+    #[test]
+    fn test_detect_layer_succeed() {
+        let mut file = make_file("src/layers/live.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names("effect", vec!["Layer"])];
+        file.call_sites = vec![make_call("Layer.succeed", Some("LiveLayer"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "LiveLayer"
+            && e.entrypoint_type == EntrypointType::EffectService));
+    }
+
+    #[test]
+    fn test_detect_layer_effect() {
+        let mut file = make_file("src/layers/db.ts", Language::TypeScript);
+        file.imports = vec![make_import("effect/Layer")];
+        file.call_sites = vec![make_call("Layer.effect", Some("DbLayer"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "DbLayer"
+            && e.entrypoint_type == EntrypointType::EffectService));
+    }
+
+    #[test]
+    fn test_detect_layer_scoped() {
+        let mut file = make_file("src/layers/connection.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names("effect", vec!["Layer", "Effect"])];
+        file.call_sites = vec![make_call("Layer.scoped", Some("ConnectionLayer"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result.iter().any(|e| e.symbol == "ConnectionLayer"
+            && e.entrypoint_type == EntrypointType::EffectService));
+    }
+
+    #[test]
+    fn test_no_effect_service_without_import() {
+        let mut file = make_file("src/services/user.ts", Language::TypeScript);
+        file.call_sites = vec![make_call("Effect.Service", Some("UserService"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .all(|e| e.entrypoint_type != EntrypointType::EffectService));
+    }
+
+    // ========================================================================
+    // Effect.ts edge cases
+    // ========================================================================
+
+    #[test]
+    fn test_effect_ts_python_file_ignored() {
+        let mut file = make_file("src/services/user.py", Language::Python);
+        file.imports = vec![make_import_with_names("effect", vec!["Effect"])];
+        file.call_sites = vec![make_call("Effect.Service", Some("UserService"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .all(|e| e.entrypoint_type != EntrypointType::EffectService));
+    }
+
+    #[test]
+    fn test_effect_multiple_entrypoint_types() {
+        let mut file = make_file("src/api/server.ts", Language::TypeScript);
+        file.imports = vec![
+            make_import_with_names("@effect/platform", vec!["HttpApiEndpoint"]),
+            make_import_with_names("effect", vec!["Effect", "Layer"]),
+        ];
+        file.call_sites = vec![
+            make_call("HttpApiEndpoint.get", Some("getEndpoint")),
+            make_call("Layer.succeed", Some("ApiLayer")),
+        ];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .any(|e| e.entrypoint_type == EntrypointType::HttpRoute));
+        assert!(result
+            .iter()
+            .any(|e| e.entrypoint_type == EntrypointType::EffectService));
+    }
+
+    #[test]
+    fn test_effect_platform_node_import() {
+        let mut file = make_file("src/server.ts", Language::TypeScript);
+        file.imports = vec![make_import_with_names(
+            "@effect/platform-node",
+            vec!["HttpServer"],
+        )];
+        file.call_sites = vec![make_call("HttpRouter.get", Some("serveApp"))];
+        let result = detect_entrypoints(&[file]);
+        assert!(result
+            .iter()
+            .any(|e| e.symbol == "serveApp" && e.entrypoint_type == EntrypointType::HttpRoute));
+    }
+
+    #[test]
+    fn test_effect_deduplication_with_regular_detection() {
+        // A file detected as test by both path-based and Effect.ts vitest detection
+        let mut file = make_file("src/auth.test.ts", Language::TypeScript);
+        file.imports = vec![make_import("@effect/vitest")];
+        file.call_sites = vec![make_call("it.effect", Some("describe"))];
+        let result = detect_entrypoints(&[file]);
+        // Should deduplicate — same (file, symbol) pair
+        let test_entries: Vec<_> = result
+            .iter()
+            .filter(|e| e.file == "src/auth.test.ts" && e.symbol == "describe")
+            .collect();
+        assert_eq!(test_entries.len(), 1);
+    }
+
+    // ========================================================================
+    // Edge cases (existing + extended)
     // ========================================================================
 
     #[test]

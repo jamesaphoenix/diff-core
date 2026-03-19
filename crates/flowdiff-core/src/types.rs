@@ -87,6 +87,7 @@ pub enum EntrypointType {
     ReactPage,
     TestFile,
     EventHandler,
+    EffectService,
 }
 
 /// A semantic flow group — a set of files participating in the same data flow.
