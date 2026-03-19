@@ -4,6 +4,7 @@ import {
   Background,
   MiniMap,
   Controls,
+  Handle,
   type Node,
   type Edge,
   type NodeMouseHandler,
@@ -101,11 +102,14 @@ function layoutGraph(
 ): { nodes: Node[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  // (5) Better node spacing — increased ranksep and nodesep
-  g.setGraph({ rankdir: "TB", ranksep: 80, nodesep: 60, marginx: 30, marginy: 30 });
+  // Adaptive spacing — more room for small graphs so edges are clearly visible
+  const isSmallGraph = nodes.length >= 2 && nodes.length <= 6;
+  const ranksep = isSmallGraph ? 120 : 80;
+  const nodesep = isSmallGraph ? 80 : 60;
+  g.setGraph({ rankdir: "TB", ranksep, nodesep, marginx: 30, marginy: 30 });
 
-  const nodeWidth = 200;
-  const nodeHeight = 56;
+  const nodeWidth = 220;
+  const nodeHeight = 60;
 
   for (const node of nodes) {
     g.setNode(node.id, { width: nodeWidth, height: nodeHeight });
@@ -185,12 +189,12 @@ function buildGraph(
         hoverDetail,
         dimmed: false,
       },
-      style: { stroke: color, strokeWidth: 2 },
+      style: { stroke: color, strokeWidth: 3 },
       markerEnd: {
         type: MarkerType.ArrowClosed,
         color,
-        width: 16,
-        height: 16,
+        width: 24,
+        height: 24,
       },
     };
   });
@@ -240,39 +244,40 @@ function AnimatedBezierEdge({
         d={edgePath}
         fill="none"
         stroke={color}
-        strokeWidth={dimmed ? 1 : 2}
+        strokeWidth={dimmed ? 1 : 3}
         opacity={opacity}
         markerEnd={markerEnd as string}
         className="react-flow__edge-path"
       />
 
-      {/* (1) Flowing dot animation along edge showing data direction */}
+      {/* Flowing dot animation along edge showing data direction */}
       {!dimmed && (
-        <circle r={3} fill={color} opacity={0.8}>
+        <circle r={4} fill={color} opacity={0.9}>
           <animateMotion dur="2.5s" repeatCount="indefinite" path={edgePath} />
         </circle>
       )}
 
-      {/* Edge label — always visible, enhanced on hover */}
+      {/* Edge label — pill badge always visible on edges */}
       {label && !dimmed && (
         <>
           <rect
-            x={labelX - 28}
-            y={labelY - 9}
-            width={56}
-            height={18}
-            rx={4}
+            x={labelX - 32}
+            y={labelY - 10}
+            width={64}
+            height={20}
+            rx={10}
             fill={hovered ? "#313244" : "#1e1e2e"}
-            fillOpacity={hovered ? 0.95 : 0.8}
-            stroke={hovered ? color : "transparent"}
-            strokeWidth={0.5}
+            fillOpacity={0.95}
+            stroke={color}
+            strokeWidth={hovered ? 1 : 0.5}
           />
           <text
             x={labelX}
             y={labelY + 4}
             textAnchor="middle"
-            fill={hovered ? color : "#a6adc8"}
-            fontSize={10}
+            fill={hovered ? color : "#cdd6f4"}
+            fontSize={11}
+            fontWeight={500}
             fontFamily="'JetBrains Mono', monospace"
           >
             {label}
@@ -322,6 +327,7 @@ function FlowNode({ data }: { data: Record<string, unknown> }) {
 
   return (
     <div className={`flow-node ${isSelected ? "flow-node-selected" : ""}`}>
+      <Handle type="target" position={Position.Top} className="flow-node-handle" />
       <div className="flow-node-header">
         <span className="flow-node-role" style={{ color: roleColor }}>{role}</span>
         <span className="flow-node-changes">
@@ -338,6 +344,7 @@ function FlowNode({ data }: { data: Record<string, unknown> }) {
           <span className="flow-node-del">-{deletions}</span> lines changed
         </div>
       </div>
+      <Handle type="source" position={Position.Bottom} className="flow-node-handle" />
     </div>
   );
 }
@@ -503,7 +510,7 @@ export default function FlowGraph({ edges, files, onNodeClick }: FlowGraphProps)
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
         fitView
-        fitViewOptions={{ padding: 0.2, duration: 800 }}
+        fitViewOptions={{ padding: 0.3, duration: 800 }}
         minZoom={0.3}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}

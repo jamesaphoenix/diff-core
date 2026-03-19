@@ -470,7 +470,8 @@ body {
 /* ── Flow Graph (React Flow) ── */
 
 .flow-graph-container {
-  height: 300px;
+  min-height: 400px;
+  height: 400px;
   border-radius: 4px;
   overflow: hidden;
   background: var(--bg-secondary);
@@ -495,8 +496,8 @@ body {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 8px 10px;
-  min-width: 160px;
+  padding: 10px 14px;
+  min-width: 220px;
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   position: relative;
@@ -700,6 +701,19 @@ body {
   font-size: 10px;
   color: var(--text-secondary);
   font-family: var(--font-mono);
+}
+
+/* Hide connection handles — they exist only for edge attachment */
+.flow-node-handle {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+  border: none;
+}
+
+/* Edge glow effect for visibility */
+.flow-graph-container .react-flow__edge-path {
+  filter: drop-shadow(0 0 3px currentColor);
 }
 
 /* React Flow Controls styling */
