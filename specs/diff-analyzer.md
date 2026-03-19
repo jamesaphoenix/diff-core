@@ -558,7 +558,7 @@ flowdiff/
 - [x] Basic entrypoint detection
 - [x] Semantic clustering (forward reachability from entrypoints)
 - [x] Review ranking (composite score)
-- [ ] JSON output
+- [x] JSON output (output.rs — AnalysisOutput builder, JSON serialization, Mermaid diagram generation, 42 tests)
 - [x] CLI with clap (`flowdiff analyze --base main`)
 - [ ] Test against a real multi-file PR
 - [x] Core data types (types.rs — FlowGroup, FileChange, Symbol, Edge, etc.)
