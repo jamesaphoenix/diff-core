@@ -145,25 +145,6 @@ export const MOCK_ANALYSIS: AnalysisOutput = {
   annotations: null,
 };
 
-export const MOCK_MERMAID: Record<string, string> = {
-  group_1: `graph TD
-    A["routes/users.ts::createUser"] --> B["user-service.ts::create"]
-    A --> C["user-service.ts::validate"]
-    B --> D["user-repo.ts::insert"]
-    D --> E["models/user.ts::User"]
-    style A fill:#89b4fa,stroke:#45475a,color:#1e1e2e
-    style E fill:#a6e3a1,stroke:#45475a,color:#1e1e2e`,
-  group_2: `graph TD
-    A["routes/auth.ts::refreshToken"] --> B["auth-service.ts::refresh"]
-    B --> C["auth-service.ts::rotateToken"]
-    A --> D["rate-limit.ts::rateLimiter"]
-    style A fill:#89b4fa,stroke:#45475a,color:#1e1e2e`,
-  group_3: `graph TD
-    A["email-worker.ts::processEmailQueue"] --> B["email-service.ts::send"]
-    B --> C["email-service.ts::formatTemplate"]
-    style A fill:#89b4fa,stroke:#45475a,color:#1e1e2e`,
-};
-
 export const MOCK_DIFFS: Record<string, FileDiffContent> = {
   "src/routes/users.ts": {
     path: "src/routes/users.ts",

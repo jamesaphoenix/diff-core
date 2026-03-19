@@ -418,18 +418,6 @@ body {
   word-break: break-word;
 }
 
-.mermaid-code {
-  background: var(--bg-surface);
-  border-radius: 4px;
-  padding: 8px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-secondary);
-  overflow-x: auto;
-  white-space: pre;
-  line-height: 1.4;
-}
-
 .edge-list {
   list-style: none;
 }
@@ -476,23 +464,78 @@ body {
   flex-shrink: 0;
 }
 
-/* ── Mermaid ── */
+/* ── Flow Graph (React Flow) ── */
 
-.mermaid-container {
-  background: var(--bg-surface);
+.flow-graph-container {
+  height: 300px;
   border-radius: 4px;
-  padding: 12px;
-  overflow-x: auto;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
 }
 
-.mermaid-container svg {
-  max-width: 100%;
-  height: auto;
+.flow-graph-container .react-flow__background {
+  background: var(--bg-secondary);
 }
 
-.mermaid-error {
+.flow-node {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-width: 160px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.flow-node:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(137, 180, 250, 0.25);
+}
+
+.flow-node-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.flow-node-role {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.flow-node-changes {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  display: flex;
+  gap: 4px;
+}
+
+.flow-node-add {
+  color: var(--risk-low);
+}
+
+.flow-node-del {
   color: var(--risk-high);
+}
+
+.flow-node-label {
+  font-family: var(--font-mono);
   font-size: 11px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-graph-fallback {
+  padding: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 /* ── Keyboard Hints ── */

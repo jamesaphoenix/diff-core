@@ -14,7 +14,7 @@ async function waitForAnalysis(page: Page) {
   await expect(page.locator(".group-item.selected .file-list")).toBeVisible({ timeout: 5_000 });
   // Wait for Monaco diff editor to initialize (DiffEditor creates code role elements)
   await expect(page.getByRole("code").first()).toBeVisible({ timeout: 10_000 });
-  // Brief extra wait for Mermaid rendering and Monaco content
+  // Brief extra wait for React Flow rendering and Monaco content
   await page.waitForTimeout(2000);
 }
 
@@ -76,7 +76,7 @@ test.describe("Visual Polish — Screenshot Baseline", () => {
     await expect(header).toContainText("src/routes/users.ts");
   });
 
-  test("04 — right panel: annotations with Mermaid graph", async ({ page }) => {
+  test("04 — right panel: annotations with flow graph", async ({ page }) => {
     await page.goto("/");
     await waitForAnalysis(page);
 
@@ -88,8 +88,12 @@ test.describe("Visual Polish — Screenshot Baseline", () => {
     await expect(page.locator(".group-detail-name")).toContainText("POST /api/users");
     await expect(page.locator(".entrypoint-info")).toBeVisible();
 
-    // Verify Mermaid SVG rendered
-    await expect(page.locator(".mermaid-container svg")).toBeVisible();
+    // Verify React Flow graph rendered
+    await expect(page.locator("[data-testid='flow-graph'] .react-flow")).toBeVisible();
+
+    // Verify flow nodes rendered (one per file in group)
+    const flowNodes = page.locator(".flow-node");
+    expect(await flowNodes.count()).toBeGreaterThanOrEqual(3);
 
     // Verify edges list
     await expect(page.locator(".edge-list")).toBeVisible();
@@ -104,7 +108,7 @@ test.describe("Visual Polish — Screenshot Baseline", () => {
     // Click on the second group (auth)
     const secondGroup = page.locator(".group-item").nth(1);
     await secondGroup.click();
-    await page.waitForTimeout(1500); // Wait for Mermaid re-render
+    await page.waitForTimeout(1500); // Wait for graph re-render
 
     await page.screenshot({
       path: path.join(SCREENSHOTS_DIR, "05-second-group-selected.png"),
@@ -233,17 +237,21 @@ test.describe("Visual Polish — Screenshot Baseline", () => {
     await expect(page.locator(".base-input")).toHaveValue("main");
   });
 
-  test("11 — Mermaid graph close-up", async ({ page }) => {
+  test("11 — flow graph close-up", async ({ page }) => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    await page.locator(".mermaid-container").screenshot({
-      path: path.join(SCREENSHOTS_DIR, "11-mermaid-graph.png"),
+    await page.locator(".flow-graph-container").screenshot({
+      path: path.join(SCREENSHOTS_DIR, "11-flow-graph.png"),
     });
 
-    // Verify SVG has nodes
-    const svgNodes = page.locator(".mermaid-container svg .node");
-    expect(await svgNodes.count()).toBeGreaterThanOrEqual(3);
+    // Verify React Flow rendered with nodes
+    const flowNodes = page.locator(".flow-node");
+    expect(await flowNodes.count()).toBeGreaterThanOrEqual(3);
+
+    // Verify nodes have labels and roles
+    await expect(flowNodes.first().locator(".flow-node-label")).toBeVisible();
+    await expect(flowNodes.first().locator(".flow-node-role")).toBeVisible();
   });
 
   test("12 — error state", async ({ page }) => {

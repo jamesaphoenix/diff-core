@@ -8,8 +8,8 @@ import type {
   Pass2Response,
 } from "./types";
 import DiffViewer from "./components/DiffViewer";
-import MermaidGraph from "./components/MermaidGraph";
-import { MOCK_ANALYSIS, MOCK_MERMAID, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2 } from "./mock";
+import FlowGraph from "./components/FlowGraph";
+import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2 } from "./mock";
 
 /** Detect if running inside Tauri (vs plain browser for demo/testing). */
 const IS_TAURI = typeof window !== "undefined" && "__TAURI__" in window;
@@ -26,7 +26,6 @@ export default function App() {
   const [selectedGroup, setSelectedGroup] = useState<FlowGroup | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileDiff, setFileDiff] = useState<FileDiffContent | null>(null);
-  const [mermaid, setMermaid] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,19 +52,6 @@ export default function App() {
   const handleSelectGroup = useCallback(
     async (group: FlowGroup) => {
       setSelectedGroup(group);
-      // Load mermaid
-      if (IS_TAURI) {
-        try {
-          const diagram = await tauriInvoke<string>("get_mermaid", {
-            groupId: group.id,
-          });
-          setMermaid(diagram);
-        } catch {
-          setMermaid("");
-        }
-      } else {
-        setMermaid(MOCK_MERMAID[group.id] || "");
-      }
       // Auto-select first file in group
       if (group.files.length > 0) {
         handleSelectFile(group.files[0].path);
@@ -514,11 +500,15 @@ export default function App() {
                   </>
                 )}
 
-                {/* Mermaid flow graph */}
-                {mermaid && (
+                {/* Flow graph (React Flow) */}
+                {selectedGroup.edges.length > 0 && (
                   <div className="annotation-section">
                     <h3>Flow Graph</h3>
-                    <MermaidGraph code={mermaid} />
+                    <FlowGraph
+                      edges={selectedGroup.edges}
+                      files={selectedGroup.files}
+                      onNodeClick={handleSelectFile}
+                    />
                   </div>
                 )}
 
