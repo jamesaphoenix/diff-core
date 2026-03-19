@@ -1,0 +1,149 @@
+{
+  "name": "flowdiff",
+  "displayName": "flowdiff",
+  "description": "Semantic diff review — ranked, grouped code review flows for AI-generated PRs",
+  "version": "0.1.0",
+  "publisher": "flowdiff",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "flowdiff.analyze",
+        "title": "Analyze Current Branch",
+        "category": "flowdiff",
+        "icon": "$(search)"
+      },
+      {
+        "command": "flowdiff.analyzeRange",
+        "title": "Analyze Commit Range",
+        "category": "flowdiff"
+      },
+      {
+        "command": "flowdiff.annotate",
+        "title": "Annotate with LLM",
+        "category": "flowdiff",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "flowdiff.nextFile",
+        "title": "Next File in Flow",
+        "category": "flowdiff"
+      },
+      {
+        "command": "flowdiff.prevFile",
+        "title": "Previous File in Flow",
+        "category": "flowdiff"
+      },
+      {
+        "command": "flowdiff.nextGroup",
+        "title": "Next Flow Group",
+        "category": "flowdiff"
+      },
+      {
+        "command": "flowdiff.prevGroup",
+        "title": "Previous Flow Group",
+        "category": "flowdiff"
+      },
+      {
+        "command": "flowdiff.openAnnotations",
+        "title": "Show Annotations Panel",
+        "category": "flowdiff",
+        "icon": "$(book)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "flowdiff",
+          "title": "flowdiff",
+          "icon": "$(git-compare)"
+        }
+      ]
+    },
+    "views": {
+      "flowdiff": [
+        {
+          "id": "flowdiff.groups",
+          "name": "Flow Groups"
+        },
+        {
+          "id": "flowdiff.infrastructure",
+          "name": "Infrastructure"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "flowdiff.analyze",
+          "when": "view == flowdiff.groups",
+          "group": "navigation"
+        },
+        {
+          "command": "flowdiff.annotate",
+          "when": "view == flowdiff.groups",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "flowdiff.nextFile",
+        "key": "j",
+        "when": "flowdiff.active && !editorFocus && !inputFocus"
+      },
+      {
+        "command": "flowdiff.prevFile",
+        "key": "k",
+        "when": "flowdiff.active && !editorFocus && !inputFocus"
+      },
+      {
+        "command": "flowdiff.nextGroup",
+        "key": "shift+j",
+        "when": "flowdiff.active && !editorFocus && !inputFocus"
+      },
+      {
+        "command": "flowdiff.prevGroup",
+        "key": "shift+k",
+        "when": "flowdiff.active && !editorFocus && !inputFocus"
+      }
+    ],
+    "configuration": {
+      "title": "flowdiff",
+      "properties": {
+        "flowdiff.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the flowdiff CLI binary. Leave empty to use PATH."
+        },
+        "flowdiff.defaultBase": {
+          "type": "string",
+          "default": "main",
+          "description": "Default base branch for analysis."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0",
+    "vitest": "^2.0.0"
+  }
+}

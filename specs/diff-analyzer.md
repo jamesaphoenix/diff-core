@@ -74,15 +74,16 @@ Diff review is a **graph problem**, not a **set problem**. The right primitive i
 
 ## 3. Diff Input Sources
 
-All input is git-based. Three modes:
+All input is git-based. Four modes:
 
 | Mode | CLI Flag | Description |
 |------|----------|-------------|
+| PR preview (default) | `--pr` or no flags | Merge-base diff: `main...HEAD` — shows everything on this branch that's ahead of main. The "what would my PR look like?" mode. Auto-detects current branch and default branch |
 | Branch comparison | `--base main --head feature` | Compare two refs |
 | Commit range | `--range HEAD~5..HEAD` | Review a range of commits |
 | Working tree | `--staged` / `--unstaged` | Review uncommitted changes |
 
-Implementation: `git2` crate for all git operations. No shelling out to `git`.
+Implementation: `git2` crate for all git operations. No shelling out to `git`. PR preview mode uses `git2::Repository::merge_base()` to find the common ancestor, then diffs from there to HEAD.
 
 ## 4. Analysis Pipeline
 
@@ -631,6 +632,10 @@ flowdiff/
 - [x] File navigation within flow groups (click file in tree → loads diff via `get_file_diff` IPC → Monaco DiffEditor updates. Auto-selects first file when group is selected. Files shown in flow_position order with role badge, short path, +/- change stats)
 - [x] Generate app icon using AI image generation (gpt-image-1.5 generated directed-graph icon with teal/lavender nodes on dark indigo background, `cargo tauri icon` generated all platform sizes: PNG 32/64/128/256, .icns, .ico, iOS, Android, Windows AppX)
 - [x] Visual polish pass — Playwright E2E screenshot tests for all UI states (14 tests: loaded analysis, flow groups panel, Monaco diff viewer, annotations/Mermaid panel, second/third group selection, file navigation, j/k keyboard nav, J/K group nav, top bar, Mermaid close-up, error state, infrastructure group, keyboard hints). Demo mode added for browser-based testing (mock data auto-loads when not in Tauri). Visual fixes: edge text ellipsis truncation, entrypoint monospace wrapping, selected group blue accent border, annotation section typography improvements, file role min-width. 14 baseline screenshots saved to `docs/screenshots/`
+- [ ] Replace Mermaid with React Flow (`@xyflow/react`) — Mermaid diagrams look cheap in a desktop app. Replace with React Flow for production-grade flow graph visualization. Custom node components styled to match Catppuccin theme (dark background, teal/lavender/peach accents). Auto-layout via `dagre` or `@elkjs/elkjs`. Smooth animated bezier edges with edge labels (calls, imports, writes, etc.). Interactive: click node → selects file in diff viewer, pan/zoom/drag. Minimap for large graphs. Edge type color coding (calls=teal, imports=lavender, writes=peach, reads=green). Node badges showing file role (entrypoint, service, persistence, etc.) and change stats (+/-). Handles cyclic graphs gracefully. Falls back to simple list view if graph has 100+ nodes. Update Playwright screenshot baselines after replacement
+- [ ] Git auto-discovery in Tauri — on app launch or when repo path is entered: auto-detect current branch, list all local branches in a dropdown (replace text input), list git worktrees if any exist, show push status ("3 ahead of origin/main, 0 behind"). Default diff mode is PR preview (`main...HEAD`). User can change base branch via dropdown. IPC commands: `list_branches`, `list_worktrees`, `get_branch_status`. Uses git2 for all operations
+- [ ] PR preview diff mode — implement merge-base diff in git layer (`git2::Repository::merge_base()` → diff from ancestor to HEAD). Default when no flags given. CLI: `flowdiff analyze --pr` or just `flowdiff analyze` with no flags. Auto-detects default branch (main/master). Tauri: "Analyze" button uses this mode by default
+- [ ] LLM controls in Tauri UI — settings panel or top bar toggles for: (1) Enable/disable LLM annotations (off by default, requires API key), (2) Enable/disable LLM refinement (off by default), (3) Provider selector dropdown (Anthropic/OpenAI/Gemini), (4) Model selector dropdown (populated per provider), (5) API key input (or "configured via env/config" indicator), (6) "Annotate" button per group for on-demand Pass 2, (7) "Refine" button to trigger refinement pass on current analysis. Settings persisted to `.flowdiff.toml` or app-local storage
 
 ### Phase 4: LLM Integration (Week 4-5)
 - [x] Anthropic API client (Messages API, extended thinking support via content block parsing)
@@ -656,12 +661,13 @@ flowdiff/
 - [x] Full CLI implementation (`flowdiff analyze`) with `--base`/`--head`/`--range`/`--staged`/`--unstaged`, `--output`, `--annotate`, `--refine`/`--refine-model`, `--repo` flags. Complete analysis pipeline: git diff → AST parse → graph build → entrypoint detect → flow analyze → cluster → rank → JSON output. LLM refinement via `--refine` (falls back to deterministic on failure). LLM annotation via `--annotate`. Config override from CLI flags. 17 unit tests (arg parsing, config overrides, refinement LlmConfig construction/fallback, output serialization)
 
 ### Phase 5: VS Code Extension (Week 5-6)
-- [ ] Extension scaffold
-- [ ] CLI binary invocation and JSON parsing
-- [ ] Activity bar + sidebar tree view
-- [ ] Webview panel for annotations/graph
-- [ ] Commands: analyze, annotate, nextFile, nextGroup
-- [ ] Open native VS Code diff on file click
+- [x] Extension scaffold — TypeScript + Vitest project in `extensions/vscode/`, `package.json` with commands/views/keybindings/configuration contributions, `tsconfig.json`, `.vscodeignore`, vscode mock for unit testing
+- [x] CLI binary invocation and JSON parsing — `flowdiffRunner.ts` with `runFlowdiff()` async executor, `buildArgs()` CLI argument builder (branch/range/staged/unstaged/annotate/refine), `parseOutput()` JSON parser with schema validation, configurable binary path via `flowdiff.binaryPath` setting, 50MB buffer + 2min timeout
+- [x] Activity bar + sidebar tree view — `treeView.ts` with `FlowGroupsProvider` (TreeDataProvider for flow groups sorted by review_order, files sorted by flow_position), `InfrastructureProvider` (infrastructure files), `GroupItem` with risk score badges (high/medium/low color-coded ThemeIcons), `FileItem` with role icons (Entrypoint/Handler/Service/Repository/Model/Test/Config), short path display, +/- change stats, click-to-diff command
+- [x] Webview panel for annotations/graph — `webviewPanel.ts` with `AnnotationsPanel` class, Pass 1 overview rendering (LLM summary, risk flags, review order rationale), Pass 2 deep analysis rendering (flow narrative, per-file annotations with risks/suggestions, cross-cutting concerns), Mermaid flow graph generation with node ID reuse, VS Code theme-aware CSS styling, HTML escaping for XSS prevention
+- [x] Commands: analyze, annotate, nextFile, nextGroup — 9 commands registered: `flowdiff.analyze` (branch comparison with configurable default base), `flowdiff.analyzeRange` (commit range via input box), `flowdiff.annotate` (LLM annotation with progress notification), `flowdiff.nextFile`/`prevFile` (j/k navigation within group), `flowdiff.nextGroup`/`prevGroup` (J/K navigation between groups), `flowdiff.openDiff` (native diff viewer), `flowdiff.openAnnotations` (show annotations panel). Keybindings for j/k/J/K with `flowdiff.active` context guard
+- [x] Open native VS Code diff on file click — `cmdOpenDiff` uses `vscode.diff` command with git scheme URI for base ref and file URI for head, falls back to `vscode.open` if git scheme fails. File click in tree view triggers diff via TreeItem command binding
+- [x] Unit tests — 68 tests across 3 test files: `flowdiffRunner.test.ts` (25 tests: buildArgs for branch/range/staged/unstaged/annotate/refine/precedence/spaces, parseOutput for valid/whitespace/empty/invalid/missing-fields/annotations/null-infra/empty-groups/field-preservation), `treeView.test.ts` (23 tests: group sorting, file sorting, risk classification with boundaries, short path generation, infrastructure group, entrypoint display, change stats, navigation state), `webviewPanel.test.ts` (20 tests: HTML escaping, risk badge levels, Mermaid graph generation including empty/single/multi-edge/node-reuse/symbol-extraction, Pass1/Pass2 annotation structure validation). vscode module mocked via vitest alias
 
 ### Phase 6: Polish & Integration (Week 6-7)
 - [ ] Beyond Compare launcher integration
