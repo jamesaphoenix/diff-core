@@ -561,7 +561,7 @@ flowdiff/
 - [x] Review ranking (composite score)
 - [x] JSON output (output.rs — AnalysisOutput builder, JSON serialization, Mermaid diagram generation, 42 tests)
 - [x] CLI with clap (`flowdiff analyze --base main`)
-- [ ] Test against a real multi-file PR
+- [x] Test against a real multi-file PR (15 e2e integration tests — programmatic git repos: simple Express app, Python FastAPI, branch comparison, empty diff, JSON schema compliance, cross-cutting refactor, multiple entrypoints, mixed language, determinism, new-files-only, risk scoring, 20-file diff performance, Mermaid generation, commit range, entrypoint detection)
 - [x] Core data types (types.rs — FlowGroup, FileChange, Symbol, Edge, etc.)
 - [x] Property-based tests for ranking (proptest — 11 properties)
 - [x] Unit tests for ranking (26 tests — scoring, risk, surface area, path detection)
