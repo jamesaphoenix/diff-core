@@ -1,8 +1,17 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import type { AnalysisOutput, FlowGroup, FileDiffContent } from "./types";
 import DiffViewer from "./components/DiffViewer";
 import MermaidGraph from "./components/MermaidGraph";
+import { MOCK_ANALYSIS, MOCK_MERMAID, MOCK_DIFFS } from "./mock";
+
+/** Detect if running inside Tauri (vs plain browser for demo/testing). */
+const IS_TAURI = typeof window !== "undefined" && "__TAURI__" in window;
+
+/** Lazy-import Tauri invoke only when in Tauri context. */
+async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
+}
 
 /** Three-panel layout: flow groups | diff viewer | annotations */
 export default function App() {
@@ -15,8 +24,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   // Repo path — in a real app this would come from a dialog or CLI arg
-  const [repoPath, setRepoPath] = useState("");
+  const [repoPath, setRepoPath] = useState(IS_TAURI ? "" : "/demo/repo");
   const [baseRef, setBaseRef] = useState("main");
+
+  // Demo mode: auto-load mock data on mount when not in Tauri
+  const demoLoaded = useRef(false);
 
   // Refs for keyboard nav to access latest state without re-registering listener
   const selectedGroupRef = useRef(selectedGroup);
@@ -25,45 +37,21 @@ export default function App() {
   selectedGroupRef.current = selectedGroup;
   selectedFileRef.current = selectedFile;
 
-  const runAnalysis = useCallback(async () => {
-    if (!repoPath) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await invoke<AnalysisOutput>("analyze", {
-        repoPath,
-        base: baseRef || "main",
-        head: null,
-        range: null,
-        staged: false,
-        unstaged: false,
-      });
-      setAnalysis(result);
-      // Auto-select first group
-      if (result.groups.length > 0) {
-        const sorted = [...result.groups].sort(
-          (a, b) => a.review_order - b.review_order,
-        );
-        handleSelectGroup(sorted[0]);
-      }
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [repoPath, baseRef]);
-
   const handleSelectGroup = useCallback(
     async (group: FlowGroup) => {
       setSelectedGroup(group);
       // Load mermaid
-      try {
-        const diagram = await invoke<string>("get_mermaid", {
-          groupId: group.id,
-        });
-        setMermaid(diagram);
-      } catch {
-        setMermaid("");
+      if (IS_TAURI) {
+        try {
+          const diagram = await tauriInvoke<string>("get_mermaid", {
+            groupId: group.id,
+          });
+          setMermaid(diagram);
+        } catch {
+          setMermaid("");
+        }
+      } else {
+        setMermaid(MOCK_MERMAID[group.id] || "");
       }
       // Auto-select first file in group
       if (group.files.length > 0) {
@@ -79,24 +67,71 @@ export default function App() {
   const handleSelectFile = useCallback(
     async (path: string) => {
       setSelectedFile(path);
-      if (!repoPath) return;
-      try {
-        const diff = await invoke<FileDiffContent>("get_file_diff", {
+      if (IS_TAURI) {
+        if (!repoPath) return;
+        try {
+          const diff = await tauriInvoke<FileDiffContent>("get_file_diff", {
+            repoPath,
+            filePath: path,
+            base: baseRef || "main",
+            head: null,
+            range: null,
+            staged: false,
+            unstaged: false,
+          });
+          setFileDiff(diff);
+        } catch {
+          setFileDiff(null);
+        }
+      } else {
+        setFileDiff(MOCK_DIFFS[path] || null);
+      }
+    },
+    [repoPath, baseRef],
+  );
+
+  const runAnalysis = useCallback(async () => {
+    if (!repoPath) return;
+    setLoading(true);
+    setError(null);
+    try {
+      let result: AnalysisOutput;
+      if (IS_TAURI) {
+        result = await tauriInvoke<AnalysisOutput>("analyze", {
           repoPath,
-          filePath: path,
           base: baseRef || "main",
           head: null,
           range: null,
           staged: false,
           unstaged: false,
         });
-        setFileDiff(diff);
-      } catch {
-        setFileDiff(null);
+      } else {
+        // Demo mode: simulate short delay then return mock data
+        await new Promise((r) => setTimeout(r, 400));
+        result = MOCK_ANALYSIS;
       }
-    },
-    [repoPath, baseRef],
-  );
+      setAnalysis(result);
+      // Auto-select first group
+      if (result.groups.length > 0) {
+        const sorted = [...result.groups].sort(
+          (a, b) => a.review_order - b.review_order,
+        );
+        handleSelectGroup(sorted[0]);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [repoPath, baseRef, handleSelectGroup]);
+
+  // Auto-load demo data when not in Tauri
+  useEffect(() => {
+    if (!IS_TAURI && !demoLoaded.current) {
+      demoLoaded.current = true;
+      runAnalysis();
+    }
+  }, [runAnalysis]);
 
   // Sort groups by review_order
   const sortedGroups = analysis
