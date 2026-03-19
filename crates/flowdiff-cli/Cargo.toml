@@ -1,0 +1,8 @@
+[package]
+name = "flowdiff-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+flowdiff-core = { path = "../flowdiff-core" }
+clap = { version = "4", features = ["derive"] }
