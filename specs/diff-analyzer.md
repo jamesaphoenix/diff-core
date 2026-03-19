@@ -574,12 +574,16 @@ flowdiff/
 - [x] Unit tests for Effect.ts entrypoint detection (34 tests — HTTP routes via HttpApiEndpoint/HttpApi/HttpApiGroup/HttpRouter, CLI commands via @effect/cli Command, queue consumers via Queue/PubSub, cron jobs via Schedule/@effect/cron, test files via @effect/vitest, event handlers via Stream/Hub, services via Effect.Service/Context.Tag/Layer, edge cases for import validation and deduplication)
 
 ### Phase 2: Data Flow Depth (Week 2-3)
-- [ ] Full data flow tracing (parameters, return values, assignments)
-- [ ] Heuristic inference (DB writes, HTTP handlers, event emission)
-- [ ] Framework pattern detection (auto-detect Next.js, FastAPI, etc.)
+- [x] Heuristic inference (flow.rs — DB writes/reads, event emission/handling, config reads, HTTP calls, logging detection with confidence scoring, false positive guards for collection methods/stdlib; graph enrichment adds Writes/Reads/Emits/Handles edges)
+- [x] Framework pattern detection (flow.rs — auto-detect Express, Next.js, React, FastAPI, Flask, Django, Prisma, Effect.ts, and 30+ frameworks from import patterns + file structure conventions)
+- [x] Call chain tracing (flow.rs — BFS traversal of call edges with configurable depth limit, cycle-safe)
+- [x] Unit tests for data flow (64 tests — persistence detection for save/insert/create/update/delete, DB reads for find/query/findMany, event emission for emit/publish/dispatch/send, event handling for on/subscribe/listen, config reads for process.env/os.environ/os.getenv, HTTP calls for fetch/axios/requests, logging for console/logger/logging, false positive guards for arrays/maps/sets/localStorage/JSON/Promise, graph enrichment, call chain tracing with depth limits and cycles)
+- [x] Property-based tests for data flow (6 tests — classify never panics, confidence in range, edge fields valid, frameworks sorted + deduplicated, empty input → empty output, deterministic analysis)
+- [x] Framework detection tests (12 tests — Express, Next.js imports + file structure, React, FastAPI, Flask, Django, Prisma, Effect.ts, multiple frameworks, no frameworks, sorted output, deduplication)
+- [x] Mermaid graph generation in JSON output
+- [x] Commit range and staged/unstaged support
+- [ ] Full data flow tracing (parameters, return values, variable assignments across call chains)
 - [ ] Config file support (`.flowdiff.toml`)
-- [ ] Mermaid graph generation in JSON output
-- [ ] Commit range and staged/unstaged support
 
 ### Phase 3: Tauri App (Week 3-4)
 - [ ] Tauri project setup with React frontend

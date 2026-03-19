@@ -137,6 +137,11 @@ impl SymbolGraph {
         self.id_to_index.keys().map(|s| s.as_str()).collect()
     }
 
+    /// Add an edge between two nodes by their indices.
+    pub fn add_edge(&mut self, from: NodeIndex, to: NodeIndex, edge: GraphEdge) {
+        self.graph.add_edge(from, to, edge);
+    }
+
     /// Get all edges as (from_id, to_id, edge_type) tuples.
     pub fn edges(&self) -> Vec<(&str, &str, &EdgeType)> {
         self.graph
