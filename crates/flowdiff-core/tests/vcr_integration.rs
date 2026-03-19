@@ -6,115 +6,15 @@
 //! Live VCR tests are gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`.
 //! Non-live tests use pre-recorded fixtures and run unconditionally.
 
+mod helpers;
+
 use flowdiff_core::llm::schema::{
-    JudgeRequest, JudgeResponse, Pass1GroupInput, Pass1Request, Pass1Response, Pass2FileInput,
-    Pass2Request, Pass2Response,
+    JudgeRequest, JudgeResponse, Pass1Request, Pass1Response, Pass2Request, Pass2Response,
 };
 use flowdiff_core::llm::vcr::{CacheEntry, VcrMode, VcrProvider};
 use flowdiff_core::llm::LlmProvider;
+use helpers::llm_helpers::{load_env, sample_pass1_request, sample_pass2_request, should_run_live};
 use tempfile::TempDir;
-
-/// Check if live tests should run.
-fn should_run_live() -> bool {
-    std::env::var("FLOWDIFF_RUN_LIVE_LLM_TESTS")
-        .map(|v| v == "1" || v.to_lowercase() == "true")
-        .unwrap_or(false)
-}
-
-/// Load .env file if it exists.
-fn load_env() {
-    let env_path = "/Users/jamesaphoenix/Desktop/projects/brightpool/udemy-prompt-engineering-course/.env";
-    if let Ok(contents) = std::fs::read_to_string(env_path) {
-        for line in contents.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some((key, value)) = line.split_once('=') {
-                let key = key.trim();
-                let value = value.trim();
-                if std::env::var(key).is_err() {
-                    std::env::set_var(key, value);
-                }
-            }
-        }
-    }
-}
-
-fn sample_pass1_request() -> Pass1Request {
-    Pass1Request {
-        diff_summary: "12 files changed across 3 modules. Changes include a new user registration \
-            endpoint, updated validation logic, and a database migration for the users table."
-            .to_string(),
-        flow_groups: vec![
-            Pass1GroupInput {
-                id: "group_1".to_string(),
-                name: "POST /api/users registration flow".to_string(),
-                entrypoint: Some("src/routes/users.ts::POST".to_string()),
-                files: vec![
-                    "src/routes/users.ts".to_string(),
-                    "src/services/user-service.ts".to_string(),
-                    "src/repositories/user-repo.ts".to_string(),
-                ],
-                risk_score: 0.78,
-                edge_summary: "users.ts calls user-service.ts, user-service.ts calls user-repo.ts"
-                    .to_string(),
-            },
-            Pass1GroupInput {
-                id: "group_2".to_string(),
-                name: "User validation utilities".to_string(),
-                entrypoint: None,
-                files: vec![
-                    "src/utils/validation.ts".to_string(),
-                    "src/types/user.ts".to_string(),
-                ],
-                risk_score: 0.35,
-                edge_summary: "validation.ts imports types from user.ts".to_string(),
-            },
-        ],
-        graph_summary: "5 nodes, 4 edges. Primary flow: route → service → repo. \
-            Shared utility: validation used by both route and service."
-            .to_string(),
-    }
-}
-
-fn sample_pass2_request() -> Pass2Request {
-    Pass2Request {
-        group_id: "group_1".to_string(),
-        group_name: "POST /api/users registration flow".to_string(),
-        files: vec![
-            Pass2FileInput {
-                path: "src/routes/users.ts".to_string(),
-                diff: r#"+ import { createUser } from '../services/user-service';
-+ import { validateUserInput } from '../utils/validation';
-+
-+ export async function POST(req: Request) {
-+   const body = await req.json();
-+   const validated = validateUserInput(body);
-+   const user = await createUser(validated);
-+   return Response.json(user, { status: 201 });
-+ }"#
-                .to_string(),
-                new_content: None,
-                role: "Entrypoint".to_string(),
-            },
-            Pass2FileInput {
-                path: "src/services/user-service.ts".to_string(),
-                diff: r#"+ import { UserRepository } from '../repositories/user-repo';
-+
-+ export async function createUser(data: UserInput): Promise<User> {
-+   const existing = await UserRepository.findByEmail(data.email);
-+   if (existing) throw new Error('User already exists');
-+   return UserRepository.insert(data);
-+ }"#
-                .to_string(),
-                new_content: None,
-                role: "Service".to_string(),
-            },
-        ],
-        graph_context: "route.ts -> user-service.ts -> user-repo.ts (calls chain)".to_string(),
-    }
-}
 
 // ── Non-Live Tests: Pre-recorded Fixture Replay ──
 
@@ -162,16 +62,31 @@ async fn test_replay_from_prerecorded_pass1_fixture() {
 
     #[async_trait]
     impl LlmProvider for DummyProvider {
-        fn name(&self) -> &str { "fixture" }
-        fn model(&self) -> &str { "fixture-v1" }
-        fn max_context_tokens(&self) -> usize { 100_000 }
-        async fn annotate_overview(&self, _: &Pass1Request) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
+        fn name(&self) -> &str {
+            "fixture"
+        }
+        fn model(&self) -> &str {
+            "fixture-v1"
+        }
+        fn max_context_tokens(&self) -> usize {
+            100_000
+        }
+        async fn annotate_overview(
+            &self,
+            _: &Pass1Request,
+        ) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
             panic!("Should not be called in replay mode")
         }
-        async fn annotate_group(&self, _: &Pass2Request) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
+        async fn annotate_group(
+            &self,
+            _: &Pass2Request,
+        ) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
             panic!("Should not be called in replay mode")
         }
-        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+        async fn evaluate_quality(
+            &self,
+            _: &JudgeRequest,
+        ) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
             panic!("Should not be called in replay mode")
         }
     }
@@ -185,7 +100,10 @@ async fn test_replay_from_prerecorded_pass1_fixture() {
     let result = vcr.annotate_overview(&request).await.unwrap();
     assert_eq!(result, fixture_response);
     assert_eq!(result.groups[0].id, "group_1");
-    assert_eq!(result.overall_summary, "New user registration flow with validation.");
+    assert_eq!(
+        result.overall_summary,
+        "New user registration flow with validation."
+    );
 }
 
 /// Create a pre-recorded cache entry for Pass 2 and verify replay.
@@ -202,15 +120,13 @@ async fn test_replay_from_prerecorded_pass2_fixture() {
     let fixture_response = Pass2Response {
         group_id: "group_1".to_string(),
         flow_narrative: "Request enters at POST /api/users, validated, then persisted.".to_string(),
-        file_annotations: vec![
-            flowdiff_core::llm::schema::Pass2FileAnnotation {
-                file: "src/routes/users.ts".to_string(),
-                role_in_flow: "HTTP entrypoint".to_string(),
-                changes_summary: "New POST handler for user registration.".to_string(),
-                risks: vec!["No rate limiting".to_string()],
-                suggestions: vec!["Add rate limiter middleware".to_string()],
-            },
-        ],
+        file_annotations: vec![flowdiff_core::llm::schema::Pass2FileAnnotation {
+            file: "src/routes/users.ts".to_string(),
+            role_in_flow: "HTTP entrypoint".to_string(),
+            changes_summary: "New POST handler for user registration.".to_string(),
+            risks: vec!["No rate limiting".to_string()],
+            suggestions: vec!["Add rate limiter middleware".to_string()],
+        }],
         cross_cutting_concerns: vec!["Missing error handling for DB failures".to_string()],
     };
 
@@ -231,16 +147,31 @@ async fn test_replay_from_prerecorded_pass2_fixture() {
 
     #[async_trait]
     impl LlmProvider for DummyProvider {
-        fn name(&self) -> &str { "fixture" }
-        fn model(&self) -> &str { "fixture-v1" }
-        fn max_context_tokens(&self) -> usize { 100_000 }
-        async fn annotate_overview(&self, _: &Pass1Request) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
+        fn name(&self) -> &str {
+            "fixture"
+        }
+        fn model(&self) -> &str {
+            "fixture-v1"
+        }
+        fn max_context_tokens(&self) -> usize {
+            100_000
+        }
+        async fn annotate_overview(
+            &self,
+            _: &Pass1Request,
+        ) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
             panic!("Should not be called")
         }
-        async fn annotate_group(&self, _: &Pass2Request) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
+        async fn annotate_group(
+            &self,
+            _: &Pass2Request,
+        ) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
             panic!("Should not be called")
         }
-        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+        async fn evaluate_quality(
+            &self,
+            _: &JudgeRequest,
+        ) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
             panic!("Should not be called")
         }
     }
@@ -276,10 +207,19 @@ async fn test_auto_mode_records_on_first_call_replays_on_second() {
 
     #[async_trait]
     impl LlmProvider for CountingProvider {
-        fn name(&self) -> &str { "counting" }
-        fn model(&self) -> &str { "counting-v1" }
-        fn max_context_tokens(&self) -> usize { 100_000 }
-        async fn annotate_overview(&self, _: &Pass1Request) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
+        fn name(&self) -> &str {
+            "counting"
+        }
+        fn model(&self) -> &str {
+            "counting-v1"
+        }
+        fn max_context_tokens(&self) -> usize {
+            100_000
+        }
+        async fn annotate_overview(
+            &self,
+            _: &Pass1Request,
+        ) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
             self.count.fetch_add(1, Ordering::SeqCst);
             Ok(Pass1Response {
                 groups: vec![],
@@ -287,7 +227,10 @@ async fn test_auto_mode_records_on_first_call_replays_on_second() {
                 suggested_review_order: vec![],
             })
         }
-        async fn annotate_group(&self, _: &Pass2Request) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
+        async fn annotate_group(
+            &self,
+            _: &Pass2Request,
+        ) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
             self.count.fetch_add(1, Ordering::SeqCst);
             Ok(Pass2Response {
                 group_id: "g1".to_string(),
@@ -296,7 +239,10 @@ async fn test_auto_mode_records_on_first_call_replays_on_second() {
                 cross_cutting_concerns: vec![],
             })
         }
-        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+        async fn evaluate_quality(
+            &self,
+            _: &JudgeRequest,
+        ) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
             self.count.fetch_add(1, Ordering::SeqCst);
             Ok(JudgeResponse {
                 criteria: vec![],
@@ -314,17 +260,26 @@ async fn test_auto_mode_records_on_first_call_replays_on_second() {
     );
 
     // First call: cache miss → calls provider
-    let r1 = vcr.annotate_overview(&sample_pass1_request()).await.unwrap();
+    let r1 = vcr
+        .annotate_overview(&sample_pass1_request())
+        .await
+        .unwrap();
     assert_eq!(call_count.load(Ordering::SeqCst), 1);
     assert_eq!(r1.overall_summary, "counted");
 
     // Second call: cache hit → no provider call
-    let r2 = vcr.annotate_overview(&sample_pass1_request()).await.unwrap();
+    let r2 = vcr
+        .annotate_overview(&sample_pass1_request())
+        .await
+        .unwrap();
     assert_eq!(call_count.load(Ordering::SeqCst), 1);
     assert_eq!(r1, r2);
 
     // Different request type (Pass 2): cache miss → calls provider
-    let r3 = vcr.annotate_group(&sample_pass2_request()).await.unwrap();
+    let r3 = vcr
+        .annotate_group(&sample_pass2_request())
+        .await
+        .unwrap();
     assert_eq!(call_count.load(Ordering::SeqCst), 2);
     assert_eq!(r3.flow_narrative, "counted");
 }
@@ -360,7 +315,11 @@ async fn test_live_vcr_record_replay_anthropic() {
 
     // Verify cache file was written
     let entries = vcr_record.list_entries();
-    assert_eq!(entries.len(), 1, "Should have one cache entry after recording");
+    assert_eq!(
+        entries.len(),
+        1,
+        "Should have one cache entry after recording"
+    );
 
     // Phase 2: Replay (with a different provider that would fail)
     use async_trait::async_trait;
@@ -368,17 +327,38 @@ async fn test_live_vcr_record_replay_anthropic() {
 
     #[async_trait]
     impl LlmProvider for FailProvider {
-        fn name(&self) -> &str { "anthropic" }
-        fn model(&self) -> &str { "claude-sonnet-4-20250514" }
-        fn max_context_tokens(&self) -> usize { 200_000 }
-        async fn annotate_overview(&self, _: &Pass1Request) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
-            Err(flowdiff_core::llm::LlmError::AuthError("This should not be called".to_string()))
+        fn name(&self) -> &str {
+            "anthropic"
         }
-        async fn annotate_group(&self, _: &Pass2Request) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
-            Err(flowdiff_core::llm::LlmError::AuthError("This should not be called".to_string()))
+        fn model(&self) -> &str {
+            "claude-sonnet-4-20250514"
         }
-        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
-            Err(flowdiff_core::llm::LlmError::AuthError("This should not be called".to_string()))
+        fn max_context_tokens(&self) -> usize {
+            200_000
+        }
+        async fn annotate_overview(
+            &self,
+            _: &Pass1Request,
+        ) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
+            Err(flowdiff_core::llm::LlmError::AuthError(
+                "This should not be called".to_string(),
+            ))
+        }
+        async fn annotate_group(
+            &self,
+            _: &Pass2Request,
+        ) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
+            Err(flowdiff_core::llm::LlmError::AuthError(
+                "This should not be called".to_string(),
+            ))
+        }
+        async fn evaluate_quality(
+            &self,
+            _: &JudgeRequest,
+        ) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+            Err(flowdiff_core::llm::LlmError::AuthError(
+                "This should not be called".to_string(),
+            ))
         }
     }
 
@@ -389,7 +369,10 @@ async fn test_live_vcr_record_replay_anthropic() {
     );
 
     let replayed = vcr_replay.annotate_overview(&request).await.unwrap();
-    assert_eq!(recorded, replayed, "Replayed response should match recorded response exactly");
+    assert_eq!(
+        recorded, replayed,
+        "Replayed response should match recorded response exactly"
+    );
 
     eprintln!("VCR record/replay test passed for Anthropic");
     eprintln!("Recorded summary: {}", recorded.overall_summary);
@@ -429,16 +412,31 @@ async fn test_live_vcr_record_replay_pass2_anthropic() {
 
     #[async_trait]
     impl LlmProvider for FailProvider {
-        fn name(&self) -> &str { "anthropic" }
-        fn model(&self) -> &str { "claude-sonnet-4-20250514" }
-        fn max_context_tokens(&self) -> usize { 200_000 }
-        async fn annotate_overview(&self, _: &Pass1Request) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
+        fn name(&self) -> &str {
+            "anthropic"
+        }
+        fn model(&self) -> &str {
+            "claude-sonnet-4-20250514"
+        }
+        fn max_context_tokens(&self) -> usize {
+            200_000
+        }
+        async fn annotate_overview(
+            &self,
+            _: &Pass1Request,
+        ) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
             panic!("should not be called")
         }
-        async fn annotate_group(&self, _: &Pass2Request) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
+        async fn annotate_group(
+            &self,
+            _: &Pass2Request,
+        ) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
             Err(flowdiff_core::llm::LlmError::AuthError("no".to_string()))
         }
-        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+        async fn evaluate_quality(
+            &self,
+            _: &JudgeRequest,
+        ) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
             Err(flowdiff_core::llm::LlmError::AuthError("no".to_string()))
         }
     }
@@ -492,16 +490,31 @@ async fn test_live_vcr_full_pipeline() {
 
     #[async_trait]
     impl LlmProvider for FailProvider {
-        fn name(&self) -> &str { "anthropic" }
-        fn model(&self) -> &str { "claude-sonnet-4-20250514" }
-        fn max_context_tokens(&self) -> usize { 200_000 }
-        async fn annotate_overview(&self, _: &Pass1Request) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
+        fn name(&self) -> &str {
+            "anthropic"
+        }
+        fn model(&self) -> &str {
+            "claude-sonnet-4-20250514"
+        }
+        fn max_context_tokens(&self) -> usize {
+            200_000
+        }
+        async fn annotate_overview(
+            &self,
+            _: &Pass1Request,
+        ) -> Result<Pass1Response, flowdiff_core::llm::LlmError> {
             panic!("replaying, should not call")
         }
-        async fn annotate_group(&self, _: &Pass2Request) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
+        async fn annotate_group(
+            &self,
+            _: &Pass2Request,
+        ) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
             panic!("replaying, should not call")
         }
-        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+        async fn evaluate_quality(
+            &self,
+            _: &JudgeRequest,
+        ) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
             panic!("replaying, should not call")
         }
     }

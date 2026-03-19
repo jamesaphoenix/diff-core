@@ -8,163 +8,20 @@
 //! Run with:
 //!   cargo test --test e2e_pipeline
 
-use std::path::Path;
+mod helpers;
 
-use git2::{Repository, Signature};
-use tempfile::TempDir;
+use git2::Repository;
 
 use flowdiff_core::ast;
-use flowdiff_core::cluster;
 use flowdiff_core::entrypoint;
-use flowdiff_core::flow::{self, FlowConfig};
 use flowdiff_core::git;
-use flowdiff_core::graph::SymbolGraph;
-use flowdiff_core::output::{self, build_analysis_output};
-use flowdiff_core::rank::{self, compute_risk_score, compute_surface_area};
-use flowdiff_core::types::{AnalysisOutput, GroupRankInput, RankWeights};
-
-// ─── Test helpers ────────────────────────────────────────────────────────
-
-/// Create a git repo, commit initial files, apply changes on a branch, and return the repo + dir.
-struct RepoBuilder {
-    dir: TempDir,
-    repo: Repository,
-}
-
-impl RepoBuilder {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("failed to create temp dir");
-        let repo = Repository::init(dir.path()).expect("failed to init repo");
-
-        // Configure user for commits
-        let mut config = repo.config().unwrap();
-        config.set_str("user.name", "Test User").unwrap();
-        config.set_str("user.email", "test@example.com").unwrap();
-
-        Self { dir, repo }
-    }
-
-    fn path(&self) -> &Path {
-        self.dir.path()
-    }
-
-    /// Write a file relative to the repo root.
-    fn write_file(&self, rel_path: &str, content: &str) {
-        let full = self.dir.path().join(rel_path);
-        if let Some(parent) = full.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(&full, content).unwrap();
-    }
-
-    /// Stage all changes and commit with a message. Returns the commit OID.
-    fn commit(&self, message: &str) -> git2::Oid {
-        let mut index = self.repo.index().unwrap();
-        index
-            .add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
-            .unwrap();
-        index.write().unwrap();
-
-        let tree_oid = index.write_tree().unwrap();
-        let tree = self.repo.find_tree(tree_oid).unwrap();
-        let sig = Signature::now("Test User", "test@example.com").unwrap();
-
-        let parent = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok());
-        let parents: Vec<&git2::Commit> = parent.iter().collect();
-
-        self.repo
-            .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
-            .unwrap()
-    }
-
-    /// Create a branch at the current HEAD. No-op if it already exists.
-    fn create_branch(&self, name: &str) {
-        let head = self.repo.head().unwrap().peel_to_commit().unwrap();
-        // force=false; ignore AlreadyExists errors
-        let _ = self.repo.branch(name, &head, false);
-    }
-
-    /// Checkout a branch by name.
-    fn checkout(&self, name: &str) {
-        let ref_name = format!("refs/heads/{}", name);
-        let obj = self.repo.revparse_single(&ref_name).unwrap();
-        self.repo.checkout_tree(&obj, None).unwrap();
-        self.repo.set_head(&ref_name).unwrap();
-    }
-}
-
-/// Run the full pipeline on a repo diff between two refs.
-fn run_pipeline(repo_path: &Path, base_ref: &str, head_ref: &str) -> AnalysisOutput {
-    let repo = Repository::open(repo_path).expect("failed to open repo");
-    let diff_result = git::diff_refs(&repo, base_ref, head_ref).expect("diff_refs failed");
-
-    // Parse all changed files (using new content for adds/modifies, old for deletes).
-    let mut parsed_files = Vec::new();
-    for file_diff in &diff_result.files {
-        if let Some(ref content) = file_diff.new_content {
-            let path = file_diff.path();
-            if let Ok(parsed) = ast::parse_file(path, content) {
-                parsed_files.push(parsed);
-            }
-        }
-    }
-
-    // Build symbol graph.
-    let mut graph = SymbolGraph::build(&parsed_files);
-
-    // Detect entrypoints.
-    let entrypoints = entrypoint::detect_entrypoints(&parsed_files);
-
-    // Run data flow analysis and enrich graph.
-    let flow_analysis = flow::analyze_data_flow(&parsed_files, &FlowConfig::default());
-    flow::enrich_graph(&mut graph, &flow_analysis);
-
-    // Cluster changed files.
-    let changed_files: Vec<String> = diff_result
-        .files
-        .iter()
-        .map(|f| f.path().to_string())
-        .collect();
-    let cluster_result = cluster::cluster_files(&graph, &entrypoints, &changed_files);
-
-    // Rank groups.
-    let weights = RankWeights::default();
-    let rank_inputs: Vec<GroupRankInput> = cluster_result
-        .groups
-        .iter()
-        .map(|group| {
-            let risk_flags = output::compute_group_risk_flags(
-                &group.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
-            );
-            let total_add: u32 = group.files.iter().map(|f| f.changes.additions).sum();
-            let total_del: u32 = group.files.iter().map(|f| f.changes.deletions).sum();
-
-            GroupRankInput {
-                group_id: group.id.clone(),
-                risk: compute_risk_score(
-                    risk_flags.has_schema_change,
-                    risk_flags.has_api_change,
-                    risk_flags.has_auth_change,
-                    false,
-                ),
-                centrality: 0.5, // Simplified — no PageRank for now
-                surface_area: compute_surface_area(total_add, total_del, 1000),
-                uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
-            }
-        })
-        .collect();
-
-    let ranked = rank::rank_groups(&rank_inputs, &weights);
-
-    let diff_source = output::diff_source_branch(
-        base_ref,
-        head_ref,
-        diff_result.base_sha.as_deref(),
-        diff_result.head_sha.as_deref(),
-    );
-
-    build_analysis_output(&diff_result, diff_source, &parsed_files, &cluster_result, &ranked)
-}
+use flowdiff_core::output;
+use flowdiff_core::types::AnalysisOutput;
+use helpers::graph_assertions::{
+    assert_all_files_accounted, assert_json_roundtrip, assert_language_detected,
+    assert_valid_json_schema, assert_valid_mermaid, assert_valid_scores,
+};
+use helpers::repo_builder::{run_pipeline, RepoBuilder};
 
 // ─── E2E Tests ───────────────────────────────────────────────────────────
 
@@ -273,30 +130,13 @@ export default router;
 
     // Assertions
     assert_eq!(output.version, "1.0.0");
-    assert!(output.summary.total_files_changed >= 3, "should have at least 3 changed files");
     assert!(
-        output.summary.languages_detected.contains(&"typescript".to_string()),
-        "should detect TypeScript"
+        output.summary.total_files_changed >= 3,
+        "should have at least 3 changed files"
     );
-
-    // Should produce at least one flow group (the user creation chain)
-    let total_grouped_files: usize = output.groups.iter().map(|g| g.files.len()).sum();
-    let infra_files = output
-        .infrastructure_group
-        .as_ref()
-        .map(|i| i.files.len())
-        .unwrap_or(0);
-    assert_eq!(
-        total_grouped_files + infra_files,
-        output.summary.total_files_changed as usize,
-        "every changed file should be in exactly one group or infrastructure"
-    );
-
-    // JSON should be valid and roundtrip
-    let json = output::to_json(&output).unwrap();
-    let parsed: AnalysisOutput = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed.version, "1.0.0");
-    assert_eq!(parsed.summary.total_files_changed, output.summary.total_files_changed);
+    assert_language_detected(&output, "typescript");
+    assert_all_files_accounted(&output);
+    assert_json_roundtrip(&output);
 }
 
 /// Test: Python FastAPI app with endpoint + service + repository.
@@ -363,22 +203,8 @@ class ItemCreate:
     let output = run_pipeline(rb.path(), "main", "feature/add-items");
 
     assert!(output.summary.total_files_changed >= 4);
-    assert!(output.summary.languages_detected.contains(&"python".to_string()));
-
-    // All files accounted for
-    let total_grouped: usize = output.groups.iter().map(|g| g.files.len()).sum();
-    let infra: usize = output
-        .infrastructure_group
-        .as_ref()
-        .map(|i| i.files.len())
-        .unwrap_or(0);
-    assert_eq!(
-        total_grouped + infra,
-        output.summary.total_files_changed as usize
-    );
-
-    // Should detect Python
-    assert!(output.summary.languages_detected.contains(&"python".to_string()));
+    assert_language_detected(&output, "python");
+    assert_all_files_accounted(&output);
 }
 
 /// Test: Branch comparison produces correct diff source metadata.
@@ -450,51 +276,16 @@ const app = express();
 app.get('/test', handle);
 "#,
     );
-    rb.write_file("src/utils.ts", "export function log(msg: string) { console.log(msg); }\n");
+    rb.write_file(
+        "src/utils.ts",
+        "export function log(msg: string) { console.log(msg); }\n",
+    );
     rb.commit("Add handler + utils");
 
     let output = run_pipeline(rb.path(), "main", "feature/x");
-    let json_str = output::to_json(&output).unwrap();
 
-    // Parse as generic JSON value and validate structure
-    let v: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-
-    assert_eq!(v["version"], "1.0.0");
-    assert!(v["diff_source"].is_object());
-    assert!(v["summary"].is_object());
-    assert!(v["groups"].is_array());
-    assert!(v["summary"]["total_files_changed"].is_number());
-    assert!(v["summary"]["total_groups"].is_number());
-    assert!(v["summary"]["languages_detected"].is_array());
-    assert!(v["summary"]["frameworks_detected"].is_array());
-
-    // Each group has required fields
-    if let Some(groups) = v["groups"].as_array() {
-        for g in groups {
-            assert!(g["id"].is_string(), "group should have id");
-            assert!(g["name"].is_string(), "group should have name");
-            assert!(g["files"].is_array(), "group should have files array");
-            assert!(g["edges"].is_array(), "group should have edges array");
-            assert!(g["risk_score"].is_number(), "group should have risk_score");
-            assert!(g["review_order"].is_number(), "group should have review_order");
-
-            // Each file has required fields
-            for f in g["files"].as_array().unwrap() {
-                assert!(f["path"].is_string());
-                assert!(f["flow_position"].is_number());
-                assert!(f["role"].is_string());
-                assert!(f["changes"]["additions"].is_number());
-                assert!(f["changes"]["deletions"].is_number());
-                assert!(f["symbols_changed"].is_array());
-            }
-        }
-    }
-
-    // Roundtrip: JSON → AnalysisOutput → JSON → AnalysisOutput should be stable
-    let deserialized: AnalysisOutput = serde_json::from_str(&json_str).unwrap();
-    let json_str2 = output::to_json(&deserialized).unwrap();
-    let deserialized2: AnalysisOutput = serde_json::from_str(&json_str2).unwrap();
-    assert_eq!(deserialized, deserialized2, "JSON roundtrip should be stable");
+    assert_valid_json_schema(&output);
+    assert_json_roundtrip(&output);
 }
 
 /// Test: Cross-cutting refactor — a shared utility used by many files.
@@ -544,15 +335,7 @@ fn test_e2e_cross_cutting_refactor() {
 
     // All 6 files should be changed
     assert_eq!(output.summary.total_files_changed, 6);
-
-    // Every file should appear in some group or infrastructure
-    let total_grouped: usize = output.groups.iter().map(|g| g.files.len()).sum();
-    let infra: usize = output
-        .infrastructure_group
-        .as_ref()
-        .map(|i| i.files.len())
-        .unwrap_or(0);
-    assert_eq!(total_grouped + infra, 6);
+    assert_all_files_accounted(&output);
 }
 
 /// Test: Multiple entrypoints produce distinct flow groups.
@@ -629,25 +412,8 @@ export function sendEmail(to: string, subject: string, body: string) {
     let output = run_pipeline(rb.path(), "main", "feature/multi");
 
     assert!(output.summary.total_files_changed >= 5);
-
-    // All files accounted for
-    let total_grouped: usize = output.groups.iter().map(|g| g.files.len()).sum();
-    let infra: usize = output
-        .infrastructure_group
-        .as_ref()
-        .map(|i| i.files.len())
-        .unwrap_or(0);
-    assert_eq!(total_grouped + infra, output.summary.total_files_changed as usize);
-
-    // Ranking: all groups should have valid scores in [0.0, 1.0]
-    for group in &output.groups {
-        assert!(
-            group.risk_score >= 0.0 && group.risk_score <= 1.0,
-            "risk_score should be in [0, 1], got {}",
-            group.risk_score
-        );
-        assert!(group.review_order >= 1, "review_order should be >= 1");
-    }
+    assert_all_files_accounted(&output);
+    assert_valid_scores(&output);
 }
 
 /// Test: Mixed TypeScript + Python project.
@@ -710,19 +476,8 @@ def get_all_users():
     let output = run_pipeline(rb.path(), "main", "feature/mixed");
 
     assert!(output.summary.total_files_changed >= 4);
-
-    // Should detect both languages
-    let langs = &output.summary.languages_detected;
-    assert!(
-        langs.contains(&"typescript".to_string()),
-        "should detect TypeScript, got: {:?}",
-        langs
-    );
-    assert!(
-        langs.contains(&"python".to_string()),
-        "should detect Python, got: {:?}",
-        langs
-    );
+    assert_language_detected(&output, "typescript");
+    assert_language_detected(&output, "python");
 }
 
 /// Test: Deterministic output — running the same analysis twice produces identical results.
@@ -731,15 +486,24 @@ fn test_e2e_deterministic() {
     let rb = RepoBuilder::new();
 
     rb.write_file("src/a.ts", "export function a() {}\n");
-    rb.write_file("src/b.ts", "import { a } from './a';\nexport function b() { return a(); }\n");
+    rb.write_file(
+        "src/b.ts",
+        "import { a } from './a';\nexport function b() { return a(); }\n",
+    );
     rb.commit("Initial");
     rb.create_branch("main");
 
     rb.create_branch("feature/det");
     rb.checkout("feature/det");
     rb.write_file("src/a.ts", "export function a() { return 42; }\n");
-    rb.write_file("src/b.ts", "import { a } from './a';\nexport function b() { return a() + 1; }\n");
-    rb.write_file("src/c.ts", "import { b } from './b';\nexport function c() { return b() * 2; }\n");
+    rb.write_file(
+        "src/b.ts",
+        "import { a } from './a';\nexport function b() { return a() + 1; }\n",
+    );
+    rb.write_file(
+        "src/c.ts",
+        "import { b } from './b';\nexport function c() { return b() * 2; }\n",
+    );
     rb.commit("Modify chain");
 
     let output1 = run_pipeline(rb.path(), "main", "feature/det");
@@ -813,16 +577,14 @@ fn test_e2e_risk_scoring_auth() {
     let output = run_pipeline(rb.path(), "main", "feature/auth-fix");
 
     // Find the group containing the auth file
-    let auth_group = output.groups.iter().find(|g| {
-        g.files
-            .iter()
-            .any(|f| f.path.contains("auth"))
-    });
-    let helper_group = output.groups.iter().find(|g| {
-        g.files
-            .iter()
-            .any(|f| f.path.contains("helper"))
-    });
+    let auth_group = output
+        .groups
+        .iter()
+        .find(|g| g.files.iter().any(|f| f.path.contains("auth")));
+    let helper_group = output
+        .groups
+        .iter()
+        .find(|g| g.files.iter().any(|f| f.path.contains("helper")));
 
     // If they're in separate groups, auth group should have higher risk
     if let (Some(ag), Some(hg)) = (auth_group, helper_group) {
@@ -876,15 +638,7 @@ fn test_e2e_20_file_diff() {
         "20-file analysis should complete in <30s, took {:?}",
         elapsed
     );
-
-    // All files should be accounted for
-    let total_grouped: usize = output.groups.iter().map(|g| g.files.len()).sum();
-    let infra: usize = output
-        .infrastructure_group
-        .as_ref()
-        .map(|i| i.files.len())
-        .unwrap_or(0);
-    assert_eq!(total_grouped + infra, 20);
+    assert_all_files_accounted(&output);
 
     // Should produce valid JSON
     let json = output::to_json(&output).unwrap();
@@ -924,19 +678,7 @@ export function doWork() { return { result: 'done' }; }
 
     let output = run_pipeline(rb.path(), "main", "feature/flow");
 
-    // Generate Mermaid for each group
-    for group in &output.groups {
-        let mermaid = output::generate_mermaid(group);
-        assert!(
-            mermaid.starts_with("graph TD"),
-            "Mermaid should start with 'graph TD'"
-        );
-        // Should have at least one node for each file in the group
-        assert!(
-            !mermaid.is_empty(),
-            "Mermaid diagram should not be empty"
-        );
-    }
+    assert_valid_mermaid(&output);
 }
 
 /// Test: Commit range support via diff_refs with commit SHAs.

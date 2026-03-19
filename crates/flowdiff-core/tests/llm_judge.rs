@@ -8,20 +8,16 @@
 //!
 //! Non-live tests use mock providers and VCR replay.
 
+mod helpers;
+
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use git2::{Repository, Signature};
 use tempfile::TempDir;
 
-use flowdiff_core::ast;
-use flowdiff_core::cluster;
-use flowdiff_core::entrypoint;
-use flowdiff_core::flow::{self, FlowConfig};
 use flowdiff_core::git;
-use flowdiff_core::graph::SymbolGraph;
 use flowdiff_core::llm::judge::{
     build_judge_request, collect_source_files, normalize_judge_scores, validate_judge_response,
     JUDGE_CRITERIA,
@@ -32,39 +28,13 @@ use flowdiff_core::llm::schema::{
 };
 use flowdiff_core::llm::vcr::{VcrMode, VcrProvider};
 use flowdiff_core::llm::{LlmError, LlmProvider};
-use flowdiff_core::output::{self, build_analysis_output};
-use flowdiff_core::rank::{self, compute_risk_score, compute_surface_area};
-use flowdiff_core::types::{AnalysisOutput, GroupRankInput, RankWeights};
+use flowdiff_core::types::AnalysisOutput;
+use helpers::llm_helpers::{load_env, should_run_live};
+use helpers::repo_builder::{run_pipeline, RepoBuilder};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Test Infrastructure
 // ═══════════════════════════════════════════════════════════════════════════
-
-fn should_run_live() -> bool {
-    std::env::var("FLOWDIFF_RUN_LIVE_LLM_TESTS")
-        .map(|v| v == "1" || v.to_lowercase() == "true")
-        .unwrap_or(false)
-}
-
-fn load_env() {
-    let env_path =
-        "/Users/jamesaphoenix/Desktop/projects/brightpool/udemy-prompt-engineering-course/.env";
-    if let Ok(contents) = std::fs::read_to_string(env_path) {
-        for line in contents.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some((key, value)) = line.split_once('=') {
-                let key = key.trim();
-                let value = value.trim();
-                if std::env::var(key).is_err() {
-                    std::env::set_var(key, value);
-                }
-            }
-        }
-    }
-}
 
 /// Mock LLM provider that returns a valid judge response.
 struct MockJudgeProvider {
@@ -117,30 +87,25 @@ impl LlmProvider for MockJudgeProvider {
 
 /// Create a simple Express app fixture, run the pipeline, and return output.
 fn build_express_fixture_and_analyze() -> (TempDir, AnalysisOutput, String) {
-    let dir = TempDir::new().expect("failed to create temp dir");
-    let repo = Repository::init(dir.path()).expect("failed to init repo");
-    let mut config = repo.config().unwrap();
-    config.set_str("user.name", "Test User").unwrap();
-    config.set_str("user.email", "test@example.com").unwrap();
+    let rb = RepoBuilder::new();
 
     // Base commit
-    write_file(dir.path(), "package.json", r#"{"name":"test","version":"1.0.0"}"#);
-    write_file(dir.path(), "src/app.ts", "import express from 'express';\nconst app = express();\nexport default app;");
-    commit(&repo, "Initial commit");
-
-    // Create main branch
-    let head = repo.head().unwrap().peel_to_commit().unwrap();
-    let _ = repo.branch("main", &head, false);
+    rb.write_file(
+        "package.json",
+        r#"{"name":"test","version":"1.0.0"}"#,
+    );
+    rb.write_file(
+        "src/app.ts",
+        "import express from 'express';\nconst app = express();\nexport default app;",
+    );
+    rb.commit("Initial commit");
+    rb.create_branch("main");
 
     // Feature branch
-    let _ = repo.branch("feature/users", &head, false);
-    let ref_name = "refs/heads/feature/users";
-    let obj = repo.revparse_single(ref_name).unwrap();
-    repo.checkout_tree(&obj, None).unwrap();
-    repo.set_head(ref_name).unwrap();
+    rb.create_branch("feature/users");
+    rb.checkout("feature/users");
 
-    write_file(
-        dir.path(),
+    rb.write_file(
         "src/routes/users.ts",
         r#"import express from 'express';
 import { createUser } from '../services/userService';
@@ -156,8 +121,7 @@ router.post('/users', postUser);
 export default router;"#,
     );
 
-    write_file(
-        dir.path(),
+    rb.write_file(
         "src/services/userService.ts",
         r#"import { insertUser } from '../repositories/userRepo';
 
@@ -167,8 +131,7 @@ export function createUser(data: any) {
 }"#,
     );
 
-    write_file(
-        dir.path(),
+    rb.write_file(
         "src/repositories/userRepo.ts",
         r#"const users: any[] = [];
 
@@ -178,99 +141,49 @@ export function insertUser(user: any) {
 }"#,
     );
 
-    commit(&repo, "Add user CRUD");
+    rb.commit("Add user CRUD");
 
     // Run pipeline
-    let output = run_pipeline(dir.path(), "main", "feature/users");
+    let output = run_pipeline(rb.path(), "main", "feature/users");
 
     // Generate diff text
-    let repo2 = Repository::open(dir.path()).unwrap();
+    let repo2 = git2::Repository::open(rb.path()).unwrap();
     let diff_result = git::diff_refs(&repo2, "main", "feature/users").unwrap();
     let diff_text = diff_result
         .files
         .iter()
-        .map(|f| format!("--- a/{}\n+++ b/{}\n{}", f.path(), f.path(), f.new_content.as_deref().unwrap_or("")))
+        .map(|f| {
+            format!(
+                "--- a/{}\n+++ b/{}\n{}",
+                f.path(),
+                f.path(),
+                f.new_content.as_deref().unwrap_or("")
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n\n");
+
+    // Extract TempDir to keep it alive (RepoBuilder owns it)
+    // We need to return the TempDir separately since we need the path to persist
+    let dir = TempDir::new().unwrap();
+    // Copy the repo contents to a new temp dir so the RepoBuilder can be dropped
+    copy_dir_recursive(rb.path(), dir.path());
 
     (dir, output, diff_text)
 }
 
-fn write_file(root: &Path, rel_path: &str, content: &str) {
-    let full = root.join(rel_path);
-    if let Some(parent) = full.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(full, content).unwrap();
-}
-
-fn commit(repo: &Repository, message: &str) {
-    let mut index = repo.index().unwrap();
-    index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None).unwrap();
-    index.write().unwrap();
-    let tree_oid = index.write_tree().unwrap();
-    let tree = repo.find_tree(tree_oid).unwrap();
-    let sig = Signature::now("Test User", "test@example.com").unwrap();
-    let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
-    let parents: Vec<&git2::Commit> = parent.iter().collect();
-    repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parents).unwrap();
-}
-
-fn run_pipeline(repo_path: &Path, base_ref: &str, head_ref: &str) -> AnalysisOutput {
-    let repo = Repository::open(repo_path).expect("failed to open repo");
-    let diff_result = git::diff_refs(&repo, base_ref, head_ref).expect("diff_refs failed");
-
-    let mut parsed_files = Vec::new();
-    for file_diff in &diff_result.files {
-        if let Some(ref content) = file_diff.new_content {
-            let path = file_diff.path();
-            if let Ok(parsed) = ast::parse_file(path, content) {
-                parsed_files.push(parsed);
-            }
+fn copy_dir_recursive(src: &Path, dst: &Path) {
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            std::fs::create_dir_all(&dst_path).unwrap();
+            copy_dir_recursive(&src_path, &dst_path);
+        } else {
+            std::fs::copy(&src_path, &dst_path).unwrap();
         }
     }
-
-    let mut graph = SymbolGraph::build(&parsed_files);
-    let entrypoints = entrypoint::detect_entrypoints(&parsed_files);
-    let flow_analysis = flow::analyze_data_flow(&parsed_files, &FlowConfig::default());
-    flow::enrich_graph(&mut graph, &flow_analysis);
-
-    let changed_files: Vec<String> = diff_result.files.iter().map(|f| f.path().to_string()).collect();
-    let cluster_result = cluster::cluster_files(&graph, &entrypoints, &changed_files);
-
-    let weights = RankWeights::default();
-    let rank_inputs: Vec<GroupRankInput> = cluster_result
-        .groups
-        .iter()
-        .map(|group| {
-            let risk_flags = output::compute_group_risk_flags(
-                &group.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
-            );
-            let total_add: u32 = group.files.iter().map(|f| f.changes.additions).sum();
-            let total_del: u32 = group.files.iter().map(|f| f.changes.deletions).sum();
-            GroupRankInput {
-                group_id: group.id.clone(),
-                risk: compute_risk_score(
-                    risk_flags.has_schema_change,
-                    risk_flags.has_api_change,
-                    risk_flags.has_auth_change,
-                    false,
-                ),
-                centrality: 0.5,
-                surface_area: compute_surface_area(total_add, total_del, 1000),
-                uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
-            }
-        })
-        .collect();
-
-    let ranked = rank::rank_groups(&rank_inputs, &weights);
-    let diff_source = output::diff_source_branch(
-        base_ref,
-        head_ref,
-        diff_result.base_sha.as_deref(),
-        diff_result.head_sha.as_deref(),
-    );
-    build_analysis_output(&diff_result, diff_source, &parsed_files, &cluster_result, &ranked)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -285,7 +198,8 @@ async fn test_mock_judge_returns_valid_response() {
     let (dir, output, diff_text) = build_express_fixture_and_analyze();
     let source_files = collect_source_files(dir.path());
 
-    let request = build_judge_request(&output, &source_files, &diff_text, "TS Express API").unwrap();
+    let request =
+        build_judge_request(&output, &source_files, &diff_text, "TS Express API").unwrap();
     let response = provider.evaluate_quality(&request).await.unwrap();
 
     assert_eq!(response.criteria.len(), 5);
@@ -350,10 +264,18 @@ async fn test_vcr_judge_record_replay() {
     // Replay with different mock
     let call_count2 = Arc::new(AtomicUsize::new(0));
     let mock2 = MockJudgeProvider::new(call_count2.clone());
-    let vcr2 = VcrProvider::new(Box::new(mock2), tmp.path().to_path_buf(), VcrMode::Replay);
+    let vcr2 = VcrProvider::new(
+        Box::new(mock2),
+        tmp.path().to_path_buf(),
+        VcrMode::Replay,
+    );
     let replayed = vcr2.evaluate_quality(&request).await.unwrap();
     assert_eq!(replayed.overall_score, 4.0);
-    assert_eq!(call_count2.load(Ordering::SeqCst), 0, "Should not call provider in replay");
+    assert_eq!(
+        call_count2.load(Ordering::SeqCst),
+        0,
+        "Should not call provider in replay"
+    );
 }
 
 #[tokio::test]
@@ -388,10 +310,16 @@ fn test_fixture_source_file_collection() {
     let files = collect_source_files(dir.path());
 
     // Should have at least the files we created
-    assert!(files.len() >= 3, "Expected at least 3 source files, got {}", files.len());
+    assert!(
+        files.len() >= 3,
+        "Expected at least 3 source files, got {}",
+        files.len()
+    );
     assert!(files.iter().any(|(p, _)| p.contains("routes/users")));
     assert!(files.iter().any(|(p, _)| p.contains("services/userService")));
-    assert!(files.iter().any(|(p, _)| p.contains("repositories/userRepo")));
+    assert!(files
+        .iter()
+        .any(|(p, _)| p.contains("repositories/userRepo")));
 }
 
 #[test]
@@ -441,7 +369,8 @@ async fn test_live_anthropic_judge() {
     let (dir, output, diff_text) = build_express_fixture_and_analyze();
     let source_files = collect_source_files(dir.path());
 
-    let request = build_judge_request(&output, &source_files, &diff_text, "TS Express API").unwrap();
+    let request =
+        build_judge_request(&output, &source_files, &diff_text, "TS Express API").unwrap();
     let response = provider.evaluate_quality(&request).await.unwrap();
 
     eprintln!("\n=== Live Anthropic Judge Response ===");
@@ -499,9 +428,19 @@ async fn test_live_anthropic_judge_with_vcr() {
 
     // Verify cache file was created
     let entries = vcr.list_entries();
-    assert!(!entries.is_empty(), "VCR should have cached at least one entry");
     assert!(
-        entries.iter().any(|p| p.file_name().unwrap().to_str().unwrap().starts_with("judge_")),
+        !entries.is_empty(),
+        "VCR should have cached at least one entry"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|p| p
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("judge_")),
         "Should have a judge cache entry"
     );
 }

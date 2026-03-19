@@ -15,146 +15,17 @@
 //! - Golden references: human-curated baselines for what "good" looks like
 //! - Regression detection: minimum score thresholds catch pipeline degradation
 
+mod helpers;
+
 use std::collections::HashSet;
-use std::path::Path;
 
-use git2::{Repository, Signature};
-use tempfile::TempDir;
-
-use flowdiff_core::ast;
-use flowdiff_core::cluster;
-use flowdiff_core::entrypoint;
-use flowdiff_core::flow::{self, FlowConfig};
-use flowdiff_core::git;
-use flowdiff_core::graph::SymbolGraph;
-use flowdiff_core::output::{self, build_analysis_output};
-use flowdiff_core::rank::{self, compute_risk_score, compute_surface_area};
+use flowdiff_core::output;
 use flowdiff_core::types::{
-    AnalysisOutput, EntrypointType, GroupRankInput, RankWeights,
+    AnalysisOutput, ChangeStats, DiffSource, DiffType, AnalysisSummary,
+    EntrypointType, FileChange, FileRole, FlowGroup, GroupRankInput, InfrastructureGroup,
+    RankWeights,
 };
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Test Infrastructure
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Create a git repo, commit initial files, apply changes on a branch.
-struct RepoBuilder {
-    dir: TempDir,
-    repo: Repository,
-}
-
-impl RepoBuilder {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("failed to create temp dir");
-        let repo = Repository::init(dir.path()).expect("failed to init repo");
-        let mut config = repo.config().unwrap();
-        config.set_str("user.name", "Test User").unwrap();
-        config.set_str("user.email", "test@example.com").unwrap();
-        Self { dir, repo }
-    }
-
-    fn path(&self) -> &Path {
-        self.dir.path()
-    }
-
-    fn write_file(&self, rel_path: &str, content: &str) {
-        let full = self.dir.path().join(rel_path);
-        if let Some(parent) = full.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(&full, content).unwrap();
-    }
-
-    fn commit(&self, message: &str) -> git2::Oid {
-        let mut index = self.repo.index().unwrap();
-        index
-            .add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
-            .unwrap();
-        index.write().unwrap();
-        let tree_oid = index.write_tree().unwrap();
-        let tree = self.repo.find_tree(tree_oid).unwrap();
-        let sig = Signature::now("Test User", "test@example.com").unwrap();
-        let parent = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok());
-        let parents: Vec<&git2::Commit> = parent.iter().collect();
-        self.repo
-            .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
-            .unwrap()
-    }
-
-    fn create_branch(&self, name: &str) {
-        let head = self.repo.head().unwrap().peel_to_commit().unwrap();
-        let _ = self.repo.branch(name, &head, false);
-    }
-
-    fn checkout(&self, name: &str) {
-        let ref_name = format!("refs/heads/{}", name);
-        let obj = self.repo.revparse_single(&ref_name).unwrap();
-        self.repo.checkout_tree(&obj, None).unwrap();
-        self.repo.set_head(&ref_name).unwrap();
-    }
-}
-
-/// Run the full pipeline on a repo diff between two refs.
-fn run_pipeline(repo_path: &Path, base_ref: &str, head_ref: &str) -> AnalysisOutput {
-    let repo = Repository::open(repo_path).expect("failed to open repo");
-    let diff_result = git::diff_refs(&repo, base_ref, head_ref).expect("diff_refs failed");
-
-    let mut parsed_files = Vec::new();
-    for file_diff in &diff_result.files {
-        if let Some(ref content) = file_diff.new_content {
-            let path = file_diff.path();
-            if let Ok(parsed) = ast::parse_file(path, content) {
-                parsed_files.push(parsed);
-            }
-        }
-    }
-
-    let mut graph = SymbolGraph::build(&parsed_files);
-    let entrypoints = entrypoint::detect_entrypoints(&parsed_files);
-    let flow_analysis = flow::analyze_data_flow(&parsed_files, &FlowConfig::default());
-    flow::enrich_graph(&mut graph, &flow_analysis);
-
-    let changed_files: Vec<String> = diff_result
-        .files
-        .iter()
-        .map(|f| f.path().to_string())
-        .collect();
-    let cluster_result = cluster::cluster_files(&graph, &entrypoints, &changed_files);
-
-    let weights = RankWeights::default();
-    let rank_inputs: Vec<GroupRankInput> = cluster_result
-        .groups
-        .iter()
-        .map(|group| {
-            let risk_flags = output::compute_group_risk_flags(
-                &group.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
-            );
-            let total_add: u32 = group.files.iter().map(|f| f.changes.additions).sum();
-            let total_del: u32 = group.files.iter().map(|f| f.changes.deletions).sum();
-            GroupRankInput {
-                group_id: group.id.clone(),
-                risk: compute_risk_score(
-                    risk_flags.has_schema_change,
-                    risk_flags.has_api_change,
-                    risk_flags.has_auth_change,
-                    false,
-                ),
-                centrality: 0.5,
-                surface_area: compute_surface_area(total_add, total_del, 1000),
-                uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
-            }
-        })
-        .collect();
-
-    let ranked = rank::rank_groups(&rank_inputs, &weights);
-    let diff_source = output::diff_source_branch(
-        base_ref,
-        head_ref,
-        diff_result.base_sha.as_deref(),
-        diff_result.head_sha.as_deref(),
-    );
-    build_analysis_output(&diff_result, diff_source, &parsed_files, &cluster_result, &ranked)
-}
+use helpers::repo_builder::{find_feature_branch, run_pipeline, RepoBuilder};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Baseline Types
@@ -497,14 +368,35 @@ fn print_eval_report(fixture_name: &str, scores: &EvalScores) {
     eprintln!("\n╔══════════════════════════════════════════╗");
     eprintln!("║  Eval: {:<33}║", fixture_name);
     eprintln!("╠══════════════════════════════════════════╣");
-    eprintln!("║  Group coherence:    {:.2}                 ║", scores.group_coherence);
-    eprintln!("║  Entrypoint accuracy:{:.2}                 ║", scores.entrypoint_accuracy);
-    eprintln!("║  Review ordering:    {:.2}                 ║", scores.review_ordering);
-    eprintln!("║  Risk reasonableness:{:.2}                 ║", scores.risk_reasonableness);
-    eprintln!("║  Language detection:  {:.2}                ║", scores.language_detection);
-    eprintln!("║  File accounting:    {:.2}                 ║", scores.file_accounting);
+    eprintln!(
+        "║  Group coherence:    {:.2}                 ║",
+        scores.group_coherence
+    );
+    eprintln!(
+        "║  Entrypoint accuracy:{:.2}                 ║",
+        scores.entrypoint_accuracy
+    );
+    eprintln!(
+        "║  Review ordering:    {:.2}                 ║",
+        scores.review_ordering
+    );
+    eprintln!(
+        "║  Risk reasonableness:{:.2}                 ║",
+        scores.risk_reasonableness
+    );
+    eprintln!(
+        "║  Language detection:  {:.2}                ║",
+        scores.language_detection
+    );
+    eprintln!(
+        "║  File accounting:    {:.2}                 ║",
+        scores.file_accounting
+    );
     eprintln!("╠══════════════════════════════════════════╣");
-    eprintln!("║  OVERALL:            {:.2}                 ║", scores.overall);
+    eprintln!(
+        "║  OVERALL:            {:.2}                 ║",
+        scores.overall
+    );
     eprintln!("╚══════════════════════════════════════════╝");
 }
 
@@ -516,7 +408,10 @@ fn build_fixture_ts_express() -> (RepoBuilder, EvalBaseline) {
     let rb = RepoBuilder::new();
 
     // Base commit: existing app with health endpoint
-    rb.write_file("package.json", r#"{"name": "express-api", "version": "1.0.0"}"#);
+    rb.write_file(
+        "package.json",
+        r#"{"name": "express-api", "version": "1.0.0"}"#,
+    );
     rb.write_file(
         "src/app.ts",
         r#"
@@ -716,23 +611,19 @@ export interface CreateUserInput {
             file_contains: "routes/users".to_string(),
             ep_type: EntrypointType::HttpRoute,
         }],
-        expected_groups: vec![
-            ExpectedGroup {
-                label: "User CRUD flow".to_string(),
-                must_contain: vec![
-                    "routes/users".to_string(),
-                    "services/userService".to_string(),
-                    "repositories/userRepo".to_string(),
-                ],
-                must_not_contain: vec![],
-            },
-        ],
-        risk_ordering: vec![
-            RiskOrderingConstraint {
-                higher_risk_file: "middleware/auth".to_string(),
-                lower_risk_file: "utils/crypto".to_string(),
-            },
-        ],
+        expected_groups: vec![ExpectedGroup {
+            label: "User CRUD flow".to_string(),
+            must_contain: vec![
+                "routes/users".to_string(),
+                "services/userService".to_string(),
+                "repositories/userRepo".to_string(),
+            ],
+            must_not_contain: vec![],
+        }],
+        risk_ordering: vec![RiskOrderingConstraint {
+            higher_risk_file: "middleware/auth".to_string(),
+            lower_risk_file: "utils/crypto".to_string(),
+        }],
         expected_infrastructure: vec![],
     };
 
@@ -746,17 +637,17 @@ export interface CreateUserInput {
 fn build_fixture_python_fastapi() -> (RepoBuilder, EvalBaseline) {
     let rb = RepoBuilder::new();
 
-    // Base commit
-    rb.write_file("requirements.txt", "fastapi\nuvicorn\nsqlalchemy\ncelery\n");
+    rb.write_file(
+        "requirements.txt",
+        "fastapi\nuvicorn\nsqlalchemy\ncelery\n",
+    );
     rb.write_file("app/__init__.py", "");
     rb.commit("Initial Python project");
     rb.create_branch("main");
 
-    // Feature branch: add order processing with queue worker
     rb.create_branch("feature/order-processing");
     rb.checkout("feature/order-processing");
 
-    // FastAPI route (entrypoint 1)
     rb.write_file(
         "app/routes/orders.py",
         r#"
@@ -777,7 +668,6 @@ async def read_order(order_id: int, user=Depends(get_current_user)):
 "#,
     );
 
-    // Service layer
     rb.write_file(
         "app/services/order_service.py",
         r#"
@@ -800,7 +690,6 @@ def get_order(order_id, user):
 "#,
     );
 
-    // Repository
     rb.write_file(
         "app/repositories/order_repo.py",
         r#"
@@ -820,7 +709,6 @@ def find_order(order_id, user_id):
 "#,
     );
 
-    // Queue worker (entrypoint 2)
     rb.write_file(
         "app/tasks/notification_tasks.py",
         r#"
@@ -840,7 +728,6 @@ def send_shipping_notification(order_id, tracking_number):
 "#,
     );
 
-    // Email service
     rb.write_file(
         "app/services/email_service.py",
         r#"
@@ -852,7 +739,6 @@ def send_email(to, subject, body):
 "#,
     );
 
-    // Models
     rb.write_file(
         "app/models/order.py",
         r#"
@@ -867,7 +753,6 @@ class Order(Base):
 "#,
     );
 
-    // Schemas
     rb.write_file(
         "app/schemas/order.py",
         r#"
@@ -885,7 +770,6 @@ class OrderResponse:
 "#,
     );
 
-    // Auth dependency
     rb.write_file(
         "app/auth/dependencies.py",
         r#"
@@ -896,7 +780,6 @@ def get_current_user():
 "#,
     );
 
-    // DB session
     rb.write_file(
         "app/db/session.py",
         r#"
@@ -912,7 +795,6 @@ def get_db():
 "#,
     );
 
-    // DB base
     rb.write_file(
         "app/db/base.py",
         r#"
@@ -930,23 +812,19 @@ Base = declarative_base()
         min_groups: 1,
         max_groups: 8,
         expected_file_count: 10,
-        expected_entrypoints: vec![
-            ExpectedEntrypoint {
-                file_contains: "routes/orders".to_string(),
-                ep_type: EntrypointType::HttpRoute,
-            },
-        ],
-        expected_groups: vec![
-            ExpectedGroup {
-                label: "Order API flow".to_string(),
-                must_contain: vec![
-                    "routes/orders".to_string(),
-                    "services/order_service".to_string(),
-                    "repositories/order_repo".to_string(),
-                ],
-                must_not_contain: vec![],
-            },
-        ],
+        expected_entrypoints: vec![ExpectedEntrypoint {
+            file_contains: "routes/orders".to_string(),
+            ep_type: EntrypointType::HttpRoute,
+        }],
+        expected_groups: vec![ExpectedGroup {
+            label: "Order API flow".to_string(),
+            must_contain: vec![
+                "routes/orders".to_string(),
+                "services/order_service".to_string(),
+                "repositories/order_repo".to_string(),
+            ],
+            must_not_contain: vec![],
+        }],
         risk_ordering: vec![],
         expected_infrastructure: vec![],
     };
@@ -961,17 +839,17 @@ Base = declarative_base()
 fn build_fixture_nextjs_fullstack() -> (RepoBuilder, EvalBaseline) {
     let rb = RepoBuilder::new();
 
-    // Base commit
     rb.write_file("package.json", r#"{"name": "nextjs-app", "version": "1.0.0", "dependencies": {"next": "14.0.0", "@prisma/client": "5.0.0"}}"#);
-    rb.write_file("next.config.js", "module.exports = { reactStrictMode: true };\n");
+    rb.write_file(
+        "next.config.js",
+        "module.exports = { reactStrictMode: true };\n",
+    );
     rb.commit("Initial Next.js project");
     rb.create_branch("main");
 
-    // Feature branch: add product listing with API + UI
     rb.create_branch("feature/product-listing");
     rb.checkout("feature/product-listing");
 
-    // API route (entrypoint 1)
     rb.write_file(
         "src/app/api/products/route.ts",
         r#"
@@ -991,7 +869,6 @@ export async function POST(request: Request) {
 "#,
     );
 
-    // API route for single product
     rb.write_file(
         "src/app/api/products/[id]/route.ts",
         r#"
@@ -1011,7 +888,6 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 "#,
     );
 
-    // Service layer
     rb.write_file(
         "src/services/productService.ts",
         r#"
@@ -1036,7 +912,6 @@ export async function updateProduct(id: string, data: Partial<CreateProductInput
 "#,
     );
 
-    // Prisma client
     rb.write_file(
         "src/lib/prisma.ts",
         r#"
@@ -1046,7 +921,6 @@ export const prisma = new PrismaClient();
 "#,
     );
 
-    // React page component (entrypoint 2 — React page)
     rb.write_file(
         "src/app/products/page.tsx",
         r#"
@@ -1060,7 +934,6 @@ export default async function ProductsPage() {
 "#,
     );
 
-    // React component
     rb.write_file(
         "src/components/ProductList.tsx",
         r#"
@@ -1081,7 +954,6 @@ export function ProductList({ products }: Props) {
 "#,
     );
 
-    // Product card component
     rb.write_file(
         "src/components/ProductCard.tsx",
         r#"
@@ -1103,7 +975,6 @@ export function ProductCard({ product }: Props) {
 "#,
     );
 
-    // Client-side API helper
     rb.write_file(
         "src/lib/api.ts",
         r#"
@@ -1119,7 +990,6 @@ export async function fetchProduct(id: string) {
 "#,
     );
 
-    // Types
     rb.write_file(
         "src/types/product.ts",
         r#"
@@ -1138,7 +1008,6 @@ export interface CreateProductInput {
 "#,
     );
 
-    // Utility
     rb.write_file(
         "src/utils/format.ts",
         r#"
@@ -1148,7 +1017,6 @@ export function formatPrice(price: number): string {
 "#,
     );
 
-    // Prisma schema (infrastructure — not code)
     rb.write_file(
         "prisma/schema.prisma",
         r#"
@@ -1179,12 +1047,10 @@ model Product {
         min_groups: 1,
         max_groups: 8,
         expected_file_count: 11,
-        expected_entrypoints: vec![
-            ExpectedEntrypoint {
-                file_contains: "api/products/route".to_string(),
-                ep_type: EntrypointType::HttpRoute,
-            },
-        ],
+        expected_entrypoints: vec![ExpectedEntrypoint {
+            file_contains: "api/products/route".to_string(),
+            ep_type: EntrypointType::HttpRoute,
+        }],
         expected_groups: vec![
             ExpectedGroup {
                 label: "Product API flow".to_string(),
@@ -1217,8 +1083,9 @@ model Product {
 fn build_fixture_rust_cli() -> (RepoBuilder, EvalBaseline) {
     let rb = RepoBuilder::new();
 
-    // Base commit
-    rb.write_file("Cargo.toml", r#"[package]
+    rb.write_file(
+        "Cargo.toml",
+        r#"[package]
 name = "mycli"
 version = "0.1.0"
 edition = "2021"
@@ -1227,12 +1094,12 @@ edition = "2021"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-"#);
+"#,
+    );
     rb.write_file("src/main.rs", "fn main() { println!(\"Hello\"); }\n");
     rb.commit("Initial Rust CLI");
     rb.create_branch("main");
 
-    // Feature branch: add analysis subcommand
     rb.create_branch("feature/analyze-command");
     rb.checkout("feature/analyze-command");
 
@@ -1366,7 +1233,6 @@ pub fn load_config(path: &Option<String>) -> Config {
     rb.commit("Add analyze command with modules");
 
     // Note: tree-sitter Rust grammar is not included, so language detection won't find "rust".
-    // The pipeline still processes these as unknown-language files.
     let baseline = EvalBaseline {
         name: "Rust CLI".to_string(),
         expected_languages: vec![], // No Rust grammar in tree-sitter deps
@@ -1389,14 +1255,15 @@ pub fn load_config(path: &Option<String>) -> Config {
 fn build_fixture_multi_language_monorepo() -> (RepoBuilder, EvalBaseline) {
     let rb = RepoBuilder::new();
 
-    // Base commit
     rb.write_file("README.md", "# Monorepo\n");
-    rb.write_file("packages/frontend/package.json", r#"{"name": "@app/frontend"}"#);
+    rb.write_file(
+        "packages/frontend/package.json",
+        r#"{"name": "@app/frontend"}"#,
+    );
     rb.write_file("packages/backend/requirements.txt", "fastapi\n");
     rb.commit("Initial monorepo");
     rb.create_branch("main");
 
-    // Feature branch: add user profile feature across frontend and backend
     rb.create_branch("feature/user-profile");
     rb.checkout("feature/user-profile");
 
@@ -1550,22 +1417,15 @@ def get_authenticated_user():
         min_groups: 1,
         max_groups: 10,
         expected_file_count: 10,
-        expected_entrypoints: vec![
-            ExpectedEntrypoint {
-                file_contains: "backend/app/routes/users".to_string(),
-                ep_type: EntrypointType::HttpRoute,
-            },
-        ],
+        expected_entrypoints: vec![ExpectedEntrypoint {
+            file_contains: "backend/app/routes/users".to_string(),
+            ep_type: EntrypointType::HttpRoute,
+        }],
         expected_groups: vec![
             ExpectedGroup {
                 label: "Frontend profile flow".to_string(),
-                must_contain: vec![
-                    "ProfilePage".to_string(),
-                    "UserProfile".to_string(),
-                ],
-                must_not_contain: vec![
-                    "backend".to_string(),
-                ],
+                must_contain: vec!["ProfilePage".to_string(), "UserProfile".to_string()],
+                must_not_contain: vec!["backend".to_string()],
             },
             ExpectedGroup {
                 label: "Backend user API".to_string(),
@@ -1573,9 +1433,7 @@ def get_authenticated_user():
                     "backend/app/routes/users".to_string(),
                     "backend/app/services/user_service".to_string(),
                 ],
-                must_not_contain: vec![
-                    "frontend".to_string(),
-                ],
+                must_not_contain: vec!["frontend".to_string()],
             },
         ],
         risk_ordering: vec![],
@@ -1592,56 +1450,6 @@ def get_authenticated_user():
 /// Minimum acceptable overall score for any fixture.
 const MIN_OVERALL_SCORE: f64 = 0.50;
 
-/// Run eval for a fixture and assert minimum scores.
-fn _run_eval(
-    fixture_fn: fn() -> (RepoBuilder, EvalBaseline),
-    min_score: f64,
-) -> EvalScores {
-    let (rb, baseline) = fixture_fn();
-    let branch_name = find_feature_branch(rb.path());
-    let output = run_pipeline(rb.path(), "main", &branch_name);
-
-    let scores = score_output(&output, &baseline);
-    print_eval_report(&baseline.name, &scores);
-
-    assert!(
-        scores.overall >= min_score,
-        "[{}] overall score {:.2} below minimum {:.2}",
-        baseline.name,
-        scores.overall,
-        min_score,
-    );
-
-    assert!(
-        scores.risk_reasonableness >= 0.5,
-        "[{}] risk_reasonableness {:.2} too low",
-        baseline.name,
-        scores.risk_reasonableness,
-    );
-    assert!(
-        scores.file_accounting >= 0.25,
-        "[{}] file_accounting {:.2} too low",
-        baseline.name,
-        scores.file_accounting,
-    );
-
-    scores
-}
-
-/// Find the feature branch name in a repo (first non-main branch).
-fn find_feature_branch(repo_path: &Path) -> String {
-    let repo = Repository::open(repo_path).unwrap();
-    let branches = repo.branches(Some(git2::BranchType::Local)).unwrap();
-    for branch in branches {
-        let (branch, _) = branch.unwrap();
-        let name = branch.name().unwrap().unwrap().to_string();
-        if name != "main" {
-            return name;
-        }
-    }
-    panic!("No feature branch found");
-}
-
 // --- Individual fixture eval tests ---
 
 #[test]
@@ -1656,7 +1464,9 @@ fn test_eval_ts_express_api() {
     assert!(
         scores.overall >= MIN_OVERALL_SCORE,
         "[{}] overall {:.2} < {:.2}",
-        baseline.name, scores.overall, MIN_OVERALL_SCORE,
+        baseline.name,
+        scores.overall,
+        MIN_OVERALL_SCORE,
     );
     assert!(scores.language_detection >= 1.0, "Should detect TypeScript");
     assert!(scores.risk_reasonableness >= 0.5);
@@ -1675,7 +1485,9 @@ fn test_eval_python_fastapi() {
     assert!(
         scores.overall >= MIN_OVERALL_SCORE,
         "[{}] overall {:.2} < {:.2}",
-        baseline.name, scores.overall, MIN_OVERALL_SCORE,
+        baseline.name,
+        scores.overall,
+        MIN_OVERALL_SCORE,
     );
     assert!(scores.language_detection >= 1.0, "Should detect Python");
     assert!(scores.risk_reasonableness >= 0.5);
@@ -1693,7 +1505,9 @@ fn test_eval_nextjs_fullstack() {
     assert!(
         scores.overall >= MIN_OVERALL_SCORE,
         "[{}] overall {:.2} < {:.2}",
-        baseline.name, scores.overall, MIN_OVERALL_SCORE,
+        baseline.name,
+        scores.overall,
+        MIN_OVERALL_SCORE,
     );
     assert!(scores.language_detection >= 1.0, "Should detect TypeScript");
     assert!(scores.risk_reasonableness >= 0.5);
@@ -1709,7 +1523,12 @@ fn test_eval_rust_cli() {
     print_eval_report(&baseline.name, &scores);
 
     // Rust has no tree-sitter grammar in deps, so scores are naturally lower
-    assert!(scores.overall >= 0.30, "[{}] overall {:.2} < 0.30", baseline.name, scores.overall);
+    assert!(
+        scores.overall >= 0.30,
+        "[{}] overall {:.2} < 0.30",
+        baseline.name,
+        scores.overall
+    );
     assert!(scores.risk_reasonableness >= 0.5);
 }
 
@@ -1725,10 +1544,15 @@ fn test_eval_multi_language_monorepo() {
     assert!(
         scores.overall >= MIN_OVERALL_SCORE,
         "[{}] overall {:.2} < {:.2}",
-        baseline.name, scores.overall, MIN_OVERALL_SCORE,
+        baseline.name,
+        scores.overall,
+        MIN_OVERALL_SCORE,
     );
     // Must detect both languages
-    assert!(scores.language_detection >= 1.0, "Should detect both TS and Python");
+    assert!(
+        scores.language_detection >= 1.0,
+        "Should detect both TS and Python"
+    );
     assert!(scores.risk_reasonableness >= 0.5);
 }
 
@@ -1781,11 +1605,7 @@ fn test_eval_all_fixtures_json_roundtrip() {
         let parsed: AnalysisOutput = serde_json::from_str(&json).unwrap();
         let json2 = output::to_json(&parsed).unwrap();
 
-        assert_eq!(
-            json, json2,
-            "[{}] JSON roundtrip not stable",
-            baseline.name,
-        );
+        assert_eq!(json, json2, "[{}] JSON roundtrip not stable", baseline.name,);
     }
 }
 
@@ -1844,12 +1664,16 @@ fn test_eval_all_fixtures_risk_bounds() {
             assert!(
                 group.risk_score >= 0.0 && group.risk_score <= 1.0,
                 "[{}] group '{}' risk_score {} out of bounds",
-                baseline.name, group.name, group.risk_score,
+                baseline.name,
+                group.name,
+                group.risk_score,
             );
             assert!(
                 group.review_order >= 1,
                 "[{}] group '{}' review_order {} < 1",
-                baseline.name, group.name, group.review_order,
+                baseline.name,
+                group.name,
+                group.review_order,
             );
         }
     }
@@ -1875,7 +1699,9 @@ fn test_eval_all_fixtures_mermaid() {
             assert!(
                 mermaid.starts_with("graph TD"),
                 "[{}] group '{}' Mermaid should start with 'graph TD', got: {}",
-                baseline.name, group.name, &mermaid[..mermaid.len().min(50)],
+                baseline.name,
+                group.name,
+                &mermaid[..mermaid.len().min(50)],
             );
         }
     }
@@ -1888,12 +1714,10 @@ fn test_eval_all_fixtures_mermaid() {
 #[cfg(test)]
 mod scoring_properties {
     use super::*;
-    use flowdiff_core::types::*;
     use proptest::prelude::*;
 
     /// Generate a random AnalysisOutput for property testing.
     fn arb_analysis_output() -> impl Strategy<Value = AnalysisOutput> {
-
         let arb_file_change = (
             "[a-z]{1,5}/[a-z]{1,5}\\.[a-z]{2,3}",
             0u32..10,
@@ -1926,40 +1750,38 @@ mod scoring_properties {
                 review_order: order,
             });
 
-        (
-            prop::collection::vec(arb_group, 0..5),
-            0u32..50,
-        )
-            .prop_map(|(groups, extra_files)| {
-                let total_in_groups: u32 = groups.iter().map(|g| g.files.len() as u32).sum();
-                let total = total_in_groups + extra_files;
-                AnalysisOutput {
-                    version: "1.0.0".to_string(),
-                    diff_source: DiffSource {
-                        diff_type: DiffType::BranchComparison,
-                        base: Some("main".to_string()),
-                        head: Some("feature".to_string()),
-                        base_sha: None,
-                        head_sha: None,
-                    },
-                    summary: AnalysisSummary {
-                        total_files_changed: total,
-                        total_groups: groups.len() as u32,
-                        languages_detected: vec!["typescript".to_string()],
-                        frameworks_detected: vec![],
-                    },
-                    groups,
-                    infrastructure_group: if extra_files > 0 {
-                        Some(InfrastructureGroup {
-                            files: (0..extra_files).map(|i| format!("infra_{}.ts", i)).collect(),
-                            reason: "Not reachable".to_string(),
-                        })
-                    } else {
-                        None
-                    },
-                    annotations: None,
-                }
-            })
+        (prop::collection::vec(arb_group, 0..5), 0u32..50).prop_map(|(groups, extra_files)| {
+            let total_in_groups: u32 = groups.iter().map(|g| g.files.len() as u32).sum();
+            let total = total_in_groups + extra_files;
+            AnalysisOutput {
+                version: "1.0.0".to_string(),
+                diff_source: DiffSource {
+                    diff_type: DiffType::BranchComparison,
+                    base: Some("main".to_string()),
+                    head: Some("feature".to_string()),
+                    base_sha: None,
+                    head_sha: None,
+                },
+                summary: AnalysisSummary {
+                    total_files_changed: total,
+                    total_groups: groups.len() as u32,
+                    languages_detected: vec!["typescript".to_string()],
+                    frameworks_detected: vec![],
+                },
+                groups,
+                infrastructure_group: if extra_files > 0 {
+                    Some(InfrastructureGroup {
+                        files: (0..extra_files)
+                            .map(|i| format!("infra_{}.ts", i))
+                            .collect(),
+                        reason: "Not reachable".to_string(),
+                    })
+                } else {
+                    None
+                },
+                annotations: None,
+            }
+        })
     }
 
     fn arb_baseline() -> impl Strategy<Value = EvalBaseline> {
@@ -2126,7 +1948,10 @@ fn test_eval_aggregate_report() {
         (build_fixture_python_fastapi, "Python FastAPI"),
         (build_fixture_nextjs_fullstack, "Next.js Fullstack"),
         (build_fixture_rust_cli, "Rust CLI"),
-        (build_fixture_multi_language_monorepo, "Multi-lang Monorepo"),
+        (
+            build_fixture_multi_language_monorepo,
+            "Multi-lang Monorepo",
+        ),
     ];
 
     let mut all_scores: Vec<(String, EvalScores)> = Vec::new();
@@ -2143,13 +1968,16 @@ fn test_eval_aggregate_report() {
     eprintln!("\n╔═══════════════════════════════════════════════════════════════════╗");
     eprintln!("║                    EVAL SUITE AGGREGATE REPORT                   ║");
     eprintln!("╠═══════════════════════════════════════════════════════════════════╣");
-    eprintln!("║ {:.<25} {:>6} {:>6} {:>6} {:>6} {:>6} {:>7} ║",
-        "Fixture", "GrpCo", "EntPt", "Order", "Risk", "Lang", "TOTAL");
+    eprintln!(
+        "║ {:.<25} {:>6} {:>6} {:>6} {:>6} {:>6} {:>7} ║",
+        "Fixture", "GrpCo", "EntPt", "Order", "Risk", "Lang", "TOTAL"
+    );
     eprintln!("╠═══════════════════════════════════════════════════════════════════╣");
 
     let mut total_overall = 0.0;
     for (name, scores) in &all_scores {
-        eprintln!("║ {:.<25} {:>5.2} {:>6.2} {:>6.2} {:>6.2} {:>6.2} {:>7.2} ║",
+        eprintln!(
+            "║ {:.<25} {:>5.2} {:>6.2} {:>6.2} {:>6.2} {:>6.2} {:>7.2} ║",
             name,
             scores.group_coherence,
             scores.entrypoint_accuracy,

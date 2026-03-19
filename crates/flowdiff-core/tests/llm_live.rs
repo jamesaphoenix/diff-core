@@ -8,124 +8,19 @@
 //!
 //! API keys can be loaded from a .env file or set directly in the environment.
 
+mod helpers;
+
 use flowdiff_core::llm::anthropic::AnthropicProvider;
 use flowdiff_core::llm::gemini::GeminiProvider;
 use flowdiff_core::llm::openai::OpenAIProvider;
-use flowdiff_core::llm::schema::{
-    Pass1GroupInput, Pass1Request, Pass2FileInput, Pass2Request,
-};
 use flowdiff_core::llm::LlmProvider;
-
-/// Check if live tests should run.
-fn should_run() -> bool {
-    std::env::var("FLOWDIFF_RUN_LIVE_LLM_TESTS")
-        .map(|v| v == "1" || v.to_lowercase() == "true")
-        .unwrap_or(false)
-}
-
-/// Load .env file if it exists.
-fn load_env() {
-    let env_path = "/Users/jamesaphoenix/Desktop/projects/brightpool/udemy-prompt-engineering-course/.env";
-    if let Ok(contents) = std::fs::read_to_string(env_path) {
-        for line in contents.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some((key, value)) = line.split_once('=') {
-                let key = key.trim();
-                let value = value.trim();
-                // Only set if not already in env (don't override explicit env vars)
-                if std::env::var(key).is_err() {
-                    std::env::set_var(key, value);
-                }
-            }
-        }
-    }
-}
-
-/// Build a sample Pass 1 request for testing.
-fn sample_pass1_request() -> Pass1Request {
-    Pass1Request {
-        diff_summary: "12 files changed across 3 modules. Changes include a new user registration \
-            endpoint, updated validation logic, and a database migration for the users table."
-            .to_string(),
-        flow_groups: vec![
-            Pass1GroupInput {
-                id: "group_1".to_string(),
-                name: "POST /api/users registration flow".to_string(),
-                entrypoint: Some("src/routes/users.ts::POST".to_string()),
-                files: vec![
-                    "src/routes/users.ts".to_string(),
-                    "src/services/user-service.ts".to_string(),
-                    "src/repositories/user-repo.ts".to_string(),
-                ],
-                risk_score: 0.78,
-                edge_summary: "users.ts calls user-service.ts, user-service.ts calls user-repo.ts"
-                    .to_string(),
-            },
-            Pass1GroupInput {
-                id: "group_2".to_string(),
-                name: "User validation utilities".to_string(),
-                entrypoint: None,
-                files: vec![
-                    "src/utils/validation.ts".to_string(),
-                    "src/types/user.ts".to_string(),
-                ],
-                risk_score: 0.35,
-                edge_summary: "validation.ts imports types from user.ts".to_string(),
-            },
-        ],
-        graph_summary: "5 nodes, 4 edges. Primary flow: route → service → repo. \
-            Shared utility: validation used by both route and service."
-            .to_string(),
-    }
-}
-
-/// Build a sample Pass 2 request for testing.
-fn sample_pass2_request() -> Pass2Request {
-    Pass2Request {
-        group_id: "group_1".to_string(),
-        group_name: "POST /api/users registration flow".to_string(),
-        files: vec![
-            Pass2FileInput {
-                path: "src/routes/users.ts".to_string(),
-                diff: r#"+ import { createUser } from '../services/user-service';
-+ import { validateUserInput } from '../utils/validation';
-+
-+ export async function POST(req: Request) {
-+   const body = await req.json();
-+   const validated = validateUserInput(body);
-+   const user = await createUser(validated);
-+   return Response.json(user, { status: 201 });
-+ }"#
-                .to_string(),
-                new_content: None,
-                role: "Entrypoint".to_string(),
-            },
-            Pass2FileInput {
-                path: "src/services/user-service.ts".to_string(),
-                diff: r#"+ import { UserRepository } from '../repositories/user-repo';
-+
-+ export async function createUser(data: UserInput): Promise<User> {
-+   const existing = await UserRepository.findByEmail(data.email);
-+   if (existing) throw new Error('User already exists');
-+   return UserRepository.insert(data);
-+ }"#
-                .to_string(),
-                new_content: None,
-                role: "Service".to_string(),
-            },
-        ],
-        graph_context: "route.ts -> user-service.ts -> user-repo.ts (calls chain)".to_string(),
-    }
-}
+use helpers::llm_helpers::{load_env, sample_pass1_request, sample_pass2_request, should_run_live};
 
 // ── Anthropic Live Tests ──
 
 #[tokio::test]
 async fn test_live_anthropic_pass1() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test (set FLOWDIFF_RUN_LIVE_LLM_TESTS=1 to run)");
         return;
     }
@@ -159,7 +54,10 @@ async fn test_live_anthropic_pass1() {
     // Each group should have meaningful content
     for group in &response.groups {
         assert!(!group.name.is_empty(), "Group name should not be empty");
-        assert!(!group.summary.is_empty(), "Group summary should not be empty");
+        assert!(
+            !group.summary.is_empty(),
+            "Group summary should not be empty"
+        );
         assert!(
             !group.review_order_rationale.is_empty(),
             "Review rationale should not be empty"
@@ -171,7 +69,7 @@ async fn test_live_anthropic_pass1() {
 
 #[tokio::test]
 async fn test_live_anthropic_pass2() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test (set FLOWDIFF_RUN_LIVE_LLM_TESTS=1 to run)");
         return;
     }
@@ -219,7 +117,7 @@ async fn test_live_anthropic_pass2() {
 
 #[tokio::test]
 async fn test_live_openai_pass1() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test (set FLOWDIFF_RUN_LIVE_LLM_TESTS=1 to run)");
         return;
     }
@@ -252,7 +150,7 @@ async fn test_live_openai_pass1() {
 
 #[tokio::test]
 async fn test_live_openai_pass2() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test (set FLOWDIFF_RUN_LIVE_LLM_TESTS=1 to run)");
         return;
     }
@@ -275,7 +173,7 @@ async fn test_live_openai_pass2() {
 
 #[tokio::test]
 async fn test_live_structured_output_compliance_anthropic() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test (set FLOWDIFF_RUN_LIVE_LLM_TESTS=1 to run)");
         return;
     }
@@ -309,7 +207,7 @@ async fn test_live_structured_output_compliance_anthropic() {
 
 #[tokio::test]
 async fn test_live_structured_output_compliance_openai() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test (set FLOWDIFF_RUN_LIVE_LLM_TESTS=1 to run)");
         return;
     }
@@ -343,7 +241,7 @@ async fn test_live_structured_output_compliance_openai() {
 
 #[tokio::test]
 async fn test_live_end_to_end_pipeline() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test (set FLOWDIFF_RUN_LIVE_LLM_TESTS=1 to run)");
         return;
     }
@@ -389,19 +287,23 @@ async fn test_live_end_to_end_pipeline() {
 
 #[tokio::test]
 async fn test_live_anthropic_invalid_key() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test");
         return;
     }
 
-    let provider = AnthropicProvider::new("sk-ant-invalid-key".to_string(), "claude-sonnet-4-20250514".to_string());
+    let provider = AnthropicProvider::new(
+        "sk-ant-invalid-key".to_string(),
+        "claude-sonnet-4-20250514".to_string(),
+    );
     let request = sample_pass1_request();
     let result = provider.annotate_overview(&request).await;
 
     assert!(result.is_err(), "Should fail with invalid API key");
     let err = result.unwrap_err();
     match err {
-        flowdiff_core::llm::LlmError::AuthError(_) | flowdiff_core::llm::LlmError::ApiError { .. } => {
+        flowdiff_core::llm::LlmError::AuthError(_)
+        | flowdiff_core::llm::LlmError::ApiError { .. } => {
             // Expected
         }
         other => {
@@ -413,7 +315,7 @@ async fn test_live_anthropic_invalid_key() {
 
 #[tokio::test]
 async fn test_live_openai_invalid_key() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test");
         return;
     }
@@ -429,7 +331,7 @@ async fn test_live_openai_invalid_key() {
 
 #[tokio::test]
 async fn test_live_gemini_pass1() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test (set FLOWDIFF_RUN_LIVE_LLM_TESTS=1 to run)");
         return;
     }
@@ -463,7 +365,10 @@ async fn test_live_gemini_pass1() {
     // Each group should have meaningful content
     for group in &response.groups {
         assert!(!group.name.is_empty(), "Group name should not be empty");
-        assert!(!group.summary.is_empty(), "Group summary should not be empty");
+        assert!(
+            !group.summary.is_empty(),
+            "Group summary should not be empty"
+        );
         assert!(
             !group.review_order_rationale.is_empty(),
             "Review rationale should not be empty"
@@ -475,7 +380,7 @@ async fn test_live_gemini_pass1() {
 
 #[tokio::test]
 async fn test_live_gemini_pass2() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test (set FLOWDIFF_RUN_LIVE_LLM_TESTS=1 to run)");
         return;
     }
@@ -521,7 +426,7 @@ async fn test_live_gemini_pass2() {
 
 #[tokio::test]
 async fn test_live_structured_output_compliance_gemini() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test (set FLOWDIFF_RUN_LIVE_LLM_TESTS=1 to run)");
         return;
     }
@@ -555,7 +460,7 @@ async fn test_live_structured_output_compliance_gemini() {
 
 #[tokio::test]
 async fn test_live_gemini_context_window_handling() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test (set FLOWDIFF_RUN_LIVE_LLM_TESTS=1 to run)");
         return;
     }
@@ -575,7 +480,7 @@ async fn test_live_gemini_context_window_handling() {
 
 #[tokio::test]
 async fn test_live_gemini_invalid_key() {
-    if !should_run() {
+    if !should_run_live() {
         eprintln!("Skipping live test");
         return;
     }

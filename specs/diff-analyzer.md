@@ -304,10 +304,26 @@ ui = "src/components/**"
 paths = ["**/*.test.ts", "**/*.spec.ts", "migrations/**"]
 
 [llm]
-provider = "anthropic"  # or "openai"
-model = "claude-3-7-sonnet-20250219"
+provider = "anthropic"  # "anthropic", "openai", or "gemini"
+model = "claude-sonnet-4-6"
 # API key via FLOWDIFF_API_KEY env var or:
 # key_cmd = "op read op://vault/flowdiff/api-key"
+
+[llm.refinement]
+# Optional LLM refinement pass — improves grouping/ranking using semantic understanding.
+# Deterministic analysis runs first (free, fast), then LLM refines the output.
+# Only applied if enabled and API key is available. Falls back to deterministic if LLM fails.
+enabled = false
+provider = "anthropic"       # can differ from annotation provider
+model = "claude-sonnet-4-6"  # user selects the model for refinement
+# key_cmd = "op read op://vault/flowdiff/refinement-key"
+# What the refinement pass can do:
+# - split groups that contain logically unrelated changes
+# - merge groups that are part of the same logical change
+# - re-rank groups based on semantic review ordering ("read schema before handler")
+# - reclassify file roles (e.g. "shared utility" → "critical change")
+# - re-assign files between groups when static reachability gets it wrong
+max_iterations = 1  # evaluator-optimizer loop iterations (1 = single refinement, 2+ = iterative)
 
 [ranking]
 # Override default weights
@@ -600,7 +616,7 @@ flowdiff/
 - [x] Unit tests for query engine (53 tests — 37 unit tests for TS imports/exports/definitions/calls/data-flow, Python imports/definitions/calls/data-flow, unknown language handling, parity with ast.rs for full TS and Python files, determinism, empty source, syntax error tolerance; 8 property-based tests for never-panics, determinism, always-valid-output, empty-source-empty-result)
 - [x] Refactor query engine to use capture-name-presence matching instead of fragile `pattern_index` — switched from `match m.pattern_index { 0 => ..., 1 => ... }` to `CollectedMatch::has_capture()` / `get_capture()` checking which `@capture` names are present. `.scm` pattern ordering is now irrelevant. Updated all extraction methods (imports, exports, export_definitions, definitions for both TS and Python). Renamed `.scm` captures to be distinct per definition kind (e.g. `@fn_name`/`@fn_node`, `@class_name`/`@class_node`). Removed `pattern_index` field from `CollectedMatch`. Added `Copy` derive to `SymbolKind`. All 791 tests pass.
 - [x] Config file support (config.rs — `.flowdiff.toml` parsing, validation, defaults merging, entrypoint glob resolution, ignore patterns, layer names, LLM config; 17 unit tests + 6 property-based tests)
-- [ ] Restructure tests to Rust convention — move integration tests (e2e pipeline, real repo, live LLM, eval, IR parity, VCR replay) from co-located `#[cfg(test)]` into `crates/flowdiff-core/tests/` directory. Keep unit tests co-located. Create `tests/helpers/` with `repo_builder.rs` and `graph_assertions.rs`. Gate live tests with `#[ignore]`
+- [x] Restructure tests to Rust convention — integration tests in `crates/flowdiff-core/tests/` (5 files: `e2e_pipeline.rs`, `eval_suite.rs`, `llm_live.rs`, `vcr_integration.rs`, `llm_judge.rs`). Unit tests co-located in source files. Created `tests/helpers/` with `mod.rs`, `repo_builder.rs` (shared `RepoBuilder` + `run_pipeline` + `find_feature_branch`), `graph_assertions.rs` (7 assertion helpers: `assert_all_files_accounted`, `assert_valid_scores`, `assert_language_detected`, `assert_file_in_some_group`, `assert_json_roundtrip`, `assert_valid_json_schema`, `assert_valid_mermaid`), `llm_helpers.rs` (shared `should_run_live`, `load_env`, `sample_pass1_request`, `sample_pass2_request`). All 5 integration test files refactored to use shared helpers, eliminating `RepoBuilder`/`run_pipeline`/`load_env` duplication. Live tests gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`. All 791 tests pass
 
 ### Phase 3: Tauri App (Week 3-4)
 - [ ] Tauri project setup with React frontend
@@ -630,6 +646,9 @@ flowdiff/
 - [x] Live integration tests — OpenAI (real API call, Pass 1 overview with gpt-4o, structured output compliance)
 - [x] Live integration tests — end-to-end (full pipeline: Pass 1 + Pass 2, combined Annotations serialization roundtrip, gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`)
 - [x] Live integration tests — error handling (invalid API key detection for both Anthropic and OpenAI)
+- [ ] LLM refinement pass — optional post-analysis step that takes deterministic groups v1 and refines them. `refine_groups` method on `LlmProvider` trait. Structured output schema: `RefinementResponse { splits: [], merges: [], re_ranks: [], reclassifications: [], reasoning: string }`. Applies refinement operations to produce groups v2. Controlled by `[llm.refinement]` config: enabled (default false), provider/model (user-selectable, can differ from annotation provider), max_iterations (evaluator-optimizer loop: run refinement → eval score → refine again if score improved, up to N iterations). Falls back to deterministic v1 if LLM fails or score doesn't improve. VCR cacheable
+- [ ] LLM refinement integration tests — test split/merge/re-rank/reclassify operations, test fallback to v1 on failure, test eval score comparison (v2 must beat v1 or discard), test max_iterations loop terminates, test VCR replay of refinement, live tests against all 3 providers gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`
+- [ ] CLI flag `--refine` to enable refinement pass (overrides config), `--refine-model <model>` to select model
 
 ### Phase 5: VS Code Extension (Week 5-6)
 - [ ] Extension scaffold
