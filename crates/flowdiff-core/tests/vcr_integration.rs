@@ -7,7 +7,8 @@
 //! Non-live tests use pre-recorded fixtures and run unconditionally.
 
 use flowdiff_core::llm::schema::{
-    Pass1GroupInput, Pass1Request, Pass1Response, Pass2FileInput, Pass2Request, Pass2Response,
+    JudgeRequest, JudgeResponse, Pass1GroupInput, Pass1Request, Pass1Response, Pass2FileInput,
+    Pass2Request, Pass2Response,
 };
 use flowdiff_core::llm::vcr::{CacheEntry, VcrMode, VcrProvider};
 use flowdiff_core::llm::LlmProvider;
@@ -170,6 +171,9 @@ async fn test_replay_from_prerecorded_pass1_fixture() {
         async fn annotate_group(&self, _: &Pass2Request) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
             panic!("Should not be called in replay mode")
         }
+        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+            panic!("Should not be called in replay mode")
+        }
     }
 
     let vcr = VcrProvider::new(
@@ -236,6 +240,9 @@ async fn test_replay_from_prerecorded_pass2_fixture() {
         async fn annotate_group(&self, _: &Pass2Request) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
             panic!("Should not be called")
         }
+        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+            panic!("Should not be called")
+        }
     }
 
     let vcr = VcrProvider::new(
@@ -287,6 +294,15 @@ async fn test_auto_mode_records_on_first_call_replays_on_second() {
                 flow_narrative: "counted".to_string(),
                 file_annotations: vec![],
                 cross_cutting_concerns: vec![],
+            })
+        }
+        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+            self.count.fetch_add(1, Ordering::SeqCst);
+            Ok(JudgeResponse {
+                criteria: vec![],
+                overall_score: 3.0,
+                failure_explanations: vec![],
+                strengths: vec![],
             })
         }
     }
@@ -361,6 +377,9 @@ async fn test_live_vcr_record_replay_anthropic() {
         async fn annotate_group(&self, _: &Pass2Request) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
             Err(flowdiff_core::llm::LlmError::AuthError("This should not be called".to_string()))
         }
+        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
+            Err(flowdiff_core::llm::LlmError::AuthError("This should not be called".to_string()))
+        }
     }
 
     let vcr_replay = VcrProvider::new(
@@ -417,6 +436,9 @@ async fn test_live_vcr_record_replay_pass2_anthropic() {
             panic!("should not be called")
         }
         async fn annotate_group(&self, _: &Pass2Request) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
+            Err(flowdiff_core::llm::LlmError::AuthError("no".to_string()))
+        }
+        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
             Err(flowdiff_core::llm::LlmError::AuthError("no".to_string()))
         }
     }
@@ -477,6 +499,9 @@ async fn test_live_vcr_full_pipeline() {
             panic!("replaying, should not call")
         }
         async fn annotate_group(&self, _: &Pass2Request) -> Result<Pass2Response, flowdiff_core::llm::LlmError> {
+            panic!("replaying, should not call")
+        }
+        async fn evaluate_quality(&self, _: &JudgeRequest) -> Result<JudgeResponse, flowdiff_core::llm::LlmError> {
             panic!("replaying, should not call")
         }
     }

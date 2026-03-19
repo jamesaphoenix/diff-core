@@ -10,6 +10,7 @@
 
 pub mod anthropic;
 pub mod gemini;
+pub mod judge;
 pub mod openai;
 pub mod schema;
 pub mod vcr;
@@ -19,7 +20,9 @@ use std::process::Command;
 use async_trait::async_trait;
 
 use crate::config::LlmConfig;
-use schema::{Pass1Request, Pass1Response, Pass2Request, Pass2Response};
+use schema::{
+    JudgeRequest, JudgeResponse, Pass1Request, Pass1Response, Pass2Request, Pass2Response,
+};
 
 /// Errors that can occur during LLM operations.
 #[derive(Debug, thiserror::Error)]
@@ -76,6 +79,9 @@ pub trait LlmProvider: Send + Sync {
 
     /// Run Pass 2: deep analysis of a single group.
     async fn annotate_group(&self, request: &Pass2Request) -> Result<Pass2Response, LlmError>;
+
+    /// Run LLM-as-judge evaluation of analysis quality.
+    async fn evaluate_quality(&self, request: &JudgeRequest) -> Result<JudgeResponse, LlmError>;
 }
 
 /// Resolve the API key for an LLM provider.
@@ -252,6 +258,54 @@ pub fn pass1_user_prompt(request: &Pass1Request) -> String {
         ));
     }
     prompt.push_str(&format!("\n## Graph Structure\n{}\n", request.graph_summary));
+    prompt
+}
+
+/// Build the system prompt for the LLM-as-judge evaluator.
+pub fn judge_system_prompt() -> String {
+    format!(
+        "You are an expert code review tool evaluator. Your task is to assess the quality of an \
+         automated diff analysis tool's output. You will be given:\n\
+         1. The source code of a codebase\n\
+         2. The diff (changes) being analyzed\n\
+         3. The tool's analysis output (JSON with flow groups, entrypoints, risk scores, etc.)\n\n\
+         Evaluate the analysis across 5 criteria, scoring each from 1 (poor) to 5 (excellent).\n\
+         Be strict but fair — a score of 3 means the analysis is acceptable but not great.\n\
+         A score of 5 means the analysis is essentially perfect for that criterion.\n\n\
+         {}\n\n\
+         Respond ONLY with valid JSON matching the schema above. No markdown, no explanation outside the JSON.",
+        schema::judge_schema_description()
+    )
+}
+
+/// Build the user prompt for the LLM-as-judge evaluator.
+pub fn judge_user_prompt(request: &JudgeRequest) -> String {
+    let mut prompt = format!("## Fixture: {}\n\n", request.fixture_name);
+
+    prompt.push_str("## Source Files\n");
+    for file in &request.source_files {
+        let ext = file
+            .path
+            .rsplit('.')
+            .next()
+            .unwrap_or("txt");
+        prompt.push_str(&format!(
+            "\n### {}\n```{}\n{}\n```\n",
+            file.path, ext, file.content,
+        ));
+    }
+
+    prompt.push_str("\n## Diff\n```diff\n");
+    prompt.push_str(&request.diff_text);
+    prompt.push_str("\n```\n");
+
+    prompt.push_str("\n## Analysis Output (JSON)\n```json\n");
+    prompt.push_str(&request.analysis_json);
+    prompt.push_str("\n```\n");
+
+    prompt.push_str("\nEvaluate the analysis output against the source code and diff. \
+        Score each of the 5 criteria from 1-5.");
+
     prompt
 }
 
@@ -496,6 +550,61 @@ mod tests {
         assert!(prompt.contains("src/auth.ts"));
         assert!(prompt.contains("generateToken"));
         assert!(prompt.contains("auth -> token-service"));
+    }
+
+    // ── Judge Prompt Tests ──
+
+    #[test]
+    fn test_judge_system_prompt_content() {
+        let prompt = judge_system_prompt();
+        assert!(prompt.contains("expert code review tool evaluator"));
+        assert!(prompt.contains("criteria"));
+        assert!(prompt.contains("group_coherence"));
+        assert!(prompt.contains("mermaid_accuracy"));
+        assert!(prompt.contains("JSON"));
+    }
+
+    #[test]
+    fn test_judge_user_prompt_includes_fixture() {
+        let request = schema::JudgeRequest {
+            analysis_json: r#"{"version":"1.0.0"}"#.to_string(),
+            source_files: vec![schema::JudgeSourceFile {
+                path: "src/route.ts".to_string(),
+                content: "export function handler() {}".to_string(),
+            }],
+            diff_text: "+ new line".to_string(),
+            fixture_name: "TS Express API".to_string(),
+        };
+        let prompt = judge_user_prompt(&request);
+        assert!(prompt.contains("TS Express API"));
+        assert!(prompt.contains("src/route.ts"));
+        assert!(prompt.contains("export function handler()"));
+        assert!(prompt.contains("+ new line"));
+        assert!(prompt.contains(r#"{"version":"1.0.0"}"#));
+    }
+
+    #[test]
+    fn test_judge_user_prompt_multiple_files() {
+        let request = schema::JudgeRequest {
+            analysis_json: "{}".to_string(),
+            source_files: vec![
+                schema::JudgeSourceFile {
+                    path: "a.ts".to_string(),
+                    content: "// a".to_string(),
+                },
+                schema::JudgeSourceFile {
+                    path: "b.py".to_string(),
+                    content: "# b".to_string(),
+                },
+            ],
+            diff_text: "diff".to_string(),
+            fixture_name: "multi".to_string(),
+        };
+        let prompt = judge_user_prompt(&request);
+        assert!(prompt.contains("a.ts"));
+        assert!(prompt.contains("b.py"));
+        assert!(prompt.contains("```ts"));
+        assert!(prompt.contains("```py"));
     }
 
     // ── Error Display Tests ──

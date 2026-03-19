@@ -8,12 +8,12 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::schema::{Pass1Response, Pass2Response};
+use super::schema::{JudgeResponse, Pass1Response, Pass2Response};
 use super::{
-    pass1_system_prompt, pass1_user_prompt, pass2_system_prompt, pass2_user_prompt,
-    truncate_to_token_budget, LlmError, LlmProvider,
+    judge_system_prompt, judge_user_prompt, pass1_system_prompt, pass1_user_prompt,
+    pass2_system_prompt, pass2_user_prompt, truncate_to_token_budget, LlmError, LlmProvider,
 };
-use crate::llm::schema::{Pass1Request, Pass2Request};
+use crate::llm::schema::{JudgeRequest, Pass1Request, Pass2Request};
 
 const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -214,6 +214,16 @@ impl LlmProvider for GeminiProvider {
         let user = pass2_user_prompt(request);
         let response_text = self.send_message(&system, &user).await?;
         parse_json_response::<Pass2Response>(&response_text)
+    }
+
+    async fn evaluate_quality(
+        &self,
+        request: &JudgeRequest,
+    ) -> Result<JudgeResponse, LlmError> {
+        let system = judge_system_prompt();
+        let user = judge_user_prompt(request);
+        let response_text = self.send_message(&system, &user).await?;
+        parse_json_response::<JudgeResponse>(&response_text)
     }
 }
 

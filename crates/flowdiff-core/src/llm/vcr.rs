@@ -11,8 +11,10 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 
-use super::schema::{Pass1Request, Pass1Response, Pass2Request, Pass2Response};
-use super::{pass1_system_prompt, pass2_system_prompt, LlmError, LlmProvider};
+use super::schema::{
+    JudgeRequest, JudgeResponse, Pass1Request, Pass1Response, Pass2Request, Pass2Response,
+};
+use super::{judge_system_prompt, pass1_system_prompt, pass2_system_prompt, LlmError, LlmProvider};
 
 /// VCR operating mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +93,11 @@ impl VcrProvider {
     /// Get the current prompt template hash for Pass 2.
     pub fn pass2_template_hash() -> String {
         Self::sha256_hex(pass2_system_prompt().as_bytes())
+    }
+
+    /// Get the current prompt template hash for judge evaluation.
+    pub fn judge_template_hash() -> String {
+        Self::sha256_hex(judge_system_prompt().as_bytes())
     }
 
     /// Build the cache file path for a given pass type and cache key.
@@ -265,13 +272,51 @@ impl LlmProvider for VcrProvider {
             }
         }
     }
+
+    async fn evaluate_quality(
+        &self,
+        request: &JudgeRequest,
+    ) -> Result<JudgeResponse, LlmError> {
+        let request_json = serde_json::to_string(request).map_err(|e| {
+            LlmError::ParseResponse(format!("Failed to serialize request for VCR key: {}", e))
+        })?;
+        let template_hash = Self::judge_template_hash();
+        let key = Self::cache_key(self.inner.name(), self.inner.model(), &request_json, &template_hash);
+        let path = self.cache_path("judge", &key);
+
+        match self.mode {
+            VcrMode::Replay => {
+                self.read_cache::<JudgeResponse>(&path, &template_hash)
+                    .ok_or_else(|| {
+                        LlmError::ParseResponse(format!(
+                            "VCR replay: no cached entry at {}",
+                            path.display()
+                        ))
+                    })
+            }
+            VcrMode::Record => {
+                let response = self.inner.evaluate_quality(request).await?;
+                self.write_cache(&path, &key, &template_hash, &response)?;
+                Ok(response)
+            }
+            VcrMode::Auto => {
+                if let Some(cached) = self.read_cache::<JudgeResponse>(&path, &template_hash) {
+                    return Ok(cached);
+                }
+                let response = self.inner.evaluate_quality(request).await?;
+                self.write_cache(&path, &key, &template_hash, &response)?;
+                Ok(response)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::llm::schema::{
-        Pass1GroupAnnotation, Pass1GroupInput, Pass2FileAnnotation, Pass2FileInput,
+        JudgeCriterionScore, JudgeSourceFile, Pass1GroupAnnotation, Pass1GroupInput,
+        Pass2FileAnnotation, Pass2FileInput,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -336,6 +381,23 @@ mod tests {
                 cross_cutting_concerns: vec![],
             })
         }
+
+        async fn evaluate_quality(
+            &self,
+            _request: &JudgeRequest,
+        ) -> Result<JudgeResponse, LlmError> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+            Ok(JudgeResponse {
+                criteria: vec![JudgeCriterionScore {
+                    criterion: "group_coherence".to_string(),
+                    score: 4,
+                    explanation: "Mock evaluation".to_string(),
+                }],
+                overall_score: 4.0,
+                failure_explanations: vec![],
+                strengths: vec!["Mock strength".to_string()],
+            })
+        }
     }
 
     fn sample_pass1() -> Pass1Request {
@@ -350,6 +412,18 @@ mod tests {
                 edge_summary: "a -> b".to_string(),
             }],
             graph_summary: "1 node".to_string(),
+        }
+    }
+
+    fn sample_judge() -> JudgeRequest {
+        JudgeRequest {
+            analysis_json: r#"{"version":"1.0.0"}"#.to_string(),
+            source_files: vec![JudgeSourceFile {
+                path: "src/a.ts".to_string(),
+                content: "export function a() {}".to_string(),
+            }],
+            diff_text: "+ new line".to_string(),
+            fixture_name: "test fixture".to_string(),
         }
     }
 
@@ -476,6 +550,79 @@ mod tests {
             LlmError::ParseResponse(msg) => assert!(msg.contains("VCR replay")),
             other => panic!("Expected ParseResponse, got: {:?}", other),
         }
+    }
+
+    // ── Judge VCR Tests ──
+
+    #[tokio::test]
+    async fn test_record_and_replay_judge() {
+        let tmp = TempDir::new().unwrap();
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let mock = MockProvider::new(call_count.clone());
+
+        // Record
+        let vcr = VcrProvider::new(Box::new(mock), tmp.path().to_path_buf(), VcrMode::Record);
+        let response = vcr.evaluate_quality(&sample_judge()).await.unwrap();
+        assert_eq!(response.overall_score, 4.0);
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+        // Replay with a new mock (should not be called)
+        let call_count2 = Arc::new(AtomicUsize::new(0));
+        let mock2 = MockProvider::new(call_count2.clone());
+        let vcr2 = VcrProvider::new(Box::new(mock2), tmp.path().to_path_buf(), VcrMode::Replay);
+        let replayed = vcr2.evaluate_quality(&sample_judge()).await.unwrap();
+        assert_eq!(replayed.overall_score, 4.0);
+        assert_eq!(call_count2.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn test_auto_mode_judge_caches_on_miss() {
+        let tmp = TempDir::new().unwrap();
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let mock = MockProvider::new(call_count.clone());
+
+        let vcr = VcrProvider::new(Box::new(mock), tmp.path().to_path_buf(), VcrMode::Auto);
+
+        let r1 = vcr.evaluate_quality(&sample_judge()).await.unwrap();
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+        let r2 = vcr.evaluate_quality(&sample_judge()).await.unwrap();
+        assert_eq!(call_count.load(Ordering::SeqCst), 1, "Should use cache on second call");
+        assert_eq!(r1, r2);
+    }
+
+    #[tokio::test]
+    async fn test_replay_missing_judge_errors() {
+        let tmp = TempDir::new().unwrap();
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let mock = MockProvider::new(call_count.clone());
+
+        let vcr = VcrProvider::new(Box::new(mock), tmp.path().to_path_buf(), VcrMode::Replay);
+        let result = vcr.evaluate_quality(&sample_judge()).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            LlmError::ParseResponse(msg) => assert!(msg.contains("VCR replay")),
+            other => panic!("Expected ParseResponse, got: {:?}", other),
+        }
+    }
+
+    // ── Judge Template Hash ──
+
+    #[test]
+    fn test_judge_template_hash_deterministic() {
+        let h1 = VcrProvider::judge_template_hash();
+        let h2 = VcrProvider::judge_template_hash();
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 64);
+    }
+
+    #[test]
+    fn test_judge_template_hash_differs_from_pass1_pass2() {
+        let judge = VcrProvider::judge_template_hash();
+        let pass1 = VcrProvider::pass1_template_hash();
+        let pass2 = VcrProvider::pass2_template_hash();
+        assert_ne!(judge, pass1);
+        assert_ne!(judge, pass2);
     }
 
     // ── Different Requests Get Different Cache Entries ──

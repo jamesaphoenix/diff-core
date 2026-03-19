@@ -598,7 +598,9 @@ flowdiff/
 - [x] Unit tests for IR types (72 unit tests — Span construction/line_count, IrPattern bound_names for all variants including nested/holes/rest, IrExpression callee extraction through Await/Yield wrappers, IrImportSpecifier local/remote name resolution, IrFile construction/accessors, ParsedFile→IrFile conversion for functions/type_defs/constants/imports/exports/call_expressions, namespace/aliased/side-effect imports, enrichment with DataFlowInfo, ParsedFile roundtrip preservation, DataFlowInfo roundtrip with destructure exclusion, serde roundtrip for all pattern/expression variants, edge cases for empty/unknown/module/struct/type_alias, assignment patterns for all destructuring styles, function params with destructuring)
 - [x] Property-based tests for IR types (12 tests — bound_names never panics, identifier patterns have exactly one bound name, is_identifier correctness, span line_count >= 1, IrFile serde roundtrip, ParsedFile→IrFile definition count preservation, IrPattern serde roundtrip, all_definition_names count, empty file invariants, empty DataFlowInfo enrichment is no-op)
 - [x] Unit tests for query engine (53 tests — 37 unit tests for TS imports/exports/definitions/calls/data-flow, Python imports/definitions/calls/data-flow, unknown language handling, parity with ast.rs for full TS and Python files, determinism, empty source, syntax error tolerance; 8 property-based tests for never-panics, determinism, always-valid-output, empty-source-empty-result)
+- [ ] Refactor query engine to use capture-name-presence matching instead of fragile `pattern_index` — switch from `match m.pattern_index { 0 => ..., 1 => ... }` to checking which `@capture` names are present (e.g. `has_capture("default_name")` vs `has_capture("named_name")`). This makes `.scm` pattern ordering irrelevant and prevents silent breakage when patterns are reordered or inserted. Update all extraction methods: imports, exports, definitions, calls, assignments for both TS and Python
 - [x] Config file support (config.rs — `.flowdiff.toml` parsing, validation, defaults merging, entrypoint glob resolution, ignore patterns, layer names, LLM config; 17 unit tests + 6 property-based tests)
+- [ ] Restructure tests to Rust convention — move integration tests (e2e pipeline, real repo, live LLM, eval, IR parity, VCR replay) from co-located `#[cfg(test)]` into `crates/flowdiff-core/tests/` directory. Keep unit tests co-located. Create `tests/helpers/` with `repo_builder.rs` and `graph_assertions.rs`. Gate live tests with `#[ignore]`
 
 ### Phase 3: Tauri App (Week 3-4)
 - [ ] Tauri project setup with React frontend
@@ -614,13 +616,14 @@ flowdiff/
 - [x] Anthropic API client (Messages API, extended thinking support via content block parsing)
 - [x] OpenAI API client (Chat Completions, o1/o3 reasoning model detection — no system messages, max_completion_tokens)
 - [x] Structured output schemas (Pass1Request/Response, Pass2Request/Response, Annotations types, JSON schema descriptions)
+- [ ] Migrate to provider-native structured outputs APIs — OpenAI `response_format: { type: "json_schema" }` per https://developers.openai.com/api/docs/guides/structured-outputs, Anthropic tool_use with input_schema, Gemini JSON response mode with schema. Replace prompt-based JSON extraction with guaranteed-schema responses
 - [x] Pass 1: overview annotation (system prompt + user prompt builders, structured JSON output parsing with markdown fence stripping)
 - [x] Pass 2: on-demand deep group analysis (per-group context with file diffs, graph context, role annotations)
 - [ ] LLM results rendering in Tauri app
 - [x] API key configuration (FLOWDIFF_API_KEY env var, provider-specific env vars ANTHROPIC_API_KEY/OPENAI_API_KEY/GEMINI_API_KEY, key_cmd for 1Password via `op read`, precedence: key_cmd > FLOWDIFF_API_KEY > provider env var)
 - [x] Context window management (token estimation heuristic, truncation to budget with line-boundary preservation, per-model context window sizes)
 - [x] Provider trait (`LlmProvider`) with `create_provider()` factory, default provider is Anthropic, supports Anthropic/OpenAI/Gemini
-- [x] Unit tests for LLM module (126 tests — 97 existing: schema roundtrips, request format, response parsing, markdown stripping, context windows, API key resolution, prompt building, error display, provider creation, reasoning model detection, Gemini generateContent format, Gemini response parsing, Gemini safety filter handling, Gemini endpoint URL construction; plus 29 VCR tests: record/replay Pass 1 and Pass 2, auto-mode caching, replay-miss errors, different-request isolation, cache key determinism and variance, SHA-256 validation, provider delegation, cache management, entry serialization roundtrip, record overwrites, template hash invalidation, nested dir creation, 6 property-based tests)
+- [x] Unit tests for LLM module (164 tests — 97 existing: schema roundtrips, request format, response parsing, markdown stripping, context windows, API key resolution, prompt building, error display, provider creation, reasoning model detection, Gemini generateContent format, Gemini response parsing, Gemini safety filter handling, Gemini endpoint URL construction; 36 VCR tests: record/replay Pass 1/Pass 2/judge, auto-mode caching, replay-miss errors, different-request isolation, cache key determinism and variance, SHA-256 validation, provider delegation, cache management, entry serialization roundtrip, record overwrites, template hash invalidation, nested dir creation, judge template hash tests, 6 property-based tests; 22 judge tests: build/validate/normalize, source file collection, criteria constants, 4 property-based tests; 9 new schema tests for judge types)
 - [x] Live integration tests — Anthropic (real API call, Pass 1 overview returns valid structured output, Pass 2 deep analysis returns file-level annotations)
 - [x] Google Gemini API client (generateContent API, system instructions, JSON response mode, safety filter handling, context window management)
 - [x] Live integration tests — Google Gemini (real API call, Pass 1 overview, Pass 2 deep analysis, structured output compliance, context window handling, error handling for invalid keys)
@@ -650,15 +653,117 @@ flowdiff/
 - [x] Deterministic scoring functions — 6 per-criterion scorers all producing [0.0, 1.0]: group_coherence, entrypoint_accuracy, review_ordering, risk_reasonableness, language_detection, file_accounting. Overall weighted composite score. Eval report with per-fixture and aggregate tables
 - [x] Eval tests — 16 tests: 5 per-fixture evals (minimum score thresholds), 5 cross-fixture invariant tests (determinism, JSON roundtrip, file accounting, risk bounds, Mermaid generation), 5 property-based tests for scoring function invariants (bounds, min/max containment, empty input safety, determinism, perfect match high score), 1 aggregate report. Current avg score: 0.89
 - [x] VCR caching layer for LLM calls — `vcr.rs` implements `LlmProvider` as a decorator wrapping any real provider. Three modes: Record (always call provider, save to disk), Replay (read from cache only, error on miss), Auto (cache-through: use cache if available, call provider on miss and cache result). Cache keyed by SHA-256 hash of (provider, model, serialized request JSON, prompt template hash). Automatic cache invalidation when system prompt templates change. Disk-based JSON cache with `CacheEntry<T>` wrapper (provider, model, request_hash, prompt_template_hash, recorded_at, response). Cache management: `list_entries()`, `clear_cache()`. 29 unit tests (23 behavioral + 6 property-based via proptest: SHA-256 output invariants, cache key determinism, collision resistance, serde roundtrip, never-panics). 6 integration tests (3 non-live: pre-recorded fixture replay for Pass 1/Pass 2, auto-mode record-replay cycle; 3 live: real Anthropic API record→replay for Pass 1, Pass 2, and full pipeline — gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`)
-- [ ] LLM-as-judge evaluator — a separate evaluation step that takes flowdiff's JSON output + the fixture codebase and scores quality using structured outputs. Evaluation criteria: (1) are flow groups semantically coherent? (2) is review ordering logical? (3) are entrypoints correctly identified? (4) are risk scores reasonable? (5) is the Mermaid graph accurate? Returns per-criterion scores (1-5) + overall score + failure explanations
+- [x] LLM-as-judge evaluator — `judge.rs` module under `llm/` with orchestration functions. Structured output types (JudgeRequest/JudgeResponse/JudgeCriterionScore in schema.rs). 5 evaluation criteria scored 1-5: group_coherence, review_ordering, entrypoint_identification, risk_reasonableness, mermaid_accuracy. `evaluate_quality` method on LlmProvider trait implemented in all 3 providers (Anthropic, OpenAI, Gemini). VCR caching support for deterministic CI replay. Judge prompt builders (system + user). Validation (completeness, bounds, average consistency, failure explanation coverage). Score normalization (1-5 → 0.0-1.0). Source file collection from fixture repos. Formatted report printer. 22 unit tests (build_judge_request, validate_judge_response for valid/missing/bounds/mismatch/explanations, normalize_judge_scores for all-5s/all-1s/mixed, collect_source_files with hidden dirs/binary skip/sorting/empty, JUDGE_CRITERIA count+uniqueness, 4 property-based tests: normalize bounds, validate never panics, build_request never panics, normalization determinism). 10 integration tests (mock judge valid response/validation/normalization, VCR record-replay/auto-mode, fixture source file collection, request construction, analysis field completeness, 2 live Anthropic tests gated behind FLOWDIFF_RUN_LIVE_LLM_TESTS=1). 7 VCR judge tests (record-replay, auto-mode caching, replay-miss errors, template hash determinism, template hash differs from pass1/pass2)
 - [ ] Eval harness — CLI command (`flowdiff eval`) that runs all fixture codebases, compares against baselines, runs LLM judge, produces a score report. Tracks scores over time to detect regressions. CI integration: fail if overall score drops below threshold
 - [ ] Eval dashboard — simple HTML report showing per-fixture scores, per-criterion breakdown, historical trend, diff against last run
 
+### Phase 8: Hardening (Future)
+
+Automated bug-finding phase. Run parallel sub-agents that independently audit each layer of the application, find bugs, and add new tasks to the spec for anything they discover.
+
+- [ ] Rust core audit — sub-agent reads all `crates/flowdiff-core/src/*.rs`, runs `cargo test`, `cargo clippy`, fuzzes with proptest, looks for: panics on edge-case input, unwrap/expect on fallible paths, off-by-one in span/line calculations, incorrect IR roundtrips, missing error propagation, unsound unsafe blocks, race conditions in parallel parsing
+- [ ] Query engine + .scm audit — sub-agent reviews all `.scm` query files against tree-sitter grammar docs for each language, looks for: missing AST node types (e.g. `satisfies` expressions in TS, walrus operator in Python), incorrect capture names, patterns that silently fail on syntax errors, patterns that don't match newer language features, overlapping patterns that cause duplicate results
+- [ ] LLM provider audit — sub-agent tests all three providers (Anthropic, OpenAI, Gemini) with adversarial inputs: huge diffs that exceed context windows, malformed JSON responses, rate limit handling, timeout handling, API key rotation during a session, structured output schema violations, unicode/emoji in code, concurrent requests
+- [ ] Tauri app audit — sub-agent reviews React components for: missing error boundaries, memory leaks from Monaco instances, unhandled IPC errors, XSS via unsanitized diff content in Mermaid/Monaco, keyboard event conflicts with Monaco, state desync between panels, large dataset rendering perf (100+ groups, 1000+ files)
+- [ ] VS Code extension audit — sub-agent reviews for: extension activation failures, CLI binary not found, JSON parsing failures on malformed CLI output, webview CSP issues, tree view memory leaks on large results, command palette conflicts
+- [ ] Cross-layer integration audit — sub-agent runs full pipeline (CLI → Rust core → JSON → Tauri IPC → React render) on adversarial repos: empty repos, repos with only binary files, repos with 10K+ files, repos with deeply nested circular imports, repos with non-UTF8 filenames, repos with symlinks, monorepos with 50+ packages
+- [ ] Security audit — sub-agent checks for: command injection via repo paths or filenames, path traversal in file reads, SSRF via LLM API URLs from config, secret leakage in JSON output or logs, unsafe deserialization of LLM responses, CSP violations in Tauri/VS Code webviews
+- [ ] Aggregate findings — collect all bugs found by sub-agents, deduplicate, prioritize by severity, add as new tasks to the appropriate phase in this spec
+
 ## 12. Testing Plan
 
-### 12.1 Test Infrastructure
+### 12.1 Test Convention
 
-**Framework:** `cargo test` for Rust, Vitest for Tauri React frontend, Jest for VS Code extension
+**Rust convention — structural separation, not file suffixes:**
+
+- **Unit tests** — co-located in the source file via `#[cfg(test)] mod tests { }` at the bottom. Tests internal/private functions. Fast, no I/O.
+- **Integration tests** — separate `tests/` directory at the crate root. Each file compiles as its own binary and can only access the crate's public API. Tests cross-module behavior.
+- **Slow/live tests** — gated with `#[ignore]`, run via `cargo test -- --ignored`. Includes live LLM calls, large fixture repos, performance benchmarks.
+
+```
+crates/flowdiff-core/
+├── src/
+│   ├── lib.rs              # pub API surface
+│   ├── ast.rs              # #[cfg(test)] mod tests { } at bottom (unit)
+│   ├── graph.rs            # same
+│   ├── ir.rs               # same
+│   ├── query_engine.rs     # same
+│   └── ...
+└── tests/                  # integration tests (public API only)
+    ├── e2e_pipeline.rs         # full pipeline: git → AST → IR → graph → cluster → rank → output
+    ├── e2e_real_repos.rs       # test against synthetic fixture repos with real git commits
+    ├── e2e_llm_live.rs         # live LLM provider tests (#[ignore], gated behind FLOWDIFF_RUN_LIVE_LLM_TESTS=1)
+    ├── e2e_eval.rs             # eval suite scoring against fixture baselines
+    ├── ir_parity.rs            # IR path vs ParsedFile path produce identical results
+    ├── vcr_replay.rs           # VCR cached LLM response replay tests
+    └── helpers/
+        ├── mod.rs              # shared test utilities
+        ├── repo_builder.rs     # programmatically create test git repos
+        └── graph_assertions.rs # custom assertions for graph structures
+```
+
+**Frontend convention:**
+
+- **Unit tests** — co-located as `Component.test.tsx` next to `Component.tsx` (Vitest + React Testing Library). Tests component logic, state, props.
+- **Integration tests** — `tests/integration/` at the Tauri UI root. Tests IPC bridge, store ↔ component wiring.
+- **E2E tests** — `tests/e2e/` using Playwright. Tests real rendered output in a browser context. **Prefer integration/E2E tests over unit tests when code touches renderers** (Monaco, Mermaid, Tauri webview) — mocked renderers give false confidence.
+
+```
+crates/flowdiff-tauri/ui/
+├── src/
+│   ├── components/
+│   │   ├── FlowGroups.tsx
+│   │   ├── FlowGroups.test.tsx     # unit test (co-located)
+│   │   ├── DiffViewer.tsx
+│   │   ├── DiffViewer.test.tsx
+│   │   └── ...
+│   ├── hooks/
+│   │   ├── useFlowdiff.ts
+│   │   └── useFlowdiff.test.ts
+│   └── store/
+│       ├── store.ts
+│       └── store.test.ts
+├── tests/
+│   ├── integration/
+│   │   ├── ipc-contract.test.ts        # IPC response matches Rust AnalysisOutput schema
+│   │   ├── store-component.test.ts     # store updates → component re-renders
+│   │   └── monaco-lifecycle.test.ts    # Monaco instances created/destroyed correctly
+│   └── e2e/
+│       ├── analyze-flow.spec.ts        # full user journey (Playwright)
+│       ├── keyboard-navigation.spec.ts
+│       ├── monaco-diff.spec.ts
+│       ├── mermaid-graph.spec.ts
+│       ├── layout.spec.ts
+│       ├── error-states.spec.ts
+│       └── visual.spec.ts             # screenshot regression tests
+└── playwright.config.ts
+```
+
+**Running tests:**
+
+```bash
+# Rust unit tests (fast, co-located)
+cargo test --workspace
+
+# Rust integration tests (slower, real git repos)
+cargo test --workspace -- --ignored
+
+# Live LLM tests (requires API keys)
+FLOWDIFF_RUN_LIVE_LLM_TESTS=1 cargo test --workspace -- --ignored
+
+# Frontend unit + integration tests
+cd crates/flowdiff-tauri/ui && npm test
+
+# Frontend E2E (Playwright)
+cd crates/flowdiff-tauri/ui && npx playwright test
+
+# VS Code extension tests
+cd extensions/vscode && npm test
+```
+
+### 12.2 Test Infrastructure
+
+**Framework:** `cargo test` for Rust, Vitest + React Testing Library for Tauri UI unit/integration, Playwright for Tauri E2E, Jest for VS Code extension
 
 **Test fixtures directory:**
 ```
@@ -902,8 +1007,129 @@ Benchmarks run in CI to catch performance regressions.
 | `test_analyze_command` | Tauri `analyze` command returns valid JSON |
 | `test_annotate_command` | Tauri `annotate` command triggers LLM and returns annotations |
 | `test_ipc_error_handling` | Invalid repo path returns user-friendly error |
+| `test_ipc_slow_analysis` | Shows loading state during long analysis |
+| `test_ipc_cancellation` | Cancelling mid-analysis cleans up gracefully |
+| `test_ipc_schema_match` | IPC response matches Rust `AnalysisOutput` JSON schema exactly |
 
-### 12.9 VS Code Extension Tests
+**State management tests:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `store.test.ts` | Store initializes correctly from analysis JSON |
+| `store.test.ts` | Selecting a file updates active file + diff content |
+| `store.test.ts` | Selecting a group expands it and selects first file |
+| `store.test.ts` | Store handles empty groups array gracefully |
+| `store.test.ts` | Store handles missing/null annotations |
+
+**Keyboard navigation edge case tests:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `FlowNavigation.test.tsx` | `j` at last file in group wraps or stops (not crash) |
+| `FlowNavigation.test.tsx` | `K` at first group wraps or stops (not crash) |
+| `FlowNavigation.test.tsx` | Keyboard nav disabled when Monaco editor is focused |
+| `FlowNavigation.test.tsx` | Rapid key presses don't cause double navigation |
+| `FlowNavigation.test.tsx` | Navigation works with single-file groups |
+
+**Monaco integration tests:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `DiffViewer.test.tsx` | Diff renders correctly for TS, Python, Rust, JSON |
+| `DiffViewer.test.tsx` | Large file (10K+ lines) renders without freezing |
+| `DiffViewer.test.tsx` | Scroll position preserved when switching between files in same group |
+| `DiffViewer.test.tsx` | Inline LLM annotations render at correct line numbers |
+
+**Mermaid edge case tests:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `MermaidGraph.test.tsx` | Handles cyclic graphs without infinite rendering |
+| `MermaidGraph.test.tsx` | Handles 50+ node graphs without overflow |
+| `MermaidGraph.test.tsx` | Special characters in node labels are escaped |
+| `MermaidGraph.test.tsx` | Empty graph renders placeholder message |
+
+**Layout and responsive tests:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `App.test.tsx` | Panels resize correctly via drag handle |
+| `App.test.tsx` | Panels enforce minimum widths |
+| `App.test.tsx` | Panel collapse/expand toggles work |
+| `App.test.tsx` | Focus management moves correctly between panels (Tab/Shift+Tab) |
+
+**Accessibility tests:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `App.test.tsx` | Full keyboard-only navigation works end-to-end (no mouse required) |
+| `FlowGroups.test.tsx` | Tree items have ARIA labels and roles |
+| `DiffViewer.test.tsx` | Monaco instance has accessible label |
+| `Annotations.test.tsx` | Risk badges have screen-reader text |
+
+### 12.9 Tauri App — Playwright E2E Tests
+
+**Testing philosophy:** Prefer integration tests over unit tests when code touches renderers (Monaco, Mermaid, Tauri webview). Unit tests with mocked renderers give false confidence — Playwright tests hit the real rendered output in a real browser context.
+
+**Setup:** Playwright tests launch the Tauri app via `tauri-driver` (WebDriver protocol) or directly against the dev server with mocked IPC. Test fixtures use pre-computed analysis JSON from the synthetic eval codebases (Phase 7).
+
+**Full workflow E2E tests:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `e2e/analyze-flow.spec.ts` | Open app → load analysis → flow groups appear in left panel → click group → files expand → click file → diff renders in Monaco → annotations show in right panel |
+| `e2e/keyboard-navigation.spec.ts` | Load analysis → press `j` → next file selected + diff updates → press `J` → next group selected → press `k` → previous file → press `K` → previous group → verify focus + scroll position at each step |
+| `e2e/annotate-flow.spec.ts` | Load analysis → click "Annotate" on a group → loading spinner appears → LLM annotations render in right panel → risk badges update → Mermaid graph updates |
+| `e2e/multi-group-review.spec.ts` | Load 50-file analysis → verify all groups render → navigate through every group sequentially → verify no stale state between groups → verify Monaco doesn't leak instances |
+
+**Monaco renderer integration tests:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `e2e/monaco-diff.spec.ts` | Diff renders with correct old/new content (screenshot comparison) |
+| `e2e/monaco-diff.spec.ts` | Syntax highlighting is correct for TypeScript, Python, Rust, JSON (visual regression) |
+| `e2e/monaco-diff.spec.ts` | Inline annotations render at correct line positions (check DOM line decorations) |
+| `e2e/monaco-diff.spec.ts` | Switching files updates Monaco without creating duplicate editor instances (check DOM node count) |
+| `e2e/monaco-diff.spec.ts` | Large file (10K lines) renders within 2s and scrolling is smooth (performance assertion) |
+
+**Mermaid renderer integration tests:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `e2e/mermaid-graph.spec.ts` | Flow graph SVG renders in right panel (check SVG element exists) |
+| `e2e/mermaid-graph.spec.ts` | Graph nodes match files in the selected group |
+| `e2e/mermaid-graph.spec.ts` | Clicking a node in the Mermaid graph selects the corresponding file |
+| `e2e/mermaid-graph.spec.ts` | Graph updates when switching between groups |
+| `e2e/mermaid-graph.spec.ts` | Cyclic graph renders without hanging (timeout assertion) |
+
+**Panel layout integration tests:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `e2e/layout.spec.ts` | Three panels visible on load with correct proportions (measure widths) |
+| `e2e/layout.spec.ts` | Drag resize handle → panels resize → Monaco reflows (no overflow) |
+| `e2e/layout.spec.ts` | Collapse left panel → center + right expand → expand again → original widths restored |
+| `e2e/layout.spec.ts` | Window resize → panels reflow proportionally → no horizontal scroll |
+
+**Error state E2E tests:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `e2e/error-states.spec.ts` | Invalid repo path → user-friendly error message in UI (not blank screen) |
+| `e2e/error-states.spec.ts` | Empty diff → "No changes found" message with helpful guidance |
+| `e2e/error-states.spec.ts` | LLM annotation failure → error toast, app still functional |
+| `e2e/error-states.spec.ts` | Corrupted analysis JSON → error boundary catches, recovery option shown |
+
+**Visual regression tests (Playwright screenshots):**
+
+| Test | What it verifies |
+|------|-----------------|
+| `e2e/visual.spec.ts` | Full app screenshot matches baseline after loading analysis |
+| `e2e/visual.spec.ts` | Dark mode / light mode rendering (if supported) |
+| `e2e/visual.spec.ts` | Risk heatmap colors render correctly |
+| `e2e/visual.spec.ts` | Mermaid graph layout is stable (no random repositioning between runs) |
+
+### 12.10 VS Code Extension Tests
 
 **Unit tests (Jest):**
 

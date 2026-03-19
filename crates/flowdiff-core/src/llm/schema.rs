@@ -117,6 +117,52 @@ pub struct Annotations {
     pub deep_analyses: Vec<Pass2Response>,
 }
 
+// ── LLM-as-Judge Evaluation ──
+
+/// Request context for the LLM-as-judge evaluator.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JudgeRequest {
+    /// The full analysis output JSON (serialized AnalysisOutput).
+    pub analysis_json: String,
+    /// Source files from the fixture codebase (path → content).
+    pub source_files: Vec<JudgeSourceFile>,
+    /// The diff being analyzed (unified diff format).
+    pub diff_text: String,
+    /// Fixture name for context.
+    pub fixture_name: String,
+}
+
+/// A source file provided to the judge for context.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JudgeSourceFile {
+    pub path: String,
+    pub content: String,
+}
+
+/// LLM-as-judge structured response with per-criterion scores.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JudgeResponse {
+    /// Per-criterion scores (1-5 scale).
+    pub criteria: Vec<JudgeCriterionScore>,
+    /// Overall score (1.0-5.0), average of criteria scores.
+    pub overall_score: f64,
+    /// Explanations for any scores below 3.
+    pub failure_explanations: Vec<String>,
+    /// Notable strengths of the analysis.
+    pub strengths: Vec<String>,
+}
+
+/// A single criterion score from the LLM judge.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JudgeCriterionScore {
+    /// Criterion name (e.g., "group_coherence", "review_ordering").
+    pub criterion: String,
+    /// Score from 1 (poor) to 5 (excellent).
+    pub score: u8,
+    /// Brief explanation of the score.
+    pub explanation: String,
+}
+
 // ── JSON Schema Generation ──
 
 /// Generate the JSON schema description for Pass 1 structured output.
@@ -136,6 +182,30 @@ pub fn pass1_schema_description() -> &'static str {
   "overall_summary": "string (1-3 sentence overall summary of the entire diff)",
   "suggested_review_order": ["string (group IDs in suggested review order)"]
 }"#
+}
+
+/// Generate the JSON schema description for the LLM-as-judge evaluator.
+pub fn judge_schema_description() -> &'static str {
+    r#"Respond with a JSON object matching this exact schema:
+{
+  "criteria": [
+    {
+      "criterion": "string (one of: group_coherence, review_ordering, entrypoint_identification, risk_reasonableness, mermaid_accuracy)",
+      "score": "integer (1-5, where 1=poor, 2=below average, 3=acceptable, 4=good, 5=excellent)",
+      "explanation": "string (brief explanation for the score)"
+    }
+  ],
+  "overall_score": "number (average of all criteria scores, 1.0-5.0)",
+  "failure_explanations": ["string (explanation for any criterion scoring below 3)"],
+  "strengths": ["string (notable strengths of the analysis)"]
+}
+
+You MUST include exactly these 5 criteria in the 'criteria' array:
+1. group_coherence: Are files that participate in the same logical data flow grouped together? Are unrelated files separated?
+2. review_ordering: Is the suggested review order logical? Are high-risk, foundational changes reviewed first?
+3. entrypoint_identification: Are HTTP routes, CLI commands, queue consumers, and other entrypoints correctly identified?
+4. risk_reasonableness: Are risk scores sensible? Do auth/schema changes score higher than utility changes?
+5. mermaid_accuracy: Does the Mermaid graph accurately represent the data flow between files in each group?"#
 }
 
 /// Generate the JSON schema description for Pass 2 structured output.
@@ -351,5 +421,158 @@ mod tests {
         };
         assert_eq!(response.file_annotations.len(), 2);
         assert_eq!(response.file_annotations[1].risks.len(), 1);
+    }
+
+    // ── Judge Schema Tests ──
+
+    #[test]
+    fn test_judge_request_roundtrip() {
+        let request = JudgeRequest {
+            analysis_json: r#"{"version":"1.0.0"}"#.to_string(),
+            source_files: vec![JudgeSourceFile {
+                path: "src/route.ts".to_string(),
+                content: "export function handler() {}".to_string(),
+            }],
+            diff_text: "+ new line".to_string(),
+            fixture_name: "test fixture".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let deserialized: JudgeRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_judge_response_roundtrip() {
+        let response = JudgeResponse {
+            criteria: vec![
+                JudgeCriterionScore {
+                    criterion: "group_coherence".to_string(),
+                    score: 4,
+                    explanation: "Files are well grouped".to_string(),
+                },
+                JudgeCriterionScore {
+                    criterion: "review_ordering".to_string(),
+                    score: 3,
+                    explanation: "Ordering is acceptable".to_string(),
+                },
+            ],
+            overall_score: 3.5,
+            failure_explanations: vec![],
+            strengths: vec!["Good entrypoint detection".to_string()],
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let deserialized: JudgeResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(response, deserialized);
+    }
+
+    #[test]
+    fn test_judge_response_with_failures() {
+        let response = JudgeResponse {
+            criteria: vec![JudgeCriterionScore {
+                criterion: "mermaid_accuracy".to_string(),
+                score: 2,
+                explanation: "Graph missing edges".to_string(),
+            }],
+            overall_score: 2.0,
+            failure_explanations: vec!["Mermaid graph is incomplete".to_string()],
+            strengths: vec![],
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["overall_score"], 2.0);
+        assert_eq!(parsed["failure_explanations"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_judge_criterion_score_bounds() {
+        let scores = vec![1u8, 2, 3, 4, 5];
+        for s in scores {
+            let criterion = JudgeCriterionScore {
+                criterion: "test".to_string(),
+                score: s,
+                explanation: "test".to_string(),
+            };
+            let json = serde_json::to_string(&criterion).unwrap();
+            let deser: JudgeCriterionScore = serde_json::from_str(&json).unwrap();
+            assert_eq!(deser.score, s);
+        }
+    }
+
+    #[test]
+    fn test_judge_schema_description_not_empty() {
+        let desc = judge_schema_description();
+        assert!(!desc.is_empty());
+        assert!(desc.contains("criteria"));
+        assert!(desc.contains("group_coherence"));
+        assert!(desc.contains("review_ordering"));
+        assert!(desc.contains("entrypoint_identification"));
+        assert!(desc.contains("risk_reasonableness"));
+        assert!(desc.contains("mermaid_accuracy"));
+        assert!(desc.contains("overall_score"));
+    }
+
+    #[test]
+    fn test_judge_source_file_roundtrip() {
+        let file = JudgeSourceFile {
+            path: "src/service.ts".to_string(),
+            content: "export class Service {}".to_string(),
+        };
+        let json = serde_json::to_string(&file).unwrap();
+        let deser: JudgeSourceFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(file, deser);
+    }
+
+    #[test]
+    fn test_judge_request_multiple_source_files() {
+        let request = JudgeRequest {
+            analysis_json: "{}".to_string(),
+            source_files: vec![
+                JudgeSourceFile {
+                    path: "a.ts".to_string(),
+                    content: "// a".to_string(),
+                },
+                JudgeSourceFile {
+                    path: "b.ts".to_string(),
+                    content: "// b".to_string(),
+                },
+                JudgeSourceFile {
+                    path: "c.py".to_string(),
+                    content: "# c".to_string(),
+                },
+            ],
+            diff_text: "diff".to_string(),
+            fixture_name: "multi-file".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["source_files"].as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_judge_response_all_criteria() {
+        let criteria_names = vec![
+            "group_coherence",
+            "review_ordering",
+            "entrypoint_identification",
+            "risk_reasonableness",
+            "mermaid_accuracy",
+        ];
+        let criteria: Vec<JudgeCriterionScore> = criteria_names
+            .iter()
+            .map(|name| JudgeCriterionScore {
+                criterion: name.to_string(),
+                score: 4,
+                explanation: format!("{} is good", name),
+            })
+            .collect();
+        let overall = criteria.iter().map(|c| c.score as f64).sum::<f64>() / criteria.len() as f64;
+        let response = JudgeResponse {
+            criteria,
+            overall_score: overall,
+            failure_explanations: vec![],
+            strengths: vec!["Complete analysis".to_string()],
+        };
+        assert_eq!(response.criteria.len(), 5);
+        assert!((response.overall_score - 4.0).abs() < f64::EPSILON);
     }
 }
