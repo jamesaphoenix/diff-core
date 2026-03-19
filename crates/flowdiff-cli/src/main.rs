@@ -154,7 +154,7 @@ struct EvalArgs {
     #[arg(long)]
     fixture: Option<String>,
 
-    /// Output format: "text" or "json"
+    /// Output format: "text", "json", or "html"
     #[arg(long, default_value = "text")]
     format: String,
 
@@ -594,6 +594,7 @@ fn run_launch(args: LaunchArgs) -> Result<(), Box<dyn std::error::Error>> {
 fn run_eval_command(args: EvalArgs) {
     let format = match args.format.as_str() {
         "json" => eval::EvalFormat::Json,
+        "html" => eval::EvalFormat::Html,
         _ => eval::EvalFormat::Text,
     };
 
@@ -1035,6 +1036,16 @@ mod tests {
         let cli = Cli::parse_from(["flowdiff", "eval", "--format", "json"]);
         if let Commands::Eval(args) = cli.command {
             assert_eq!(args.format, "json");
+        } else {
+            panic!("expected Eval command");
+        }
+    }
+
+    #[test]
+    fn test_parse_eval_html_format() {
+        let cli = Cli::parse_from(["flowdiff", "eval", "--format", "html"]);
+        if let Commands::Eval(args) = cli.command {
+            assert_eq!(args.format, "html");
         } else {
             panic!("expected Eval command");
         }

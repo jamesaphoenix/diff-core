@@ -15,8 +15,8 @@ use fixtures::{
     build_fixture, find_feature_branch, fixture_display_name, run_pipeline, FIXTURE_NAMES,
 };
 use report::{
-    append_history, build_json_report, check_regression, format_regression_warning,
-    format_text_report,
+    append_history, build_html_report, build_json_report, check_regression,
+    format_regression_warning, format_text_report, load_history,
 };
 use scoring::{score_output, EvalScores};
 
@@ -41,6 +41,7 @@ pub struct EvalConfig {
 pub enum EvalFormat {
     Text,
     Json,
+    Html,
 }
 
 impl Default for EvalConfig {
@@ -141,6 +142,20 @@ pub fn run_eval(config: &EvalConfig) -> EvalResult {
                 build_json_report(&fixture_results, avg_overall, config.min_score, &timestamp);
             serde_json::to_string_pretty(&json_report).unwrap_or_default()
         }
+        EvalFormat::Html => {
+            let history = config
+                .history_file
+                .as_ref()
+                .map(|p| load_history(p))
+                .unwrap_or_default();
+            build_html_report(
+                &fixture_results,
+                avg_overall,
+                config.min_score,
+                &timestamp,
+                &history,
+            )
+        }
     };
 
     // Check for regression
@@ -224,6 +239,19 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&result.report).unwrap();
         assert!(parsed.get("avg_overall").is_some());
         assert!(parsed.get("fixtures").is_some());
+    }
+
+    #[test]
+    fn test_run_eval_html_format() {
+        let config = EvalConfig {
+            fixture_filter: Some("ts-express".to_string()),
+            format: EvalFormat::Html,
+            ..Default::default()
+        };
+        let result = run_eval(&config);
+        assert!(result.report.contains("<!DOCTYPE html>"));
+        assert!(result.report.contains("flowdiff Eval Dashboard"));
+        assert!(result.report.contains("TS Express API"));
     }
 
     #[test]
