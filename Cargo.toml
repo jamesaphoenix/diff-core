@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/flowdiff-core", "crates/flowdiff-cli"]
+members = ["crates/flowdiff-core", "crates/flowdiff-cli", "crates/flowdiff-tauri"]
 resolver = "2"
 
 [workspace.package]

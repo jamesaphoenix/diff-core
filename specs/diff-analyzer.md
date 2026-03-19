@@ -621,14 +621,16 @@ flowdiff/
 - [x] Restructure tests to Rust convention — integration tests in `crates/flowdiff-core/tests/` (5 files: `e2e_pipeline.rs`, `eval_suite.rs`, `llm_live.rs`, `vcr_integration.rs`, `llm_judge.rs`). Unit tests co-located in source files. Created `tests/helpers/` with `mod.rs`, `repo_builder.rs` (shared `RepoBuilder` + `run_pipeline` + `find_feature_branch`), `graph_assertions.rs` (7 assertion helpers: `assert_all_files_accounted`, `assert_valid_scores`, `assert_language_detected`, `assert_file_in_some_group`, `assert_json_roundtrip`, `assert_valid_json_schema`, `assert_valid_mermaid`), `llm_helpers.rs` (shared `should_run_live`, `load_env`, `sample_pass1_request`, `sample_pass2_request`). All 5 integration test files refactored to use shared helpers, eliminating `RepoBuilder`/`run_pipeline`/`load_env` duplication. Live tests gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`. All 791 tests pass
 
 ### Phase 3: Tauri App (Week 3-4)
-- [ ] Tauri project setup with React frontend
-- [ ] Three-panel layout shell
-- [ ] Left panel: flow group tree view
+- [x] Tauri project setup with React frontend (Tauri v2 + React 19 + Vite 6 + TypeScript, `flowdiff-tauri` crate with Cargo workspace integration, `tauri.conf.json` with 1440x900 window, RGBA placeholder icons, `capabilities/default.json`)
+- [x] Three-panel layout shell (CSS-based three-panel layout: 280px left / flex center / 300px right, top bar with repo path input + base ref + analyze button, dark Catppuccin-inspired theme)
+- [x] Left panel: flow group tree view (groups sorted by review_order, expandable file lists with role/path/change stats, risk score badges with high/medium/low color coding, infrastructure group section, selected state highlighting)
 - [ ] Center panel: Monaco diff viewer integration
-- [ ] Right panel: annotations and graph display
+- [x] Right panel: annotations and graph display (flow group details: name, entrypoint info, risk score, file count, review order; Mermaid code display; edge list with type/from/to)
 - [ ] Mermaid rendering
 - [ ] Keyboard navigation (j/k/J/K)
 - [ ] File navigation within flow groups
+- [ ] Generate app icon using AI image generation (use the image-generator MCP tool to create a professional flowdiff logo/icon, then run `cargo tauri icon` to generate all required sizes)
+- [ ] Visual polish pass — use Playwright CLI to screenshot every page/state of the Tauri app (empty state, loaded analysis, expanded group, diff view, annotations panel, Mermaid graph, error states, dark/light mode if supported). Review each screenshot for visual quality. Fix any layout issues, spacing inconsistencies, ugly defaults, or broken rendering. The app should look beautiful and production-grade, not like a dev prototype. Save final screenshots to `docs/screenshots/` as the visual baseline
 
 ### Phase 4: LLM Integration (Week 4-5)
 - [x] Anthropic API client (Messages API, extended thinking support via content block parsing)

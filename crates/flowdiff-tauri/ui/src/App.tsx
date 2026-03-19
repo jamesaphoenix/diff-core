@@ -1,0 +1,313 @@
+import { useState, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import type { AnalysisOutput, FlowGroup, FileDiffContent } from "./types";
+
+/** Three-panel layout: flow groups | diff viewer | annotations */
+export default function App() {
+  const [analysis, setAnalysis] = useState<AnalysisOutput | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<FlowGroup | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [fileDiff, setFileDiff] = useState<FileDiffContent | null>(null);
+  const [mermaid, setMermaid] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Repo path — in a real app this would come from a dialog or CLI arg
+  const [repoPath, setRepoPath] = useState("");
+  const [baseRef, setBaseRef] = useState("main");
+
+  const runAnalysis = useCallback(async () => {
+    if (!repoPath) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await invoke<AnalysisOutput>("analyze", {
+        repoPath,
+        base: baseRef || "main",
+        head: null,
+        range: null,
+        staged: false,
+        unstaged: false,
+      });
+      setAnalysis(result);
+      // Auto-select first group
+      if (result.groups.length > 0) {
+        const sorted = [...result.groups].sort(
+          (a, b) => a.review_order - b.review_order,
+        );
+        handleSelectGroup(sorted[0]);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [repoPath, baseRef]);
+
+  const handleSelectGroup = useCallback(
+    async (group: FlowGroup) => {
+      setSelectedGroup(group);
+      // Load mermaid
+      try {
+        const diagram = await invoke<string>("get_mermaid", {
+          groupId: group.id,
+        });
+        setMermaid(diagram);
+      } catch {
+        setMermaid("");
+      }
+      // Auto-select first file in group
+      if (group.files.length > 0) {
+        handleSelectFile(group.files[0].path);
+      } else {
+        setSelectedFile(null);
+        setFileDiff(null);
+      }
+    },
+    [repoPath, baseRef],
+  );
+
+  const handleSelectFile = useCallback(
+    async (path: string) => {
+      setSelectedFile(path);
+      if (!repoPath) return;
+      try {
+        const diff = await invoke<FileDiffContent>("get_file_diff", {
+          repoPath,
+          filePath: path,
+          base: baseRef || "main",
+          head: null,
+          range: null,
+          staged: false,
+          unstaged: false,
+        });
+        setFileDiff(diff);
+      } catch {
+        setFileDiff(null);
+      }
+    },
+    [repoPath, baseRef],
+  );
+
+  // Sort groups by review_order
+  const sortedGroups = analysis
+    ? [...analysis.groups].sort((a, b) => a.review_order - b.review_order)
+    : [];
+
+  return (
+    <div className="app">
+      {/* Top bar */}
+      <header className="top-bar">
+        <div className="top-bar-left">
+          <span className="logo">flowdiff</span>
+        </div>
+        <div className="top-bar-center">
+          <input
+            className="input repo-input"
+            type="text"
+            placeholder="Repository path..."
+            value={repoPath}
+            onChange={(e) => setRepoPath(e.target.value)}
+          />
+          <input
+            className="input base-input"
+            type="text"
+            placeholder="Base ref (main)"
+            value={baseRef}
+            onChange={(e) => setBaseRef(e.target.value)}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={runAnalysis}
+            disabled={loading || !repoPath}
+          >
+            {loading ? "Analyzing..." : "Analyze"}
+          </button>
+        </div>
+        <div className="top-bar-right">
+          {analysis && (
+            <span className="summary">
+              {analysis.summary.total_files_changed} files,{" "}
+              {analysis.summary.total_groups} groups
+            </span>
+          )}
+        </div>
+      </header>
+
+      {/* Error display */}
+      {error && (
+        <div className="error-bar">
+          <span>{error}</span>
+          <button className="btn-close" onClick={() => setError(null)}>
+            &times;
+          </button>
+        </div>
+      )}
+
+      {/* Three-panel layout */}
+      <div className="panels">
+        {/* Left panel: Flow Groups */}
+        <aside className="panel panel-left">
+          <div className="panel-header">Flow Groups</div>
+          <div className="panel-body">
+            {sortedGroups.map((group) => (
+              <div
+                key={group.id}
+                className={`group-item ${selectedGroup?.id === group.id ? "selected" : ""}`}
+                onClick={() => handleSelectGroup(group)}
+              >
+                <div className="group-header">
+                  <span className="group-name">{group.name}</span>
+                  <span className="risk-badge" data-risk={riskLevel(group.risk_score)}>
+                    {group.risk_score.toFixed(2)}
+                  </span>
+                </div>
+                {selectedGroup?.id === group.id && (
+                  <ul className="file-list">
+                    {group.files.map((file) => (
+                      <li
+                        key={file.path}
+                        className={`file-item ${selectedFile === file.path ? "selected" : ""}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectFile(file.path);
+                        }}
+                      >
+                        <span className="file-role">{file.role}</span>
+                        <span className="file-path">{shortPath(file.path)}</span>
+                        <span className="file-changes">
+                          +{file.changes.additions} -{file.changes.deletions}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+            {/* Infrastructure group */}
+            {analysis?.infrastructure_group && (
+              <div className="group-item infra-group">
+                <div className="group-header">
+                  <span className="group-name">Infrastructure</span>
+                </div>
+                <ul className="file-list">
+                  {analysis.infrastructure_group.files.map((f) => (
+                    <li key={f} className="file-item">
+                      <span className="file-path">{shortPath(f)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!analysis && !loading && (
+              <div className="empty-state">
+                Enter a repository path and click Analyze to start.
+              </div>
+            )}
+          </div>
+        </aside>
+
+        {/* Center panel: Diff Viewer */}
+        <main className="panel panel-center">
+          <div className="panel-header">
+            {fileDiff ? fileDiff.path : "Diff Viewer"}
+          </div>
+          <div className="panel-body diff-viewer">
+            {fileDiff ? (
+              <div className="diff-content">
+                <div className="diff-side diff-old">
+                  <div className="diff-side-header">Old</div>
+                  <pre>
+                    <code>{fileDiff.old_content || "(new file)"}</code>
+                  </pre>
+                </div>
+                <div className="diff-side diff-new">
+                  <div className="diff-side-header">New</div>
+                  <pre>
+                    <code>{fileDiff.new_content || "(deleted)"}</code>
+                  </pre>
+                </div>
+              </div>
+            ) : (
+              <div className="empty-state">
+                Select a file to view its diff.
+              </div>
+            )}
+          </div>
+        </main>
+
+        {/* Right panel: Annotations & Graph */}
+        <aside className="panel panel-right">
+          <div className="panel-header">Annotations</div>
+          <div className="panel-body">
+            {selectedGroup && (
+              <>
+                <div className="annotation-section">
+                  <h3>Flow Group</h3>
+                  <p className="group-detail-name">{selectedGroup.name}</p>
+                  {selectedGroup.entrypoint && (
+                    <p className="entrypoint-info">
+                      Entrypoint: {selectedGroup.entrypoint.symbol} (
+                      {selectedGroup.entrypoint.entrypoint_type})
+                    </p>
+                  )}
+                  <p>
+                    Risk: <strong>{selectedGroup.risk_score.toFixed(2)}</strong>{" "}
+                    | Files: <strong>{selectedGroup.files.length}</strong> |
+                    Review order: <strong>#{selectedGroup.review_order}</strong>
+                  </p>
+                </div>
+                {mermaid && (
+                  <div className="annotation-section">
+                    <h3>Flow Graph</h3>
+                    <pre className="mermaid-code">
+                      <code>{mermaid}</code>
+                    </pre>
+                  </div>
+                )}
+                {selectedGroup.edges.length > 0 && (
+                  <div className="annotation-section">
+                    <h3>Edges</h3>
+                    <ul className="edge-list">
+                      {selectedGroup.edges.map((edge, i) => (
+                        <li key={i} className="edge-item">
+                          <span className="edge-type">{edge.edge_type}</span>
+                          <span className="edge-from">{shortSymbol(edge.from)}</span>
+                          <span className="edge-arrow">&rarr;</span>
+                          <span className="edge-to">{shortSymbol(edge.to)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+            {!selectedGroup && (
+              <div className="empty-state">
+                Select a group to see annotations.
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function riskLevel(score: number): string {
+  if (score >= 0.7) return "high";
+  if (score >= 0.4) return "medium";
+  return "low";
+}
+
+function shortPath(path: string): string {
+  const parts = path.split("/");
+  if (parts.length <= 2) return path;
+  return parts.slice(-2).join("/");
+}
+
+function shortSymbol(symbol: string): string {
+  const parts = symbol.split("::");
+  if (parts.length <= 1) return symbol;
+  return parts[parts.length - 1];
+}
