@@ -720,25 +720,31 @@ body {
   gap: 6px;
 }
 
-.btn-annotate {
+.btn-summarize {
   background: var(--accent);
   color: var(--bg-primary);
   border-color: var(--accent);
   font-weight: 600;
 }
 
-.btn-annotate:hover:not(:disabled) {
+.btn-summarize:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 
-.btn-deep {
+.btn-analyze-flow {
   background: var(--bg-surface);
   color: var(--text-primary);
   border-color: var(--border);
 }
 
-.btn-deep:hover:not(:disabled) {
+.btn-analyze-flow:hover:not(:disabled) {
   background: var(--bg-hover);
+}
+
+.btn.no-api-key {
+  opacity: 0.5;
+  cursor: not-allowed;
+  font-size: 0.8em;
 }
 
 /* ── Empty State ── */

@@ -43,6 +43,9 @@ export default function App() {
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
 
+  // LLM API key availability
+  const [hasApiKey, setHasApiKey] = useState(!IS_TAURI); // Demo mode always has "key"
+
   // Demo mode: auto-load mock data on mount when not in Tauri
   const demoLoaded = useRef(false);
 
@@ -52,6 +55,22 @@ export default function App() {
   const sortedGroupsRef = useRef<FlowGroup[]>([]);
   selectedGroupRef.current = selectedGroup;
   selectedFileRef.current = selectedFile;
+
+  /** Check if an LLM API key is configured. */
+  const checkApiKey = useCallback(async (path: string | null) => {
+    if (!IS_TAURI) {
+      setHasApiKey(true); // Demo mode always has "key"
+      return;
+    }
+    try {
+      const available = await tauriInvoke<boolean>("check_api_key", {
+        repoPath: path,
+      });
+      setHasApiKey(available);
+    } catch {
+      setHasApiKey(false);
+    }
+  }, []);
 
   /** Fetch repository info (branches, worktrees, status). */
   const loadRepoInfo = useCallback(async (path: string) => {
@@ -71,7 +90,9 @@ export default function App() {
       // Non-fatal: we can still analyze without repo info
       setRepoInfo(null);
     }
-  }, []);
+    // Check API key availability for this repo
+    checkApiKey(path);
+  }, [checkApiKey]);
 
   // Load repo info when repo path changes
   useEffect(() => {
@@ -639,20 +660,30 @@ export default function App() {
                 <div className="annotation-section annotation-actions">
                   {!overview && (
                     <button
-                      className="btn btn-annotate"
+                      className={`btn btn-summarize ${!hasApiKey ? "no-api-key" : ""}`}
                       onClick={runAnnotateOverview}
-                      disabled={annotating}
+                      disabled={annotating || !hasApiKey}
+                      title={
+                        hasApiKey
+                          ? "Run LLM Pass 1: generate an overview summary of all flow groups, risk flags, and suggested review order. Requires an LLM API key."
+                          : "Requires API key — set FLOWDIFF_API_KEY, configure key_cmd in .flowdiff.toml, or set a provider-specific env var (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY)"
+                      }
                     >
-                      {annotating ? "Annotating..." : "Annotate All Groups"}
+                      {annotating ? "Summarizing..." : hasApiKey ? "Summarize PR" : "Summarize PR (Requires API key)"}
                     </button>
                   )}
                   {!groupDeepAnalysis && (
                     <button
-                      className="btn btn-deep"
+                      className={`btn btn-analyze-flow ${!hasApiKey ? "no-api-key" : ""}`}
                       onClick={runDeepAnalysis}
-                      disabled={deepAnalyzing}
+                      disabled={deepAnalyzing || !hasApiKey}
+                      title={
+                        hasApiKey
+                          ? "Run LLM Pass 2: deep analysis of this flow group with per-file annotations, risks, suggestions, and cross-cutting concerns. Requires an LLM API key."
+                          : "Requires API key — set FLOWDIFF_API_KEY, configure key_cmd in .flowdiff.toml, or set a provider-specific env var (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY)"
+                      }
                     >
-                      {deepAnalyzing ? "Analyzing..." : "Deep Analyze Group"}
+                      {deepAnalyzing ? "Analyzing..." : hasApiKey ? "Analyze This Flow" : "Analyze This Flow (Requires API key)"}
                     </button>
                   )}
                 </div>

@@ -503,6 +503,41 @@ pub fn get_repo_info(
     })
 }
 
+/// Check whether an LLM API key is configured and available.
+///
+/// Attempts to resolve the API key using the same logic as `create_provider`:
+/// key_cmd > FLOWDIFF_API_KEY > provider-specific env var. Returns true if
+/// a key is available, false otherwise.
+#[tauri::command]
+pub fn check_api_key(repo_path: Option<String>) -> Result<bool, CommandError> {
+    let config = if let Some(ref path) = repo_path {
+        let repo_path = PathBuf::from(path);
+        if let Ok(canonical) = std::fs::canonicalize(&repo_path) {
+            if let Ok(repo) = git2::Repository::discover(&canonical) {
+                if let Some(workdir) = repo.workdir() {
+                    FlowdiffConfig::load_from_dir(workdir).unwrap_or_default()
+                } else {
+                    FlowdiffConfig::default()
+                }
+            } else {
+                FlowdiffConfig::default()
+            }
+        } else {
+            FlowdiffConfig::default()
+        }
+    } else {
+        FlowdiffConfig::default()
+    };
+
+    let provider_name = config
+        .llm
+        .provider
+        .as_deref()
+        .unwrap_or("anthropic");
+
+    Ok(llm::resolve_api_key(&config.llm, provider_name).is_ok())
+}
+
 /// Summary of repository state for the UI.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RepoInfo {
@@ -802,6 +837,22 @@ mod tests {
         let back: RepoInfo = serde_json::from_str(&json).unwrap();
         assert!(back.current_branch.is_none());
         assert!(back.status.is_none());
+    }
+
+    #[test]
+    fn test_check_api_key_no_repo() {
+        // Without any env vars or config, should return false (no key configured)
+        // Note: this test may pass or fail depending on whether env vars are set,
+        // but it should never panic.
+        let result = check_api_key(None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_api_key_invalid_path() {
+        // Invalid path should not panic, should return Ok(bool)
+        let result = check_api_key(Some("/nonexistent/path/to/repo".to_string()));
+        assert!(result.is_ok());
     }
 
     #[test]

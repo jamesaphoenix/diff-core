@@ -20,6 +20,7 @@ fn main() {
             commands::list_worktrees,
             commands::get_branch_status,
             commands::get_repo_info,
+            commands::check_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running flowdiff");
