@@ -597,17 +597,21 @@ flowdiff/
 - [ ] File navigation within flow groups
 
 ### Phase 4: LLM Integration (Week 4-5)
-- [ ] Anthropic API client (Messages API, extended thinking)
-- [ ] OpenAI API client (Chat Completions, o1/o3)
-- [ ] Structured output schemas
-- [ ] Pass 1: overview annotation
-- [ ] Pass 2: on-demand deep group analysis
+- [x] Anthropic API client (Messages API, extended thinking support via content block parsing)
+- [x] OpenAI API client (Chat Completions, o1/o3 reasoning model detection — no system messages, max_completion_tokens)
+- [x] Structured output schemas (Pass1Request/Response, Pass2Request/Response, Annotations types, JSON schema descriptions)
+- [x] Pass 1: overview annotation (system prompt + user prompt builders, structured JSON output parsing with markdown fence stripping)
+- [x] Pass 2: on-demand deep group analysis (per-group context with file diffs, graph context, role annotations)
 - [ ] LLM results rendering in Tauri app
-- [ ] API key configuration (env var, config file, 1Password via `op read`)
-- [ ] Live integration tests — Anthropic (real API call, Pass 1 overview returns valid structured output, Pass 2 deep analysis returns file-level annotations, extended thinking produces richer output)
+- [x] API key configuration (FLOWDIFF_API_KEY env var, provider-specific env vars ANTHROPIC_API_KEY/OPENAI_API_KEY/GEMINI_API_KEY, key_cmd for 1Password via `op read`, precedence: key_cmd > FLOWDIFF_API_KEY > provider env var)
+- [x] Context window management (token estimation heuristic, truncation to budget with line-boundary preservation, per-model context window sizes)
+- [x] Provider trait (`LlmProvider`) with `create_provider()` factory, default provider is Anthropic
+- [x] Unit tests for LLM module (68 tests — schema roundtrips, request format, response parsing, markdown stripping, context windows, API key resolution, prompt building, error display, provider creation, reasoning model detection)
+- [x] Live integration tests — Anthropic (real API call, Pass 1 overview returns valid structured output, Pass 2 deep analysis returns file-level annotations)
 - [ ] Live integration tests — Google Gemini (real API call, Pass 1 overview, structured output compliance, context window handling)
-- [ ] Live integration tests — OpenAI (real API call, Pass 1 overview with o1/o3, structured output compliance, context window truncation for large diffs)
-- [ ] Live integration tests — end-to-end (run full pipeline on a real multi-file diff with LLM annotation enabled, verify annotations attach to correct flow groups, gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`)
+- [x] Live integration tests — OpenAI (real API call, Pass 1 overview with gpt-4o, structured output compliance)
+- [x] Live integration tests — end-to-end (full pipeline: Pass 1 + Pass 2, combined Annotations serialization roundtrip, gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`)
+- [x] Live integration tests — error handling (invalid API key detection for both Anthropic and OpenAI)
 
 ### Phase 5: VS Code Extension (Week 5-6)
 - [ ] Extension scaffold

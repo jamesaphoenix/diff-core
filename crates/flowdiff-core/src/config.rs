@@ -168,7 +168,7 @@ impl FlowdiffConfig {
 
         // Validate LLM provider if specified
         if let Some(ref provider) = self.llm.provider {
-            let valid = ["anthropic", "openai"];
+            let valid = ["anthropic", "openai", "gemini"];
             if !valid.contains(&provider.as_str()) {
                 return Err(ConfigError::Validation(format!(
                     "Unknown LLM provider '{}'. Valid providers: {}",

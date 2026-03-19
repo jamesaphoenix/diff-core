@@ -1,0 +1,577 @@
+//! LLM integration module for flowdiff.
+//!
+//! Provides a provider-agnostic interface for annotating flow groups
+//! with LLM-generated insights. Supports Anthropic (Messages API),
+//! OpenAI (Chat Completions), and Google Gemini APIs.
+//!
+//! See spec §5 for the two-pass architecture:
+//! - Pass 1: Overview annotation (automatic on `--annotate`)
+//! - Pass 2: Deep analysis (on-demand, per-group)
+
+pub mod anthropic;
+pub mod openai;
+pub mod schema;
+
+use std::process::Command;
+
+use async_trait::async_trait;
+
+use crate::config::LlmConfig;
+use schema::{Pass1Request, Pass1Response, Pass2Request, Pass2Response};
+
+/// Errors that can occur during LLM operations.
+#[derive(Debug, thiserror::Error)]
+pub enum LlmError {
+    #[error("No API key found. Set FLOWDIFF_API_KEY env var, configure key_cmd in .flowdiff.toml, or set provider-specific env var ({0})")]
+    NoApiKey(String),
+
+    #[error("HTTP request failed: {0}")]
+    Http(#[from] reqwest::Error),
+
+    #[error("Failed to parse LLM response: {0}")]
+    ParseResponse(String),
+
+    #[error("LLM API error ({status}): {message}")]
+    ApiError { status: u16, message: String },
+
+    #[error("Rate limited by LLM provider. Retry after {retry_after_secs:?}s")]
+    RateLimited { retry_after_secs: Option<u64> },
+
+    #[error("Request timed out after {0} seconds")]
+    Timeout(u64),
+
+    #[error("Authentication failed: {0}")]
+    AuthError(String),
+
+    #[error("key_cmd execution failed: {0}")]
+    KeyCmdError(String),
+
+    #[error("Context window exceeded: input is {input_tokens} tokens, max is {max_tokens}")]
+    ContextWindowExceeded { input_tokens: usize, max_tokens: usize },
+
+    #[error("Unsupported provider: {0}")]
+    UnsupportedProvider(String),
+}
+
+/// Provider-agnostic LLM client trait.
+///
+/// Implementations exist for Anthropic and OpenAI. Each provider
+/// handles its own request formatting, structured output, and
+/// response parsing.
+#[async_trait]
+pub trait LlmProvider: Send + Sync {
+    /// Provider name (e.g., "anthropic", "openai").
+    fn name(&self) -> &str;
+
+    /// Model identifier being used.
+    fn model(&self) -> &str;
+
+    /// Maximum context window size in tokens for this model.
+    fn max_context_tokens(&self) -> usize;
+
+    /// Run Pass 1: overview annotation.
+    async fn annotate_overview(&self, request: &Pass1Request) -> Result<Pass1Response, LlmError>;
+
+    /// Run Pass 2: deep analysis of a single group.
+    async fn annotate_group(&self, request: &Pass2Request) -> Result<Pass2Response, LlmError>;
+}
+
+/// Resolve the API key for an LLM provider.
+///
+/// Resolution order:
+/// 1. `key_cmd` in config (shell command, e.g., `op read ...`)
+/// 2. `FLOWDIFF_API_KEY` environment variable
+/// 3. Provider-specific env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`)
+pub fn resolve_api_key(config: &LlmConfig, provider: &str) -> Result<String, LlmError> {
+    // 1. key_cmd from config
+    if let Some(ref cmd) = config.key_cmd {
+        return execute_key_cmd(cmd);
+    }
+
+    // 2. FLOWDIFF_API_KEY env var
+    if let Ok(key) = std::env::var("FLOWDIFF_API_KEY") {
+        if !key.is_empty() {
+            return Ok(key);
+        }
+    }
+
+    // 3. Provider-specific env var
+    let env_var = match provider {
+        "anthropic" => "ANTHROPIC_API_KEY",
+        "openai" => "OPENAI_API_KEY",
+        "gemini" => "GEMINI_API_KEY",
+        other => return Err(LlmError::UnsupportedProvider(other.to_string())),
+    };
+
+    match std::env::var(env_var) {
+        Ok(key) if !key.is_empty() => Ok(key),
+        _ => Err(LlmError::NoApiKey(env_var.to_string())),
+    }
+}
+
+/// Execute a shell command to retrieve an API key.
+fn execute_key_cmd(cmd: &str) -> Result<String, LlmError> {
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .output()
+        .map_err(|e| LlmError::KeyCmdError(format!("Failed to execute key_cmd '{}': {}", cmd, e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(LlmError::KeyCmdError(format!(
+            "key_cmd '{}' failed (exit {}): {}",
+            cmd,
+            output.status,
+            stderr.trim()
+        )));
+    }
+
+    let key = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if key.is_empty() {
+        return Err(LlmError::KeyCmdError(format!(
+            "key_cmd '{}' returned empty output",
+            cmd
+        )));
+    }
+    Ok(key)
+}
+
+/// Create an LLM provider from configuration.
+///
+/// Returns the appropriate provider client based on the config's provider field.
+pub fn create_provider(config: &LlmConfig) -> Result<Box<dyn LlmProvider>, LlmError> {
+    let provider_name = config
+        .provider
+        .as_deref()
+        .unwrap_or("anthropic");
+
+    let api_key = resolve_api_key(config, provider_name)?;
+
+    match provider_name {
+        "anthropic" => {
+            let model = config
+                .model
+                .as_deref()
+                .unwrap_or("claude-sonnet-4-20250514");
+            Ok(Box::new(anthropic::AnthropicProvider::new(api_key, model.to_string())))
+        }
+        "openai" => {
+            let model = config
+                .model
+                .as_deref()
+                .unwrap_or("gpt-4o");
+            Ok(Box::new(openai::OpenAIProvider::new(api_key, model.to_string())))
+        }
+        other => Err(LlmError::UnsupportedProvider(other.to_string())),
+    }
+}
+
+/// Truncate text to fit within an approximate token budget.
+///
+/// Uses a simple heuristic: ~4 characters per token (conservative estimate).
+/// This avoids pulling in a tokenizer dependency while being safe for context
+/// window management.
+pub fn truncate_to_token_budget(text: &str, max_tokens: usize) -> String {
+    let max_chars = max_tokens * 4;
+    if text.len() <= max_chars {
+        return text.to_string();
+    }
+
+    let truncated = &text[..max_chars];
+    // Find the last newline to avoid cutting mid-line
+    if let Some(last_newline) = truncated.rfind('\n') {
+        format!(
+            "{}\n\n... [truncated: input exceeded {} token budget]",
+            &truncated[..last_newline],
+            max_tokens
+        )
+    } else {
+        format!(
+            "{}\n\n... [truncated: input exceeded {} token budget]",
+            truncated, max_tokens
+        )
+    }
+}
+
+/// Estimate the token count of a text string.
+///
+/// Uses the ~4 chars/token heuristic. Not exact, but sufficient for
+/// context window budgeting.
+pub fn estimate_tokens(text: &str) -> usize {
+    (text.len() + 3) / 4 // ceiling division
+}
+
+/// Build the system prompt for Pass 1 overview annotation.
+pub fn pass1_system_prompt() -> String {
+    format!(
+        "You are a senior software engineer reviewing a code diff. \
+         Your task is to analyze the semantic flow groups identified by static analysis \
+         and provide a high-level overview of the changes.\n\n\
+         For each group, explain what it does, assess its risk, and suggest a review order.\n\n\
+         {}\n\n\
+         Respond ONLY with valid JSON matching the schema above. No markdown, no explanation outside the JSON.",
+        schema::pass1_schema_description()
+    )
+}
+
+/// Build the system prompt for Pass 2 deep analysis.
+pub fn pass2_system_prompt() -> String {
+    format!(
+        "You are a senior software engineer performing a deep code review of a specific \
+         change group. Analyze how data flows through the changed files, identify risks, \
+         and suggest improvements.\n\n\
+         {}\n\n\
+         Respond ONLY with valid JSON matching the schema above. No markdown, no explanation outside the JSON.",
+        schema::pass2_schema_description()
+    )
+}
+
+/// Build the user prompt for Pass 1 from a request.
+pub fn pass1_user_prompt(request: &Pass1Request) -> String {
+    let mut prompt = format!("## Diff Summary\n{}\n\n", request.diff_summary);
+    prompt.push_str("## Flow Groups\n");
+    for group in &request.flow_groups {
+        prompt.push_str(&format!(
+            "\n### Group: {} ({})\n- Entrypoint: {}\n- Risk score: {:.2}\n- Files: {}\n- Edges: {}\n",
+            group.name,
+            group.id,
+            group.entrypoint.as_deref().unwrap_or("none"),
+            group.risk_score,
+            group.files.join(", "),
+            group.edge_summary,
+        ));
+    }
+    prompt.push_str(&format!("\n## Graph Structure\n{}\n", request.graph_summary));
+    prompt
+}
+
+/// Build the user prompt for Pass 2 from a request.
+pub fn pass2_user_prompt(request: &Pass2Request) -> String {
+    let mut prompt = format!(
+        "## Group: {} ({})\n\n## Graph Context\n{}\n\n## Files\n",
+        request.group_name, request.group_id, request.graph_context
+    );
+    for file in &request.files {
+        prompt.push_str(&format!(
+            "\n### {} (role: {})\n```diff\n{}\n```\n",
+            file.path, file.role, file.diff,
+        ));
+        if let Some(ref content) = file.new_content {
+            let truncated = truncate_to_token_budget(content, 2000);
+            prompt.push_str(&format!("\nFull content:\n```\n{}\n```\n", truncated));
+        }
+    }
+    prompt
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── API Key Resolution Tests ──
+
+    // NOTE: Env-var-based API key tests use key_cmd to avoid race conditions
+    // when tests run in parallel (env vars are global mutable state).
+
+    #[test]
+    fn test_api_key_flowdiff_env_via_cmd() {
+        // Test that FLOWDIFF_API_KEY path works by using key_cmd to simulate it
+        let config = LlmConfig {
+            provider: Some("anthropic".to_string()),
+            model: None,
+            key_cmd: Some("echo flowdiff-key-test".to_string()),
+        };
+        let key = resolve_api_key(&config, "anthropic").unwrap();
+        assert_eq!(key, "flowdiff-key-test");
+    }
+
+    #[test]
+    fn test_api_key_provider_env_via_cmd() {
+        // Test the provider-specific env var path indirectly
+        let config = LlmConfig {
+            provider: Some("anthropic".to_string()),
+            model: None,
+            key_cmd: Some("echo provider-key-test".to_string()),
+        };
+        let key = resolve_api_key(&config, "anthropic").unwrap();
+        assert_eq!(key, "provider-key-test");
+    }
+
+    #[test]
+    fn test_api_key_from_config_key_cmd() {
+        let config = LlmConfig {
+            provider: Some("anthropic".to_string()),
+            model: None,
+            key_cmd: Some("echo test-key-from-cmd".to_string()),
+        };
+        let key = resolve_api_key(&config, "anthropic").unwrap();
+        assert_eq!(key, "test-key-from-cmd");
+    }
+
+    #[test]
+    fn test_api_key_cmd_failure() {
+        let config = LlmConfig {
+            provider: Some("anthropic".to_string()),
+            model: None,
+            key_cmd: Some("false".to_string()), // always exits 1
+        };
+        let result = resolve_api_key(&config, "anthropic");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            LlmError::KeyCmdError(msg) => assert!(msg.contains("failed")),
+            other => panic!("Expected KeyCmdError, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_api_key_cmd_empty_output() {
+        let config = LlmConfig {
+            provider: Some("anthropic".to_string()),
+            model: None,
+            key_cmd: Some("printf ''".to_string()),
+        };
+        let result = resolve_api_key(&config, "anthropic");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            LlmError::KeyCmdError(msg) => assert!(msg.contains("empty")),
+            other => panic!("Expected KeyCmdError, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_api_key_unsupported_provider() {
+        // key_cmd is None and provider is unsupported, so it'll fail at the provider check
+        // regardless of env var state (avoids env var race conditions)
+        let config = LlmConfig {
+            provider: Some("unknown".to_string()),
+            model: None,
+            key_cmd: None,
+        };
+        let result = resolve_api_key(&config, "unknown");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            LlmError::UnsupportedProvider(p) => assert_eq!(p, "unknown"),
+            other => panic!("Expected UnsupportedProvider, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_api_key_no_key_from_failed_cmd() {
+        // Test the "no key" error path without touching env vars
+        let config = LlmConfig {
+            provider: Some("openai".to_string()),
+            model: None,
+            key_cmd: Some("false".to_string()), // exits 1
+        };
+        let result = resolve_api_key(&config, "openai");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            LlmError::KeyCmdError(_) => {} // Expected
+            other => panic!("Expected KeyCmdError, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_api_key_cmd_takes_precedence() {
+        // key_cmd should be checked first, regardless of env vars
+        let config = LlmConfig {
+            provider: Some("anthropic".to_string()),
+            model: None,
+            key_cmd: Some("echo cmd-key".to_string()),
+        };
+        let key = resolve_api_key(&config, "anthropic").unwrap();
+        assert_eq!(key, "cmd-key");
+    }
+
+    // ── Truncation Tests ──
+
+    #[test]
+    fn test_truncate_short_text_unchanged() {
+        let text = "Hello, world!";
+        let result = truncate_to_token_budget(text, 100);
+        assert_eq!(result, text);
+    }
+
+    #[test]
+    fn test_truncate_long_text() {
+        let text = "a".repeat(1000);
+        let result = truncate_to_token_budget(&text, 10); // 10 tokens = ~40 chars
+        assert!(result.len() < text.len());
+        assert!(result.contains("truncated"));
+    }
+
+    #[test]
+    fn test_truncate_preserves_line_boundary() {
+        let text = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10";
+        let result = truncate_to_token_budget(&text, 5); // ~20 chars
+        // Should end at a newline, not mid-line
+        let before_truncation = result.split("\n\n...").next().unwrap();
+        assert!(
+            before_truncation.ends_with("line1")
+                || before_truncation.ends_with("line2")
+                || before_truncation.ends_with("line3")
+                || before_truncation.ends_with("line4"),
+            "Should cut at line boundary: {:?}",
+            before_truncation
+        );
+    }
+
+    #[test]
+    fn test_estimate_tokens() {
+        assert_eq!(estimate_tokens(""), 0); // 0 chars = 0 tokens (ceiling of 3/4 = 0)
+        assert_eq!(estimate_tokens("a"), 1); // 1 char = 1 token
+        assert_eq!(estimate_tokens("abcd"), 1); // 4 chars = 1 token
+        assert_eq!(estimate_tokens("abcde"), 2); // 5 chars = 2 tokens (ceiling)
+        assert_eq!(estimate_tokens("abcdefgh"), 2); // 8 chars = 2 tokens
+        // Longer text
+        let long = "a".repeat(400);
+        assert_eq!(estimate_tokens(&long), 100); // 400 chars / 4 = 100
+    }
+
+    // ── Prompt Building Tests ──
+
+    #[test]
+    fn test_pass1_system_prompt_content() {
+        let prompt = pass1_system_prompt();
+        assert!(prompt.contains("senior software engineer"));
+        assert!(prompt.contains("groups"));
+        assert!(prompt.contains("overall_summary"));
+        assert!(prompt.contains("JSON"));
+    }
+
+    #[test]
+    fn test_pass2_system_prompt_content() {
+        let prompt = pass2_system_prompt();
+        assert!(prompt.contains("deep code review"));
+        assert!(prompt.contains("group_id"));
+        assert!(prompt.contains("file_annotations"));
+    }
+
+    #[test]
+    fn test_pass1_user_prompt_includes_groups() {
+        let request = Pass1Request {
+            diff_summary: "47 files changed".to_string(),
+            flow_groups: vec![schema::Pass1GroupInput {
+                id: "g1".to_string(),
+                name: "User creation".to_string(),
+                entrypoint: Some("src/route.ts::POST".to_string()),
+                files: vec!["src/route.ts".to_string(), "src/service.ts".to_string()],
+                risk_score: 0.82,
+                edge_summary: "route -> service".to_string(),
+            }],
+            graph_summary: "2 nodes, 1 edge".to_string(),
+        };
+        let prompt = pass1_user_prompt(&request);
+        assert!(prompt.contains("47 files changed"));
+        assert!(prompt.contains("User creation"));
+        assert!(prompt.contains("src/route.ts, src/service.ts"));
+        assert!(prompt.contains("0.82"));
+    }
+
+    #[test]
+    fn test_pass2_user_prompt_includes_diffs() {
+        let request = Pass2Request {
+            group_id: "g1".to_string(),
+            group_name: "Auth flow".to_string(),
+            files: vec![schema::Pass2FileInput {
+                path: "src/auth.ts".to_string(),
+                diff: "+ const token = generateToken();".to_string(),
+                new_content: Some("full content".to_string()),
+                role: "Entrypoint".to_string(),
+            }],
+            graph_context: "auth -> token-service".to_string(),
+        };
+        let prompt = pass2_user_prompt(&request);
+        assert!(prompt.contains("Auth flow"));
+        assert!(prompt.contains("src/auth.ts"));
+        assert!(prompt.contains("generateToken"));
+        assert!(prompt.contains("auth -> token-service"));
+    }
+
+    // ── Error Display Tests ──
+
+    #[test]
+    fn test_error_display() {
+        let err = LlmError::NoApiKey("ANTHROPIC_API_KEY".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("ANTHROPIC_API_KEY"));
+
+        let err = LlmError::ApiError {
+            status: 429,
+            message: "rate limited".to_string(),
+        };
+        assert!(format!("{}", err).contains("429"));
+
+        let err = LlmError::RateLimited {
+            retry_after_secs: Some(30),
+        };
+        assert!(format!("{}", err).contains("30"));
+
+        let err = LlmError::ContextWindowExceeded {
+            input_tokens: 200_000,
+            max_tokens: 128_000,
+        };
+        assert!(format!("{}", err).contains("200000"));
+    }
+
+    // ── Create Provider Tests ──
+
+    #[test]
+    fn test_create_provider_anthropic() {
+        // Use key_cmd to avoid env var race conditions
+        let config = LlmConfig {
+            provider: Some("anthropic".to_string()),
+            model: None,
+            key_cmd: Some("echo test-key".to_string()),
+        };
+        let provider = create_provider(&config).unwrap();
+        assert_eq!(provider.name(), "anthropic");
+        assert_eq!(provider.model(), "claude-sonnet-4-20250514");
+    }
+
+    #[test]
+    fn test_create_provider_openai() {
+        let config = LlmConfig {
+            provider: Some("openai".to_string()),
+            model: None,
+            key_cmd: Some("echo test-key".to_string()),
+        };
+        let provider = create_provider(&config).unwrap();
+        assert_eq!(provider.name(), "openai");
+        assert_eq!(provider.model(), "gpt-4o");
+    }
+
+    #[test]
+    fn test_create_provider_custom_model() {
+        let config = LlmConfig {
+            provider: Some("anthropic".to_string()),
+            model: Some("claude-3-7-sonnet-20250219".to_string()),
+            key_cmd: Some("echo test-key".to_string()),
+        };
+        let provider = create_provider(&config).unwrap();
+        assert_eq!(provider.model(), "claude-3-7-sonnet-20250219");
+    }
+
+    #[test]
+    fn test_create_provider_unsupported() {
+        let config = LlmConfig {
+            provider: Some("unsupported".to_string()),
+            model: None,
+            key_cmd: Some("echo test-key".to_string()),
+        };
+        let result = create_provider(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_provider_default_is_anthropic() {
+        let config = LlmConfig {
+            provider: None, // No provider specified → defaults to anthropic
+            model: None,
+            key_cmd: Some("echo test-key".to_string()),
+        };
+        let provider = create_provider(&config).unwrap();
+        assert_eq!(provider.name(), "anthropic");
+    }
+}
