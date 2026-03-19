@@ -379,6 +379,20 @@ export default function App() {
     }
   }, [runAnalysis]);
 
+  // Test API for Playwright — only available in demo/browser mode
+  useEffect(() => {
+    if (IS_TAURI) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__TEST_API__ = {
+      setRepoInfo: (data: RepoInfo | null) => setRepoInfo(data),
+      setLlmSettings: (data: LlmSettings) => { setLlmSettings(data); setHasApiKey(data.has_api_key); },
+      setAnalysis: (data: AnalysisOutput | null) => { setAnalysis(data); if (data && data.groups.length > 0) { const sorted = [...data.groups].sort((a, b) => a.review_order - b.review_order); handleSelectGroup(sorted[0]); } },
+      setError: (msg: string | null) => setError(msg),
+      clearAnalysis: () => { setAnalysis(null); setSelectedGroup(null); setSelectedFile(null); setFileDiff(null); setOverview(null); setDeepAnalyses({}); setOriginalGroups(null); setRefinedGroups(null); setRefinementResponse(null); setShowRefined(false); },
+    };
+    return () => { delete (window as any).__TEST_API__; };
+  });
+
   // Close branch dropdown when clicking outside
   useEffect(() => {
     if (!branchDropdownOpen) return;
