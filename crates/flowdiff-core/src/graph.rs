@@ -10,6 +10,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use serde::{Deserialize, Serialize};
 
 use crate::ast::{Definition, ExportInfo, Language, ParsedFile};
+use crate::ir::{IrExport, IrFile, IrImportSpecifier, TypeDefKind};
 use crate::types::{EdgeType, SymbolKind};
 
 /// A node in the symbol graph.
@@ -105,6 +106,119 @@ impl SymbolGraph {
             add_import_edges(file, files, &file_exports, &file_defs, &id_to_index, &mut graph);
             add_call_edges(file, files, &file_exports, &file_defs, &id_to_index, &mut graph);
             add_extends_edges(file, files, &file_defs, &id_to_index, &mut graph);
+        }
+
+        SymbolGraph { graph, id_to_index }
+    }
+
+    /// Build a symbol graph from IR files (declarative query engine / IR path).
+    ///
+    /// This is the primary entry point for graph construction from the IR pipeline.
+    /// It consumes `IrFile` types directly, enabling richer edge construction
+    /// (e.g., class extends edges from `IrTypeDef.bases`).
+    pub fn build_from_ir(files: &[IrFile]) -> Self {
+        let mut graph = DiGraph::new();
+        let mut id_to_index: HashMap<String, NodeIndex> = HashMap::new();
+
+        // Phase 1: Add all symbol nodes.
+        for file in files {
+            // Module node.
+            let module_id = file.path.clone();
+            let module_node = SymbolNode {
+                id: module_id.clone(),
+                name: file_stem(&file.path),
+                file: file.path.clone(),
+                kind: SymbolKind::Module,
+            };
+            let idx = graph.add_node(module_node);
+            id_to_index.insert(module_id, idx);
+
+            // Function nodes.
+            for f in &file.functions {
+                let sym_id = format!("{}::{}", file.path, f.name);
+                if id_to_index.contains_key(&sym_id) {
+                    continue;
+                }
+                let node = SymbolNode {
+                    id: sym_id.clone(),
+                    name: f.name.clone(),
+                    file: file.path.clone(),
+                    kind: SymbolKind::Function,
+                };
+                let idx = graph.add_node(node);
+                id_to_index.insert(sym_id, idx);
+            }
+
+            // Type definition nodes (class, struct, interface, type alias).
+            for t in &file.type_defs {
+                let sym_id = format!("{}::{}", file.path, t.name);
+                if id_to_index.contains_key(&sym_id) {
+                    continue;
+                }
+                let kind = match t.kind {
+                    TypeDefKind::Class => SymbolKind::Class,
+                    TypeDefKind::Struct => SymbolKind::Struct,
+                    TypeDefKind::Interface => SymbolKind::Interface,
+                    TypeDefKind::TypeAlias => SymbolKind::TypeAlias,
+                    TypeDefKind::Enum => SymbolKind::Class,
+                };
+                let node = SymbolNode {
+                    id: sym_id.clone(),
+                    name: t.name.clone(),
+                    file: file.path.clone(),
+                    kind,
+                };
+                let idx = graph.add_node(node);
+                id_to_index.insert(sym_id, idx);
+            }
+
+            // Constant nodes.
+            for c in &file.constants {
+                let sym_id = format!("{}::{}", file.path, c.name);
+                if id_to_index.contains_key(&sym_id) {
+                    continue;
+                }
+                let node = SymbolNode {
+                    id: sym_id.clone(),
+                    name: c.name.clone(),
+                    file: file.path.clone(),
+                    kind: SymbolKind::Constant,
+                };
+                let idx = graph.add_node(node);
+                id_to_index.insert(sym_id, idx);
+            }
+        }
+
+        // Build lookup structures.
+        let file_exports = build_ir_export_map(files);
+        let file_def_names = build_ir_def_names_map(files);
+        let known_paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+
+        // Phase 2: Add edges.
+        for file in files {
+            add_ir_import_edges(
+                file,
+                &file_exports,
+                &file_def_names,
+                &id_to_index,
+                &known_paths,
+                &mut graph,
+            );
+            add_ir_call_edges(
+                file,
+                files,
+                &file_def_names,
+                &id_to_index,
+                &known_paths,
+                &mut graph,
+            );
+            add_ir_extends_edges(
+                file,
+                files,
+                &id_to_index,
+                &known_paths,
+                &mut graph,
+            );
         }
 
         SymbolGraph { graph, id_to_index }
@@ -692,6 +806,371 @@ fn add_extends_edges(
         // The `get_python_class_bases` function exists in ast.rs but requires source code.
         // Graph construction from ParsedFile alone can detect extends via import patterns.
         let _ = child_idx; // Used when base class info is available.
+    }
+}
+
+// ---------------------------------------------------------------------------
+// IR-based lookup helpers
+// ---------------------------------------------------------------------------
+
+/// Map from file path to its IR exports.
+fn build_ir_export_map(files: &[IrFile]) -> HashMap<String, Vec<IrExport>> {
+    files
+        .iter()
+        .map(|f| (f.path.clone(), f.exports.clone()))
+        .collect()
+}
+
+/// Map from file path to (name, kind) pairs for all definitions.
+fn build_ir_def_names_map(files: &[IrFile]) -> HashMap<String, Vec<(String, SymbolKind)>> {
+    files
+        .iter()
+        .map(|f| {
+            let mut defs = Vec::new();
+            for func in &f.functions {
+                defs.push((func.name.clone(), SymbolKind::Function));
+            }
+            for td in &f.type_defs {
+                let kind = match td.kind {
+                    TypeDefKind::Class => SymbolKind::Class,
+                    TypeDefKind::Struct => SymbolKind::Struct,
+                    TypeDefKind::Interface => SymbolKind::Interface,
+                    TypeDefKind::TypeAlias => SymbolKind::TypeAlias,
+                    TypeDefKind::Enum => SymbolKind::Class,
+                };
+                defs.push((td.name.clone(), kind));
+            }
+            for c in &f.constants {
+                defs.push((c.name.clone(), SymbolKind::Constant));
+            }
+            (f.path.clone(), defs)
+        })
+        .collect()
+}
+
+/// Add import edges from IR imports.
+fn add_ir_import_edges(
+    file: &IrFile,
+    file_exports: &HashMap<String, Vec<IrExport>>,
+    file_defs: &HashMap<String, Vec<(String, SymbolKind)>>,
+    id_to_index: &HashMap<String, NodeIndex>,
+    known_paths: &[&str],
+    graph: &mut DiGraph<SymbolNode, GraphEdge>,
+) {
+    let from_idx = match id_to_index.get(&file.path) {
+        Some(idx) => *idx,
+        None => return,
+    };
+
+    for import in &file.imports {
+        let resolved = match resolve_import_path(&import.source, &file.path, known_paths) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        // Check if this import is side-effect only.
+        let is_side_effect = import.specifiers.is_empty()
+            || import
+                .specifiers
+                .iter()
+                .all(|s| matches!(s, IrImportSpecifier::SideEffect));
+
+        if is_side_effect {
+            if let Some(&to_idx) = id_to_index.get(&resolved) {
+                graph.add_edge(
+                    from_idx,
+                    to_idx,
+                    GraphEdge {
+                        edge_type: EdgeType::Imports,
+                    },
+                );
+            }
+            continue;
+        }
+
+        for spec in &import.specifiers {
+            match spec {
+                IrImportSpecifier::Named { name, .. } => {
+                    // Try to find the symbol by name in the target file.
+                    let target_sym_id = format!("{}::{}", resolved, name);
+                    if let Some(&to_idx) = id_to_index.get(&target_sym_id) {
+                        graph.add_edge(
+                            from_idx,
+                            to_idx,
+                            GraphEdge {
+                                edge_type: EdgeType::Imports,
+                            },
+                        );
+                        continue;
+                    }
+
+                    // Check re-exports.
+                    if let Some(exports) = file_exports.get(&resolved) {
+                        for export in exports {
+                            if export.name == *name && export.is_reexport {
+                                if let Some(ref reexport_source) = export.source {
+                                    if let Some(reexport_resolved) =
+                                        resolve_import_path(reexport_source, &resolved, known_paths)
+                                    {
+                                        let reexport_sym_id =
+                                            format!("{}::{}", reexport_resolved, name);
+                                        if let Some(&to_idx) =
+                                            id_to_index.get(&reexport_sym_id)
+                                        {
+                                            graph.add_edge(
+                                                from_idx,
+                                                to_idx,
+                                                GraphEdge {
+                                                    edge_type: EdgeType::Imports,
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback: definition name matches directly.
+                    if let Some(defs) = file_defs.get(&resolved) {
+                        if defs.iter().any(|(n, _): &(String, SymbolKind)| n == name) {
+                            let sym_id = format!("{}::{}", resolved, name);
+                            if let Some(&to_idx) = id_to_index.get(&sym_id) {
+                                graph.add_edge(
+                                    from_idx,
+                                    to_idx,
+                                    GraphEdge {
+                                        edge_type: EdgeType::Imports,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+                IrImportSpecifier::Default(_) | IrImportSpecifier::Namespace(_) => {
+                    // Link to the module node.
+                    if let Some(&to_idx) = id_to_index.get(&resolved) {
+                        graph.add_edge(
+                            from_idx,
+                            to_idx,
+                            GraphEdge {
+                                edge_type: EdgeType::Imports,
+                            },
+                        );
+                    }
+                }
+                IrImportSpecifier::SideEffect => {
+                    // Already handled above.
+                }
+            }
+        }
+    }
+}
+
+/// Build import resolution map from IR imports for call edge resolution.
+fn build_ir_import_resolution_map(
+    file: &IrFile,
+    all_files: &[IrFile],
+    _file_defs: &HashMap<String, Vec<(String, SymbolKind)>>,
+    known_paths: &[&str],
+) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+
+    for import in &file.imports {
+        let resolved = match resolve_import_path(&import.source, &file.path, known_paths) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        for spec in &import.specifiers {
+            match spec {
+                IrImportSpecifier::Namespace(local) => {
+                    map.insert(local.clone(), resolved.clone());
+                }
+                IrImportSpecifier::Named { name, alias } => {
+                    let local_name = alias.as_deref().unwrap_or(name.as_str());
+                    let target_sym_id = format!("{}::{}", resolved, name);
+
+                    // Check if this symbol exists in the target file.
+                    let target_file = all_files.iter().find(|f| f.path == resolved);
+                    if let Some(tf) = target_file {
+                        let has_def = tf.functions.iter().any(|d| d.name == *name)
+                            || tf.type_defs.iter().any(|d| d.name == *name)
+                            || tf.constants.iter().any(|d| d.name == *name);
+                        if has_def {
+                            map.insert(local_name.to_string(), target_sym_id);
+                            continue;
+                        }
+                    }
+
+                    // Map to the symbol id even if we can't verify.
+                    map.insert(local_name.to_string(), target_sym_id);
+                }
+                IrImportSpecifier::Default(local) => {
+                    map.insert(local.clone(), resolved.clone());
+                }
+                IrImportSpecifier::SideEffect => {}
+            }
+        }
+    }
+
+    map
+}
+
+/// Add call edges from IR call expressions.
+fn add_ir_call_edges(
+    file: &IrFile,
+    all_files: &[IrFile],
+    file_defs: &HashMap<String, Vec<(String, SymbolKind)>>,
+    id_to_index: &HashMap<String, NodeIndex>,
+    known_paths: &[&str],
+    graph: &mut DiGraph<SymbolNode, GraphEdge>,
+) {
+    let import_map = build_ir_import_resolution_map(file, all_files, file_defs, known_paths);
+
+    for call in &file.call_expressions {
+        let caller_id = match &call.containing_function {
+            Some(func_name) => format!("{}::{}", file.path, func_name),
+            None => file.path.clone(),
+        };
+
+        let caller_idx = match id_to_index.get(&caller_id) {
+            Some(idx) => *idx,
+            None => match id_to_index.get(&file.path) {
+                Some(idx) => *idx,
+                None => continue,
+            },
+        };
+
+        let callee_name = &call.callee;
+
+        // Simple name — look up in import map or local defs.
+        if let Some(target_id) = import_map.get(callee_name.as_str()) {
+            if let Some(&to_idx) = id_to_index.get(target_id.as_str()) {
+                if caller_idx != to_idx {
+                    graph.add_edge(
+                        caller_idx,
+                        to_idx,
+                        GraphEdge {
+                            edge_type: EdgeType::Calls,
+                        },
+                    );
+                }
+            }
+            continue;
+        }
+
+        // Method call (e.g., `db.save`).
+        if let Some(dot_pos) = callee_name.find('.') {
+            let receiver = &callee_name[..dot_pos];
+            if let Some(target_module) = import_map.get(receiver) {
+                let method = &callee_name[dot_pos + 1..];
+                let method_id =
+                    format!("{}::{}", target_module.trim_end_matches("::*"), method);
+                if let Some(&to_idx) = id_to_index.get(&method_id) {
+                    if caller_idx != to_idx {
+                        graph.add_edge(
+                            caller_idx,
+                            to_idx,
+                            GraphEdge {
+                                edge_type: EdgeType::Calls,
+                            },
+                        );
+                    }
+                    continue;
+                }
+                if let Some(&to_idx) = id_to_index.get(target_module.as_str()) {
+                    if caller_idx != to_idx {
+                        graph.add_edge(
+                            caller_idx,
+                            to_idx,
+                            GraphEdge {
+                                edge_type: EdgeType::Calls,
+                            },
+                        );
+                    }
+                    continue;
+                }
+            }
+        }
+
+        // Local function call.
+        let local_id = format!("{}::{}", file.path, callee_name);
+        if let Some(&to_idx) = id_to_index.get(&local_id) {
+            if caller_idx != to_idx {
+                graph.add_edge(
+                    caller_idx,
+                    to_idx,
+                    GraphEdge {
+                        edge_type: EdgeType::Calls,
+                    },
+                );
+            }
+        }
+    }
+}
+
+/// Add extends edges from IR type definitions with bases.
+///
+/// Unlike the ParsedFile-based version which cannot determine class bases,
+/// the IR path has `IrTypeDef.bases` populated from the query engine, enabling
+/// real extends edge construction.
+fn add_ir_extends_edges(
+    file: &IrFile,
+    all_files: &[IrFile],
+    id_to_index: &HashMap<String, NodeIndex>,
+    known_paths: &[&str],
+    graph: &mut DiGraph<SymbolNode, GraphEdge>,
+) {
+    let import_map = build_ir_import_resolution_map(
+        file,
+        all_files,
+        &HashMap::new(),
+        known_paths,
+    );
+
+    for td in &file.type_defs {
+        if td.bases.is_empty() {
+            continue;
+        }
+
+        let child_id = format!("{}::{}", file.path, td.name);
+        let child_idx = match id_to_index.get(&child_id) {
+            Some(idx) => *idx,
+            None => continue,
+        };
+
+        for base in &td.bases {
+            // Try imported name first.
+            if let Some(target_id) = import_map.get(base.as_str()) {
+                if let Some(&to_idx) = id_to_index.get(target_id.as_str()) {
+                    if child_idx != to_idx {
+                        graph.add_edge(
+                            child_idx,
+                            to_idx,
+                            GraphEdge {
+                                edge_type: EdgeType::Extends,
+                            },
+                        );
+                    }
+                    continue;
+                }
+            }
+
+            // Try local definition.
+            let local_id = format!("{}::{}", file.path, base);
+            if let Some(&to_idx) = id_to_index.get(&local_id) {
+                if child_idx != to_idx {
+                    graph.add_edge(
+                        child_idx,
+                        to_idx,
+                        GraphEdge {
+                            edge_type: EdgeType::Extends,
+                        },
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -1531,6 +2010,428 @@ function baz() { foo(); bar(); }
                 let graph = SymbolGraph::build(&[]);
                 prop_assert_eq!(graph.node_count(), 0);
                 prop_assert_eq!(graph.edge_count(), 0);
+            }
+        }
+    }
+
+    // =======================================================================
+    // IR-based graph parity tests
+    // =======================================================================
+
+    mod ir_parity {
+        use super::*;
+        use crate::ir::IrFile;
+
+        /// Helper: parse files and build graph via both paths, return both.
+        fn build_both(files: &[(&str, &str)]) -> (SymbolGraph, SymbolGraph) {
+            let parsed: Vec<ParsedFile> = files
+                .iter()
+                .map(|(path, source)| ast::parse_file(path, source).unwrap())
+                .collect();
+            let ir_files: Vec<IrFile> = parsed.iter().map(IrFile::from_parsed_file).collect();
+
+            let graph_parsed = SymbolGraph::build(&parsed);
+            let graph_ir = SymbolGraph::build_from_ir(&ir_files);
+            (graph_parsed, graph_ir)
+        }
+
+        #[test]
+        fn test_ir_parity_simple_import() {
+            let (gp, gi) = build_both(&[
+                (
+                    "src/utils.ts",
+                    r#"
+export function validate(data: any) { return data; }
+export function sanitize(data: any) { return data; }
+"#,
+                ),
+                (
+                    "src/handler.ts",
+                    r#"
+import { validate, sanitize } from './utils';
+function handle() { validate({}); }
+"#,
+                ),
+            ]);
+
+            assert_eq!(
+                gp.node_count(),
+                gi.node_count(),
+                "node counts should match"
+            );
+            assert_eq!(
+                gp.edge_count(),
+                gi.edge_count(),
+                "edge counts should match"
+            );
+        }
+
+        #[test]
+        fn test_ir_parity_call_edges() {
+            let (gp, gi) = build_both(&[
+                (
+                    "src/utils.ts",
+                    r#"
+export function validate(data: any) { return data; }
+"#,
+                ),
+                (
+                    "src/handler.ts",
+                    r#"
+import { validate } from './utils';
+function processRequest(req: any) {
+    const v = validate(req.body);
+    return v;
+}
+"#,
+                ),
+            ]);
+
+            assert_eq!(gp.node_count(), gi.node_count());
+            assert_eq!(gp.edge_count(), gi.edge_count());
+
+            // Verify specific edge exists in IR graph.
+            assert!(
+                has_edge(
+                    &gi,
+                    "src/handler.ts::processRequest",
+                    "src/utils.ts::validate",
+                    &EdgeType::Calls
+                ),
+                "IR graph should have call edge"
+            );
+        }
+
+        #[test]
+        fn test_ir_parity_namespace_import() {
+            let (gp, gi) = build_both(&[
+                (
+                    "src/utils.ts",
+                    r#"
+export function foo() {}
+export function bar() {}
+"#,
+                ),
+                (
+                    "src/main.ts",
+                    r#"
+import * as utils from './utils';
+function main() {
+    utils.foo();
+}
+"#,
+                ),
+            ]);
+
+            assert_eq!(gp.node_count(), gi.node_count());
+            assert_eq!(gp.edge_count(), gi.edge_count());
+        }
+
+        #[test]
+        fn test_ir_parity_default_import() {
+            let (gp, gi) = build_both(&[
+                (
+                    "src/utils.ts",
+                    r#"
+export default function doStuff() {}
+"#,
+                ),
+                (
+                    "src/main.ts",
+                    r#"
+import doStuff from './utils';
+doStuff();
+"#,
+                ),
+            ]);
+
+            assert_eq!(gp.node_count(), gi.node_count());
+            assert_eq!(gp.edge_count(), gi.edge_count());
+        }
+
+        #[test]
+        fn test_ir_parity_python_imports() {
+            let (gp, gi) = build_both(&[
+                (
+                    "models.py",
+                    r#"
+class User:
+    pass
+
+def create_user():
+    pass
+"#,
+                ),
+                (
+                    "views.py",
+                    r#"
+from .models import User, create_user
+
+def list_users():
+    return create_user()
+"#,
+                ),
+            ]);
+
+            assert_eq!(gp.node_count(), gi.node_count());
+            assert_eq!(gp.edge_count(), gi.edge_count());
+        }
+
+        #[test]
+        fn test_ir_parity_reexport_chain() {
+            let (gp, gi) = build_both(&[
+                (
+                    "src/core.ts",
+                    r#"
+export function coreFunc() {}
+"#,
+                ),
+                (
+                    "src/index.ts",
+                    r#"
+export { coreFunc } from './core';
+"#,
+                ),
+                (
+                    "src/consumer.ts",
+                    r#"
+import { coreFunc } from './index';
+function use() { coreFunc(); }
+"#,
+                ),
+            ]);
+
+            assert_eq!(gp.node_count(), gi.node_count());
+            assert_eq!(gp.edge_count(), gi.edge_count());
+        }
+
+        #[test]
+        fn test_ir_parity_side_effect_import() {
+            let (gp, gi) = build_both(&[
+                (
+                    "src/polyfill.ts",
+                    r#"
+export function polyfill() {}
+"#,
+                ),
+                ("src/main.ts", r#"import './polyfill';"#),
+            ]);
+
+            assert_eq!(gp.node_count(), gi.node_count());
+            assert_eq!(gp.edge_count(), gi.edge_count());
+        }
+
+        #[test]
+        fn test_ir_parity_empty_input() {
+            let gi = SymbolGraph::build_from_ir(&[]);
+            assert_eq!(gi.node_count(), 0);
+            assert_eq!(gi.edge_count(), 0);
+        }
+
+        #[test]
+        fn test_ir_parity_local_call() {
+            let (gp, gi) = build_both(&[(
+                "src/app.ts",
+                r#"
+function helper() { return 42; }
+function main() { helper(); }
+"#,
+            )]);
+
+            assert_eq!(gp.node_count(), gi.node_count());
+            assert_eq!(gp.edge_count(), gi.edge_count());
+
+            assert!(
+                has_edge(
+                    &gi,
+                    "src/app.ts::main",
+                    "src/app.ts::helper",
+                    &EdgeType::Calls
+                ),
+                "IR graph should have local call edge"
+            );
+        }
+
+        #[test]
+        fn test_ir_parity_aliased_import() {
+            let (gp, gi) = build_both(&[
+                (
+                    "src/utils.ts",
+                    r#"
+export function validate() {}
+"#,
+                ),
+                (
+                    "src/main.ts",
+                    r#"
+import { validate as check } from './utils';
+function run() { check(); }
+"#,
+                ),
+            ]);
+
+            assert_eq!(gp.node_count(), gi.node_count());
+            assert_eq!(gp.edge_count(), gi.edge_count());
+        }
+
+        #[test]
+        fn test_ir_parity_multiple_files() {
+            let (gp, gi) = build_both(&[
+                (
+                    "src/db.ts",
+                    r#"
+export function query(sql: string) { return []; }
+export function insert(data: any) { }
+"#,
+                ),
+                (
+                    "src/service.ts",
+                    r#"
+import { query, insert } from './db';
+export function getUsers() { return query('SELECT * FROM users'); }
+export function createUser(data: any) { insert(data); }
+"#,
+                ),
+                (
+                    "src/handler.ts",
+                    r#"
+import { getUsers, createUser } from './service';
+function handleGet(req: any) { return getUsers(); }
+function handlePost(req: any) { createUser(req.body); }
+"#,
+                ),
+            ]);
+
+            assert_eq!(
+                gp.node_count(),
+                gi.node_count(),
+                "3-file graph node count should match"
+            );
+            assert_eq!(
+                gp.edge_count(),
+                gi.edge_count(),
+                "3-file graph edge count should match"
+            );
+        }
+    }
+
+    // =======================================================================
+    // IR-based graph property-based tests
+    // =======================================================================
+
+    mod ir_proptest {
+        use super::*;
+        use crate::ast::{Definition, Language, ParsedFile};
+        use crate::ir::IrFile;
+        use proptest::prelude::*;
+
+        fn func_name_strategy() -> impl Strategy<Value = String> {
+            "[a-z][a-zA-Z0-9]{0,15}".prop_map(|s| s)
+        }
+
+        fn parsed_file_strategy() -> impl Strategy<Value = ParsedFile> {
+            (
+                "[a-z]{1,8}".prop_map(|s| format!("src/{}.ts", s)),
+                prop::collection::vec(func_name_strategy(), 0..10),
+            )
+                .prop_map(|(path, func_names)| {
+                    let definitions: Vec<Definition> = func_names
+                        .iter()
+                        .enumerate()
+                        .map(|(i, name)| Definition {
+                            name: name.clone(),
+                            kind: SymbolKind::Function,
+                            start_line: i + 1,
+                            end_line: i + 3,
+                        })
+                        .collect();
+
+                    ParsedFile {
+                        path,
+                        language: Language::TypeScript,
+                        definitions,
+                        imports: vec![],
+                        exports: vec![],
+                        call_sites: vec![],
+                    }
+                })
+        }
+
+        proptest! {
+            #[test]
+            fn prop_ir_node_count_matches_parsed(files in prop::collection::vec(parsed_file_strategy(), 0..5)) {
+                let ir_files: Vec<IrFile> = files.iter().map(|f| IrFile::from_parsed_file(f)).collect();
+                let g_parsed = SymbolGraph::build(&files);
+                let g_ir = SymbolGraph::build_from_ir(&ir_files);
+                prop_assert_eq!(g_parsed.node_count(), g_ir.node_count(),
+                    "node count mismatch: parsed={}, ir={}", g_parsed.node_count(), g_ir.node_count());
+            }
+
+            #[test]
+            fn prop_ir_edge_count_matches_parsed(files in prop::collection::vec(parsed_file_strategy(), 0..5)) {
+                let ir_files: Vec<IrFile> = files.iter().map(|f| IrFile::from_parsed_file(f)).collect();
+                let g_parsed = SymbolGraph::build(&files);
+                let g_ir = SymbolGraph::build_from_ir(&ir_files);
+                prop_assert_eq!(g_parsed.edge_count(), g_ir.edge_count());
+            }
+
+            #[test]
+            fn prop_ir_no_self_edges(files in prop::collection::vec(parsed_file_strategy(), 0..5)) {
+                let ir_files: Vec<IrFile> = files.iter().map(|f| IrFile::from_parsed_file(f)).collect();
+                let graph = SymbolGraph::build_from_ir(&ir_files);
+                for (from, to, _) in graph.edges() {
+                    prop_assert!(from != to, "self-edge found in IR graph: {} -> {}", from, to);
+                }
+            }
+
+            #[test]
+            fn prop_ir_deterministic(files in prop::collection::vec(parsed_file_strategy(), 0..5)) {
+                let ir_files: Vec<IrFile> = files.iter().map(|f| IrFile::from_parsed_file(f)).collect();
+                let g1 = SymbolGraph::build_from_ir(&ir_files);
+                let g2 = SymbolGraph::build_from_ir(&ir_files);
+                prop_assert_eq!(g1.node_count(), g2.node_count());
+                prop_assert_eq!(g1.edge_count(), g2.edge_count());
+            }
+
+            #[test]
+            fn prop_ir_empty_input_empty_graph(_dummy in 0u32..1) {
+                let graph = SymbolGraph::build_from_ir(&[]);
+                prop_assert_eq!(graph.node_count(), 0);
+                prop_assert_eq!(graph.edge_count(), 0);
+            }
+
+            #[test]
+            fn prop_ir_every_definition_has_node(files in prop::collection::vec(parsed_file_strategy(), 1..5)) {
+                let ir_files: Vec<IrFile> = files.iter().map(|f| IrFile::from_parsed_file(f)).collect();
+                let graph = SymbolGraph::build_from_ir(&ir_files);
+
+                for ir_file in &ir_files {
+                    prop_assert!(graph.get_node(&ir_file.path).is_some(),
+                        "module node should exist for {}", ir_file.path);
+
+                    let mut seen = std::collections::HashSet::new();
+                    for func in &ir_file.functions {
+                        let sym_id = format!("{}::{}", ir_file.path, func.name);
+                        if seen.insert(sym_id.clone()) {
+                            prop_assert!(graph.get_node(&sym_id).is_some(),
+                                "node should exist for function {}", sym_id);
+                        }
+                    }
+                    for td in &ir_file.type_defs {
+                        let sym_id = format!("{}::{}", ir_file.path, td.name);
+                        if seen.insert(sym_id.clone()) {
+                            prop_assert!(graph.get_node(&sym_id).is_some(),
+                                "node should exist for type def {}", sym_id);
+                        }
+                    }
+                    for c in &ir_file.constants {
+                        let sym_id = format!("{}::{}", ir_file.path, c.name);
+                        if seen.insert(sym_id.clone()) {
+                            prop_assert!(graph.get_node(&sym_id).is_some(),
+                                "node should exist for constant {}", sym_id);
+                        }
+                    }
+                }
             }
         }
     }

@@ -4,6 +4,7 @@
 //! file paths, AST-extracted symbols, imports, call sites, and exports.
 
 use crate::ast::{ImportInfo, Language, ParsedFile};
+use crate::ir::IrFile;
 use crate::types::{Entrypoint, EntrypointType};
 
 /// Detect all entrypoints across a set of parsed files.
@@ -16,6 +17,16 @@ pub fn detect_entrypoints(files: &[ParsedFile]) -> Vec<Entrypoint> {
     entrypoints.sort_by(|a, b| (&a.file, &a.symbol).cmp(&(&b.file, &b.symbol)));
     entrypoints.dedup_by(|a, b| a.file == b.file && a.symbol == b.symbol);
     entrypoints
+}
+
+/// Detect all entrypoints from IR files (declarative query engine / IR path).
+///
+/// Converts IR files to ParsedFile and delegates to the existing detection logic.
+/// The entrypoint detection heuristics operate on the same fields available in both
+/// representations, so results are identical.
+pub fn detect_entrypoints_ir(files: &[IrFile]) -> Vec<Entrypoint> {
+    let parsed: Vec<ParsedFile> = files.iter().map(|f| f.to_parsed_file()).collect();
+    detect_entrypoints(&parsed)
 }
 
 fn detect_file_entrypoints(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
@@ -1932,5 +1943,201 @@ mod tests {
         assert!(is_worker_path("src/jobs/cleanup.py"));
         assert!(is_worker_path("src/email_worker.ts"));
         assert!(!is_worker_path("src/services/email.ts"));
+    }
+
+    // =======================================================================
+    // IR-based entrypoint parity tests
+    // =======================================================================
+
+    mod ir_parity {
+        use super::*;
+        use crate::ast;
+        use crate::ir::IrFile;
+
+        /// Helper: detect entrypoints via both paths and compare.
+        fn detect_both(files: &[(&str, &str)]) -> (Vec<Entrypoint>, Vec<Entrypoint>) {
+            let parsed: Vec<ParsedFile> = files
+                .iter()
+                .map(|(path, source)| ast::parse_file(path, source).unwrap())
+                .collect();
+            let ir_files: Vec<IrFile> = parsed.iter().map(IrFile::from_parsed_file).collect();
+
+            let from_parsed = detect_entrypoints(&parsed);
+            let from_ir = detect_entrypoints_ir(&ir_files);
+            (from_parsed, from_ir)
+        }
+
+        #[test]
+        fn test_ir_parity_test_file() {
+            let (ep, ei) = detect_both(&[(
+                "src/utils.test.ts",
+                r#"
+function test_validate() {}
+function test_sanitize() {}
+"#,
+            )]);
+
+            assert_eq!(ep.len(), ei.len(), "entrypoint count should match");
+            for (a, b) in ep.iter().zip(ei.iter()) {
+                assert_eq!(a.file, b.file);
+                assert_eq!(a.symbol, b.symbol);
+                assert_eq!(a.entrypoint_type, b.entrypoint_type);
+            }
+        }
+
+        #[test]
+        fn test_ir_parity_express_route() {
+            let (ep, ei) = detect_both(&[(
+                "src/routes/users.ts",
+                r#"
+import express from 'express';
+const router = express.Router();
+function getUsers() {}
+router.get('/users', getUsers);
+"#,
+            )]);
+
+            assert_eq!(ep.len(), ei.len(), "Express route entrypoint count should match");
+            for (a, b) in ep.iter().zip(ei.iter()) {
+                assert_eq!(a.file, b.file);
+                assert_eq!(a.entrypoint_type, b.entrypoint_type);
+            }
+        }
+
+        #[test]
+        fn test_ir_parity_flask_route() {
+            let (ep, ei) = detect_both(&[(
+                "app/views.py",
+                r#"
+from flask import Flask
+app = Flask(__name__)
+
+def list_users():
+    pass
+app.route('/users')(list_users)
+"#,
+            )]);
+
+            assert_eq!(ep.len(), ei.len());
+        }
+
+        #[test]
+        fn test_ir_parity_nextjs_route() {
+            let (ep, ei) = detect_both(&[(
+                "src/app/api/users/route.ts",
+                r#"
+export function GET(request: Request) {
+    return Response.json({});
+}
+export function POST(request: Request) {
+    return Response.json({});
+}
+"#,
+            )]);
+
+            assert_eq!(ep.len(), ei.len(), "Next.js route entrypoint count should match");
+            for (a, b) in ep.iter().zip(ei.iter()) {
+                assert_eq!(a.file, b.file);
+                assert_eq!(a.symbol, b.symbol);
+            }
+        }
+
+        #[test]
+        fn test_ir_parity_cli_command() {
+            let (ep, ei) = detect_both(&[(
+                "src/cli.py",
+                r#"
+import click
+
+def main():
+    pass
+
+click.command()(main)
+"#,
+            )]);
+
+            assert_eq!(ep.len(), ei.len());
+        }
+
+        #[test]
+        fn test_ir_parity_no_entrypoints() {
+            let (ep, ei) = detect_both(&[(
+                "src/utils.ts",
+                r#"
+export function validate(data: any) { return data; }
+export function sanitize(data: any) { return data; }
+"#,
+            )]);
+
+            assert_eq!(ep.len(), ei.len(), "no entrypoints should be found");
+            assert!(ep.is_empty());
+        }
+
+        #[test]
+        fn test_ir_parity_multiple_files() {
+            let (ep, ei) = detect_both(&[
+                (
+                    "src/app/api/users/route.ts",
+                    r#"
+export function GET() { return Response.json([]); }
+"#,
+                ),
+                (
+                    "src/utils.test.ts",
+                    r#"
+function test_something() {}
+"#,
+                ),
+                (
+                    "src/services/user.ts",
+                    r#"
+export function createUser(data: any) {}
+"#,
+                ),
+            ]);
+
+            assert_eq!(ep.len(), ei.len(), "multi-file entrypoint count should match");
+            for (a, b) in ep.iter().zip(ei.iter()) {
+                assert_eq!(a.file, b.file);
+                assert_eq!(a.symbol, b.symbol);
+                assert_eq!(a.entrypoint_type, b.entrypoint_type);
+            }
+        }
+
+        #[test]
+        fn test_ir_parity_empty() {
+            let from_parsed = detect_entrypoints(&[]);
+            let from_ir = detect_entrypoints_ir(&[]);
+            assert_eq!(from_parsed.len(), from_ir.len());
+            assert!(from_ir.is_empty());
+        }
+
+        #[test]
+        fn test_ir_parity_effect_ts_service() {
+            let (ep, ei) = detect_both(&[(
+                "src/services/user.ts",
+                r#"
+import { Effect, Context } from 'effect';
+function UserService() {}
+Effect.Service(UserService);
+"#,
+            )]);
+
+            assert_eq!(ep.len(), ei.len());
+        }
+
+        #[test]
+        fn test_ir_parity_queue_consumer() {
+            let (ep, ei) = detect_both(&[(
+                "src/workers/email.ts",
+                r#"
+import { Queue } from 'bullmq';
+function processEmail() {}
+queue.process(processEmail);
+"#,
+            )]);
+
+            assert_eq!(ep.len(), ei.len());
+        }
     }
 }

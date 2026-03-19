@@ -14,10 +14,11 @@
 //!
 //! Also detects frameworks from import patterns.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::{CallSite, ParsedFile};
 use crate::graph::{GraphEdge, SymbolGraph};
+use crate::ir::IrFile;
 use crate::types::EdgeType;
 
 /// A data flow pattern detected via heuristic matching.
@@ -871,6 +872,103 @@ pub fn trace_data_flow(files_with_source: &[(&str, &str)]) -> Vec<DataFlowEdge> 
         }
     }
 
+    all_edges
+}
+
+// ---------------------------------------------------------------------------
+// IR-based public API
+// ---------------------------------------------------------------------------
+
+/// Analyze data flow patterns from IR files (declarative query engine / IR path).
+///
+/// Delegates to the existing heuristic analysis via ParsedFile conversion.
+/// The heuristic pattern matching operates on the same call site data available
+/// in both representations.
+pub fn analyze_data_flow_ir(files: &[IrFile], config: &FlowConfig) -> FlowAnalysis {
+    let parsed: Vec<ParsedFile> = files.iter().map(|f| f.to_parsed_file()).collect();
+    analyze_data_flow(&parsed, config)
+}
+
+/// Detect frameworks from IR files' import patterns.
+pub fn detect_frameworks_ir(files: &[IrFile]) -> Vec<String> {
+    let parsed: Vec<ParsedFile> = files.iter().map(|f| f.to_parsed_file()).collect();
+    detect_frameworks(&parsed)
+}
+
+/// Build data flow edges directly from an IR file, without re-parsing source code.
+///
+/// This is the key improvement over the ParsedFile path: `IrFile` already contains
+/// `assignments` (variable = call()) and `call_expressions` with arguments, so we
+/// can trace producer → consumer edges without needing the original source text.
+///
+/// Example: given `const x = funcA(); funcB(x);` in the IR:
+/// - `assignments` contains: pattern=x, value=Call(funcA), scope=f
+/// - `call_expressions` contains: callee=funcB, args=["x"], scope=f
+/// - Produces: `DataFlowEdge { producer: "funcA", consumer: "funcB", via: "x" }`
+pub fn build_data_flow_edges_from_ir(file: &IrFile) -> Vec<DataFlowEdge> {
+    let mut edges = Vec::new();
+
+    // Group assignments by containing function for scope-aware matching.
+    // Each entry: (variable_name, callee_name, line)
+    let mut assignments_by_scope: HashMap<Option<&str>, Vec<(&str, &str, usize)>> =
+        HashMap::new();
+
+    for assignment in &file.assignments {
+        if let (Some(var), Some(callee)) = (
+            assignment.pattern.as_identifier(),
+            assignment.value.callee_name(),
+        ) {
+            let scope = assignment.containing_function.as_deref();
+            assignments_by_scope
+                .entry(scope)
+                .or_default()
+                .push((var, callee, assignment.span.start_line));
+        }
+    }
+
+    // For each call with arguments, check if any argument matches a variable
+    // assigned from another call within the same scope.
+    for call in &file.call_expressions {
+        if call.arguments.is_empty() {
+            continue;
+        }
+        let scope = call.containing_function.as_deref();
+        if let Some(scope_assignments) = assignments_by_scope.get(&scope) {
+            for arg in &call.arguments {
+                for &(var, producer_callee, _line) in scope_assignments {
+                    if var == arg.as_str() && producer_callee != call.callee {
+                        let containing = match &call.containing_function {
+                            Some(f) => format!("{}::{}", file.path, f),
+                            None => file.path.to_string(),
+                        };
+                        edges.push(DataFlowEdge {
+                            producer: producer_callee.to_string(),
+                            consumer: call.callee.clone(),
+                            via: arg.clone(),
+                            containing_function: containing,
+                            file: file.path.clone(),
+                            line: call.span.start_line,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+/// Trace data flow across all IR files, producing edges that show how data moves
+/// through variable assignments and function calls.
+///
+/// Unlike `trace_data_flow` which requires source code and re-parses with tree-sitter,
+/// this version works directly from the IR which already has assignments and call arguments.
+pub fn trace_data_flow_ir(files: &[IrFile]) -> Vec<DataFlowEdge> {
+    let mut all_edges = Vec::new();
+    for file in files {
+        let edges = build_data_flow_edges_from_ir(file);
+        all_edges.extend(edges);
+    }
     all_edges
 }
 
@@ -2682,6 +2780,480 @@ function handler() {
             #[test]
             fn prop_empty_input_empty_output(_dummy in 0u32..1) {
                 let edges = trace_data_flow(&[]);
+                prop_assert!(edges.is_empty());
+            }
+        }
+    }
+
+    // =======================================================================
+    // IR-based flow parity tests
+    // =======================================================================
+
+    mod ir_parity {
+        use super::*;
+        use crate::ir::IrFile;
+
+        /// Helper: run heuristic analysis via both paths.
+        fn analyze_both(files: &[(&str, &str)]) -> (FlowAnalysis, FlowAnalysis) {
+            let parsed: Vec<ParsedFile> = files
+                .iter()
+                .map(|(path, source)| ast::parse_file(path, source).unwrap())
+                .collect();
+            let ir_files: Vec<IrFile> = parsed.iter().map(IrFile::from_parsed_file).collect();
+            let config = FlowConfig::default();
+
+            let from_parsed = analyze_data_flow(&parsed, &config);
+            let from_ir = analyze_data_flow_ir(&ir_files, &config);
+            (from_parsed, from_ir)
+        }
+
+        #[test]
+        fn test_ir_parity_heuristic_db_write() {
+            let (fp, fi) = analyze_both(&[(
+                "src/repo.ts",
+                r#"
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
+async function createUser(data: any) {
+    await prisma.user.create({ data });
+}
+"#,
+            )]);
+
+            assert_eq!(
+                fp.heuristic_edges.len(),
+                fi.heuristic_edges.len(),
+                "heuristic edge count should match for DB write"
+            );
+            for (a, b) in fp.heuristic_edges.iter().zip(fi.heuristic_edges.iter()) {
+                assert_eq!(a.pattern, b.pattern);
+                assert_eq!(a.file, b.file);
+            }
+        }
+
+        #[test]
+        fn test_ir_parity_heuristic_event_emission() {
+            let (fp, fi) = analyze_both(&[(
+                "src/events.ts",
+                r#"
+import { EventEmitter } from 'events';
+const emitter = new EventEmitter();
+function notifyUser() {
+    emitter.emit('user:created');
+}
+"#,
+            )]);
+
+            assert_eq!(fp.heuristic_edges.len(), fi.heuristic_edges.len());
+        }
+
+        #[test]
+        fn test_ir_parity_framework_detection() {
+            let files = &[
+                (
+                    "src/app.ts",
+                    r#"
+import express from 'express';
+import { PrismaClient } from '@prisma/client';
+"#,
+                ),
+                (
+                    "src/views.py",
+                    r#"
+from flask import Flask
+from sqlalchemy import Column
+"#,
+                ),
+            ];
+
+            let parsed: Vec<ParsedFile> = files
+                .iter()
+                .map(|(path, source)| ast::parse_file(path, source).unwrap())
+                .collect();
+            let ir_files: Vec<IrFile> = parsed.iter().map(IrFile::from_parsed_file).collect();
+
+            let from_parsed = detect_frameworks(&parsed);
+            let from_ir = detect_frameworks_ir(&ir_files);
+
+            assert_eq!(
+                from_parsed, from_ir,
+                "framework detection should match: {:?} vs {:?}",
+                from_parsed, from_ir
+            );
+        }
+
+        #[test]
+        fn test_ir_parity_empty() {
+            let (fp, fi) = analyze_both(&[]);
+            assert_eq!(fp.heuristic_edges.len(), fi.heuristic_edges.len());
+            assert_eq!(fp.frameworks_detected, fi.frameworks_detected);
+        }
+
+        #[test]
+        fn test_ir_parity_logging_detection() {
+            let (fp, fi) = analyze_both(&[(
+                "src/utils.ts",
+                r#"
+function doStuff() {
+    console.log('doing stuff');
+    console.error('oops');
+}
+"#,
+            )]);
+
+            assert_eq!(fp.heuristic_edges.len(), fi.heuristic_edges.len());
+            for (a, b) in fp.heuristic_edges.iter().zip(fi.heuristic_edges.iter()) {
+                assert_eq!(a.pattern, b.pattern);
+            }
+        }
+    }
+
+    // =======================================================================
+    // IR-based data flow edge tests
+    // =======================================================================
+
+    mod ir_data_flow {
+        use super::*;
+        use crate::ast;
+        use crate::ir::IrFile;
+
+        /// Helper: parse a file to IR and build data flow edges.
+        fn ir_edges(path: &str, source: &str) -> Vec<DataFlowEdge> {
+            let parsed = ast::parse_file(path, source).unwrap();
+            let data_flow = ast::extract_data_flow_info(path, source).unwrap();
+            let mut ir = IrFile::from_parsed_file(&parsed);
+            ir.enrich_with_data_flow(&data_flow);
+            build_data_flow_edges_from_ir(&ir)
+        }
+
+        #[test]
+        fn test_ir_data_flow_simple_chain() {
+            let edges = ir_edges(
+                "src/handler.ts",
+                r#"
+function handler() {
+    const data = fetchData();
+    process(data);
+}
+"#,
+            );
+
+            assert_eq!(edges.len(), 1, "should find one data flow edge");
+            assert_eq!(edges[0].producer, "fetchData");
+            assert_eq!(edges[0].consumer, "process");
+            assert_eq!(edges[0].via, "data");
+        }
+
+        #[test]
+        fn test_ir_data_flow_multiple_consumers() {
+            let edges = ir_edges(
+                "src/handler.ts",
+                r#"
+function handler() {
+    const data = fetchData();
+    validate(data);
+    transform(data);
+}
+"#,
+            );
+
+            assert_eq!(edges.len(), 2, "should find two data flow edges");
+            assert!(edges.iter().any(|e| e.consumer == "validate"));
+            assert!(edges.iter().any(|e| e.consumer == "transform"));
+        }
+
+        #[test]
+        fn test_ir_data_flow_pipeline() {
+            let edges = ir_edges(
+                "src/handler.ts",
+                r#"
+function handler() {
+    const raw = fetch();
+    const clean = sanitize(raw);
+    save(clean);
+}
+"#,
+            );
+
+            assert!(edges.len() >= 2, "should find pipeline edges");
+            assert!(edges
+                .iter()
+                .any(|e| e.producer == "fetch" && e.consumer == "sanitize" && e.via == "raw"));
+            assert!(edges
+                .iter()
+                .any(|e| e.producer == "sanitize" && e.consumer == "save" && e.via == "clean"));
+        }
+
+        #[test]
+        fn test_ir_data_flow_scope_isolation() {
+            let edges = ir_edges(
+                "src/app.ts",
+                r#"
+function funcA() {
+    const x = fetch();
+    process(x);
+}
+function funcB() {
+    const x = other();
+    transform(x);
+}
+"#,
+            );
+
+            // Should not cross function boundaries
+            for edge in &edges {
+                if edge.producer == "fetch" {
+                    assert_eq!(edge.consumer, "process");
+                }
+                if edge.producer == "other" {
+                    assert_eq!(edge.consumer, "transform");
+                }
+            }
+        }
+
+        #[test]
+        fn test_ir_data_flow_no_self_edge() {
+            let edges = ir_edges(
+                "src/app.ts",
+                r#"
+function handler() {
+    const data = fetch();
+    fetch(data);
+}
+"#,
+            );
+
+            for edge in &edges {
+                assert_ne!(
+                    edge.producer, edge.consumer,
+                    "should not produce self-edges"
+                );
+            }
+        }
+
+        #[test]
+        fn test_ir_data_flow_empty() {
+            let edges = ir_edges(
+                "src/empty.ts",
+                r#"
+function handler() {
+    console.log('hello');
+}
+"#,
+            );
+
+            assert!(edges.is_empty(), "no data flow edges in simple code");
+        }
+
+        #[test]
+        fn test_ir_data_flow_parity_with_parsed() {
+            let source = r#"
+function handler() {
+    const data = fetchData();
+    process(data);
+}
+"#;
+            let path = "src/handler.ts";
+
+            // ParsedFile path
+            let data_flow_info = ast::extract_data_flow_info(path, source).unwrap();
+            let edges_parsed = build_data_flow_edges(&data_flow_info, path);
+
+            // IR path
+            let edges_ir = ir_edges(path, source);
+
+            assert_eq!(
+                edges_parsed.len(),
+                edges_ir.len(),
+                "edge count should match: parsed={}, ir={}",
+                edges_parsed.len(),
+                edges_ir.len()
+            );
+
+            for (a, b) in edges_parsed.iter().zip(edges_ir.iter()) {
+                assert_eq!(a.producer, b.producer);
+                assert_eq!(a.consumer, b.consumer);
+                assert_eq!(a.via, b.via);
+                assert_eq!(a.file, b.file);
+            }
+        }
+
+        #[test]
+        fn test_trace_data_flow_ir_empty() {
+            let edges = trace_data_flow_ir(&[]);
+            assert!(edges.is_empty());
+        }
+
+        #[test]
+        fn test_trace_data_flow_ir_multiple_files() {
+            let files: Vec<(&str, &str)> = vec![
+                (
+                    "src/a.ts",
+                    r#"
+function processA() {
+    const x = fetchA();
+    saveA(x);
+}
+"#,
+                ),
+                (
+                    "src/b.ts",
+                    r#"
+function processB() {
+    const y = fetchB();
+    saveB(y);
+}
+"#,
+                ),
+            ];
+
+            let ir_files: Vec<IrFile> = files
+                .iter()
+                .map(|(path, source)| {
+                    let parsed = ast::parse_file(path, source).unwrap();
+                    let data_flow = ast::extract_data_flow_info(path, source).unwrap();
+                    let mut ir = IrFile::from_parsed_file(&parsed);
+                    ir.enrich_with_data_flow(&data_flow);
+                    ir
+                })
+                .collect();
+
+            let edges = trace_data_flow_ir(&ir_files);
+            assert!(
+                edges.len() >= 2,
+                "should find edges from both files, got {}",
+                edges.len()
+            );
+            assert!(edges.iter().any(|e| e.file == "src/a.ts"));
+            assert!(edges.iter().any(|e| e.file == "src/b.ts"));
+        }
+    }
+
+    // =======================================================================
+    // IR-based flow property-based tests
+    // =======================================================================
+
+    mod ir_proptests {
+        use super::*;
+        use crate::ast;
+        use crate::ir::IrFile;
+        use proptest::prelude::*;
+
+        fn func_name() -> impl Strategy<Value = String> {
+            "[a-z][a-zA-Z]{0,8}".prop_map(|s| s)
+        }
+
+        proptest! {
+            #[test]
+            fn prop_ir_data_flow_never_panics(
+                func in func_name(),
+                var in func_name(),
+                callee1 in func_name(),
+                callee2 in func_name()
+            ) {
+                let source = format!(
+                    "function {}() {{\n  const {} = {}();\n  {}({});\n}}\n",
+                    func, var, callee1, callee2, var
+                );
+                let parsed = ast::parse_file("test.ts", &source).unwrap();
+                let data_flow = ast::extract_data_flow_info("test.ts", &source).unwrap();
+                let mut ir = IrFile::from_parsed_file(&parsed);
+                ir.enrich_with_data_flow(&data_flow);
+                let _ = build_data_flow_edges_from_ir(&ir);
+            }
+
+            #[test]
+            fn prop_ir_data_flow_no_self_edges(
+                func in func_name(),
+                var in func_name(),
+                callee in func_name()
+            ) {
+                let source = format!(
+                    "function {}() {{\n  const {} = {}();\n  {}({});\n}}\n",
+                    func, var, callee, callee, var
+                );
+                let parsed = ast::parse_file("test.ts", &source).unwrap();
+                let data_flow = ast::extract_data_flow_info("test.ts", &source).unwrap();
+                let mut ir = IrFile::from_parsed_file(&parsed);
+                ir.enrich_with_data_flow(&data_flow);
+                let edges = build_data_flow_edges_from_ir(&ir);
+                for edge in &edges {
+                    prop_assert!(edge.producer != edge.consumer,
+                        "self-edge: {} → {}", edge.producer, edge.consumer);
+                }
+            }
+
+            #[test]
+            fn prop_ir_data_flow_valid_fields(
+                func in func_name(),
+                var in func_name(),
+                callee1 in func_name(),
+                callee2 in func_name()
+            ) {
+                let source = format!(
+                    "function {}() {{\n  const {} = {}();\n  {}({});\n}}\n",
+                    func, var, callee1, callee2, var
+                );
+                let parsed = ast::parse_file("test.ts", &source).unwrap();
+                let data_flow = ast::extract_data_flow_info("test.ts", &source).unwrap();
+                let mut ir = IrFile::from_parsed_file(&parsed);
+                ir.enrich_with_data_flow(&data_flow);
+                let edges = build_data_flow_edges_from_ir(&ir);
+                for edge in &edges {
+                    prop_assert!(!edge.producer.is_empty());
+                    prop_assert!(!edge.consumer.is_empty());
+                    prop_assert!(!edge.via.is_empty());
+                    prop_assert!(!edge.file.is_empty());
+                    prop_assert!(edge.line > 0);
+                }
+            }
+
+            #[test]
+            fn prop_ir_data_flow_deterministic(
+                func in func_name(),
+                var in func_name(),
+                callee1 in func_name(),
+                callee2 in func_name()
+            ) {
+                let source = format!(
+                    "function {}() {{\n  const {} = {}();\n  {}({});\n}}\n",
+                    func, var, callee1, callee2, var
+                );
+                let parsed = ast::parse_file("test.ts", &source).unwrap();
+                let data_flow = ast::extract_data_flow_info("test.ts", &source).unwrap();
+                let mut ir1 = IrFile::from_parsed_file(&parsed);
+                ir1.enrich_with_data_flow(&data_flow);
+                let mut ir2 = IrFile::from_parsed_file(&parsed);
+                ir2.enrich_with_data_flow(&data_flow);
+                let e1 = build_data_flow_edges_from_ir(&ir1);
+                let e2 = build_data_flow_edges_from_ir(&ir2);
+                prop_assert_eq!(e1, e2);
+            }
+
+            #[test]
+            fn prop_ir_heuristic_parity(
+                func in func_name(),
+                callee1 in func_name()
+            ) {
+                // Build a simple file and check that heuristic analysis matches
+                let source = format!(
+                    "function {}() {{\n  {}();\n}}\n",
+                    func, callee1
+                );
+                let parsed: Vec<ParsedFile> = vec![ast::parse_file("test.ts", &source).unwrap()];
+                let ir_files: Vec<IrFile> = parsed.iter().map(IrFile::from_parsed_file).collect();
+                let config = FlowConfig::default();
+
+                let fp = analyze_data_flow(&parsed, &config);
+                let fi = analyze_data_flow_ir(&ir_files, &config);
+
+                prop_assert_eq!(fp.heuristic_edges.len(), fi.heuristic_edges.len());
+                prop_assert_eq!(fp.frameworks_detected, fi.frameworks_detected);
+            }
+
+            #[test]
+            fn prop_ir_trace_empty(_dummy in 0u32..1) {
+                let edges = trace_data_flow_ir(&[]);
                 prop_assert!(edges.is_empty());
             }
         }
