@@ -605,10 +605,11 @@ flowdiff/
 - [ ] LLM results rendering in Tauri app
 - [x] API key configuration (FLOWDIFF_API_KEY env var, provider-specific env vars ANTHROPIC_API_KEY/OPENAI_API_KEY/GEMINI_API_KEY, key_cmd for 1Password via `op read`, precedence: key_cmd > FLOWDIFF_API_KEY > provider env var)
 - [x] Context window management (token estimation heuristic, truncation to budget with line-boundary preservation, per-model context window sizes)
-- [x] Provider trait (`LlmProvider`) with `create_provider()` factory, default provider is Anthropic
-- [x] Unit tests for LLM module (68 tests — schema roundtrips, request format, response parsing, markdown stripping, context windows, API key resolution, prompt building, error display, provider creation, reasoning model detection)
+- [x] Provider trait (`LlmProvider`) with `create_provider()` factory, default provider is Anthropic, supports Anthropic/OpenAI/Gemini
+- [x] Unit tests for LLM module (97 tests — schema roundtrips, request format, response parsing, markdown stripping, context windows, API key resolution, prompt building, error display, provider creation, reasoning model detection, Gemini generateContent format, Gemini response parsing, Gemini safety filter handling, Gemini endpoint URL construction)
 - [x] Live integration tests — Anthropic (real API call, Pass 1 overview returns valid structured output, Pass 2 deep analysis returns file-level annotations)
-- [ ] Live integration tests — Google Gemini (real API call, Pass 1 overview, structured output compliance, context window handling)
+- [x] Google Gemini API client (generateContent API, system instructions, JSON response mode, safety filter handling, context window management)
+- [x] Live integration tests — Google Gemini (real API call, Pass 1 overview, Pass 2 deep analysis, structured output compliance, context window handling, error handling for invalid keys)
 - [x] Live integration tests — OpenAI (real API call, Pass 1 overview with gpt-4o, structured output compliance)
 - [x] Live integration tests — end-to-end (full pipeline: Pass 1 + Pass 2, combined Annotations serialization roundtrip, gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`)
 - [x] Live integration tests — error handling (invalid API key detection for both Anthropic and OpenAI)

@@ -9,6 +9,7 @@
 //! - Pass 2: Deep analysis (on-demand, per-group)
 
 pub mod anthropic;
+pub mod gemini;
 pub mod openai;
 pub mod schema;
 
@@ -162,6 +163,13 @@ pub fn create_provider(config: &LlmConfig) -> Result<Box<dyn LlmProvider>, LlmEr
                 .as_deref()
                 .unwrap_or("gpt-4o");
             Ok(Box::new(openai::OpenAIProvider::new(api_key, model.to_string())))
+        }
+        "gemini" => {
+            let model = config
+                .model
+                .as_deref()
+                .unwrap_or("gemini-2.5-flash");
+            Ok(Box::new(gemini::GeminiProvider::new(api_key, model.to_string())))
         }
         other => Err(LlmError::UnsupportedProvider(other.to_string())),
     }
@@ -551,6 +559,30 @@ mod tests {
         };
         let provider = create_provider(&config).unwrap();
         assert_eq!(provider.model(), "claude-3-7-sonnet-20250219");
+    }
+
+    #[test]
+    fn test_create_provider_gemini() {
+        let config = LlmConfig {
+            provider: Some("gemini".to_string()),
+            model: None,
+            key_cmd: Some("echo test-key".to_string()),
+        };
+        let provider = create_provider(&config).unwrap();
+        assert_eq!(provider.name(), "gemini");
+        assert_eq!(provider.model(), "gemini-2.5-flash");
+    }
+
+    #[test]
+    fn test_create_provider_gemini_custom_model() {
+        let config = LlmConfig {
+            provider: Some("gemini".to_string()),
+            model: Some("gemini-2.5-pro".to_string()),
+            key_cmd: Some("echo test-key".to_string()),
+        };
+        let provider = create_provider(&config).unwrap();
+        assert_eq!(provider.name(), "gemini");
+        assert_eq!(provider.model(), "gemini-2.5-pro");
     }
 
     #[test]
