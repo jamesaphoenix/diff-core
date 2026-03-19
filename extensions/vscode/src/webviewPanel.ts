@@ -182,6 +182,11 @@ function renderPass2(pass2: Pass2Response): string {
   return html;
 }
 
+/** Escape a string for use inside a Mermaid node label (within double quotes). */
+function escapeMermaidLabel(s: string): string {
+  return s.replace(/"/g, "#quot;").replace(/</g, "#lt;").replace(/>/g, "#gt;");
+}
+
 function buildMermaid(group: FlowGroup): string {
   if (group.edges.length === 0) {
     return "graph TD\n  A[No edges]";
@@ -201,8 +206,8 @@ function buildMermaid(group: FlowGroup): string {
   for (const edge of group.edges) {
     const fromId = getNodeId(edge.from);
     const toId = getNodeId(edge.to);
-    const fromLabel = edge.from.split("::").pop() ?? edge.from;
-    const toLabel = edge.to.split("::").pop() ?? edge.to;
+    const fromLabel = escapeMermaidLabel(edge.from.split("::").pop() ?? edge.from);
+    const toLabel = escapeMermaidLabel(edge.to.split("::").pop() ?? edge.to);
     lines.push(`  ${fromId}["${fromLabel}"] -->|${edge.edge_type}| ${toId}["${toLabel}"]`);
   }
 

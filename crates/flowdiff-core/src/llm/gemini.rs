@@ -44,6 +44,10 @@ impl GeminiProvider {
     }
 
     /// Create with a custom base URL (for testing with mock servers).
+    ///
+    /// Only available with the `test-support` feature or in `#[cfg(test)]` builds.
+    /// Not exposed in production to prevent SSRF via configurable API endpoints.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn with_base_url(api_key: String, model: String, base_url: String) -> Self {
         Self {
             api_key,
@@ -119,12 +123,13 @@ impl GeminiProvider {
             return Err(LlmError::Timeout(120));
         }
 
+        super::check_response_size(&response)?;
         let body = response.text().await?;
 
         if status != 200 {
             return Err(LlmError::ApiError {
                 status,
-                message: body,
+                message: super::redact_api_keys(&body),
             });
         }
 

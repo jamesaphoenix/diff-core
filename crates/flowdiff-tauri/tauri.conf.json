@@ -10,7 +10,7 @@
   },
   "app": {
     "security": {
-      "csp": null
+      "csp": "default-src 'self' tauri: asset: ipc: http://ipc.localhost; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset:; connect-src ipc: http://ipc.localhost tauri: https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com; font-src 'self' data:; worker-src 'self' blob:;"
     },
     "windows": [
       {

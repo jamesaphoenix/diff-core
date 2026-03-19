@@ -4,6 +4,11 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "shell:allow-open"
+    {
+      "identifier": "shell:allow-open",
+      "allow": [
+        { "url": "https://**" }
+      ]
+    }
   ]
 }

@@ -25,7 +25,16 @@ rayon = "1.10"
 log = { workspace = true }
 tempfile = "3"
 
+[features]
+## Enables test-only APIs like `with_base_url` on LLM provider structs.
+## Integration tests should enable this feature; production builds must not.
+test-support = []
+
+# Enable test-support feature automatically when running tests
+# (dev-dependencies trigger `cfg(test)` in unit tests but not integration tests,
+# so we also enable the feature here for integration test access to `with_base_url`).
 [dev-dependencies]
+flowdiff-core = { path = ".", features = ["test-support"] }
 proptest = "1"
 tokio = { version = "1", features = ["full", "test-util"] }
 wiremock = "0.6"

@@ -129,30 +129,59 @@ pub fn resolve_api_key(config: &LlmConfig, provider: &str) -> Result<String, Llm
     }
 }
 
+/// Dangerous shell metacharacters that indicate potential injection in `key_cmd`.
+///
+/// `key_cmd` is intended for simple credential helpers like `op read ...` or
+/// `aws secretsmanager get-secret-value ...`. Commands containing these characters
+/// (backticks, `$()` subshells, pipes, semicolons, etc.) are rejected to prevent
+/// supply-chain attacks via malicious `.flowdiff.toml` files in cloned repositories.
+const DANGEROUS_SHELL_CHARS: &[char] = &['`', '$', '|', ';', '&', '<', '>', '\n', '\r'];
+
+/// Validate that a `key_cmd` string does not contain dangerous shell metacharacters.
+///
+/// Returns `Ok(())` if the command is safe, or `Err` with a descriptive message
+/// if potentially dangerous characters are detected.
+fn validate_key_cmd(cmd: &str) -> Result<(), LlmError> {
+    for ch in DANGEROUS_SHELL_CHARS {
+        if cmd.contains(*ch) {
+            return Err(LlmError::KeyCmdError(format!(
+                "key_cmd contains dangerous shell character '{}'. \
+                 Only simple commands are allowed (e.g., 'op read op://vault/item/field'). \
+                 Shell metacharacters (`, $, |, ;, &, <, >) are rejected to prevent \
+                 injection attacks from malicious .flowdiff.toml files.",
+                ch
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Execute a shell command to retrieve an API key.
+///
+/// The command is validated against dangerous shell metacharacters before execution.
+/// Error messages redact the command string to prevent accidental key leakage
+/// (e.g., if a user inlines a key in `key_cmd` for testing).
 fn execute_key_cmd(cmd: &str) -> Result<String, LlmError> {
+    validate_key_cmd(cmd)?;
+
     let output = Command::new("sh")
         .arg("-c")
         .arg(cmd)
         .output()
-        .map_err(|e| LlmError::KeyCmdError(format!("Failed to execute key_cmd '{}': {}", cmd, e)))?;
+        .map_err(|e| LlmError::KeyCmdError(format!("Failed to execute key_cmd: {}", e)))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(LlmError::KeyCmdError(format!(
-            "key_cmd '{}' failed (exit {}): {}",
-            cmd,
+            "key_cmd failed with exit code {}",
             output.status,
-            stderr.trim()
         )));
     }
 
     let key = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if key.is_empty() {
-        return Err(LlmError::KeyCmdError(format!(
-            "key_cmd '{}' returned empty output",
-            cmd
-        )));
+        return Err(LlmError::KeyCmdError(
+            "key_cmd returned empty output".to_string(),
+        ));
     }
     Ok(key)
 }
@@ -192,6 +221,33 @@ pub fn create_provider(config: &LlmConfig) -> Result<Box<dyn LlmProvider>, LlmEr
         }
         other => Err(LlmError::UnsupportedProvider(other.to_string())),
     }
+}
+
+/// Maximum allowed HTTP response body size from LLM providers (10 MB).
+///
+/// Prevents memory exhaustion from abnormally large responses (e.g., MITM attack
+/// or misconfigured proxy returning huge bodies). Normal LLM responses are
+/// typically < 100 KB.
+pub const MAX_RESPONSE_BODY_BYTES: u64 = 10 * 1024 * 1024;
+
+/// Check the Content-Length header of an HTTP response and reject if too large.
+///
+/// Returns `Err(LlmError::ApiError)` if the response body exceeds
+/// [`MAX_RESPONSE_BODY_BYTES`]. Responses without a Content-Length header
+/// are allowed through (the body is still bounded by reqwest's internal limits).
+pub fn check_response_size(response: &reqwest::Response) -> Result<(), LlmError> {
+    if let Some(len) = response.content_length() {
+        if len > MAX_RESPONSE_BODY_BYTES {
+            return Err(LlmError::ApiError {
+                status: response.status().as_u16(),
+                message: format!(
+                    "Response body too large: {} bytes (max {} bytes)",
+                    len, MAX_RESPONSE_BODY_BYTES
+                ),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Truncate text to fit within an approximate token budget.
@@ -234,6 +290,44 @@ pub fn truncate_to_token_budget(text: &str, max_tokens: usize) -> String {
 /// context window budgeting.
 pub fn estimate_tokens(text: &str) -> usize {
     (text.len() + 3) / 4 // ceiling division
+}
+
+/// Redact potential API key patterns from error message bodies.
+///
+/// LLM providers may echo back partial or full API keys in error responses
+/// (e.g., Anthropic 401 errors include the key prefix). This function strips
+/// common patterns to prevent accidental key leakage through error messages
+/// displayed in the UI or logs.
+pub fn redact_api_keys(text: &str) -> String {
+    // Truncate to a safe length first (no error body needs to be > 500 chars)
+    let truncated = if text.len() > 500 { &text[..500] } else { text };
+
+    let mut result = truncated.to_string();
+
+    // Redact known API key prefixes by finding them and replacing the
+    // prefix + subsequent alphanumeric/dash/underscore characters.
+    let prefixes: &[(&str, &str)] = &[
+        ("sk-ant-", "[REDACTED_ANTHROPIC_KEY]"),
+        ("sk-proj-", "[REDACTED_OPENAI_KEY]"),
+        ("sk-", "[REDACTED_API_KEY]"),
+        ("AIza", "[REDACTED_GEMINI_KEY]"),
+    ];
+
+    for &(prefix, replacement) in prefixes {
+        while let Some(start) = result.find(prefix) {
+            // Find the end of the key (alphanumeric, dash, underscore chars)
+            let key_end = result[start + prefix.len()..]
+                .find(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+                .map_or(result.len(), |pos| start + prefix.len() + pos);
+            // Only redact if the key-like string is at least 10 chars total
+            if key_end - start >= 10 {
+                result.replace_range(start..key_end, replacement);
+            } else {
+                break;
+            }
+        }
+    }
+    result
 }
 
 /// Build the system prompt for Pass 1 overview annotation.
@@ -858,5 +952,202 @@ mod tests {
         };
         let provider = create_provider(&config).unwrap();
         assert_eq!(provider.name(), "anthropic");
+    }
+
+    // ── Security: key_cmd injection prevention ──
+
+    #[test]
+    fn test_key_cmd_rejects_backtick_injection() {
+        let config = LlmConfig {
+            key_cmd: Some("echo `whoami`".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_api_key(&config, "anthropic");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            LlmError::KeyCmdError(msg) => {
+                assert!(msg.contains("dangerous shell character"));
+                assert!(msg.contains("`"));
+            }
+            other => panic!("Expected KeyCmdError, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_key_cmd_rejects_dollar_subshell() {
+        let config = LlmConfig {
+            key_cmd: Some("echo $(cat /etc/passwd)".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_api_key(&config, "anthropic");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            LlmError::KeyCmdError(msg) => assert!(msg.contains("dangerous")),
+            other => panic!("Expected KeyCmdError, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_key_cmd_rejects_pipe() {
+        let config = LlmConfig {
+            key_cmd: Some("cat /etc/passwd | base64".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_api_key(&config, "anthropic");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_key_cmd_rejects_semicolon() {
+        let config = LlmConfig {
+            key_cmd: Some("echo key; rm -rf /".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_api_key(&config, "anthropic");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_key_cmd_rejects_ampersand() {
+        let config = LlmConfig {
+            key_cmd: Some("echo key & evil_cmd".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_api_key(&config, "anthropic");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_key_cmd_rejects_redirect() {
+        let config = LlmConfig {
+            key_cmd: Some("echo key > /tmp/stolen".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_api_key(&config, "anthropic");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_key_cmd_rejects_newline() {
+        let config = LlmConfig {
+            key_cmd: Some("echo key\nwhoami".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_api_key(&config, "anthropic");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_key_cmd_allows_safe_op_read() {
+        // A typical 1Password command should be allowed
+        let result = validate_key_cmd("op read op://vault/item/field");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_key_cmd_allows_safe_echo() {
+        let result = validate_key_cmd("echo test-key");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_key_cmd_allows_pass_command() {
+        let result = validate_key_cmd("pass show flowdiff/api-key");
+        assert!(result.is_ok());
+    }
+
+    // ── Security: key_cmd error message redaction ──
+
+    #[test]
+    fn test_key_cmd_error_does_not_leak_command() {
+        let config = LlmConfig {
+            key_cmd: Some("false".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_api_key(&config, "anthropic");
+        let err_msg = format!("{}", result.unwrap_err());
+        // Should NOT contain the literal command string
+        assert!(!err_msg.contains("'false'"), "Error should not echo the command: {}", err_msg);
+    }
+
+    #[test]
+    fn test_key_cmd_empty_error_does_not_leak_command() {
+        let config = LlmConfig {
+            key_cmd: Some("printf ''".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_api_key(&config, "anthropic");
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(!err_msg.contains("printf"), "Error should not echo the command: {}", err_msg);
+    }
+
+    // ── Security: API key redaction from error bodies ──
+
+    #[test]
+    fn test_redact_anthropic_key() {
+        let body = r#"{"error":{"type":"authentication_error","message":"x-api-key header is invalid: sk-ant-api03-abcdef1234567890"}}"#;
+        let redacted = redact_api_keys(body);
+        assert!(!redacted.contains("sk-ant-api03"));
+        assert!(redacted.contains("[REDACTED_ANTHROPIC_KEY]"));
+    }
+
+    #[test]
+    fn test_redact_openai_key() {
+        let body = r#"{"error":{"message":"Incorrect API key provided: sk-proj-abc1234567890ABCDEF"}}"#;
+        let redacted = redact_api_keys(body);
+        assert!(!redacted.contains("sk-proj-abc"));
+        assert!(redacted.contains("[REDACTED_OPENAI_KEY]"));
+    }
+
+    #[test]
+    fn test_redact_gemini_key() {
+        let body = r#"{"error":{"message":"API key not valid: AIzaXXtestfakekey00000000000000000000"}}"#;
+        let redacted = redact_api_keys(body);
+        assert!(!redacted.contains("AIzaSy"));
+        assert!(redacted.contains("[REDACTED_GEMINI_KEY]"));
+    }
+
+    #[test]
+    fn test_redact_no_keys_preserves_text() {
+        let body = "Just a normal error message with no keys";
+        let redacted = redact_api_keys(body);
+        assert_eq!(redacted, body);
+    }
+
+    #[test]
+    fn test_redact_truncates_long_body() {
+        let body = "a".repeat(1000);
+        let redacted = redact_api_keys(&body);
+        assert!(redacted.len() <= 500);
+    }
+
+    #[test]
+    fn test_redact_multiple_keys_in_body() {
+        let body = "key1: sk-ant-api03-aaaaaaaaaa key2: sk-proj-bbbbbbbbbbbb";
+        let redacted = redact_api_keys(body);
+        assert!(!redacted.contains("sk-ant-"));
+        assert!(!redacted.contains("sk-proj-"));
+    }
+
+    // ── Security: response body size limit ──
+
+    #[test]
+    fn test_max_response_body_bytes_is_10mb() {
+        assert_eq!(MAX_RESPONSE_BODY_BYTES, 10 * 1024 * 1024);
+    }
+
+    // ── Security: validate_key_cmd comprehensive ──
+
+    #[test]
+    fn test_validate_key_cmd_all_dangerous_chars() {
+        for ch in DANGEROUS_SHELL_CHARS {
+            let cmd = format!("echo test{}cmd", ch);
+            let result = validate_key_cmd(&cmd);
+            assert!(
+                result.is_err(),
+                "Should reject char '{}' but didn't",
+                ch
+            );
+        }
     }
 }

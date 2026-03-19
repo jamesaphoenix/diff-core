@@ -535,6 +535,20 @@ fn run_launch(args: LaunchArgs) -> Result<(), Box<dyn std::error::Error>> {
     let file_paths: Vec<&str> = group.files.iter().map(|f| f.path.as_str()).collect();
 
     for file_path in &file_paths {
+        // Security: reject paths with traversal components or absolute paths
+        // to prevent arbitrary file read/write via crafted analysis JSON.
+        let path = std::path::Path::new(file_path);
+        if path.is_absolute()
+            || path
+                .components()
+                .any(|c| c == std::path::Component::ParentDir)
+        {
+            return Err(
+                format!("Unsafe file path in analysis JSON (path traversal rejected): {}", file_path)
+                    .into(),
+            );
+        }
+
         // Get base content from git ref
         if let Some(ref base) = base_ref {
             if let Ok(Some(content)) = git::file_content_at_ref(&repo, base, file_path) {
@@ -556,7 +570,7 @@ fn run_launch(args: LaunchArgs) -> Result<(), Box<dyn std::error::Error>> {
                 std::fs::write(&dest, content)?;
             }
         } else {
-            // Read from working tree
+            // Read from working tree — also validate src stays within workdir
             let src = workdir.join(file_path);
             if src.exists() {
                 let dest = head_dir.join(file_path);

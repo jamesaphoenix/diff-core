@@ -113,6 +113,11 @@ describe("Risk badge", () => {
 
 // ── Mermaid graph generation tests ──────────────────────────────────
 
+/** Escape a string for use inside a Mermaid node label (within double quotes). */
+function escapeMermaidLabel(s: string): string {
+  return s.replace(/"/g, "#quot;").replace(/</g, "#lt;").replace(/>/g, "#gt;");
+}
+
 function buildMermaid(group: FlowGroup): string {
   if (group.edges.length === 0) {
     return "graph TD\n  A[No edges]";
@@ -132,8 +137,8 @@ function buildMermaid(group: FlowGroup): string {
   for (const edge of group.edges) {
     const fromId = getNodeId(edge.from);
     const toId = getNodeId(edge.to);
-    const fromLabel = edge.from.split("::").pop() ?? edge.from;
-    const toLabel = edge.to.split("::").pop() ?? edge.to;
+    const fromLabel = escapeMermaidLabel(edge.from.split("::").pop() ?? edge.from);
+    const toLabel = escapeMermaidLabel(edge.to.split("::").pop() ?? edge.to);
     lines.push(`  ${fromId}["${fromLabel}"] -->|${edge.edge_type}| ${toId}["${toLabel}"]`);
   }
 
@@ -291,5 +296,51 @@ describe("Pass2 annotation structure", () => {
     };
     expect(annotation.risks).toHaveLength(0);
     expect(annotation.suggestions).toHaveLength(0);
+  });
+});
+
+// ── Security: Mermaid label escaping tests ──────────────────────────
+
+describe("Mermaid label escaping", () => {
+  it("escapes double quotes in symbol names", () => {
+    const label = escapeMermaidLabel('foo"bar');
+    expect(label).toBe("foo#quot;bar");
+    expect(label).not.toContain('"');
+  });
+
+  it("escapes < and > in symbol names", () => {
+    const label = escapeMermaidLabel("Array<string>");
+    expect(label).toBe("Array#lt;string#gt;");
+    expect(label).not.toContain("<");
+    expect(label).not.toContain(">");
+  });
+
+  it("preserves normal labels unchanged", () => {
+    const label = escapeMermaidLabel("createUser");
+    expect(label).toBe("createUser");
+  });
+
+  it("escapes labels in Mermaid graph output", () => {
+    const edges: FlowEdge[] = [
+      {
+        from: 'src/file.ts::handle"quote',
+        to: "src/other.ts::Array<T>",
+        edge_type: "Calls",
+      },
+    ];
+    const group = makeGroup({ edges });
+    const mermaid = buildMermaid(group);
+    expect(mermaid).toContain("#quot;");
+    expect(mermaid).toContain("#lt;");
+    expect(mermaid).toContain("#gt;");
+    // Should NOT contain raw special chars inside labels
+    expect(mermaid).not.toMatch(/\["[^"]*"[^"]*"\]/);
+  });
+
+  it("handles multiple special chars in one label", () => {
+    const label = escapeMermaidLabel('<script>"alert"</script>');
+    expect(label).not.toContain("<");
+    expect(label).not.toContain(">");
+    expect(label).not.toContain('"');
   });
 });

@@ -268,6 +268,20 @@ pub fn get_file_diff(
     staged: bool,
     unstaged: bool,
 ) -> Result<FileDiffContent, CommandError> {
+    // Security: reject paths with traversal components or absolute paths
+    // to prevent path traversal via IPC from a compromised frontend.
+    let fp = std::path::Path::new(&file_path);
+    if fp.is_absolute()
+        || fp
+            .components()
+            .any(|c| c == std::path::Component::ParentDir)
+    {
+        return Err(CommandError::Io(format!(
+            "Invalid file path (path traversal rejected): {}",
+            file_path
+        )));
+    }
+
     let repo_path = PathBuf::from(&repo_path);
     let repo_path = std::fs::canonicalize(&repo_path)
         .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
