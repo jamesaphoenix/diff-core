@@ -8,5 +8,6 @@ pub mod graph;
 pub mod ir;
 pub mod llm;
 pub mod output;
+pub mod query_engine;
 pub mod rank;
 pub mod types;
