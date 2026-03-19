@@ -1,15 +1,20 @@
-import { useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   ReactFlow,
   Background,
   MiniMap,
+  Controls,
   type Node,
   type Edge,
   type NodeMouseHandler,
+  type EdgeProps,
   Position,
+  getBezierPath,
+  MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "@dagrejs/dagre";
+import { toPng, toSvg } from "html-to-image";
 import type { FlowEdge, FileChange, EdgeType } from "../types";
 
 interface FlowGraphProps {
@@ -59,6 +64,13 @@ function extractFilePath(symbol: string): string {
   return symbol.split("::")[0];
 }
 
+/** Shorten a file path to last 2 segments. */
+function shortPath(path: string): string {
+  const parts = path.split("/");
+  if (parts.length <= 2) return path;
+  return parts.slice(-2).join("/");
+}
+
 /** Deduplicate edges to file-level (multiple symbol edges between same files → one edge). */
 function deduplicateEdges(
   edges: FlowEdge[],
@@ -89,7 +101,8 @@ function layoutGraph(
 ): { nodes: Node[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: "TB", ranksep: 60, nodesep: 40, marginx: 20, marginy: 20 });
+  // (5) Better node spacing — increased ranksep and nodesep
+  g.setGraph({ rankdir: "TB", ranksep: 80, nodesep: 60, marginx: 30, marginy: 30 });
 
   const nodeWidth = 200;
   const nodeHeight = 56;
@@ -121,27 +134,23 @@ function buildGraph(
   flowEdges: FlowEdge[],
   files: FileChange[],
 ): { nodes: Node[]; edges: Edge[] } {
-  // Build a lookup of file path → FileChange
   const fileMap = new Map<string, FileChange>();
   for (const f of files) {
     fileMap.set(f.path, f);
   }
 
-  // Collect unique file-level nodes from edges
   const nodeIds = new Set<string>();
   for (const e of flowEdges) {
     nodeIds.add(extractFilePath(e.from));
     nodeIds.add(extractFilePath(e.to));
   }
-  // Also add files that have no edges but are in the group
   for (const f of files) {
     nodeIds.add(f.path);
   }
 
   const nodes: Node[] = Array.from(nodeIds).map((id) => {
     const file = fileMap.get(id);
-    const parts = id.split("/");
-    const label = parts.length <= 2 ? id : parts.slice(-2).join("/");
+    const label = shortPath(id);
     return {
       id,
       type: "flowNode",
@@ -151,45 +160,168 @@ function buildGraph(
         additions: file?.changes.additions ?? 0,
         deletions: file?.changes.deletions ?? 0,
         filePath: id,
+        selected: false,
       },
       position: { x: 0, y: 0 },
     };
   });
 
-  // Deduplicate to file-level edges
   const deduped = deduplicateEdges(flowEdges);
 
   const edges: Edge[] = deduped.map((e, i) => {
     const primaryType = e.types[0];
     const color = EDGE_COLORS[primaryType] || "#6c7086";
     const label = e.types.map((t) => EDGE_LABELS[t]).join(", ");
+    const hoverDetail = `${shortPath(e.from)} \u2192 ${shortPath(e.to)}`;
+
     return {
       id: `e-${i}`,
       source: e.from,
       target: e.to,
-      label,
+      type: "animatedBezier",
+      data: {
+        label,
+        color,
+        hoverDetail,
+        dimmed: false,
+      },
       style: { stroke: color, strokeWidth: 2 },
-      labelStyle: { fill: "#a6adc8", fontSize: 10, fontFamily: "'JetBrains Mono', monospace" },
-      labelBgStyle: { fill: "#1e1e2e", fillOpacity: 0.85 },
-      labelBgPadding: [4, 2] as [number, number],
-      animated: primaryType === "Calls",
-      type: "smoothstep",
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color,
+        width: 16,
+        height: 16,
+      },
     };
   });
 
   return layoutGraph(nodes, edges);
 }
 
-/** Custom node component for flow graph nodes. */
+/** (1) Custom animated bezier edge with flowing dot showing data direction. */
+function AnimatedBezierEdge({
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  data,
+  markerEnd,
+}: EdgeProps) {
+  const [hovered, setHovered] = useState(false);
+
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
+  const color = (data?.color as string) || (style?.stroke as string) || "#6c7086";
+  const dimmed = data?.dimmed as boolean;
+  const opacity = dimmed ? 0.15 : 1;
+  const label = data?.label as string;
+  const hoverDetail = data?.hoverDetail as string;
+
+  return (
+    <g
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Invisible wider hit area for hover detection */}
+      <path d={edgePath} fill="none" stroke="transparent" strokeWidth={20} style={{ cursor: "pointer" }} />
+
+      {/* Visible bezier edge */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke={color}
+        strokeWidth={dimmed ? 1 : 2}
+        opacity={opacity}
+        markerEnd={markerEnd as string}
+        className="react-flow__edge-path"
+      />
+
+      {/* (1) Flowing dot animation along edge showing data direction */}
+      {!dimmed && (
+        <circle r={3} fill={color} opacity={0.8}>
+          <animateMotion dur="2.5s" repeatCount="indefinite" path={edgePath} />
+        </circle>
+      )}
+
+      {/* Edge label — always visible, enhanced on hover */}
+      {label && !dimmed && (
+        <>
+          <rect
+            x={labelX - 28}
+            y={labelY - 9}
+            width={56}
+            height={18}
+            rx={4}
+            fill={hovered ? "#313244" : "#1e1e2e"}
+            fillOpacity={hovered ? 0.95 : 0.8}
+            stroke={hovered ? color : "transparent"}
+            strokeWidth={0.5}
+          />
+          <text
+            x={labelX}
+            y={labelY + 4}
+            textAnchor="middle"
+            fill={hovered ? color : "#a6adc8"}
+            fontSize={10}
+            fontFamily="'JetBrains Mono', monospace"
+          >
+            {label}
+          </text>
+        </>
+      )}
+
+      {/* (2) Hover tooltip with full from → to path detail */}
+      {hovered && hoverDetail && !dimmed && (
+        <>
+          <rect
+            x={labelX - 80}
+            y={labelY + 14}
+            width={160}
+            height={18}
+            rx={4}
+            fill="#313244"
+            fillOpacity={0.95}
+            stroke={color}
+            strokeWidth={0.5}
+          />
+          <text
+            x={labelX}
+            y={labelY + 27}
+            textAnchor="middle"
+            fill="#a6adc8"
+            fontSize={9}
+            fontFamily="'JetBrains Mono', monospace"
+          >
+            {hoverDetail}
+          </text>
+        </>
+      )}
+    </g>
+  );
+}
+
+/** (3) Custom node component with hover tooltip. */
 function FlowNode({ data }: { data: Record<string, unknown> }) {
   const role = data.role as string;
   const label = data.label as string;
+  const filePath = data.filePath as string;
   const additions = data.additions as number;
   const deletions = data.deletions as number;
+  const isSelected = data.selected as boolean;
   const roleColor = ROLE_COLORS[role] || "#6c7086";
 
   return (
-    <div className="flow-node">
+    <div className={`flow-node ${isSelected ? "flow-node-selected" : ""}`}>
       <div className="flow-node-header">
         <span className="flow-node-role" style={{ color: roleColor }}>{role}</span>
         <span className="flow-node-changes">
@@ -198,24 +330,119 @@ function FlowNode({ data }: { data: Record<string, unknown> }) {
         </span>
       </div>
       <div className="flow-node-label">{label}</div>
+      {/* Hover tooltip with full file path and change summary */}
+      <div className="flow-node-tooltip">
+        <div className="flow-node-tooltip-path">{filePath}</div>
+        <div className="flow-node-tooltip-stats">
+          <span className="flow-node-add">+{additions}</span>{" "}
+          <span className="flow-node-del">-{deletions}</span> lines changed
+        </div>
+      </div>
     </div>
   );
 }
 
 const nodeTypes = { flowNode: FlowNode };
+const edgeTypes = { animatedBezier: AnimatedBezierEdge };
 
 /** Max nodes before falling back to a simple list. */
 const MAX_INTERACTIVE_NODES = 100;
 
+/** (8) Legend overlay showing edge type → color mapping. */
+function Legend() {
+  const [collapsed, setCollapsed] = useState(true);
+
+  return (
+    <div className="flow-legend">
+      <button
+        className="flow-legend-toggle"
+        onClick={() => setCollapsed(!collapsed)}
+        title="Toggle legend"
+      >
+        {collapsed ? "\u25C6 Legend" : "\u25BC Legend"}
+      </button>
+      {!collapsed && (
+        <div className="flow-legend-items">
+          {(Object.entries(EDGE_COLORS) as [EdgeType, string][]).map(([type, color]) => (
+            <div key={type} className="flow-legend-item">
+              <span className="flow-legend-line" style={{ backgroundColor: color }} />
+              <span className="flow-legend-label">{EDGE_LABELS[type]}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** (9) Export graph as PNG/SVG buttons. */
+function ExportButtons({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
+  const handleExport = useCallback(async (format: "png" | "svg") => {
+    const el = containerRef.current;
+    if (!el) return;
+    try {
+      const dataUrl = format === "png"
+        ? await toPng(el, { backgroundColor: "#181825", pixelRatio: 2 })
+        : await toSvg(el, { backgroundColor: "#181825" });
+      const link = document.createElement("a");
+      link.download = `flowdiff-graph.${format}`;
+      link.href = dataUrl;
+      link.click();
+    } catch {
+      // Export is best-effort; silently fail
+    }
+  }, [containerRef]);
+
+  return (
+    <div className="flow-export-buttons">
+      <button className="flow-export-btn" onClick={() => handleExport("png")} title="Export as PNG">
+        PNG
+      </button>
+      <button className="flow-export-btn" onClick={() => handleExport("svg")} title="Export as SVG">
+        SVG
+      </button>
+    </div>
+  );
+}
+
 export default function FlowGraph({ edges, files, onNodeClick }: FlowGraphProps) {
-  const { nodes, edges: rfEdges } = useMemo(
+  const { nodes: initialNodes, edges: initialEdges } = useMemo(
     () => buildGraph(edges, files),
     [edges, files],
   );
 
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // (6) Dim non-connected edges when a node is selected
+  const processedEdges = useMemo(() => {
+    if (!selectedNodeId) return initialEdges;
+    return initialEdges.map((edge) => ({
+      ...edge,
+      data: {
+        ...edge.data,
+        dimmed: edge.source !== selectedNodeId && edge.target !== selectedNodeId,
+      },
+    }));
+  }, [initialEdges, selectedNodeId]);
+
+  // Track selected node for visual highlight
+  const processedNodes = useMemo(() => {
+    if (!selectedNodeId) return initialNodes;
+    return initialNodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        selected: node.id === selectedNodeId,
+      },
+    }));
+  }, [initialNodes, selectedNodeId]);
+
   const handleNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {
       const filePath = node.data.filePath as string;
+      setSelectedNodeId(node.id);
       if (filePath && onNodeClick) {
         onNodeClick(filePath);
       }
@@ -223,28 +450,60 @@ export default function FlowGraph({ edges, files, onNodeClick }: FlowGraphProps)
     [onNodeClick],
   );
 
+  const handlePaneClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, []);
+
+  // (4) Fullscreen: Escape key exits
+  useEffect(() => {
+    if (!fullscreen) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setFullscreen(false);
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [fullscreen]);
+
   // Fallback for very large graphs
-  if (nodes.length > MAX_INTERACTIVE_NODES) {
+  if (initialNodes.length > MAX_INTERACTIVE_NODES) {
     return (
       <div className="flow-graph-fallback">
-        <p>Graph too large ({nodes.length} nodes). Showing edge list instead.</p>
+        <p>Graph too large ({initialNodes.length} nodes). Showing edge list instead.</p>
       </div>
     );
   }
 
-  if (nodes.length === 0) {
+  if (initialNodes.length === 0) {
     return null;
   }
 
   return (
-    <div className="flow-graph-container" data-testid="flow-graph">
+    <div
+      ref={containerRef}
+      className={`flow-graph-container ${fullscreen ? "flow-graph-fullscreen" : ""}`}
+      data-testid="flow-graph"
+    >
+      {/* (4) Fullscreen toggle */}
+      <button
+        className="flow-fullscreen-btn"
+        onClick={() => setFullscreen(!fullscreen)}
+        title={fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"}
+      >
+        {fullscreen ? "\u2935" : "\u2922"}
+      </button>
+
+      {/* (9) Export buttons */}
+      <ExportButtons containerRef={containerRef} />
+
       <ReactFlow
-        nodes={nodes}
-        edges={rfEdges}
+        nodes={processedNodes}
+        edges={processedEdges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodeClick={handleNodeClick}
+        onPaneClick={handlePaneClick}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={{ padding: 0.2, duration: 800 }}
         minZoom={0.3}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
@@ -256,14 +515,18 @@ export default function FlowGraph({ edges, files, onNodeClick }: FlowGraphProps)
         colorMode="dark"
       >
         <Background color="#45475a" gap={16} size={1} />
-        {nodes.length >= 6 && (
+        {initialNodes.length >= 6 && (
           <MiniMap
             nodeColor={(n) => ROLE_COLORS[(n.data as Record<string, unknown>).role as string] || "#6c7086"}
             maskColor="rgba(30, 30, 46, 0.7)"
             style={{ background: "#181825", border: "1px solid #45475a" }}
           />
         )}
+        <Controls showInteractive={false} />
       </ReactFlow>
+
+      {/* (8) Legend overlay */}
+      <Legend />
     </div>
   );
 }

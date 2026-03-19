@@ -475,6 +475,16 @@ body {
   overflow: hidden;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
+  position: relative;
+}
+
+.flow-graph-container.flow-graph-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  height: 100vh;
+  border-radius: 0;
+  border: none;
 }
 
 .flow-graph-container .react-flow__background {
@@ -489,11 +499,17 @@ body {
   min-width: 160px;
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
 }
 
 .flow-node:hover {
   border-color: var(--accent);
-  box-shadow: 0 0 8px rgba(137, 180, 250, 0.25);
+  box-shadow: 0 0 12px rgba(137, 180, 250, 0.3);
+}
+
+.flow-node-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 16px rgba(137, 180, 250, 0.4);
 }
 
 .flow-node-header {
@@ -539,6 +555,175 @@ body {
   font-size: 11px;
   color: var(--text-muted);
   text-align: center;
+}
+
+/* Node hover tooltip */
+.flow-node-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  white-space: nowrap;
+  z-index: 20;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.flow-node:hover .flow-node-tooltip {
+  display: block;
+}
+
+.flow-node-tooltip-path {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.flow-node-tooltip-stats {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+/* Fullscreen toggle button */
+.flow-fullscreen-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.flow-fullscreen-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Export buttons */
+.flow-export-buttons {
+  position: absolute;
+  top: 6px;
+  right: 40px;
+  z-index: 10;
+  display: flex;
+  gap: 4px;
+}
+
+.flow-export-btn {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.flow-export-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+/* Legend overlay */
+.flow-legend {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 10;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.flow-legend-toggle {
+  display: block;
+  width: 100%;
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  text-align: left;
+}
+
+.flow-legend-toggle:hover {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+
+.flow-legend-items {
+  padding: 4px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.flow-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flow-legend-line {
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.flow-legend-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+/* React Flow Controls styling */
+.flow-graph-container .react-flow__controls {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.flow-graph-container .react-flow__controls-button {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 24px;
+  height: 24px;
+}
+
+.flow-graph-container .react-flow__controls-button:hover {
+  background: var(--bg-hover);
+}
+
+.flow-graph-container .react-flow__controls-button svg {
+  fill: var(--text-secondary);
 }
 
 /* ── Keyboard Hints ── */

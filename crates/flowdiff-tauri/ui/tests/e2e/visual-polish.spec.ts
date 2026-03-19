@@ -234,7 +234,8 @@ test.describe("Visual Polish — Screenshot Baseline", () => {
 
     // Verify inputs populated
     await expect(page.locator(".repo-input")).toHaveValue("/demo/repo");
-    await expect(page.locator(".base-input")).toHaveValue("main");
+    // Base branch is now a dropdown; verify the displayed branch name
+    await expect(page.locator(".branch-dropdown-trigger .branch-name")).toContainText("main");
   });
 
   test("11 — flow graph close-up", async ({ page }) => {
