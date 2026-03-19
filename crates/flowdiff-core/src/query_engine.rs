@@ -140,7 +140,7 @@ fn collect_matches<'tree>(
     source: &'tree [u8],
 ) -> Vec<CollectedMatch<'tree>> {
     let mut result = Vec::new();
-    let mut matches = cursor.matches(&query, root, source);
+    let mut matches = cursor.matches(query, root, source);
     loop {
         matches.advance();
         match matches.get() {
@@ -936,7 +936,7 @@ impl QueryEngine {
                             .map(|n| node_text(&n, source).to_string())
                             .unwrap_or_default();
                         let (start_line, end_line, node_start) =
-                            node_span(&m, const_node_idx);
+                            node_span(m, const_node_idx);
                         if !name_text.is_empty() {
                             let key = (node_start, hash_str(&name_text));
                             if !seen_nodes.contains(&key) {
@@ -960,7 +960,7 @@ impl QueryEngine {
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
                             let (start_line, end_line, node_start) =
-                                node_span(&m, node_cap);
+                                node_span(m, node_cap);
                             if !name_text.is_empty() {
                                 let key = (node_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
@@ -1014,7 +1014,7 @@ impl QueryEngine {
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
                             let (start_line, end_line, node_start) =
-                                node_span(&m, node_cap);
+                                node_span(m, node_cap);
                             if !name_text.is_empty() {
                                 let key = (node_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
@@ -2181,6 +2181,308 @@ mod prop_tests {
             for exp in &result.exports {
                 prop_assert!(!exp.name.is_empty());
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8 audit: edge case tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+mod audit_tests {
+    use super::*;
+
+    fn engine() -> QueryEngine {
+        QueryEngine::new().expect("query engine should compile")
+    }
+
+    #[test]
+    fn test_ts_abstract_class() {
+        let e = engine();
+        let source = "abstract class Base { abstract process(): void; helper() {} }";
+        let result = e.parse_file("base.ts", source).unwrap();
+        assert!(
+            result.definitions.iter().any(|d| d.name == "Base" && d.kind == SymbolKind::Class),
+            "abstract classes should be captured"
+        );
+        assert!(result.definitions.iter().any(|d| d.name == "helper"));
+    }
+
+    #[test]
+    fn test_ts_generator_function() {
+        let e = engine();
+        let result = e
+            .parse_file("gen.ts", "function* gen() { yield 1; }")
+            .unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "gen" && d.kind == SymbolKind::Function));
+    }
+
+    #[test]
+    fn test_ts_export_default_expression() {
+        // Known limitation: the query engine's exports.scm captures exported
+        // declarations (export function/class/const/etc.) but not bare
+        // `export default <expression>`. The imperative ast.rs parser handles
+        // this via the `value` field fallback. Document the gap here.
+        let e = engine();
+        let source = "const app = createApp();\nexport default app;\n";
+        let result = e.parse_file("app.ts", source).unwrap();
+        // The imperative parser captures this; query engine does not (known gap)
+        let ast_result = crate::ast::parse_file("app.ts", source).unwrap();
+        assert!(
+            ast_result.exports.iter().any(|e| e.is_default),
+            "ast.rs should capture export default expression"
+        );
+        // Query engine may or may not capture it — this is a known gap
+        // (exports.scm needs a pattern for `export default <expression>`)
+    }
+
+    #[test]
+    fn test_ts_multiple_exports_same_line() {
+        let e = engine();
+        let source = "export { a, b, c };";
+        let result = e.parse_file("mod.ts", source).unwrap();
+        let names: Vec<&str> = result.exports.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"a"));
+        assert!(names.contains(&"b"));
+        assert!(names.contains(&"c"));
+    }
+
+    #[test]
+    fn test_ts_reexport_with_rename() {
+        let e = engine();
+        let source = "export { foo as bar } from './mod';";
+        let result = e.parse_file("index.ts", source).unwrap();
+        // The query engine should capture the re-export
+        assert!(!result.exports.is_empty());
+        // Should have the re-export source
+        assert!(result.exports.iter().any(|e| e.is_reexport));
+    }
+
+    #[test]
+    fn test_python_from_relative_import() {
+        let e = engine();
+        let result = e.parse_file("pkg/sub.py", "from . import utils").unwrap();
+        assert_eq!(result.imports.len(), 1);
+        assert_eq!(result.imports[0].source, ".");
+        assert!(result.imports[0].names.iter().any(|n| n.name == "utils"));
+    }
+
+    #[test]
+    fn test_python_from_import_aliased() {
+        let e = engine();
+        let result = e
+            .parse_file("app.py", "from models import User as U")
+            .unwrap();
+        assert_eq!(result.imports.len(), 1);
+        assert_eq!(result.imports[0].source, "models");
+        assert_eq!(result.imports[0].names[0].name, "User");
+        assert_eq!(result.imports[0].names[0].alias, Some("U".to_string()));
+    }
+
+    #[test]
+    fn test_ts_unicode_identifiers() {
+        let e = engine();
+        let source = "function grüßen() {}\nconst αβγ = 42;\n";
+        let result = e.parse_file("unicode.ts", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "grüßen"));
+        assert!(result.definitions.iter().any(|d| d.name == "αβγ"));
+    }
+
+    #[test]
+    fn test_ts_syntax_error_partial_results() {
+        let e = engine();
+        let source = "function valid() {}\nconst x = {{{;\nfunction alsoValid() {}";
+        let result = e.parse_file("broken.ts", source).unwrap();
+        // tree-sitter does partial parsing — the definition before the error survives
+        assert!(result.definitions.iter().any(|d| d.name == "valid"));
+        // Recovery after errors is best-effort — later defs may or may not be captured
+        assert_eq!(result.language, Language::TypeScript);
+    }
+
+    #[test]
+    fn test_ts_let_and_var_declarations() {
+        let e = engine();
+        let source = "let x = 1;\nvar y = 2;\n";
+        let result = e.parse_file("vars.ts", source).unwrap();
+        // let and var are variable_declarations, should be captured as constants
+        assert!(result.definitions.iter().any(|d| d.name == "x"));
+        assert!(result.definitions.iter().any(|d| d.name == "y"));
+    }
+
+    #[test]
+    fn test_python_decorated_class() {
+        let e = engine();
+        let source = "@dataclass\nclass User:\n    name: str\n    def greet(self):\n        pass";
+        let result = e.parse_file("models.py", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "User" && d.kind == SymbolKind::Class));
+        assert!(result.definitions.iter().any(|d| d.name == "greet" && d.kind == SymbolKind::Function));
+    }
+
+    #[test]
+    fn test_hash_str_no_collision_for_common_names() {
+        // Verify the hash function gives different results for common definition names
+        let names = [
+            "foo", "bar", "baz", "get", "set", "create", "update", "delete",
+            "handler", "process", "validate", "transform", "save", "load",
+        ];
+        let hashes: Vec<usize> = names.iter().map(|n| hash_str(n)).collect();
+        for i in 0..hashes.len() {
+            for j in (i + 1)..hashes.len() {
+                assert_ne!(
+                    hashes[i], hashes[j],
+                    "hash collision between '{}' and '{}'",
+                    names[i], names[j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_ts_deeply_nested_call_containing_function() {
+        let e = engine();
+        let source = r#"
+function outer() {
+    function inner() {
+        deepCall();
+    }
+    outerCall();
+}
+"#;
+        let result = e.parse_file("nested.ts", source).unwrap();
+        let deep = result.call_sites.iter().find(|c| c.callee == "deepCall").unwrap();
+        assert_eq!(deep.containing_function, Some("inner".to_string()));
+
+        let outer_call = result.call_sites.iter().find(|c| c.callee == "outerCall").unwrap();
+        assert_eq!(outer_call.containing_function, Some("outer".to_string()));
+    }
+
+    #[test]
+    fn test_ts_arrow_function_containing() {
+        let e = engine();
+        let source = "const handler = () => { innerCall(); };";
+        let result = e.parse_file("fn.ts", source).unwrap();
+        let call = result.call_sites.iter().find(|c| c.callee == "innerCall").unwrap();
+        assert_eq!(call.containing_function, Some("handler".to_string()));
+    }
+
+    #[test]
+    fn test_ts_comments_only_empty_result() {
+        let e = engine();
+        let source = "// comment\n/* block */\n/** jsdoc */\n";
+        let result = e.parse_file("comments.ts", source).unwrap();
+        assert!(result.definitions.is_empty());
+        assert!(result.imports.is_empty());
+        assert!(result.exports.is_empty());
+        assert!(result.call_sites.is_empty());
+    }
+
+    #[test]
+    fn test_ts_export_multiple_const() {
+        let e = engine();
+        let source = "export const A = 1, B = 2;";
+        let result = e.parse_file("consts.ts", source).unwrap();
+        assert!(result.exports.iter().any(|ex| ex.name == "A"));
+        assert!(result.exports.iter().any(|ex| ex.name == "B"));
+    }
+
+    #[test]
+    fn test_ts_class_with_multiple_methods() {
+        let e = engine();
+        let source = "class Router {\n    get() {}\n    post() {}\n    delete() {}\n}";
+        let result = e.parse_file("router.ts", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "Router" && d.kind == SymbolKind::Class));
+        assert!(result.definitions.iter().any(|d| d.name == "get"));
+        assert!(result.definitions.iter().any(|d| d.name == "post"));
+        assert!(result.definitions.iter().any(|d| d.name == "delete"));
+    }
+
+    #[test]
+    fn test_python_method_call_with_args() {
+        let e = engine();
+        let df = e
+            .extract_data_flow("app.py", "db.save(user, commit=True)")
+            .unwrap();
+        assert_eq!(df.calls_with_args.len(), 1);
+        assert_eq!(df.calls_with_args[0].callee, "db.save");
+        // keyword arg value should be captured
+        assert!(df.calls_with_args[0].arguments.contains(&"user".to_string()));
+        assert!(df.calls_with_args[0].arguments.contains(&"True".to_string()));
+    }
+
+    #[test]
+    fn test_ts_data_flow_method_chain_assignment() {
+        let e = engine();
+        let df = e
+            .extract_data_flow("app.ts", "const result = db.query.findMany();")
+            .unwrap();
+        assert_eq!(df.assignments.len(), 1);
+        assert_eq!(df.assignments[0].variable, "result");
+        assert_eq!(df.assignments[0].callee, "db.query.findMany");
+    }
+
+    #[test]
+    fn test_parity_ts_exports_match_ast() {
+        let e = engine();
+        let source = r#"
+export function fn1() {}
+export default function fn2() {}
+export { a, b };
+export { c } from './mod';
+export * from './all';
+export const VAL = 1;
+export class Cls {}
+export interface IFace {}
+export type TAlias = number;
+"#;
+        let qe = e.parse_file("parity.ts", source).unwrap();
+        let ast = crate::ast::parse_file("parity.ts", source).unwrap();
+
+        assert_eq!(
+            qe.exports.len(),
+            ast.exports.len(),
+            "export count mismatch: qe={} vs ast={}",
+            qe.exports.len(),
+            ast.exports.len()
+        );
+
+        // Every export name from ast should be in qe
+        for ast_exp in &ast.exports {
+            assert!(
+                qe.exports.iter().any(|e| e.name == ast_exp.name),
+                "missing export '{}' in query engine",
+                ast_exp.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_parity_ts_data_flow_match_ast() {
+        let e = engine();
+        let source = r#"
+function handler(req: any) {
+    const data = parseBody(req);
+    const user = await fetchUser(data.id);
+    return respond(user);
+}
+"#;
+        let qe_df = e.extract_data_flow("handler.ts", source).unwrap();
+        let ast_df = crate::ast::extract_data_flow_info("handler.ts", source).unwrap();
+
+        assert_eq!(
+            qe_df.assignments.len(),
+            ast_df.assignments.len(),
+            "assignment count mismatch"
+        );
+
+        for ast_a in &ast_df.assignments {
+            assert!(
+                qe_df.assignments.iter().any(|a| a.variable == ast_a.variable && a.callee == ast_a.callee),
+                "missing assignment {}.{} in query engine",
+                ast_a.variable,
+                ast_a.callee
+            );
         }
     }
 }

@@ -2205,4 +2205,289 @@ function process() {
         assert!(consumers_using_data.contains(&"transform"));
         assert!(consumers_using_data.contains(&"save"));
     }
+
+    // ========================================================================
+    // Phase 8 audit: edge case tests
+    // ========================================================================
+
+    #[test]
+    fn test_ts_enum_declaration_not_captured() {
+        // Known limitation: TS enums are not extracted as definitions.
+        // This test documents the behavior so it's visible.
+        let source = r#"
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+"#;
+        let result = parse_file("types.ts", source).unwrap();
+        // Enums are not captured — this documents the gap.
+        assert!(
+            result.definitions.iter().all(|d| d.name != "Color"),
+            "TS enums are not captured by the current parser"
+        );
+    }
+
+    #[test]
+    fn test_changed_symbols_same_span_different_body() {
+        // If a function changes body but keeps the same line count,
+        // detect_changed_symbols won't flag it as modified (by design — compares span size).
+        let old_source = "function foo() {\n  return 1;\n}\n";
+        let new_source = "function foo() {\n  return 2;\n}\n";
+        let old = parse_file("lib.ts", old_source).unwrap();
+        let new = parse_file("lib.ts", new_source).unwrap();
+        let changes = detect_changed_symbols(&old, &new);
+        // Same span size → not detected as modified (design limitation)
+        assert!(
+            changes.is_empty(),
+            "same-span changes are not detected by span comparison"
+        );
+    }
+
+    #[test]
+    fn test_ts_abstract_class() {
+        let source = r#"
+abstract class BaseService {
+    abstract process(): void;
+    helper() { return 1; }
+}
+"#;
+        let result = parse_file("service.ts", source).unwrap();
+        let base_svc = result.definitions.iter().find(|d| d.name == "BaseService");
+        assert!(base_svc.is_some(), "abstract classes should be captured");
+        assert_eq!(base_svc.unwrap().kind, SymbolKind::Class);
+
+        // Method inside abstract class
+        assert!(result.definitions.iter().any(|d| d.name == "helper"));
+    }
+
+    #[test]
+    fn test_ts_generator_function() {
+        let source = r#"
+function* generate() {
+    yield 1;
+    yield 2;
+}
+"#;
+        let result = parse_file("gen.ts", source).unwrap();
+        let gen = result.definitions.iter().find(|d| d.name == "generate");
+        assert!(gen.is_some(), "generator functions should be captured");
+        assert_eq!(gen.unwrap().kind, SymbolKind::Function);
+    }
+
+    #[test]
+    fn test_ts_multiple_classes_with_methods() {
+        let source = r#"
+class A {
+    foo() {}
+}
+class B {
+    foo() {}
+    bar() {}
+}
+"#;
+        let result = parse_file("classes.ts", source).unwrap();
+        let classes: Vec<&str> = result
+            .definitions
+            .iter()
+            .filter(|d| d.kind == SymbolKind::Class)
+            .map(|d| d.name.as_str())
+            .collect();
+        assert!(classes.contains(&"A"));
+        assert!(classes.contains(&"B"));
+
+        // Both classes have foo() methods — both should be captured
+        let foos: Vec<&Definition> = result
+            .definitions
+            .iter()
+            .filter(|d| d.name == "foo" && d.kind == SymbolKind::Function)
+            .collect();
+        assert_eq!(foos.len(), 2, "both foo() methods should be captured");
+    }
+
+    #[test]
+    fn test_ts_unicode_identifiers() {
+        let source = r#"
+function grüßen(名前: string): string {
+    return `Hello ${名前}`;
+}
+const αβγ = 42;
+"#;
+        let result = parse_file("unicode.ts", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "grüßen"));
+        assert!(result.definitions.iter().any(|d| d.name == "αβγ"));
+    }
+
+    #[test]
+    fn test_ts_syntax_error_partial_parse() {
+        // tree-sitter does partial parsing on syntax errors but recovery is
+        // not guaranteed for all subsequent definitions.
+        let source = r#"
+function valid() { return 1; }
+const x = {{{
+function alsoValid() { return 2; }
+"#;
+        let result = parse_file("broken.ts", source).unwrap();
+        // The definition before the error should be extracted
+        assert!(result.definitions.iter().any(|d| d.name == "valid"));
+        // Parsing doesn't fail — no panic, just potentially missing later defs
+        assert!(result.language == Language::TypeScript);
+    }
+
+    #[test]
+    fn test_ts_export_default_class() {
+        let source = r#"export default class App {
+    render() {}
+}"#;
+        let result = parse_file("app.ts", source).unwrap();
+        let app_export = result.exports.iter().find(|e| e.name == "App");
+        assert!(app_export.is_some(), "export default class should be captured");
+        assert!(app_export.unwrap().is_default);
+    }
+
+    #[test]
+    fn test_ts_export_interface_and_type() {
+        let source = r#"
+export interface Config {
+    port: number;
+}
+export type ID = string;
+"#;
+        let result = parse_file("types.ts", source).unwrap();
+        assert!(result.exports.iter().any(|e| e.name == "Config"));
+        assert!(result.exports.iter().any(|e| e.name == "ID"));
+        assert!(result.definitions.iter().any(|d| d.name == "Config" && d.kind == SymbolKind::Interface));
+        assert!(result.definitions.iter().any(|d| d.name == "ID" && d.kind == SymbolKind::TypeAlias));
+    }
+
+    #[test]
+    fn test_python_decorated_class_with_methods() {
+        let source = r#"
+@dataclass
+class User:
+    name: str
+
+    def greet(self):
+        pass
+
+    @staticmethod
+    def create(name):
+        pass
+"#;
+        let result = parse_file("models.py", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "User" && d.kind == SymbolKind::Class));
+        assert!(result.definitions.iter().any(|d| d.name == "greet"));
+        assert!(result.definitions.iter().any(|d| d.name == "create"));
+    }
+
+    #[test]
+    fn test_python_wildcard_import() {
+        let source = "from os.path import *\n";
+        let result = parse_file("app.py", source).unwrap();
+        assert_eq!(result.imports.len(), 1);
+        assert!(result.imports[0].names.iter().any(|n| n.name == "*"));
+    }
+
+    #[test]
+    fn test_python_relative_import_parent() {
+        let source = "from .. import utils\n";
+        let result = parse_file("sub/mod.py", source).unwrap();
+        assert_eq!(result.imports.len(), 1);
+        assert_eq!(result.imports[0].source, "..");
+    }
+
+    #[test]
+    fn test_ts_deeply_nested_calls() {
+        // Verify recursive call collection handles nesting
+        let source = r#"
+function outer() {
+    function middle() {
+        function inner() {
+            deepCall();
+        }
+        middleCall();
+    }
+    outerCall();
+}
+"#;
+        let result = parse_file("nested.ts", source).unwrap();
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"deepCall"));
+        assert!(callees.contains(&"middleCall"));
+        assert!(callees.contains(&"outerCall"));
+
+        // Containing function resolution
+        let deep = result.call_sites.iter().find(|c| c.callee == "deepCall").unwrap();
+        assert_eq!(deep.containing_function, Some("inner".to_string()));
+    }
+
+    #[test]
+    fn test_ts_module_level_calls_no_containing() {
+        let source = "init();\nconfigure();\n";
+        let result = parse_file("init.ts", source).unwrap();
+        for call in &result.call_sites {
+            assert_eq!(call.containing_function, None, "top-level calls should have no containing function");
+        }
+    }
+
+    #[test]
+    fn test_language_from_path_edge_cases() {
+        assert_eq!(Language::from_path(""), Language::Unknown);
+        assert_eq!(Language::from_path("noext"), Language::Unknown);
+        assert_eq!(Language::from_path(".ts"), Language::TypeScript);
+        assert_eq!(Language::from_path("a/b/c.py"), Language::Python);
+        assert_eq!(Language::from_path("my.module.ts"), Language::TypeScript);
+    }
+
+    #[test]
+    fn test_ts_comments_only_file() {
+        let source = r#"
+// This is a comment
+/* block comment */
+/** JSDoc */
+"#;
+        let result = parse_file("comments.ts", source).unwrap();
+        assert!(result.definitions.is_empty());
+        assert!(result.imports.is_empty());
+        assert!(result.exports.is_empty());
+        assert!(result.call_sites.is_empty());
+    }
+
+    #[test]
+    fn test_data_flow_python_keyword_args_only() {
+        let source = r#"
+def main():
+    result = connect(host='localhost', port=5432)
+"#;
+        let info = extract_data_flow_info("main.py", source).unwrap();
+
+        let connect_call = info
+            .calls_with_args
+            .iter()
+            .find(|c| c.callee == "connect")
+            .unwrap();
+        // Keyword arg values should be captured
+        assert!(connect_call.arguments.contains(&"'localhost'".to_string()));
+        assert!(connect_call.arguments.contains(&"5432".to_string()));
+    }
+
+    #[test]
+    fn test_ts_let_var_declarations() {
+        let source = r#"
+let mutable = 42;
+var legacy = "old";
+"#;
+        let result = parse_file("vars.ts", source).unwrap();
+        assert!(result.definitions.iter().any(|d| d.name == "mutable"));
+        assert!(result.definitions.iter().any(|d| d.name == "legacy"));
+    }
+
+    #[test]
+    fn test_ts_export_multiple_vars() {
+        let source = "export const A = 1, B = 2;\n";
+        let result = parse_file("consts.ts", source).unwrap();
+        assert!(result.exports.iter().any(|e| e.name == "A"));
+        assert!(result.exports.iter().any(|e| e.name == "B"));
+    }
 }

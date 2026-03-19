@@ -959,4 +959,310 @@ mod tests {
             }
         }
     }
+
+    // ===================================================================
+    // Phase 8 audit: edge case tests
+    // ===================================================================
+
+    #[test]
+    fn test_cyclic_graph_no_infinite_loop() {
+        // A imports B, B imports A — BFS with visited set handles cycles
+        let graph = make_graph(
+            &[
+                ("src/a.ts", "src/a.ts", SymbolKind::Module),
+                ("src/a.ts::funcA", "src/a.ts", SymbolKind::Function),
+                ("src/b.ts", "src/b.ts", SymbolKind::Module),
+                ("src/b.ts::funcB", "src/b.ts", SymbolKind::Function),
+            ],
+            &[
+                ("src/a.ts", "src/b.ts::funcB", EdgeType::Imports),
+                ("src/a.ts::funcA", "src/b.ts::funcB", EdgeType::Calls),
+                ("src/b.ts", "src/a.ts::funcA", EdgeType::Imports),
+                ("src/b.ts::funcB", "src/a.ts::funcA", EdgeType::Calls),
+            ],
+        );
+
+        let entrypoints = vec![ep("src/a.ts", "funcA", EntrypointType::HttpRoute)];
+        let files = changed(&["src/a.ts", "src/b.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+        assert_eq!(result.groups.len(), 1);
+        assert_eq!(result.groups[0].files.len(), 2);
+        assert!(result.infrastructure.is_none());
+    }
+
+    #[test]
+    fn test_equal_distance_tiebreak_by_ep_index() {
+        // Both entrypoints reach shared.ts at distance 1 — tie-break by ep_idx
+        let graph = make_graph(
+            &[
+                ("src/ep_a.ts", "src/ep_a.ts", SymbolKind::Module),
+                ("src/ep_a.ts::handleA", "src/ep_a.ts", SymbolKind::Function),
+                ("src/ep_b.ts", "src/ep_b.ts", SymbolKind::Module),
+                ("src/ep_b.ts::handleB", "src/ep_b.ts", SymbolKind::Function),
+                ("src/shared.ts", "src/shared.ts", SymbolKind::Module),
+                ("src/shared.ts::helper", "src/shared.ts", SymbolKind::Function),
+            ],
+            &[
+                ("src/ep_a.ts", "src/shared.ts::helper", EdgeType::Imports),
+                ("src/ep_a.ts::handleA", "src/shared.ts::helper", EdgeType::Calls),
+                ("src/ep_b.ts", "src/shared.ts::helper", EdgeType::Imports),
+                ("src/ep_b.ts::handleB", "src/shared.ts::helper", EdgeType::Calls),
+            ],
+        );
+
+        let entrypoints = vec![
+            ep("src/ep_a.ts", "handleA", EntrypointType::HttpRoute),
+            ep("src/ep_b.ts", "handleB", EntrypointType::HttpRoute),
+        ];
+        let files = changed(&["src/ep_a.ts", "src/ep_b.ts", "src/shared.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+        assert_eq!(result.groups.len(), 2);
+
+        // shared.ts should go to the first entrypoint (ep_idx 0)
+        let group_a = result
+            .groups
+            .iter()
+            .find(|g| g.entrypoint.as_ref().unwrap().file == "src/ep_a.ts")
+            .expect("should have group for ep_a");
+        let group_a_files: Vec<&str> = group_a.files.iter().map(|f| f.path.as_str()).collect();
+        assert!(
+            group_a_files.contains(&"src/shared.ts"),
+            "at equal distance, shared.ts should go to first entrypoint (lower ep_idx)"
+        );
+    }
+
+    #[test]
+    fn test_deep_chain_ordering() {
+        // A → B → C → D → E — verify BFS distance ordering
+        let graph = make_graph(
+            &[
+                ("src/a.ts", "src/a.ts", SymbolKind::Module),
+                ("src/a.ts::start", "src/a.ts", SymbolKind::Function),
+                ("src/b.ts", "src/b.ts", SymbolKind::Module),
+                ("src/b.ts::step1", "src/b.ts", SymbolKind::Function),
+                ("src/c.ts", "src/c.ts", SymbolKind::Module),
+                ("src/c.ts::step2", "src/c.ts", SymbolKind::Function),
+                ("src/d.ts", "src/d.ts", SymbolKind::Module),
+                ("src/d.ts::step3", "src/d.ts", SymbolKind::Function),
+                ("src/e.ts", "src/e.ts", SymbolKind::Module),
+                ("src/e.ts::finish", "src/e.ts", SymbolKind::Function),
+            ],
+            &[
+                ("src/a.ts::start", "src/b.ts::step1", EdgeType::Calls),
+                ("src/b.ts::step1", "src/c.ts::step2", EdgeType::Calls),
+                ("src/c.ts::step2", "src/d.ts::step3", EdgeType::Calls),
+                ("src/d.ts::step3", "src/e.ts::finish", EdgeType::Calls),
+            ],
+        );
+
+        let entrypoints = vec![ep("src/a.ts", "start", EntrypointType::HttpRoute)];
+        let files = changed(&["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+        assert_eq!(result.groups.len(), 1);
+        let paths: Vec<&str> = result.groups[0].files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, vec!["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts"]);
+
+        // flow_position should be sequential
+        for (i, fc) in result.groups[0].files.iter().enumerate() {
+            assert_eq!(fc.flow_position, i as u32);
+        }
+    }
+
+    #[test]
+    fn test_entrypoint_role_assigned_correctly() {
+        let graph = make_graph(
+            &[
+                ("src/route.ts", "src/route.ts", SymbolKind::Module),
+                ("src/route.ts::handle", "src/route.ts", SymbolKind::Function),
+                ("src/services/user.ts", "src/services/user.ts", SymbolKind::Module),
+                ("src/services/user.ts::getUser", "src/services/user.ts", SymbolKind::Function),
+            ],
+            &[
+                ("src/route.ts::handle", "src/services/user.ts::getUser", EdgeType::Calls),
+            ],
+        );
+
+        let entrypoints = vec![ep("src/route.ts", "handle", EntrypointType::HttpRoute)];
+        let files = changed(&["src/route.ts", "src/services/user.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+        let group = &result.groups[0];
+
+        // Entrypoint file gets FileRole::Entrypoint
+        let route_file = group.files.iter().find(|f| f.path == "src/route.ts").unwrap();
+        assert_eq!(route_file.role, FileRole::Entrypoint);
+
+        // Other files get inferred roles
+        let service_file = group.files.iter().find(|f| f.path == "src/services/user.ts").unwrap();
+        assert_eq!(service_file.role, FileRole::Service);
+    }
+
+    #[test]
+    fn test_file_role_priority_ordering() {
+        // When path matches multiple roles, the first match wins
+        assert_eq!(infer_file_role("src/test-handler.ts"), FileRole::Handler);
+        assert_eq!(infer_file_role("src/service-test.ts"), FileRole::Service);
+        assert_eq!(infer_file_role("src/test-utils.ts"), FileRole::Test);
+        assert_eq!(infer_file_role("src/repo-config.ts"), FileRole::Repository);
+    }
+
+    #[test]
+    fn test_group_name_all_entrypoint_types() {
+        assert_eq!(
+            generate_group_name(&ep("f", "TestSuite", EntrypointType::TestFile)),
+            "TestSuite test flow"
+        );
+        assert_eq!(
+            generate_group_name(&ep("f", "onClick", EntrypointType::EventHandler)),
+            "onClick event flow"
+        );
+        assert_eq!(
+            generate_group_name(&ep("f", "UserService", EntrypointType::EffectService)),
+            "UserService Effect service flow"
+        );
+    }
+
+    #[test]
+    fn test_large_number_of_entrypoints() {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        let mut entrypoints = Vec::new();
+        let mut files = Vec::new();
+
+        // 20 entrypoints, each with a downstream file
+        for i in 0..20 {
+            let ep_file = format!("src/route_{}.ts", i);
+            let svc_file = format!("src/svc_{}.ts", i);
+            let ep_id = format!("src/route_{}.ts::handle{}", i, i);
+            let svc_id = format!("src/svc_{}.ts::process{}", i, i);
+
+            nodes.push((ep_file.clone(), ep_file.clone(), SymbolKind::Module));
+            nodes.push((ep_id.clone(), ep_file.clone(), SymbolKind::Function));
+            nodes.push((svc_file.clone(), svc_file.clone(), SymbolKind::Module));
+            nodes.push((svc_id.clone(), svc_file.clone(), SymbolKind::Function));
+
+            edges.push((ep_id.clone(), svc_id.clone(), EdgeType::Calls));
+
+            entrypoints.push(ep(&ep_file, &format!("handle{}", i), EntrypointType::HttpRoute));
+            files.push(ep_file);
+            files.push(svc_file);
+        }
+
+        // Build graph from owned data
+        let node_refs: Vec<(&str, &str, SymbolKind)> = nodes
+            .iter()
+            .map(|(a, b, k)| (a.as_str(), b.as_str(), k.clone()))
+            .collect();
+        let edge_refs: Vec<(&str, &str, EdgeType)> = edges
+            .iter()
+            .map(|(a, b, e)| (a.as_str(), b.as_str(), e.clone()))
+            .collect();
+        let graph = make_graph(&node_refs, &edge_refs);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+        assert_eq!(result.groups.len(), 20, "should produce 20 groups");
+        assert!(result.infrastructure.is_none());
+
+        // Each group should have exactly 2 files
+        for group in &result.groups {
+            assert_eq!(group.files.len(), 2);
+        }
+    }
+
+    #[test]
+    fn test_fan_out_topology() {
+        // Single entrypoint fans out to 5 independent leaf files
+        let graph = make_graph(
+            &[
+                ("src/hub.ts", "src/hub.ts", SymbolKind::Module),
+                ("src/hub.ts::dispatch", "src/hub.ts", SymbolKind::Function),
+                ("src/leaf1.ts", "src/leaf1.ts", SymbolKind::Module),
+                ("src/leaf1.ts::handle1", "src/leaf1.ts", SymbolKind::Function),
+                ("src/leaf2.ts", "src/leaf2.ts", SymbolKind::Module),
+                ("src/leaf2.ts::handle2", "src/leaf2.ts", SymbolKind::Function),
+                ("src/leaf3.ts", "src/leaf3.ts", SymbolKind::Module),
+                ("src/leaf3.ts::handle3", "src/leaf3.ts", SymbolKind::Function),
+            ],
+            &[
+                ("src/hub.ts::dispatch", "src/leaf1.ts::handle1", EdgeType::Calls),
+                ("src/hub.ts::dispatch", "src/leaf2.ts::handle2", EdgeType::Calls),
+                ("src/hub.ts::dispatch", "src/leaf3.ts::handle3", EdgeType::Calls),
+            ],
+        );
+
+        let entrypoints = vec![ep("src/hub.ts", "dispatch", EntrypointType::HttpRoute)];
+        let files = changed(&["src/hub.ts", "src/leaf1.ts", "src/leaf2.ts", "src/leaf3.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+        assert_eq!(result.groups.len(), 1);
+        assert_eq!(result.groups[0].files.len(), 4);
+
+        // hub.ts should be first (distance 0), leaves at distance 1 (alphabetical order)
+        let paths: Vec<&str> = result.groups[0].files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths[0], "src/hub.ts");
+    }
+
+    #[test]
+    fn test_diamond_dependency() {
+        // A → B, A → C, B → D, C → D (diamond shape)
+        let graph = make_graph(
+            &[
+                ("src/a.ts", "src/a.ts", SymbolKind::Module),
+                ("src/a.ts::start", "src/a.ts", SymbolKind::Function),
+                ("src/b.ts", "src/b.ts", SymbolKind::Module),
+                ("src/b.ts::left", "src/b.ts", SymbolKind::Function),
+                ("src/c.ts", "src/c.ts", SymbolKind::Module),
+                ("src/c.ts::right", "src/c.ts", SymbolKind::Function),
+                ("src/d.ts", "src/d.ts", SymbolKind::Module),
+                ("src/d.ts::join", "src/d.ts", SymbolKind::Function),
+            ],
+            &[
+                ("src/a.ts::start", "src/b.ts::left", EdgeType::Calls),
+                ("src/a.ts::start", "src/c.ts::right", EdgeType::Calls),
+                ("src/b.ts::left", "src/d.ts::join", EdgeType::Calls),
+                ("src/c.ts::right", "src/d.ts::join", EdgeType::Calls),
+            ],
+        );
+
+        let entrypoints = vec![ep("src/a.ts", "start", EntrypointType::HttpRoute)];
+        let files = changed(&["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+        assert_eq!(result.groups.len(), 1);
+        assert_eq!(result.groups[0].files.len(), 4);
+
+        // d.ts reached via BFS distance 2, b and c at distance 1
+        let paths: Vec<&str> = result.groups[0].files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths[0], "src/a.ts"); // distance 0
+        // b.ts and c.ts at distance 1 (alphabetical tiebreak)
+        assert_eq!(paths[1], "src/b.ts");
+        assert_eq!(paths[2], "src/c.ts");
+        assert_eq!(paths[3], "src/d.ts"); // distance 2
+    }
+
+    #[test]
+    fn test_group_ids_are_sequential() {
+        let graph = make_graph(
+            &[
+                ("src/a.ts", "src/a.ts", SymbolKind::Module),
+                ("src/a.ts::x", "src/a.ts", SymbolKind::Function),
+                ("src/b.ts", "src/b.ts", SymbolKind::Module),
+                ("src/b.ts::y", "src/b.ts", SymbolKind::Function),
+            ],
+            &[],
+        );
+
+        let entrypoints = vec![
+            ep("src/a.ts", "x", EntrypointType::HttpRoute),
+            ep("src/b.ts", "y", EntrypointType::CliCommand),
+        ];
+        let files = changed(&["src/a.ts", "src/b.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+        let ids: Vec<&str> = result.groups.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["group_1", "group_2"]);
+    }
 }
