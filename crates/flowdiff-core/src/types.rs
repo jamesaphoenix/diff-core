@@ -8,7 +8,7 @@ pub struct Symbol {
     pub kind: SymbolKind,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SymbolKind {
     Function,
     Class,

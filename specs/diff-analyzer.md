@@ -545,7 +545,7 @@ flowdiff/
 ### Phase 1: Core Engine (Week 1-2)
 - [x] Cargo workspace setup
 - [x] Git diff extraction via git2
-- [ ] Tree-sitter AST parsing (TS/JS + Python grammars first)
+- [x] Tree-sitter AST parsing (TS/JS + Python grammars first)
 - [ ] Symbol graph construction (imports, exports, calls)
 - [ ] Basic entrypoint detection
 - [ ] Semantic clustering (forward reachability from entrypoints)
@@ -556,6 +556,7 @@ flowdiff/
 - [x] Core data types (types.rs — FlowGroup, FileChange, Symbol, Edge, etc.)
 - [x] Property-based tests for ranking (proptest — 11 properties)
 - [x] Unit tests for ranking (26 tests — scoring, risk, surface area, path detection)
+- [x] Unit tests for AST parsing (25 tests — TS/JS imports, exports, definitions, calls; Python imports, functions, class hierarchy; changed symbol detection; performance)
 
 ### Phase 2: Data Flow Depth (Week 2-3)
 - [ ] Full data flow tracing (parameters, return values, assignments)
