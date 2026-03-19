@@ -7,7 +7,7 @@ export class AnnotationsPanel {
   private pass1: Pass1Response | null = null;
   private pass2Map: Map<string, Pass2Response> = new Map();
 
-  constructor(private readonly extensionUri: vscode.Uri) {}
+  constructor(_extensionUri: vscode.Uri) {}
 
   setPass1(response: Pass1Response): void {
     this.pass1 = response;
@@ -21,7 +21,7 @@ export class AnnotationsPanel {
     }
   }
 
-  showGroup(group: FlowGroup, analysis: AnalysisOutput): void {
+  showGroup(group: FlowGroup, _analysis: AnalysisOutput): void {
     this.currentGroup = group;
 
     if (!this.panel) {
@@ -30,7 +30,7 @@ export class AnnotationsPanel {
         "flowdiff: Annotations",
         vscode.ViewColumn.Beside,
         {
-          enableScripts: true,
+          enableScripts: false,
           retainContextWhenHidden: true,
         }
       );
@@ -63,6 +63,7 @@ export class AnnotationsPanel {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
@@ -134,7 +135,8 @@ function escapeHtml(text: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function riskBadge(score: number): string {

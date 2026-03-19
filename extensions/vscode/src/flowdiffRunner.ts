@@ -101,12 +101,31 @@ export async function runFlowdiff(options: RunOptions): Promise<RunResult> {
     return { output, stderr };
   } catch (error: unknown) {
     if (error instanceof Error) {
-      const execError = error as Error & { code?: string; stderr?: string };
+      const execError = error as Error & {
+        code?: string;
+        stderr?: string;
+        killed?: boolean;
+        signal?: string;
+      };
 
       if (execError.code === "ENOENT") {
         throw new Error(
           `flowdiff binary not found at "${binaryPath}". ` +
             'Install flowdiff or set "flowdiff.binaryPath" in settings.'
+        );
+      }
+
+      if (execError.code === "EACCES") {
+        throw new Error(
+          `flowdiff binary at "${binaryPath}" is not executable. ` +
+            "Check file permissions (chmod +x)."
+        );
+      }
+
+      if (execError.killed || execError.signal === "SIGTERM") {
+        throw new Error(
+          "flowdiff timed out after 2 minutes. " +
+            "Try analyzing a smaller diff range or check if the repository is very large."
         );
       }
 

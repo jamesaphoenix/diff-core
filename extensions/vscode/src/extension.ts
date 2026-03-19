@@ -29,7 +29,7 @@ export function activate(context: vscode.ExtensionContext): void {
     showCollapseAll: true,
   });
 
-  vscode.window.createTreeView("flowdiff.infrastructure", {
+  const infraView = vscode.window.createTreeView("flowdiff.infrastructure", {
     treeDataProvider: infraProvider,
   });
 
@@ -48,8 +48,18 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("flowdiff.openDiff", cmdOpenDiff),
     vscode.commands.registerCommand("flowdiff.openAnnotations", cmdOpenAnnotations),
     groupsView,
+    infraView,
     { dispose: () => annotationsPanel.dispose() }
   );
+
+  // Reset keybinding context when flowdiff tree view loses visibility
+  groupsView.onDidChangeVisibility((e) => {
+    if (!e.visible) {
+      vscode.commands.executeCommand("setContext", "flowdiff.active", false);
+    } else if (analysis) {
+      vscode.commands.executeCommand("setContext", "flowdiff.active", true);
+    }
+  });
 
   // Set context for keybinding activation
   vscode.commands.executeCommand("setContext", "flowdiff.active", false);

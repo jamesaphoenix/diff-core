@@ -25,7 +25,10 @@ export const window = {
   showWarningMessage: () => undefined,
   showInformationMessage: () => undefined,
   showInputBox: () => Promise.resolve(undefined),
-  createTreeView: () => ({ dispose: () => undefined }),
+  createTreeView: () => ({
+    dispose: () => undefined,
+    onDidChangeVisibility: () => ({ dispose: () => undefined }),
+  }),
   createWebviewPanel: () => ({
     webview: { html: "" },
     reveal: () => undefined,
