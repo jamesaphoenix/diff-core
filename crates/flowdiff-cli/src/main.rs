@@ -18,6 +18,7 @@ use flowdiff_core::cache;
 use flowdiff_core::cluster;
 use flowdiff_core::config::FlowdiffConfig;
 use flowdiff_core::entrypoint;
+use flowdiff_core::eval;
 use flowdiff_core::flow::{self, FlowConfig};
 use flowdiff_core::git;
 use flowdiff_core::graph::SymbolGraph;
@@ -42,6 +43,8 @@ enum Commands {
     Analyze(AnalyzeArgs),
     /// Launch an external diff tool for a flow group's files
     Launch(LaunchArgs),
+    /// Run the eval suite against synthetic fixture codebases
+    Eval(EvalArgs),
 }
 
 #[derive(Parser)]
@@ -145,6 +148,25 @@ struct LaunchArgs {
     repo: PathBuf,
 }
 
+#[derive(Parser)]
+struct EvalArgs {
+    /// Run only this fixture (e.g., "ts-express", "python-fastapi")
+    #[arg(long)]
+    fixture: Option<String>,
+
+    /// Output format: "text" or "json"
+    #[arg(long, default_value = "text")]
+    format: String,
+
+    /// Minimum acceptable overall score (exit code 1 if below)
+    #[arg(long, default_value = "0.50")]
+    min_score: f64,
+
+    /// Path to score history file (JSONL) for regression tracking
+    #[arg(long)]
+    history_file: Option<PathBuf>,
+}
+
 fn main() {
     env_logger::init();
     let cli = Cli::parse();
@@ -161,6 +183,9 @@ fn main() {
                 error!("Error: {}", e);
                 process::exit(1);
             }
+        }
+        Commands::Eval(args) => {
+            run_eval_command(args);
         }
     }
 }
@@ -566,6 +591,39 @@ fn run_launch(args: LaunchArgs) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn run_eval_command(args: EvalArgs) {
+    let format = match args.format.as_str() {
+        "json" => eval::EvalFormat::Json,
+        _ => eval::EvalFormat::Text,
+    };
+
+    let config = eval::EvalConfig {
+        fixture_filter: args.fixture,
+        min_score: args.min_score,
+        history_file: args.history_file,
+        format,
+    };
+
+    let result = eval::run_eval(&config);
+
+    // Write the report to stdout
+    let mut stdout = std::io::stdout().lock();
+    use std::io::Write;
+    if let Err(e) = stdout.write_all(result.report.as_bytes()) {
+        error!("Failed to write report: {}", e);
+        process::exit(1);
+    }
+
+    // Print regression warning if any
+    if let Some(ref warning) = result.regression_warning {
+        warn!("{}", warning);
+    }
+
+    if !result.passed {
+        process::exit(1);
+    }
+}
+
 fn write_output(
     output: &AnalysisOutput,
     file_path: Option<&std::path::Path>,
@@ -944,6 +1002,85 @@ mod tests {
             assert_eq!(args.repo, PathBuf::from("/tmp/myrepo"));
         } else {
             panic!("expected Launch command");
+        }
+    }
+
+    // ── Eval Command Parsing Tests ──
+
+    #[test]
+    fn test_parse_eval_no_args() {
+        let cli = Cli::parse_from(["flowdiff", "eval"]);
+        if let Commands::Eval(args) = cli.command {
+            assert!(args.fixture.is_none());
+            assert_eq!(args.format, "text");
+            assert!((args.min_score - 0.50).abs() < f64::EPSILON);
+            assert!(args.history_file.is_none());
+        } else {
+            panic!("expected Eval command");
+        }
+    }
+
+    #[test]
+    fn test_parse_eval_fixture() {
+        let cli = Cli::parse_from(["flowdiff", "eval", "--fixture", "ts-express"]);
+        if let Commands::Eval(args) = cli.command {
+            assert_eq!(args.fixture, Some("ts-express".to_string()));
+        } else {
+            panic!("expected Eval command");
+        }
+    }
+
+    #[test]
+    fn test_parse_eval_json_format() {
+        let cli = Cli::parse_from(["flowdiff", "eval", "--format", "json"]);
+        if let Commands::Eval(args) = cli.command {
+            assert_eq!(args.format, "json");
+        } else {
+            panic!("expected Eval command");
+        }
+    }
+
+    #[test]
+    fn test_parse_eval_min_score() {
+        let cli = Cli::parse_from(["flowdiff", "eval", "--min-score", "0.75"]);
+        if let Commands::Eval(args) = cli.command {
+            assert!((args.min_score - 0.75).abs() < f64::EPSILON);
+        } else {
+            panic!("expected Eval command");
+        }
+    }
+
+    #[test]
+    fn test_parse_eval_history_file() {
+        let cli = Cli::parse_from([
+            "flowdiff", "eval", "--history-file", ".flowdiff/eval-history.jsonl",
+        ]);
+        if let Commands::Eval(args) = cli.command {
+            assert_eq!(
+                args.history_file,
+                Some(PathBuf::from(".flowdiff/eval-history.jsonl"))
+            );
+        } else {
+            panic!("expected Eval command");
+        }
+    }
+
+    #[test]
+    fn test_parse_eval_all_flags() {
+        let cli = Cli::parse_from([
+            "flowdiff", "eval",
+            "--fixture", "python-fastapi",
+            "--format", "json",
+            "--min-score", "0.80",
+            "--history-file", "/tmp/history.jsonl",
+        ]);
+        if let Commands::Eval(args) = cli.command {
+            assert_eq!(args.fixture, Some("python-fastapi".to_string()));
+            assert_eq!(args.format, "json");
+            assert!((args.min_score - 0.80).abs() < f64::EPSILON);
+            assert_eq!(args.history_file, Some(PathBuf::from("/tmp/history.jsonl")));
+        } else {
+            panic!("expected Eval command");
         }
     }
 
