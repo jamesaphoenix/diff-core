@@ -1,6 +1,7 @@
 use git2::{Delta, DiffOptions, Oid, Repository};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
+use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -161,6 +162,267 @@ pub fn diff_unstaged(repo: &Repository) -> Result<DiffResult, GitError> {
         base_sha: None,
         head_sha: None,
     })
+}
+
+// ── Git auto-discovery types ──
+
+/// Information about a git branch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BranchInfo {
+    /// Branch name (e.g., "main", "feature/foo").
+    pub name: String,
+    /// Whether this is the currently checked-out branch.
+    pub is_current: bool,
+    /// Whether it has a remote tracking branch.
+    pub has_upstream: bool,
+}
+
+/// Information about a git worktree.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorktreeInfo {
+    /// Path to the worktree directory.
+    pub path: String,
+    /// Branch checked out in this worktree (if any).
+    pub branch: Option<String>,
+    /// Whether this is the main worktree.
+    pub is_main: bool,
+}
+
+/// Branch tracking status (ahead/behind remote).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BranchStatus {
+    /// Name of the current branch.
+    pub branch: String,
+    /// Remote tracking branch (e.g., "origin/main"), if any.
+    pub upstream: Option<String>,
+    /// Number of commits ahead of upstream.
+    pub ahead: usize,
+    /// Number of commits behind upstream.
+    pub behind: usize,
+}
+
+// ── Git auto-discovery functions ──
+
+/// List all local branches.
+pub fn list_branches(repo: &Repository) -> Result<Vec<BranchInfo>, GitError> {
+    let head_ref = repo.head().ok();
+    let current_branch = head_ref
+        .as_ref()
+        .and_then(|h| h.shorthand().map(String::from));
+
+    let branches = repo.branches(Some(git2::BranchType::Local))?;
+    let mut result = Vec::new();
+
+    for branch_result in branches {
+        let (branch, _) = branch_result?;
+        let name = match branch.name()? {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        let has_upstream = branch.upstream().is_ok();
+        let is_current = current_branch.as_deref() == Some(name.as_str());
+
+        result.push(BranchInfo {
+            name,
+            is_current,
+            has_upstream,
+        });
+    }
+
+    // Sort: current branch first, then alphabetically
+    result.sort_by(|a, b| {
+        b.is_current
+            .cmp(&a.is_current)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    Ok(result)
+}
+
+/// List all git worktrees.
+pub fn list_worktrees(repo: &Repository) -> Result<Vec<WorktreeInfo>, GitError> {
+    let worktree_names = repo.worktrees()?;
+    let mut result = Vec::new();
+
+    // Add the main worktree
+    if let Some(workdir) = repo.workdir() {
+        let head_ref = repo.head().ok();
+        let branch = head_ref
+            .as_ref()
+            .and_then(|h| h.shorthand().map(String::from));
+        result.push(WorktreeInfo {
+            path: workdir.to_string_lossy().to_string(),
+            branch,
+            is_main: true,
+        });
+    }
+
+    // Add linked worktrees
+    for name in worktree_names.iter() {
+        let name = match name {
+            Some(n) => n,
+            None => continue,
+        };
+        let wt = match repo.find_worktree(name) {
+            Ok(wt) => wt,
+            Err(_) => continue,
+        };
+        let wt_path = wt.path().to_string_lossy().to_string();
+
+        // Try to open the worktree repo to get its branch
+        let branch = Repository::open(wt.path())
+            .ok()
+            .and_then(|wt_repo| {
+                wt_repo
+                    .head()
+                    .ok()
+                    .and_then(|h| h.shorthand().map(String::from))
+            });
+
+        result.push(WorktreeInfo {
+            path: wt_path,
+            branch,
+            is_main: false,
+        });
+    }
+
+    Ok(result)
+}
+
+/// Get the current branch's tracking status (ahead/behind upstream).
+pub fn get_branch_status(repo: &Repository) -> Result<BranchStatus, GitError> {
+    let head = repo.head().map_err(|_| GitError::EmptyRepo)?;
+    let branch_name = head
+        .shorthand()
+        .ok_or_else(|| GitError::RefNotFound("HEAD (detached)".to_string()))?
+        .to_string();
+
+    let local_branch = repo
+        .find_branch(&branch_name, git2::BranchType::Local)
+        .map_err(|_| GitError::RefNotFound(branch_name.clone()))?;
+
+    // Try to find upstream
+    let upstream = match local_branch.upstream() {
+        Ok(up) => up,
+        Err(_) => {
+            // No upstream configured
+            return Ok(BranchStatus {
+                branch: branch_name,
+                upstream: None,
+                ahead: 0,
+                behind: 0,
+            });
+        }
+    };
+
+    let upstream_name = upstream.name()?.map(String::from);
+
+    let local_oid = head
+        .target()
+        .ok_or_else(|| GitError::RefNotFound("HEAD target".to_string()))?;
+    let upstream_oid = upstream
+        .get()
+        .target()
+        .ok_or_else(|| GitError::RefNotFound("upstream target".to_string()))?;
+
+    let (ahead, behind) = repo.graph_ahead_behind(local_oid, upstream_oid)?;
+
+    Ok(BranchStatus {
+        branch: branch_name,
+        upstream: upstream_name,
+        ahead,
+        behind,
+    })
+}
+
+/// Auto-detect the default branch name (main, master, or first branch).
+pub fn detect_default_branch(repo: &Repository) -> Result<String, GitError> {
+    // Check for common default branch names
+    for name in &["main", "master", "develop"] {
+        if repo
+            .find_branch(name, git2::BranchType::Local)
+            .is_ok()
+        {
+            return Ok(name.to_string());
+        }
+    }
+
+    // Fall back to first branch
+    let branches = repo.branches(Some(git2::BranchType::Local))?;
+    for branch_result in branches {
+        let (branch, _) = branch_result?;
+        if let Ok(Some(name)) = branch.name() {
+            return Ok(name.to_string());
+        }
+    }
+
+    Err(GitError::EmptyRepo)
+}
+
+/// Extract diffs using merge-base (PR preview mode).
+///
+/// Finds the merge base between `base_ref` and `head_ref`, then diffs from
+/// the merge base to `head_ref`. This shows what the PR/branch introduces
+/// relative to where it diverged from the base branch.
+pub fn diff_merge_base(
+    repo: &Repository,
+    base_ref: &str,
+    head_ref: &str,
+) -> Result<DiffResult, GitError> {
+    let base_obj = repo
+        .revparse_single(base_ref)
+        .map_err(|_| GitError::RefNotFound(base_ref.to_string()))?;
+    let head_obj = repo
+        .revparse_single(head_ref)
+        .map_err(|_| GitError::RefNotFound(head_ref.to_string()))?;
+
+    let base_oid = base_obj
+        .peel_to_commit()
+        .map_err(|_| GitError::RefNotFound(format!("{base_ref} (not a commit)")))?
+        .id();
+    let head_commit = head_obj
+        .peel_to_commit()
+        .map_err(|_| GitError::RefNotFound(format!("{head_ref} (not a commit)")))?;
+
+    let merge_base_oid = repo
+        .merge_base(base_oid, head_commit.id())
+        .map_err(|_| {
+            GitError::RefNotFound(format!(
+                "no merge base between {} and {}",
+                base_ref, head_ref
+            ))
+        })?;
+
+    let merge_base_commit = repo.find_commit(merge_base_oid)?;
+    let merge_base_tree = merge_base_commit.tree()?;
+    let head_tree = head_commit.tree()?;
+
+    let mut opts = DiffOptions::new();
+    opts.context_lines(3);
+
+    let mut diff =
+        repo.diff_tree_to_tree(Some(&merge_base_tree), Some(&head_tree), Some(&mut opts))?;
+    find_renames(&mut diff)?;
+
+    let files = extract_file_diffs(repo, &diff)?;
+
+    Ok(DiffResult {
+        files,
+        base_sha: Some(merge_base_oid.to_string()),
+        head_sha: Some(head_commit.id().to_string()),
+    })
+}
+
+/// Get the current branch name (or None if HEAD is detached).
+pub fn current_branch(repo: &Repository) -> Option<String> {
+    repo.head()
+        .ok()
+        .and_then(|h| h.shorthand().map(String::from))
+}
+
+/// Get the repository workdir path.
+pub fn workdir(repo: &Repository) -> Option<PathBuf> {
+    repo.workdir().map(|p| p.to_path_buf())
 }
 
 /// Apply rename detection to a diff.
@@ -1440,6 +1702,276 @@ mod tests {
         assert!(json.contains("null"));
         let back: FileDiff = serde_json::from_str(&json).unwrap();
         assert_eq!(fd, back);
+    }
+
+    // ── Git Auto-Discovery Tests ──
+
+    #[test]
+    fn test_list_branches_basic() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.txt", "hello")], "initial");
+
+        // Create a couple of branches
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch("feature-a", &head, false).unwrap();
+        repo.branch("feature-b", &head, false).unwrap();
+
+        let branches = list_branches(&repo).unwrap();
+        assert!(branches.len() >= 3); // main/master + feature-a + feature-b
+
+        // Current branch should be first
+        assert!(branches[0].is_current);
+
+        // All branches should have names
+        for b in &branches {
+            assert!(!b.name.is_empty());
+        }
+
+        // feature-a and feature-b should be present
+        let names: Vec<&str> = branches.iter().map(|b| b.name.as_str()).collect();
+        assert!(names.contains(&"feature-a"));
+        assert!(names.contains(&"feature-b"));
+    }
+
+    #[test]
+    fn test_list_branches_empty_repo() {
+        let (_dir, repo) = init_repo();
+        // No commits = no branches
+        let branches = list_branches(&repo).unwrap();
+        assert!(branches.is_empty());
+    }
+
+    #[test]
+    fn test_list_branches_sorted() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.txt", "x")], "initial");
+
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch("z-branch", &head, false).unwrap();
+        repo.branch("a-branch", &head, false).unwrap();
+
+        let branches = list_branches(&repo).unwrap();
+        // Current branch first, then alphabetical
+        assert!(branches[0].is_current);
+        // Non-current branches should be sorted alphabetically
+        let non_current: Vec<&str> = branches
+            .iter()
+            .filter(|b| !b.is_current)
+            .map(|b| b.name.as_str())
+            .collect();
+        let mut sorted = non_current.clone();
+        sorted.sort();
+        assert_eq!(non_current, sorted);
+    }
+
+    #[test]
+    fn test_list_worktrees_main_only() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.txt", "x")], "initial");
+
+        let worktrees = list_worktrees(&repo).unwrap();
+        assert_eq!(worktrees.len(), 1);
+        assert!(worktrees[0].is_main);
+        assert!(worktrees[0].branch.is_some());
+    }
+
+    #[test]
+    fn test_get_branch_status_no_upstream() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.txt", "x")], "initial");
+
+        let status = get_branch_status(&repo).unwrap();
+        assert!(!status.branch.is_empty());
+        assert!(status.upstream.is_none());
+        assert_eq!(status.ahead, 0);
+        assert_eq!(status.behind, 0);
+    }
+
+    #[test]
+    fn test_get_branch_status_empty_repo() {
+        let (_dir, repo) = init_repo();
+        let result = get_branch_status(&repo);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_detect_default_branch_main() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.txt", "x")], "initial");
+
+        // The default branch after init is typically "main" or "master"
+        let default = detect_default_branch(&repo).unwrap();
+        assert!(
+            default == "main" || default == "master",
+            "Expected main or master, got: {}",
+            default
+        );
+    }
+
+    #[test]
+    fn test_detect_default_branch_empty_repo() {
+        let (_dir, repo) = init_repo();
+        let result = detect_default_branch(&repo);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_diff_merge_base_basic() {
+        let (dir, repo) = init_repo();
+        let base = commit_files(&repo, dir.path(), &[("a.txt", "v1")], "initial");
+
+        // Create base branch
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base-branch", &base_commit, false).unwrap();
+
+        // Add commits on HEAD
+        commit_files(&repo, dir.path(), &[("a.txt", "v2")], "change 1");
+        commit_files(&repo, dir.path(), &[("b.txt", "new")], "change 2");
+
+        let result = diff_merge_base(&repo, "base-branch", "HEAD").unwrap();
+        assert_eq!(result.files.len(), 2);
+
+        let paths: Vec<&str> = result.files.iter().map(|f| f.path()).collect();
+        assert!(paths.contains(&"a.txt"));
+        assert!(paths.contains(&"b.txt"));
+
+        // base_sha should be the merge base
+        assert!(result.base_sha.is_some());
+        assert!(result.head_sha.is_some());
+    }
+
+    #[test]
+    fn test_diff_merge_base_diverged() {
+        let (dir, repo) = init_repo();
+        let base = commit_files(
+            &repo,
+            dir.path(),
+            &[("shared.txt", "original")],
+            "initial",
+        );
+
+        // Create a branch at the initial commit
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("feature", &base_commit, false).unwrap();
+
+        // Add a commit on the main branch (HEAD)
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("main-only.txt", "main change")],
+            "main commit",
+        );
+
+        // Switch to feature branch and add a commit
+        repo.set_head("refs/heads/feature").unwrap();
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("feature-only.txt", "feature change")],
+            "feature commit",
+        );
+
+        // diff_merge_base from main to feature should show only feature changes
+        let current_branch = repo.head().unwrap().shorthand().unwrap().to_string();
+        assert_eq!(current_branch, "feature");
+
+        // The merge base is the initial commit.
+        // Diffing merge_base..feature should show only feature-only.txt
+        let result = diff_merge_base(&repo, "refs/heads/feature~1", "feature").unwrap();
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].path(), "feature-only.txt");
+    }
+
+    #[test]
+    fn test_diff_merge_base_same_commit() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.txt", "x")], "initial");
+
+        // Merge base of HEAD with itself is HEAD — should be empty diff
+        let result = diff_merge_base(&repo, "HEAD", "HEAD").unwrap();
+        assert!(result.files.is_empty());
+    }
+
+    #[test]
+    fn test_diff_merge_base_invalid_ref() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.txt", "x")], "initial");
+
+        let result = diff_merge_base(&repo, "nonexistent", "HEAD");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_current_branch_basic() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.txt", "x")], "initial");
+
+        let branch = current_branch(&repo);
+        assert!(branch.is_some());
+        assert!(!branch.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_current_branch_empty_repo() {
+        let (_dir, repo) = init_repo();
+        let branch = current_branch(&repo);
+        // No commits yet — HEAD doesn't point to a valid branch
+        // git2 may return None or Some("master") depending on version
+        // Just ensure it doesn't panic
+        let _ = branch;
+    }
+
+    #[test]
+    fn test_branch_info_serde_roundtrip() {
+        let info = BranchInfo {
+            name: "feature/auth".to_string(),
+            is_current: true,
+            has_upstream: false,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let back: BranchInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(info, back);
+    }
+
+    #[test]
+    fn test_worktree_info_serde_roundtrip() {
+        let info = WorktreeInfo {
+            path: "/home/user/project".to_string(),
+            branch: Some("main".to_string()),
+            is_main: true,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let back: WorktreeInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(info, back);
+    }
+
+    #[test]
+    fn test_branch_status_serde_roundtrip() {
+        let status = BranchStatus {
+            branch: "feature".to_string(),
+            upstream: Some("origin/feature".to_string()),
+            ahead: 3,
+            behind: 1,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let back: BranchStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(status, back);
+    }
+
+    #[test]
+    fn test_branch_status_serde_no_upstream() {
+        let status = BranchStatus {
+            branch: "local-only".to_string(),
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let back: BranchStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(status, back);
+        assert!(json.contains("null"));
     }
 
     // ── Range Edge Cases ──

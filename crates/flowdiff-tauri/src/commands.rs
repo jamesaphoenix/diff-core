@@ -59,6 +59,8 @@ impl serde::Serialize for CommandError {
 /// Analyze a git diff and return semantic flow groups.
 ///
 /// This is the primary IPC command — equivalent to `flowdiff analyze` in the CLI.
+/// When `pr_preview` is true, uses merge-base diff (shows what the branch introduces
+/// relative to where it diverged from the base).
 #[tauri::command]
 pub fn analyze(
     repo_path: String,
@@ -67,6 +69,7 @@ pub fn analyze(
     range: Option<String>,
     staged: bool,
     unstaged: bool,
+    pr_preview: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<AnalysisOutput, CommandError> {
     let repo_path = PathBuf::from(&repo_path);
@@ -86,7 +89,15 @@ pub fn analyze(
         .map_err(|e| CommandError::Config(format!("{}", e)))?;
 
     // Extract diff
-    let (diff_result, diff_source) = extract_diff(&repo, base, head, range, staged, unstaged)?;
+    let (diff_result, diff_source) = extract_diff(
+        &repo,
+        base,
+        head,
+        range,
+        staged,
+        unstaged,
+        pr_preview.unwrap_or(false),
+    )?;
 
     if diff_result.files.is_empty() {
         let empty_output = AnalysisOutput {
@@ -245,7 +256,7 @@ pub fn get_file_diff(
     let repo = git2::Repository::discover(&repo_path)
         .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
 
-    let (diff_result, _) = extract_diff(&repo, base, head, range, staged, unstaged)?;
+    let (diff_result, _) = extract_diff(&repo, base, head, range, staged, unstaged, false)?;
 
     let file_diff = diff_result
         .files
@@ -377,7 +388,7 @@ pub async fn annotate_group(
     let repo = git2::Repository::discover(&repo_path_buf)
         .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
 
-    let (diff_result, _) = extract_diff(&repo, base, head, range, staged, unstaged)?;
+    let (diff_result, _) = extract_diff(&repo, base, head, range, staged, unstaged, false)?;
 
     // Build Pass 2 file inputs with diffs
     let files: Vec<llm::schema::Pass2FileInput> = group
@@ -436,6 +447,81 @@ pub async fn annotate_group(
     Ok(response)
 }
 
+/// List all local branches in the repository.
+///
+/// Returns branches sorted with current branch first, then alphabetically.
+#[tauri::command]
+pub fn list_branches(
+    repo_path: String,
+) -> Result<Vec<git::BranchInfo>, CommandError> {
+    let repo = open_repo(&repo_path)?;
+    git::list_branches(&repo).map_err(|e| CommandError::Git(format!("{}", e)))
+}
+
+/// List all git worktrees for the repository.
+#[tauri::command]
+pub fn list_worktrees(
+    repo_path: String,
+) -> Result<Vec<git::WorktreeInfo>, CommandError> {
+    let repo = open_repo(&repo_path)?;
+    git::list_worktrees(&repo).map_err(|e| CommandError::Git(format!("{}", e)))
+}
+
+/// Get the current branch's tracking status (ahead/behind upstream).
+#[tauri::command]
+pub fn get_branch_status(
+    repo_path: String,
+) -> Result<git::BranchStatus, CommandError> {
+    let repo = open_repo(&repo_path)?;
+    git::get_branch_status(&repo).map_err(|e| CommandError::Git(format!("{}", e)))
+}
+
+/// Auto-detect the default branch and current branch for a repository.
+///
+/// Returns a summary useful for the UI to set up initial state.
+#[tauri::command]
+pub fn get_repo_info(
+    repo_path: String,
+) -> Result<RepoInfo, CommandError> {
+    let repo = open_repo(&repo_path)?;
+
+    let current = git::current_branch(&repo);
+    let default_branch = git::detect_default_branch(&repo)
+        .unwrap_or_else(|_| "main".to_string());
+    let branches = git::list_branches(&repo)
+        .map_err(|e| CommandError::Git(format!("{}", e)))?;
+    let worktrees = git::list_worktrees(&repo)
+        .map_err(|e| CommandError::Git(format!("{}", e)))?;
+    let status = git::get_branch_status(&repo).ok();
+
+    Ok(RepoInfo {
+        current_branch: current,
+        default_branch,
+        branches,
+        worktrees,
+        status,
+    })
+}
+
+/// Summary of repository state for the UI.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RepoInfo {
+    pub current_branch: Option<String>,
+    pub default_branch: String,
+    pub branches: Vec<git::BranchInfo>,
+    pub worktrees: Vec<git::WorktreeInfo>,
+    pub status: Option<git::BranchStatus>,
+}
+
+/// Open a repository from a path, with canonicalization and error handling.
+fn open_repo(repo_path: &str) -> Result<git2::Repository, CommandError> {
+    let path = PathBuf::from(repo_path);
+    let path = std::fs::canonicalize(&path)
+        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
+    git2::Repository::discover(&path)
+        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))
+}
+
 /// Build a simple unified diff from old and new content.
 fn simple_unified_diff(old: &str, new: &str) -> String {
     let old_lines: Vec<&str> = old.lines().collect();
@@ -470,6 +556,7 @@ fn extract_diff(
     range: Option<String>,
     staged: bool,
     unstaged: bool,
+    pr_preview: bool,
 ) -> Result<(git::DiffResult, flowdiff_core::types::DiffSource), CommandError> {
     if let Some(ref range) = range {
         let diff = git::diff_range(repo, range)
@@ -489,6 +576,22 @@ fn extract_diff(
         let diff = git::diff_unstaged(repo)
             .map_err(|e| CommandError::Git(format!("{}", e)))?;
         let source = output::diff_source_unstaged();
+        Ok((diff, source))
+    } else if pr_preview {
+        // PR preview mode: use merge-base diff
+        let base_ref = base.as_deref().unwrap_or_else(|| {
+            // Try to detect default branch; fall back to "main"
+            "main"
+        });
+        let head_ref = head.as_deref().unwrap_or("HEAD");
+        let diff = git::diff_merge_base(repo, base_ref, head_ref)
+            .map_err(|e| CommandError::Git(format!("{}", e)))?;
+        let source = output::diff_source_branch(
+            base_ref,
+            head_ref,
+            diff.base_sha.as_deref(),
+            diff.head_sha.as_deref(),
+        );
         Ok((diff, source))
     } else {
         let base_ref = base.as_deref().unwrap_or("main");
@@ -646,6 +749,59 @@ mod tests {
         assert!(diff.contains("+c\n"));
         assert!(diff.contains("+d\n"));
         assert!(diff.contains("+e\n"));
+    }
+
+    #[test]
+    fn test_repo_info_serde_roundtrip() {
+        let info = RepoInfo {
+            current_branch: Some("feature-branch".to_string()),
+            default_branch: "main".to_string(),
+            branches: vec![
+                git::BranchInfo {
+                    name: "main".to_string(),
+                    is_current: false,
+                    has_upstream: true,
+                },
+                git::BranchInfo {
+                    name: "feature-branch".to_string(),
+                    is_current: true,
+                    has_upstream: false,
+                },
+            ],
+            worktrees: vec![git::WorktreeInfo {
+                path: "/tmp/repo".to_string(),
+                branch: Some("main".to_string()),
+                is_main: true,
+            }],
+            status: Some(git::BranchStatus {
+                branch: "feature-branch".to_string(),
+                upstream: None,
+                ahead: 0,
+                behind: 0,
+            }),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let back: RepoInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.current_branch, Some("feature-branch".to_string()));
+        assert_eq!(back.default_branch, "main");
+        assert_eq!(back.branches.len(), 2);
+        assert_eq!(back.worktrees.len(), 1);
+        assert!(back.status.is_some());
+    }
+
+    #[test]
+    fn test_repo_info_no_status() {
+        let info = RepoInfo {
+            current_branch: None,
+            default_branch: "main".to_string(),
+            branches: vec![],
+            worktrees: vec![],
+            status: None,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let back: RepoInfo = serde_json::from_str(&json).unwrap();
+        assert!(back.current_branch.is_none());
+        assert!(back.status.is_none());
     }
 
     #[test]

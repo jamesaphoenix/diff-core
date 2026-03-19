@@ -87,6 +87,40 @@ export interface AnalyzeParams {
   range?: string;
   staged: boolean;
   unstaged: boolean;
+  pr_preview?: boolean;
+}
+
+// ── Git Auto-Discovery Types ──
+
+/** Information about a git branch. */
+export interface BranchInfo {
+  name: string;
+  is_current: boolean;
+  has_upstream: boolean;
+}
+
+/** Information about a git worktree. */
+export interface WorktreeInfo {
+  path: string;
+  branch: string | null;
+  is_main: boolean;
+}
+
+/** Branch tracking status (ahead/behind remote). */
+export interface BranchStatus {
+  branch: string;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+}
+
+/** Summary of repository state for the UI. */
+export interface RepoInfo {
+  current_branch: string | null;
+  default_branch: string;
+  branches: BranchInfo[];
+  worktrees: WorktreeInfo[];
+  status: BranchStatus | null;
 }
 
 // ── LLM Annotation Types ──

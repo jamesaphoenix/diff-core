@@ -6,10 +6,12 @@ import type {
   Pass1Response,
   Pass1GroupAnnotation,
   Pass2Response,
+  RepoInfo,
+  BranchInfo,
 } from "./types";
 import DiffViewer from "./components/DiffViewer";
 import FlowGraph from "./components/FlowGraph";
-import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2 } from "./mock";
+import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO } from "./mock";
 
 /** Detect if running inside Tauri (vs plain browser for demo/testing). */
 const IS_TAURI = typeof window !== "undefined" && "__TAURI__" in window;
@@ -35,9 +37,11 @@ export default function App() {
   const [annotating, setAnnotating] = useState(false);
   const [deepAnalyzing, setDeepAnalyzing] = useState(false);
 
-  // Repo path — in a real app this would come from a dialog or CLI arg
+  // Repo and git state
   const [repoPath, setRepoPath] = useState(IS_TAURI ? "" : "/demo/repo");
   const [baseRef, setBaseRef] = useState("main");
+  const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
+  const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
 
   // Demo mode: auto-load mock data on mount when not in Tauri
   const demoLoaded = useRef(false);
@@ -48,6 +52,35 @@ export default function App() {
   const sortedGroupsRef = useRef<FlowGroup[]>([]);
   selectedGroupRef.current = selectedGroup;
   selectedFileRef.current = selectedFile;
+
+  /** Fetch repository info (branches, worktrees, status). */
+  const loadRepoInfo = useCallback(async (path: string) => {
+    if (!path) return;
+    try {
+      let info: RepoInfo;
+      if (IS_TAURI) {
+        info = await tauriInvoke<RepoInfo>("get_repo_info", { repoPath: path });
+      } else {
+        await new Promise((r) => setTimeout(r, 100));
+        info = MOCK_REPO_INFO;
+      }
+      setRepoInfo(info);
+      // Auto-set base ref to the detected default branch
+      setBaseRef(info.default_branch);
+    } catch {
+      // Non-fatal: we can still analyze without repo info
+      setRepoInfo(null);
+    }
+  }, []);
+
+  // Load repo info when repo path changes
+  useEffect(() => {
+    if (repoPath) {
+      loadRepoInfo(repoPath);
+    } else {
+      setRepoInfo(null);
+    }
+  }, [repoPath, loadRepoInfo]);
 
   const handleSelectGroup = useCallback(
     async (group: FlowGroup) => {
@@ -106,6 +139,7 @@ export default function App() {
           range: null,
           staged: false,
           unstaged: false,
+          prPreview: true, // Default to PR preview mode (merge-base diff)
         });
       } else {
         // Demo mode: simulate short delay then return mock data
@@ -193,6 +227,19 @@ export default function App() {
     }
   }, [runAnalysis]);
 
+  // Close branch dropdown when clicking outside
+  useEffect(() => {
+    if (!branchDropdownOpen) return;
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".branch-dropdown-wrapper")) {
+        setBranchDropdownOpen(false);
+      }
+    }
+    window.addEventListener("click", handleClick);
+    return () => window.removeEventListener("click", handleClick);
+  }, [branchDropdownOpen]);
+
   // Sort groups by review_order
   const sortedGroups = analysis
     ? [...analysis.groups].sort((a, b) => a.review_order - b.review_order)
@@ -217,6 +264,7 @@ export default function App() {
       if (
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
         target.closest(".monaco-editor")
       ) {
         return;
@@ -264,6 +312,17 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleSelectFile, handleSelectGroup]);
 
+  const handleSelectBase = useCallback((branch: string) => {
+    setBaseRef(branch);
+    setBranchDropdownOpen(false);
+  }, []);
+
+  // Derived: non-current branches for the base branch dropdown
+  const baseBranches: BranchInfo[] = repoInfo?.branches ?? [];
+
+  // Status display
+  const statusText = formatBranchStatus(repoInfo);
+
   return (
     <div className="app">
       {/* Top bar */}
@@ -279,13 +338,38 @@ export default function App() {
             value={repoPath}
             onChange={(e) => setRepoPath(e.target.value)}
           />
-          <input
-            className="input base-input"
-            type="text"
-            placeholder="Base ref (main)"
-            value={baseRef}
-            onChange={(e) => setBaseRef(e.target.value)}
-          />
+
+          {/* Base branch dropdown (replaces text input) */}
+          <div className="branch-dropdown-wrapper">
+            <button
+              className="btn branch-dropdown-trigger"
+              onClick={() => setBranchDropdownOpen(!branchDropdownOpen)}
+              title="Select base branch for comparison"
+            >
+              <span className="branch-icon">&#9741;</span>
+              <span className="branch-name">{baseRef}</span>
+              <span className="dropdown-arrow">&#9662;</span>
+            </button>
+            {branchDropdownOpen && (
+              <ul className="branch-dropdown">
+                {baseBranches.map((b) => (
+                  <li
+                    key={b.name}
+                    className={`branch-option ${b.name === baseRef ? "selected" : ""} ${b.is_current ? "current" : ""}`}
+                    onClick={() => handleSelectBase(b.name)}
+                  >
+                    <span className="branch-option-name">{b.name}</span>
+                    {b.is_current && <span className="branch-current-badge">current</span>}
+                    {b.has_upstream && <span className="branch-upstream-badge">tracked</span>}
+                  </li>
+                ))}
+                {baseBranches.length === 0 && (
+                  <li className="branch-option disabled">No branches found</li>
+                )}
+              </ul>
+            )}
+          </div>
+
           <button
             className="btn btn-primary"
             onClick={runAnalysis}
@@ -295,6 +379,28 @@ export default function App() {
           </button>
         </div>
         <div className="top-bar-right">
+          {/* Branch status indicator */}
+          {repoInfo && (
+            <div className="repo-status">
+              {repoInfo.current_branch && (
+                <span className="current-branch" title="Current branch">
+                  <span className="branch-icon">&#9741;</span>
+                  {repoInfo.current_branch}
+                </span>
+              )}
+              {statusText && (
+                <span className="push-status" title="Tracking status">
+                  {statusText}
+                </span>
+              )}
+              {/* Worktree indicator */}
+              {repoInfo.worktrees.length > 1 && (
+                <span className="worktree-badge" title={`${repoInfo.worktrees.length} worktrees`}>
+                  {repoInfo.worktrees.length} worktrees
+                </span>
+              )}
+            </div>
+          )}
           {analysis && (
             <span className="summary">
               {analysis.summary.total_files_changed} files,{" "}
@@ -590,4 +696,16 @@ function shortSymbol(symbol: string): string {
   const parts = symbol.split("::");
   if (parts.length <= 1) return symbol;
   return parts[parts.length - 1];
+}
+
+/** Format the branch tracking status into a readable string. */
+function formatBranchStatus(repoInfo: RepoInfo | null): string | null {
+  if (!repoInfo?.status) return null;
+  const { ahead, behind, upstream } = repoInfo.status;
+  if (!upstream) return null;
+  if (ahead === 0 && behind === 0) return "up to date";
+  const parts: string[] = [];
+  if (ahead > 0) parts.push(`${ahead} ahead`);
+  if (behind > 0) parts.push(`${behind} behind`);
+  return parts.join(", ");
 }

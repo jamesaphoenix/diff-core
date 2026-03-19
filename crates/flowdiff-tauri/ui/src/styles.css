@@ -70,6 +70,9 @@ body {
 
 .top-bar-right {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .summary {
@@ -770,4 +773,155 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+/* ── Branch Dropdown ── */
+
+.branch-dropdown-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.branch-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  min-width: 120px;
+  max-width: 200px;
+}
+
+.branch-dropdown-trigger:hover {
+  background: var(--bg-hover);
+}
+
+.branch-dropdown-trigger .branch-icon {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+.branch-dropdown-trigger .branch-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.branch-dropdown-trigger .dropdown-arrow {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.branch-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  min-width: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-top: 2px;
+  padding: 4px 0;
+  list-style: none;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.branch-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.branch-option:hover {
+  background: var(--bg-hover);
+}
+
+.branch-option.selected {
+  background: rgba(137, 180, 250, 0.12);
+  color: var(--accent);
+}
+
+.branch-option.disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.branch-option-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-current-badge,
+.branch-upstream-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.branch-current-badge {
+  background: rgba(166, 227, 161, 0.15);
+  color: var(--risk-low);
+}
+
+.branch-upstream-badge {
+  background: rgba(137, 180, 250, 0.1);
+  color: var(--accent);
+  opacity: 0.7;
+}
+
+/* ── Repo Status (top-bar-right) ── */
+
+.repo-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+.current-branch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.current-branch .branch-icon {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+.push-status {
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(137, 180, 250, 0.08);
+}
+
+.worktree-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(249, 226, 175, 0.1);
+  color: var(--risk-medium);
 }

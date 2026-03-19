@@ -2,7 +2,7 @@
  * Mock data for demo mode — used when running outside Tauri (browser dev/Playwright).
  * Provides realistic fixture data so all UI states can be exercised without IPC.
  */
-import type { AnalysisOutput, FileDiffContent, Pass1Response, Pass2Response } from "./types";
+import type { AnalysisOutput, FileDiffContent, Pass1Response, Pass2Response, RepoInfo } from "./types";
 
 export const MOCK_ANALYSIS: AnalysisOutput = {
   version: "1.0.0",
@@ -602,5 +602,27 @@ export const MOCK_PASS2: Record<string, Pass2Response> = {
     cross_cutting_concerns: [
       "The rate limiter uses req.ip which may be the load balancer's IP behind a reverse proxy. Ensure trust-proxy is configured in Express.",
     ],
+  },
+};
+
+export const MOCK_REPO_INFO: RepoInfo = {
+  current_branch: "feature/user-auth",
+  default_branch: "main",
+  branches: [
+    { name: "feature/user-auth", is_current: true, has_upstream: true },
+    { name: "main", is_current: false, has_upstream: true },
+    { name: "develop", is_current: false, has_upstream: true },
+    { name: "feature/dashboard", is_current: false, has_upstream: false },
+    { name: "fix/login-bug", is_current: false, has_upstream: false },
+    { name: "release/v2.0", is_current: false, has_upstream: true },
+  ],
+  worktrees: [
+    { path: "/demo/repo", branch: "feature/user-auth", is_main: true },
+  ],
+  status: {
+    branch: "feature/user-auth",
+    upstream: "origin/feature/user-auth",
+    ahead: 3,
+    behind: 0,
   },
 };

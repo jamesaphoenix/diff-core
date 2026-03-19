@@ -16,6 +16,10 @@ fn main() {
             commands::get_file_diff,
             commands::annotate_overview,
             commands::annotate_group,
+            commands::list_branches,
+            commands::list_worktrees,
+            commands::get_branch_status,
+            commands::get_repo_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running flowdiff");
