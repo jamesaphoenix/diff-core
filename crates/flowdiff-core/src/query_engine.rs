@@ -1036,14 +1036,21 @@ impl QueryEngine {
                 for m in &matches {
                     for &(name_cap, node_cap, kind) in py_def_captures {
                         if m.has_capture(name_cap) {
-                            let name_text = m
-                                .get_capture(name_cap)
+                            let name_node = m.get_capture(name_cap);
+                            let name_text = name_node
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, node_start) =
+                            let (start_line, end_line, _node_start) =
                                 node_span(m, node_cap);
                             if !name_text.is_empty() {
-                                let key = (node_start, hash_str(&name_text));
+                                // Dedup by name node start byte (not outer node) to
+                                // prevent decorated functions/classes from being counted
+                                // twice — the bare pattern and decorated pattern share
+                                // the same inner name identifier node.
+                                let name_start = name_node
+                                    .map(|n| n.start_byte())
+                                    .unwrap_or(0);
+                                let key = (name_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
                                     seen_nodes.push(key);
                                     definitions.push(Definition {
@@ -3008,5 +3015,71 @@ from . import utils
         let result = e.parse_file("all.py", source).unwrap();
         // Should capture all 7 imports (though some may be combined)
         assert!(result.imports.len() >= 6, "expected at least 6 imports, got {}", result.imports.len());
+    }
+
+    // === Agent audit Issue 3: Decorated Python function double-counting ===
+
+    #[test]
+    fn test_python_decorated_function_not_double_counted() {
+        // A decorated function fires both the bare `function_definition` pattern
+        // and the `decorated_definition > function_definition` pattern.
+        // Verify they are deduplicated (same name should appear only once).
+        let e = engine();
+        let source = "@app.route('/hello')\ndef hello():\n    pass\n\n@cache\ndef cached_func():\n    pass";
+        let result = e.parse_file("app.py", source).unwrap();
+        let hello_count = result.definitions.iter().filter(|d| d.name == "hello").count();
+        let cached_count = result.definitions.iter().filter(|d| d.name == "cached_func").count();
+        assert_eq!(hello_count, 1, "decorated function 'hello' should appear exactly once, got {}", hello_count);
+        assert_eq!(cached_count, 1, "decorated function 'cached_func' should appear exactly once, got {}", cached_count);
+    }
+
+    #[test]
+    fn test_python_decorated_class_not_double_counted() {
+        let e = engine();
+        let source = "@dataclass\nclass User:\n    name: str";
+        let result = e.parse_file("models.py", source).unwrap();
+        let user_count = result.definitions.iter().filter(|d| d.name == "User").count();
+        assert_eq!(user_count, 1, "decorated class 'User' should appear exactly once, got {}", user_count);
+    }
+
+    // === Agent audit Issue 4: "function" kind string in const skip logic ===
+
+    #[test]
+    fn test_ts_const_assigned_function_expression_not_double_def() {
+        // const fnExpr = function() {} should be captured as Function (via fn_expr_name),
+        // NOT additionally as a Constant (via const_name). The skip logic checks
+        // the value node kind for "arrow_function", "function", and "function_expression".
+        let e = engine();
+        let source = "const handler = function() { return 42; };";
+        let result = e.parse_file("fn.ts", source).unwrap();
+        let handler_defs: Vec<_> = result.definitions.iter().filter(|d| d.name == "handler").collect();
+        assert_eq!(handler_defs.len(), 1, "function expression should produce exactly 1 definition, got {}", handler_defs.len());
+        assert_eq!(handler_defs[0].kind, SymbolKind::Function, "should be Function, not Constant");
+    }
+
+    #[test]
+    fn test_ts_const_assigned_named_function_expression_not_double_def() {
+        // const handler = function named() {} — named function expression
+        let e = engine();
+        let source = "const handler = function named() { return 42; };";
+        let result = e.parse_file("fn.ts", source).unwrap();
+        // Should have "handler" as Function, not double-counted
+        let handler_defs: Vec<_> = result.definitions.iter().filter(|d| d.name == "handler").collect();
+        assert_eq!(handler_defs.len(), 1, "named function expression should produce exactly 1 definition for 'handler'");
+        assert_eq!(handler_defs[0].kind, SymbolKind::Function);
+    }
+
+    // === Agent audit Issue 1: TS new_expression not in calls.scm ===
+
+    #[test]
+    fn test_ts_new_expression_not_captured_known_gap() {
+        // `new Foo()` uses `new_expression` in tree-sitter TS, not `call_expression`.
+        // calls.scm only matches call_expression, so class instantiations are missed.
+        // This affects `instantiates` edge construction.
+        let e = engine();
+        let source = "const user = new User('Alice');";
+        let result = e.parse_file("app.ts", source).unwrap();
+        let has_user_call = result.call_sites.iter().any(|c| c.callee == "User");
+        assert!(!has_user_call, "new_expression is not captured as a call site (known gap)");
     }
 }
