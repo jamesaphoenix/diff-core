@@ -5,6 +5,8 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use log::warn;
+
 use flowdiff_core::cache;
 use flowdiff_core::cluster;
 use flowdiff_core::config::FlowdiffConfig;
@@ -115,8 +117,9 @@ pub fn analyze(
             infrastructure_group: None,
             annotations: None,
         };
-        if let Ok(mut last) = state.last_analysis.lock() {
-            *last = Some(empty_output.clone());
+        match state.last_analysis.lock() {
+            Ok(mut last) => *last = Some(empty_output.clone()),
+            Err(e) => warn!("Failed to update last_analysis state (lock poisoned): {}", e),
         }
         return Ok(empty_output);
     }
@@ -124,8 +127,9 @@ pub fn analyze(
     // Check cache for previously computed results
     let cache_key = cache::compute_cache_key(&diff_result);
     if let Some(cached) = cache::load_cached(&workdir, &cache_key) {
-        if let Ok(mut last) = state.last_analysis.lock() {
-            *last = Some(cached.clone());
+        match state.last_analysis.lock() {
+            Ok(mut last) => *last = Some(cached.clone()),
+            Err(e) => warn!("Failed to update last_analysis state (lock poisoned): {}", e),
         }
         return Ok(cached);
     }
@@ -208,8 +212,9 @@ pub fn analyze(
     cache::store_cached(&workdir, &cache_key, &analysis_output);
 
     // Store for subsequent queries
-    if let Ok(mut last) = state.last_analysis.lock() {
-        *last = Some(analysis_output.clone());
+    match state.last_analysis.lock() {
+        Ok(mut last) => *last = Some(analysis_output.clone()),
+        Err(e) => warn!("Failed to update last_analysis state (lock poisoned): {}", e),
     }
 
     Ok(analysis_output)
@@ -363,13 +368,16 @@ pub async fn annotate_overview(
         .map_err(|e| CommandError::Llm(format!("{}", e)))?;
 
     // Store the annotations in the cached analysis
-    if let Ok(mut last) = state.last_analysis.lock() {
-        if let Some(ref mut a) = *last {
-            a.annotations = Some(
-                serde_json::to_value(&response)
-                    .map_err(|e| CommandError::Llm(format!("Failed to serialize response: {}", e)))?,
-            );
+    match state.last_analysis.lock() {
+        Ok(mut last) => {
+            if let Some(ref mut a) = *last {
+                a.annotations = Some(
+                    serde_json::to_value(&response)
+                        .map_err(|e| CommandError::Llm(format!("Failed to serialize response: {}", e)))?,
+                );
+            }
         }
+        Err(e) => warn!("Failed to update last_analysis annotations (lock poisoned): {}", e),
     }
 
     Ok(response)
@@ -579,11 +587,14 @@ pub async fn refine_groups(
     ) {
         Ok((refined_groups, infra)) => {
             // Update cached analysis with refined groups
-            if let Ok(mut last) = state.last_analysis.lock() {
-                if let Some(ref mut a) = *last {
-                    a.groups = refined_groups.clone();
-                    a.infrastructure_group = infra.clone();
+            match state.last_analysis.lock() {
+                Ok(mut last) => {
+                    if let Some(ref mut a) = *last {
+                        a.groups = refined_groups.clone();
+                        a.infrastructure_group = infra.clone();
+                    }
                 }
+                Err(e) => warn!("Failed to update last_analysis with refinement (lock poisoned): {}", e),
             }
 
             Ok(RefinementResult {
@@ -944,13 +955,21 @@ fn extract_diff(
         Ok((diff, source))
     } else if pr_preview {
         // PR preview mode: use merge-base diff
-        let base_ref = base.as_deref().unwrap_or_else(|| {
-            // Try to detect default branch; fall back to "main"
-            "main"
-        });
+        // Auto-detect default branch if no base ref provided
+        let detected_default = if base.is_none() {
+            git::detect_default_branch(repo).ok()
+        } else {
+            None
+        };
+        let base_ref = base.as_deref()
+            .or(detected_default.as_deref())
+            .unwrap_or("main");
         let head_ref = head.as_deref().unwrap_or("HEAD");
         let diff = git::diff_merge_base(repo, base_ref, head_ref)
-            .map_err(|e| CommandError::Git(format!("{}", e)))?;
+            .map_err(|e| CommandError::Git(format!(
+                "Failed to compute merge-base diff between '{}' and '{}': {}",
+                base_ref, head_ref, e
+            )))?;
         let source = output::diff_source_branch(
             base_ref,
             head_ref,
@@ -1347,5 +1366,75 @@ mod tests {
         assert_eq!(back.old_content, "const x = 1;");
         assert_eq!(back.new_content, "const x = 2;");
         assert_eq!(back.language, "typescript");
+    }
+
+    // ── Error handling edge case tests ────────────────────────────────
+
+    #[test]
+    fn test_command_error_all_variants_display() {
+        let variants = vec![
+            CommandError::Git("git error".into()),
+            CommandError::Analysis("analysis error".into()),
+            CommandError::Config("config error".into()),
+            CommandError::Io("io error".into()),
+            CommandError::Llm("llm error".into()),
+        ];
+        for err in &variants {
+            let msg = err.to_string();
+            assert!(!msg.is_empty());
+            // Verify serialization works for all variants (sent to frontend)
+            let json = serde_json::to_string(err).unwrap();
+            assert!(!json.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_detect_language_edge_cases() {
+        // Path with multiple dots
+        assert_eq!(detect_language("my.file.test.ts"), "typescript");
+        // Hidden file
+        assert_eq!(detect_language(".hidden.js"), "javascript");
+        // No extension
+        assert_eq!(detect_language("Makefile"), "plaintext");
+        // Empty string
+        assert_eq!(detect_language(""), "plaintext");
+        // Path with spaces
+        assert_eq!(detect_language("path with spaces/file.ts"), "typescript");
+    }
+
+    #[test]
+    fn test_simple_unified_diff_only_additions() {
+        let diff = simple_unified_diff("", "new line 1\nnew line 2");
+        assert!(diff.contains("+new line 1"));
+        assert!(diff.contains("+new line 2"));
+        assert!(!diff.contains("-"));
+    }
+
+    #[test]
+    fn test_simple_unified_diff_only_deletions() {
+        let diff = simple_unified_diff("old line 1\nold line 2", "");
+        assert!(diff.contains("-old line 1"));
+        assert!(diff.contains("-old line 2"));
+        assert!(!diff.contains("+"));
+    }
+
+    #[test]
+    fn test_app_state_mutex_not_poisoned() {
+        let state = AppState::new();
+        // Lock, set, release
+        {
+            let mut last = state.last_analysis.lock().unwrap();
+            *last = None;
+        }
+        // Lock again should succeed
+        let last = state.last_analysis.lock().unwrap();
+        assert!(last.is_none());
+    }
+
+    #[test]
+    fn test_default_model_for_unknown_provider() {
+        // Unknown providers should get a reasonable default
+        let model = default_model_for_provider("nonexistent");
+        assert!(!model.is_empty());
     }
 }

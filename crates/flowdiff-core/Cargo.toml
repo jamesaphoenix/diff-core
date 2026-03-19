@@ -22,6 +22,7 @@ hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 schemars = "0.8"
 rayon = "1.10"
+log = { workspace = true }
 
 [dev-dependencies]
 proptest = "1"

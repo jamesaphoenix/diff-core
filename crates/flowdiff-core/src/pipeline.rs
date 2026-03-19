@@ -17,6 +17,7 @@
 //!             → cluster + rank (unchanged, operate on graph/entrypoints)
 //! ```
 
+use log::warn;
 use rayon::prelude::*;
 
 use crate::ast::{self, ParsedFile};
@@ -35,9 +36,9 @@ pub fn parse_to_ir(engine: &QueryEngine, path: &str, source: &str) -> Result<IrF
     let mut ir = IrFile::from_parsed_file(&parsed);
 
     // Enrich with data flow info (assignments, call arguments).
-    match engine.extract_data_flow(path, source) {
-        Ok(data_flow) => ir.enrich_with_data_flow(&data_flow),
-        Err(_) => {} // Non-fatal: file may have syntax errors or unsupported language
+    // Non-fatal: file may have syntax errors or unsupported language.
+    if let Err(e) = engine.extract_data_flow(path, source).map(|df| ir.enrich_with_data_flow(&df)) {
+        warn!("Data flow extraction failed for {}: {} (non-fatal, skipping enrichment)", path, e);
     }
 
     Ok(ir)
@@ -80,13 +81,25 @@ pub fn parse_all_to_ir(
 /// independently via rayon, then results are collected and sorted by path
 /// for determinism.
 ///
-/// Files that fail to parse are silently skipped (tree-sitter is error-tolerant,
-/// so failures are rare — typically only unsupported languages or empty content).
+/// Files that fail to parse are skipped with a warning logged. Tree-sitter is
+/// error-tolerant, so failures are rare — typically only unsupported languages.
 pub fn parse_files_parallel(files: &[(&str, &str)]) -> Vec<ParsedFile> {
-    let mut parsed: Vec<ParsedFile> = files
+    let results: Vec<Result<ParsedFile, (String, crate::ast::AstError)>> = files
         .par_iter()
-        .filter_map(|&(path, source)| ast::parse_file(path, source).ok())
+        .map(|&(path, source)| {
+            ast::parse_file(path, source).map_err(|e| (path.to_string(), e))
+        })
         .collect();
+
+    let mut parsed = Vec::with_capacity(files.len());
+    for result in results {
+        match result {
+            Ok(file) => parsed.push(file),
+            Err((path, e)) => {
+                warn!("Skipping file {} due to parse error: {}", path, e);
+            }
+        }
+    }
 
     // Sort by path for deterministic ordering.
     parsed.sort_by(|a, b| a.path.cmp(&b.path));
@@ -686,5 +699,92 @@ export function handler() {
                 prop_assert_eq!(parsed.len(), files.len());
             }
         }
+    }
+
+    // ── Error path and edge case tests ────────────────────────────────
+
+    #[test]
+    fn parse_files_parallel_handles_unsupported_languages_gracefully() {
+        // Files with unsupported extensions should be parsed (tree-sitter is
+        // error-tolerant) or gracefully skipped without panicking.
+        let files = vec![
+            ("src/app.ts", "export function app() {}"),
+            ("data.csv", "a,b,c\n1,2,3"),
+            ("image.png", "PNG binary-like content"), // non-code content
+            ("src/main.rs", "fn main() {}"),      // Rust not yet supported by query engine
+        ];
+        let parsed = parse_files_parallel(&files);
+        // Should not panic. The exact count depends on which languages are supported,
+        // but TS should always parse.
+        assert!(parsed.iter().any(|f| f.path == "src/app.ts"));
+    }
+
+    #[test]
+    fn parse_all_to_ir_collects_errors_separately() {
+        let engine = QueryEngine::new().unwrap();
+        // Mix of valid and invalid files
+        let files = vec![
+            ("valid.ts", "export function valid() {}"),
+            ("also_valid.py", "def also_valid(): pass"),
+        ];
+        let (ir_files, errors) = parse_all_to_ir(&engine, &files);
+        // Both should succeed (tree-sitter is error-tolerant)
+        assert_eq!(ir_files.len() + errors.len(), files.len());
+    }
+
+    #[test]
+    fn parse_to_ir_with_very_large_source() {
+        let engine = QueryEngine::new().unwrap();
+        // Generate a large file with many functions
+        let mut source = String::new();
+        for i in 0..500 {
+            source.push_str(&format!("function fn_{}() {{ return {}; }}\n", i, i));
+        }
+        let ir = parse_to_ir(&engine, "src/large.ts", &source).unwrap();
+        assert_eq!(ir.path, "src/large.ts");
+        assert!(ir.functions.len() >= 100); // Should parse many (if not all) functions
+    }
+
+    #[test]
+    fn parse_to_ir_with_null_bytes_in_source() {
+        let engine = QueryEngine::new().unwrap();
+        // Source with embedded null bytes (could come from binary files that
+        // slipped through the binary filter)
+        let source = "function a() {}\0\0\0function b() {}";
+        // Should not panic
+        let result = parse_to_ir(&engine, "src/nulls.ts", source);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn parse_to_ir_with_unicode_content() {
+        let engine = QueryEngine::new().unwrap();
+        let source = r#"
+function greet(name: string) {
+    return `Hello, ${name}! 🎉`;
+}
+const message = "日本語テスト";
+"#;
+        let ir = parse_to_ir(&engine, "src/unicode.ts", source).unwrap();
+        assert_eq!(ir.path, "src/unicode.ts");
+        assert!(!ir.functions.is_empty());
+    }
+
+    #[test]
+    fn parse_files_parallel_with_duplicate_paths() {
+        // Two entries with the same path but different content
+        let files = vec![
+            ("src/a.ts", "function a() {}"),
+            ("src/a.ts", "function b() {}"),
+        ];
+        let parsed = parse_files_parallel(&files);
+        // Both should parse (parallel parsing doesn't deduplicate)
+        assert_eq!(parsed.len(), 2);
+    }
+
+    #[test]
+    fn pipeline_error_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<PipelineError>();
     }
 }

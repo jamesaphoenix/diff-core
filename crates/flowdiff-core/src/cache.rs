@@ -7,6 +7,7 @@
 //!
 //! Cache location: `<repo>/.flowdiff/cache/` (gitignored by convention).
 
+use log::warn;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -48,25 +49,47 @@ fn cache_dir(workdir: &Path) -> PathBuf {
 /// Try to load a cached analysis result for the given diff.
 ///
 /// Returns `None` if no cache entry exists or if the entry is malformed.
+/// Logs a warning if the cache file exists but cannot be deserialized.
 pub fn load_cached(workdir: &Path, cache_key: &str) -> Option<AnalysisOutput> {
     let path = cache_dir(workdir).join(format!("{}.json", cache_key));
-    let content = std::fs::read_to_string(&path).ok()?;
-    serde_json::from_str(&content).ok()
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return None, // File doesn't exist — normal cache miss
+    };
+    match serde_json::from_str(&content) {
+        Ok(output) => Some(output),
+        Err(e) => {
+            warn!(
+                "Cache entry at {} is malformed and will be ignored: {}",
+                path.display(),
+                e
+            );
+            None
+        }
+    }
 }
 
 /// Store an analysis result in the cache.
 ///
-/// Creates the cache directory if it doesn't exist. Errors are silently ignored
-/// since caching is best-effort and should never block analysis.
+/// Creates the cache directory if it doesn't exist. Caching is best-effort
+/// and should never block analysis — failures are logged as warnings.
 pub fn store_cached(workdir: &Path, cache_key: &str, output: &AnalysisOutput) {
     let dir = cache_dir(workdir);
-    if std::fs::create_dir_all(&dir).is_err() {
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        warn!("Failed to create cache directory {}: {}", dir.display(), e);
         return;
     }
 
     let path = dir.join(format!("{}.json", cache_key));
-    if let Ok(json) = serde_json::to_string(output) {
-        let _ = std::fs::write(&path, json);
+    match serde_json::to_string(output) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                warn!("Failed to write cache entry {}: {}", path.display(), e);
+            }
+        }
+        Err(e) => {
+            warn!("Failed to serialize analysis for caching: {}", e);
+        }
     }
 }
 
@@ -237,5 +260,59 @@ mod tests {
         let diff = make_diff_result(Some("abc"), Some("def"), &["a.ts"]);
         let key = compute_cache_key(&diff);
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn load_cached_malformed_json_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join(".flowdiff").join("cache");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Write invalid JSON to cache file
+        let path = dir.join("bad_key.json");
+        std::fs::write(&path, "{ this is not valid json }").unwrap();
+
+        // Should return None (malformed cache entry)
+        assert!(load_cached(tmp.path(), "bad_key").is_none());
+    }
+
+    #[test]
+    fn load_cached_wrong_schema_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join(".flowdiff").join("cache");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Write valid JSON but wrong schema
+        let path = dir.join("wrong_schema.json");
+        std::fs::write(&path, r#"{"version": 42, "unexpected": true}"#).unwrap();
+
+        // Should return None (doesn't match AnalysisOutput schema)
+        assert!(load_cached(tmp.path(), "wrong_schema").is_none());
+    }
+
+    #[test]
+    fn store_cached_readonly_dir_does_not_panic() {
+        // Attempting to store to a non-writable location should not panic.
+        // On macOS/Linux, /proc or a read-only path works; on all systems,
+        // an impossible path name should trigger an error gracefully.
+        store_cached(
+            std::path::Path::new("/dev/null/impossible"),
+            "key",
+            &make_analysis_output(),
+        );
+        // No panic = success (error is logged as warning)
+    }
+
+    #[test]
+    fn load_cached_empty_file_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join(".flowdiff").join("cache");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Write empty file
+        let path = dir.join("empty.json");
+        std::fs::write(&path, "").unwrap();
+
+        assert!(load_cached(tmp.path(), "empty").is_none());
     }
 }

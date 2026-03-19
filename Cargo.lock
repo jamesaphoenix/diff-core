@@ -982,6 +982,7 @@ dependencies = [
  "git2",
  "glob",
  "hex",
+ "log",
  "petgraph",
  "proptest",
  "rayon",
@@ -1006,6 +1007,7 @@ version = "0.1.0"
 dependencies = [
  "flowdiff-core",
  "git2",
+ "log",
  "serde",
  "serde_json",
  "tauri",

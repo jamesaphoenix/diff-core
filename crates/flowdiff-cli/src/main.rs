@@ -327,8 +327,15 @@ fn extract_diff(
         let source = output::diff_source_unstaged();
         Ok((diff, source))
     } else {
-        // Branch comparison (default)
-        let base = args.base.as_deref().unwrap_or("main");
+        // Branch comparison (default) — auto-detect default branch if not specified
+        let detected_default = if args.base.is_none() {
+            git::detect_default_branch(repo).ok()
+        } else {
+            None
+        };
+        let base = args.base.as_deref()
+            .or(detected_default.as_deref())
+            .unwrap_or("main");
         let head = args.head.as_deref().unwrap_or("HEAD");
         let diff = git::diff_refs(repo, base, head)?;
         let source = output::diff_source_branch(
