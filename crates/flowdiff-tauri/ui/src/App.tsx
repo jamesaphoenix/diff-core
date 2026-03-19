@@ -8,10 +8,13 @@ import type {
   Pass2Response,
   RepoInfo,
   BranchInfo,
+  LlmSettings,
+  LlmProvider,
 } from "./types";
+import { LLM_PROVIDERS, MODELS_BY_PROVIDER } from "./types";
 import DiffViewer from "./components/DiffViewer";
 import FlowGraph from "./components/FlowGraph";
-import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO } from "./mock";
+import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS } from "./mock";
 
 /** Detect if running inside Tauri (vs plain browser for demo/testing). */
 const IS_TAURI = typeof window !== "undefined" && "__TAURI__" in window;
@@ -46,6 +49,10 @@ export default function App() {
   // LLM API key availability
   const [hasApiKey, setHasApiKey] = useState(!IS_TAURI); // Demo mode always has "key"
 
+  // LLM settings
+  const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   // Demo mode: auto-load mock data on mount when not in Tauri
   const demoLoaded = useRef(false);
 
@@ -56,21 +63,45 @@ export default function App() {
   selectedGroupRef.current = selectedGroup;
   selectedFileRef.current = selectedFile;
 
-  /** Check if an LLM API key is configured. */
-  const checkApiKey = useCallback(async (path: string | null) => {
-    if (!IS_TAURI) {
-      setHasApiKey(true); // Demo mode always has "key"
-      return;
-    }
+  /** Load LLM settings from backend. */
+  const loadLlmSettings = useCallback(async (path: string | null) => {
     try {
-      const available = await tauriInvoke<boolean>("check_api_key", {
-        repoPath: path,
-      });
-      setHasApiKey(available);
+      let settings: LlmSettings;
+      if (IS_TAURI) {
+        settings = await tauriInvoke<LlmSettings>("get_llm_settings", {
+          repoPath: path,
+        });
+      } else {
+        settings = MOCK_LLM_SETTINGS;
+      }
+      setLlmSettings(settings);
+      setHasApiKey(settings.has_api_key);
     } catch {
-      setHasApiKey(false);
+      // Non-fatal
     }
   }, []);
+
+  /** Save LLM settings to backend. */
+  const saveLlmSettings = useCallback(async (settings: LlmSettings) => {
+    setLlmSettings(settings);
+    setHasApiKey(settings.has_api_key);
+    if (IS_TAURI && repoPath) {
+      try {
+        await tauriInvoke("save_llm_settings", {
+          repoPath,
+          settings,
+        });
+        // Re-check API key availability after save
+        const updated = await tauriInvoke<LlmSettings>("get_llm_settings", {
+          repoPath,
+        });
+        setLlmSettings(updated);
+        setHasApiKey(updated.has_api_key);
+      } catch {
+        // Non-fatal: settings are still applied in-memory
+      }
+    }
+  }, [repoPath]);
 
   /** Fetch repository info (branches, worktrees, status). */
   const loadRepoInfo = useCallback(async (path: string) => {
@@ -90,9 +121,9 @@ export default function App() {
       // Non-fatal: we can still analyze without repo info
       setRepoInfo(null);
     }
-    // Check API key availability for this repo
-    checkApiKey(path);
-  }, [checkApiKey]);
+    // Load LLM settings (includes API key check)
+    loadLlmSettings(path);
+  }, [loadLlmSettings]);
 
   // Load repo info when repo path changes
   useEffect(() => {
@@ -193,7 +224,11 @@ export default function App() {
     try {
       let result: Pass1Response;
       if (IS_TAURI) {
-        result = await tauriInvoke<Pass1Response>("annotate_overview");
+        result = await tauriInvoke<Pass1Response>("annotate_overview", {
+          repoPath: repoPath || null,
+          llmProvider: llmSettings?.provider ?? null,
+          llmModel: llmSettings?.model ?? null,
+        });
       } else {
         await new Promise((r) => setTimeout(r, 800));
         result = MOCK_PASS1;
@@ -204,7 +239,7 @@ export default function App() {
     } finally {
       setAnnotating(false);
     }
-  }, []);
+  }, [repoPath, llmSettings]);
 
   /** Run LLM Pass 2: deep analysis for the selected group. */
   const runDeepAnalysis = useCallback(async () => {
@@ -222,6 +257,8 @@ export default function App() {
           range: null,
           staged: false,
           unstaged: false,
+          llmProvider: llmSettings?.provider ?? null,
+          llmModel: llmSettings?.model ?? null,
         });
       } else {
         await new Promise((r) => setTimeout(r, 600));
@@ -238,7 +275,7 @@ export default function App() {
     } finally {
       setDeepAnalyzing(false);
     }
-  }, [selectedGroup, repoPath, baseRef]);
+  }, [selectedGroup, repoPath, baseRef, llmSettings]);
 
   // Auto-load demo data when not in Tauri
   useEffect(() => {
@@ -260,6 +297,37 @@ export default function App() {
     window.addEventListener("click", handleClick);
     return () => window.removeEventListener("click", handleClick);
   }, [branchDropdownOpen]);
+
+  // Close settings panel on Escape
+  useEffect(() => {
+    if (!settingsOpen) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setSettingsOpen(false);
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [settingsOpen]);
+
+  /** Update a single LLM setting field and persist. */
+  const updateSetting = useCallback(
+    (field: keyof LlmSettings, value: string | boolean | number) => {
+      if (!llmSettings) return;
+      const updated = { ...llmSettings, [field]: value };
+      // When provider changes, reset model to default for that provider
+      if (field === "provider") {
+        const provider = value as LlmProvider;
+        const models = MODELS_BY_PROVIDER[provider] ?? [];
+        updated.model = models[0] ?? "";
+      }
+      if (field === "refinement_provider") {
+        const provider = value as LlmProvider;
+        const models = MODELS_BY_PROVIDER[provider] ?? [];
+        updated.refinement_model = models[0] ?? "";
+      }
+      saveLlmSettings(updated);
+    },
+    [llmSettings, saveLlmSettings],
+  );
 
   // Sort groups by review_order
   const sortedGroups = analysis
@@ -400,6 +468,14 @@ export default function App() {
           </button>
         </div>
         <div className="top-bar-right">
+          {/* Settings gear icon */}
+          <button
+            className="btn btn-settings"
+            onClick={() => setSettingsOpen(!settingsOpen)}
+            title="LLM Settings"
+          >
+            &#9881;
+          </button>
           {/* Branch status indicator */}
           {repoInfo && (
             <div className="repo-status">
@@ -430,6 +506,154 @@ export default function App() {
           )}
         </div>
       </header>
+
+      {/* Settings Panel Overlay */}
+      {settingsOpen && llmSettings && (
+        <div className="settings-overlay" onClick={() => setSettingsOpen(false)}>
+          <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-header">
+              <h2>LLM Settings</h2>
+              <button className="btn-close" onClick={() => setSettingsOpen(false)}>
+                &times;
+              </button>
+            </div>
+            <div className="settings-body">
+              {/* API Key Status */}
+              <div className="settings-section">
+                <h3>API Key</h3>
+                <div className={`api-key-status ${llmSettings.has_api_key ? "configured" : "missing"}`}>
+                  <span className="api-key-dot" />
+                  <span>
+                    {llmSettings.has_api_key
+                      ? `Configured via ${llmSettings.api_key_source}`
+                      : "Not configured"}
+                  </span>
+                </div>
+                {!llmSettings.has_api_key && (
+                  <p className="settings-hint">
+                    Set <code>FLOWDIFF_API_KEY</code>, a provider-specific env var
+                    (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>GEMINI_API_KEY</code>),
+                    or configure <code>key_cmd</code> in <code>.flowdiff.toml</code>.
+                  </p>
+                )}
+              </div>
+
+              {/* Annotations Toggle */}
+              <div className="settings-section">
+                <h3>Annotations</h3>
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={llmSettings.annotations_enabled}
+                    onChange={(e) => updateSetting("annotations_enabled", e.target.checked)}
+                  />
+                  <span>Enable LLM annotations</span>
+                </label>
+                <p className="settings-hint">
+                  When enabled, "Summarize PR" and "Analyze This Flow" buttons are active.
+                </p>
+              </div>
+
+              {/* Provider Selector */}
+              <div className="settings-section">
+                <h3>Provider</h3>
+                <select
+                  className="settings-select"
+                  value={llmSettings.provider}
+                  onChange={(e) => updateSetting("provider", e.target.value)}
+                >
+                  {LLM_PROVIDERS.map((p) => (
+                    <option key={p} value={p}>
+                      {p.charAt(0).toUpperCase() + p.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Model Selector */}
+              <div className="settings-section">
+                <h3>Model</h3>
+                <select
+                  className="settings-select"
+                  value={llmSettings.model}
+                  onChange={(e) => updateSetting("model", e.target.value)}
+                >
+                  {(MODELS_BY_PROVIDER[llmSettings.provider as LlmProvider] ?? []).map(
+                    (m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </div>
+
+              {/* Refinement Section */}
+              <div className="settings-section settings-refinement">
+                <h3>Refinement</h3>
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={llmSettings.refinement_enabled}
+                    onChange={(e) => updateSetting("refinement_enabled", e.target.checked)}
+                  />
+                  <span>Enable LLM refinement</span>
+                </label>
+                <p className="settings-hint">
+                  Refines deterministic groupings using an LLM pass. Can use a different provider/model.
+                </p>
+                {llmSettings.refinement_enabled && (
+                  <>
+                    <div className="settings-row">
+                      <label>Provider</label>
+                      <select
+                        className="settings-select"
+                        value={llmSettings.refinement_provider}
+                        onChange={(e) => updateSetting("refinement_provider", e.target.value)}
+                      >
+                        {LLM_PROVIDERS.map((p) => (
+                          <option key={p} value={p}>
+                            {p.charAt(0).toUpperCase() + p.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="settings-row">
+                      <label>Model</label>
+                      <select
+                        className="settings-select"
+                        value={llmSettings.refinement_model}
+                        onChange={(e) => updateSetting("refinement_model", e.target.value)}
+                      >
+                        {(MODELS_BY_PROVIDER[llmSettings.refinement_provider as LlmProvider] ?? []).map(
+                          (m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                    </div>
+                    <div className="settings-row">
+                      <label>Max iterations</label>
+                      <input
+                        type="number"
+                        className="settings-number"
+                        min={1}
+                        max={10}
+                        value={llmSettings.refinement_max_iterations}
+                        onChange={(e) =>
+                          updateSetting("refinement_max_iterations", Math.max(1, parseInt(e.target.value) || 1))
+                        }
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error display */}
       {error && (
@@ -662,11 +886,11 @@ export default function App() {
                     <button
                       className={`btn btn-summarize ${!hasApiKey ? "no-api-key" : ""}`}
                       onClick={runAnnotateOverview}
-                      disabled={annotating || !hasApiKey}
+                      disabled={annotating || !hasApiKey || !(llmSettings?.annotations_enabled ?? false)}
                       title={
                         hasApiKey
-                          ? "Run LLM Pass 1: generate an overview summary of all flow groups, risk flags, and suggested review order. Requires an LLM API key."
-                          : "Requires API key — set FLOWDIFF_API_KEY, configure key_cmd in .flowdiff.toml, or set a provider-specific env var (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY)"
+                          ? `Run LLM Pass 1 via ${llmSettings?.provider ?? "anthropic"} (${llmSettings?.model ?? "default"}): generate an overview summary of all flow groups.`
+                          : "Requires API key — click the gear icon to configure LLM settings"
                       }
                     >
                       {annotating ? "Summarizing..." : hasApiKey ? "Summarize PR" : "Summarize PR (Requires API key)"}
@@ -676,15 +900,21 @@ export default function App() {
                     <button
                       className={`btn btn-analyze-flow ${!hasApiKey ? "no-api-key" : ""}`}
                       onClick={runDeepAnalysis}
-                      disabled={deepAnalyzing || !hasApiKey}
+                      disabled={deepAnalyzing || !hasApiKey || !(llmSettings?.annotations_enabled ?? false)}
                       title={
                         hasApiKey
-                          ? "Run LLM Pass 2: deep analysis of this flow group with per-file annotations, risks, suggestions, and cross-cutting concerns. Requires an LLM API key."
-                          : "Requires API key — set FLOWDIFF_API_KEY, configure key_cmd in .flowdiff.toml, or set a provider-specific env var (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY)"
+                          ? `Run LLM Pass 2 via ${llmSettings?.provider ?? "anthropic"} (${llmSettings?.model ?? "default"}): deep analysis of this flow group.`
+                          : "Requires API key — click the gear icon to configure LLM settings"
                       }
                     >
                       {deepAnalyzing ? "Analyzing..." : hasApiKey ? "Analyze This Flow" : "Analyze This Flow (Requires API key)"}
                     </button>
+                  )}
+                  {/* Provider/model indicator */}
+                  {hasApiKey && llmSettings && (
+                    <span className="llm-provider-badge">
+                      {llmSettings.provider}/{llmSettings.model}
+                    </span>
                   )}
                 </div>
               </>

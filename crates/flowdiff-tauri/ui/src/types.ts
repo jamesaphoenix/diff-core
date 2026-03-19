@@ -163,3 +163,33 @@ export interface Annotations {
   overview: Pass1Response | null;
   deep_analyses: Pass2Response[];
 }
+
+// ── LLM Settings Types ──
+
+/** LLM settings for the settings panel. */
+export interface LlmSettings {
+  annotations_enabled: boolean;
+  refinement_enabled: boolean;
+  provider: string;
+  model: string;
+  api_key_source: string;
+  has_api_key: boolean;
+  refinement_provider: string;
+  refinement_model: string;
+  refinement_max_iterations: number;
+}
+
+/** Available LLM providers. */
+export const LLM_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
+export type LlmProvider = (typeof LLM_PROVIDERS)[number];
+
+/** Models available per provider. */
+export const MODELS_BY_PROVIDER: Record<LlmProvider, string[]> = {
+  anthropic: [
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
+    "claude-haiku-4-5-20251001",
+  ],
+  openai: ["gpt-4o", "o1", "o3-mini", "o3"],
+  gemini: ["gemini-2.5-pro", "gemini-2.5-flash"],
+};

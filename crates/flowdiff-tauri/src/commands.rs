@@ -279,6 +279,9 @@ pub fn get_file_diff(
 /// analysis output's `annotations` field.
 #[tauri::command]
 pub async fn annotate_overview(
+    repo_path: Option<String>,
+    llm_provider: Option<String>,
+    llm_model: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Pass1Response, CommandError> {
     // Get the cached analysis to build the request
@@ -291,8 +294,16 @@ pub async fn annotate_overview(
             .ok_or_else(|| CommandError::Analysis("No analysis available. Run analyze first.".into()))?
     };
 
-    // Load config from the working directory (if available)
-    let config = FlowdiffConfig::default();
+    // Load config from the repo directory (not default)
+    let (mut config, _) = load_config_from_path(repo_path.as_deref());
+
+    // Apply frontend overrides if provided
+    if let Some(p) = llm_provider {
+        config.llm.provider = Some(p);
+    }
+    if let Some(m) = llm_model {
+        config.llm.model = Some(m);
+    }
 
     // Create LLM provider
     let provider = llm::create_provider(&config.llm)
@@ -362,6 +373,8 @@ pub async fn annotate_group(
     range: Option<String>,
     staged: bool,
     unstaged: bool,
+    llm_provider: Option<String>,
+    llm_model: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Pass2Response, CommandError> {
     // Get the cached analysis to find the group
@@ -428,7 +441,13 @@ pub async fn annotate_group(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let config = FlowdiffConfig::default();
+    let (mut config, _) = load_config_from_path(Some(&repo_path));
+    if let Some(p) = llm_provider {
+        config.llm.provider = Some(p);
+    }
+    if let Some(m) = llm_model {
+        config.llm.model = Some(m);
+    }
     let provider = llm::create_provider(&config.llm)
         .map_err(|e| CommandError::Llm(format!("{}", e)))?;
 
@@ -536,6 +555,163 @@ pub fn check_api_key(repo_path: Option<String>) -> Result<bool, CommandError> {
         .unwrap_or("anthropic");
 
     Ok(llm::resolve_api_key(&config.llm, provider_name).is_ok())
+}
+
+/// Get LLM settings from the project's `.flowdiff.toml` and environment.
+///
+/// Reads the config file, resolves API key availability, and returns a
+/// unified `LlmSettings` struct for the settings panel.
+#[tauri::command]
+pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, CommandError> {
+    let (config, workdir) = load_config_from_path(repo_path.as_deref());
+
+    let provider = config
+        .llm
+        .provider
+        .clone()
+        .unwrap_or_else(|| "anthropic".to_string());
+    let model = config
+        .llm
+        .model
+        .clone()
+        .unwrap_or_else(|| default_model_for_provider(&provider).to_string());
+
+    let has_api_key = llm::resolve_api_key(&config.llm, &provider).is_ok();
+
+    let api_key_source = if config.llm.key_cmd.is_some() {
+        "key_cmd".to_string()
+    } else if std::env::var("FLOWDIFF_API_KEY").is_ok() {
+        "FLOWDIFF_API_KEY".to_string()
+    } else {
+        let env_var = match provider.as_str() {
+            "anthropic" => "ANTHROPIC_API_KEY",
+            "openai" => "OPENAI_API_KEY",
+            "gemini" => "GEMINI_API_KEY",
+            _ => "none",
+        };
+        if std::env::var(env_var).is_ok() {
+            env_var.to_string()
+        } else if workdir.is_some() {
+            "none (configure in .flowdiff.toml or env)".to_string()
+        } else {
+            "none".to_string()
+        }
+    };
+
+    let refinement_provider = config
+        .llm
+        .refinement
+        .provider
+        .clone()
+        .unwrap_or_else(|| provider.clone());
+    let refinement_model = config
+        .llm
+        .refinement
+        .model
+        .clone()
+        .unwrap_or_else(|| default_model_for_provider(&refinement_provider).to_string());
+
+    Ok(LlmSettings {
+        annotations_enabled: has_api_key,
+        refinement_enabled: config.llm.refinement.enabled,
+        provider,
+        model,
+        api_key_source,
+        has_api_key,
+        refinement_provider,
+        refinement_model,
+        refinement_max_iterations: config.llm.refinement.max_iterations,
+    })
+}
+
+/// Save LLM settings to the project's `.flowdiff.toml`.
+///
+/// Loads the existing config (preserving non-LLM sections), updates the LLM
+/// section with the provided settings, and writes back.
+#[tauri::command]
+pub fn save_llm_settings(
+    repo_path: String,
+    settings: LlmSettings,
+) -> Result<(), CommandError> {
+    let repo_path_buf = PathBuf::from(&repo_path);
+    let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
+        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
+    let repo = git2::Repository::discover(&repo_path_buf)
+        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| CommandError::Git("Bare repositories are not supported".to_string()))?;
+
+    let mut config = FlowdiffConfig::load_from_dir(workdir)
+        .map_err(|e| CommandError::Config(format!("{}", e)))?;
+
+    // Update LLM section
+    config.llm.provider = Some(settings.provider);
+    config.llm.model = Some(settings.model);
+    // Don't overwrite key_cmd — that's managed manually
+    config.llm.refinement.enabled = settings.refinement_enabled;
+    config.llm.refinement.provider = Some(settings.refinement_provider);
+    config.llm.refinement.model = Some(settings.refinement_model);
+    config.llm.refinement.max_iterations = settings.refinement_max_iterations;
+
+    config
+        .save_to_dir(workdir)
+        .map_err(|e| CommandError::Config(format!("Failed to save config: {}", e)))?;
+
+    Ok(())
+}
+
+/// Load config from a repo path, returning both config and optional workdir.
+fn load_config_from_path(repo_path: Option<&str>) -> (FlowdiffConfig, Option<PathBuf>) {
+    if let Some(path) = repo_path {
+        let repo_path = PathBuf::from(path);
+        if let Ok(canonical) = std::fs::canonicalize(&repo_path) {
+            if let Ok(repo) = git2::Repository::discover(&canonical) {
+                if let Some(workdir) = repo.workdir() {
+                    let config = FlowdiffConfig::load_from_dir(workdir).unwrap_or_default();
+                    return (config, Some(workdir.to_path_buf()));
+                }
+            }
+        }
+    }
+    (FlowdiffConfig::default(), None)
+}
+
+/// Get the default model for a provider.
+fn default_model_for_provider(provider: &str) -> &str {
+    match provider {
+        "anthropic" => "claude-sonnet-4-20250514",
+        "openai" => "gpt-4o",
+        "gemini" => "gemini-2.5-flash",
+        _ => "claude-sonnet-4-20250514",
+    }
+}
+
+/// LLM settings for the UI — surface for the settings panel.
+///
+/// Contains the current provider/model configuration, API key status,
+/// and annotation/refinement toggle states. Returned by `get_llm_settings`
+/// and accepted by `save_llm_settings`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LlmSettings {
+    /// Whether LLM annotations are enabled (controls visibility of Summarize PR / Analyze buttons).
+    pub annotations_enabled: bool,
+    /// Whether LLM refinement is enabled.
+    pub refinement_enabled: bool,
+    /// Selected LLM provider: "anthropic", "openai", or "gemini".
+    pub provider: String,
+    /// Selected model identifier.
+    pub model: String,
+    /// How the API key is configured.
+    pub api_key_source: String,
+    /// Whether an API key is actually available (resolvable).
+    pub has_api_key: bool,
+    /// Refinement provider (can differ from annotation provider).
+    pub refinement_provider: String,
+    /// Refinement model.
+    pub refinement_model: String,
+    /// Maximum refinement iterations.
+    pub refinement_max_iterations: u32,
 }
 
 /// Summary of repository state for the UI.
@@ -853,6 +1029,80 @@ mod tests {
         // Invalid path should not panic, should return Ok(bool)
         let result = check_api_key(Some("/nonexistent/path/to/repo".to_string()));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_llm_settings_serde_roundtrip() {
+        let settings = LlmSettings {
+            annotations_enabled: true,
+            refinement_enabled: false,
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-20250514".to_string(),
+            api_key_source: "ANTHROPIC_API_KEY".to_string(),
+            has_api_key: true,
+            refinement_provider: "openai".to_string(),
+            refinement_model: "gpt-4o".to_string(),
+            refinement_max_iterations: 2,
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let back: LlmSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.provider, "anthropic");
+        assert_eq!(back.model, "claude-sonnet-4-20250514");
+        assert!(back.annotations_enabled);
+        assert!(!back.refinement_enabled);
+        assert!(back.has_api_key);
+        assert_eq!(back.refinement_provider, "openai");
+        assert_eq!(back.refinement_model, "gpt-4o");
+        assert_eq!(back.refinement_max_iterations, 2);
+    }
+
+    #[test]
+    fn test_llm_settings_all_providers() {
+        for provider in &["anthropic", "openai", "gemini"] {
+            let expected = default_model_for_provider(provider);
+            assert!(!expected.is_empty(), "Provider '{}' should have a default model", provider);
+        }
+    }
+
+    #[test]
+    fn test_default_model_for_provider() {
+        assert_eq!(default_model_for_provider("anthropic"), "claude-sonnet-4-20250514");
+        assert_eq!(default_model_for_provider("openai"), "gpt-4o");
+        assert_eq!(default_model_for_provider("gemini"), "gemini-2.5-flash");
+        // Unknown provider falls back to anthropic default
+        assert_eq!(default_model_for_provider("unknown"), "claude-sonnet-4-20250514");
+    }
+
+    #[test]
+    fn test_get_llm_settings_no_repo() {
+        let result = get_llm_settings(None);
+        assert!(result.is_ok());
+        let settings = result.unwrap();
+        assert_eq!(settings.provider, "anthropic");
+        assert_eq!(settings.model, "claude-sonnet-4-20250514");
+    }
+
+    #[test]
+    fn test_get_llm_settings_invalid_path() {
+        let result = get_llm_settings(Some("/nonexistent/path".to_string()));
+        assert!(result.is_ok());
+        let settings = result.unwrap();
+        // Falls back to defaults
+        assert_eq!(settings.provider, "anthropic");
+    }
+
+    #[test]
+    fn test_load_config_from_path_none() {
+        let (config, workdir) = load_config_from_path(None);
+        assert_eq!(config, FlowdiffConfig::default());
+        assert!(workdir.is_none());
+    }
+
+    #[test]
+    fn test_load_config_from_path_invalid() {
+        let (config, workdir) = load_config_from_path(Some("/nonexistent/path"));
+        assert_eq!(config, FlowdiffConfig::default());
+        assert!(workdir.is_none());
     }
 
     #[test]

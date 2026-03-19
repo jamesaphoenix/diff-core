@@ -21,6 +21,8 @@ fn main() {
             commands::get_branch_status,
             commands::get_repo_info,
             commands::check_api_key,
+            commands::get_llm_settings,
+            commands::save_llm_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running flowdiff");

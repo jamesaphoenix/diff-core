@@ -275,6 +275,17 @@ impl FlowdiffConfig {
         result
     }
 
+    /// Save the configuration to `.flowdiff.toml` in the given directory.
+    ///
+    /// If a `.flowdiff.toml` already exists, it is overwritten.
+    pub fn save_to_dir(&self, dir: &Path) -> Result<(), ConfigError> {
+        let config_path = dir.join(".flowdiff.toml");
+        let toml_str = toml::to_string_pretty(self)
+            .map_err(|e| ConfigError::Validation(format!("Failed to serialize config: {}", e)))?;
+        std::fs::write(&config_path, toml_str)?;
+        Ok(())
+    }
+
     /// Check if a file path should be ignored based on configured ignore patterns.
     ///
     /// Patterns are matched against the relative path from the repo root.

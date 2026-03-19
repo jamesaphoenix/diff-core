@@ -2,7 +2,7 @@
  * Mock data for demo mode — used when running outside Tauri (browser dev/Playwright).
  * Provides realistic fixture data so all UI states can be exercised without IPC.
  */
-import type { AnalysisOutput, FileDiffContent, Pass1Response, Pass2Response, RepoInfo } from "./types";
+import type { AnalysisOutput, FileDiffContent, LlmSettings, Pass1Response, Pass2Response, RepoInfo } from "./types";
 
 export const MOCK_ANALYSIS: AnalysisOutput = {
   version: "1.0.0",
@@ -603,6 +603,18 @@ export const MOCK_PASS2: Record<string, Pass2Response> = {
       "The rate limiter uses req.ip which may be the load balancer's IP behind a reverse proxy. Ensure trust-proxy is configured in Express.",
     ],
   },
+};
+
+export const MOCK_LLM_SETTINGS: LlmSettings = {
+  annotations_enabled: true,
+  refinement_enabled: false,
+  provider: "anthropic",
+  model: "claude-sonnet-4-20250514",
+  api_key_source: "ANTHROPIC_API_KEY",
+  has_api_key: true,
+  refinement_provider: "anthropic",
+  refinement_model: "claude-sonnet-4-20250514",
+  refinement_max_iterations: 1,
 };
 
 export const MOCK_REPO_INFO: RepoInfo = {
