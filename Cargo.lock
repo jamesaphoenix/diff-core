@@ -943,6 +943,7 @@ dependencies = [
  "flowdiff-core",
  "git2",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 

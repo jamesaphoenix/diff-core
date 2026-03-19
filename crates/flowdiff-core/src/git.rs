@@ -425,6 +425,37 @@ pub fn workdir(repo: &Repository) -> Option<PathBuf> {
     repo.workdir().map(|p| p.to_path_buf())
 }
 
+/// Read the content of a file at a specific git ref (branch, tag, or SHA).
+///
+/// Returns `None` if the file does not exist at that ref.
+/// Returns `Err` if the ref itself is invalid or the blob is not valid UTF-8.
+pub fn file_content_at_ref(
+    repo: &Repository,
+    git_ref: &str,
+    file_path: &str,
+) -> Result<Option<String>, GitError> {
+    let obj = repo
+        .revparse_single(git_ref)
+        .map_err(|_| GitError::RefNotFound(git_ref.to_string()))?;
+    let commit = obj
+        .peel_to_commit()
+        .map_err(|_| GitError::RefNotFound(format!("{git_ref} (not a commit)")))?;
+    let tree = commit.tree()?;
+
+    match tree.get_path(std::path::Path::new(file_path)) {
+        Ok(entry) => {
+            let blob = entry
+                .to_object(repo)?
+                .into_blob()
+                .map_err(|_| GitError::Git(git2::Error::from_str("not a blob")))?;
+            let content = std::str::from_utf8(blob.content())
+                .map_err(|e| GitError::Git(git2::Error::from_str(&format!("invalid UTF-8: {e}"))))?;
+            Ok(Some(content.to_string()))
+        }
+        Err(_) => Ok(None), // File doesn't exist at this ref
+    }
+}
+
 /// Apply rename detection to a diff.
 fn find_renames<'a>(
     diff: &mut git2::Diff<'a>,
@@ -2173,5 +2204,107 @@ mod tests {
                 prop_assert!(val.is_object());
             }
         }
+    }
+
+    // ── file_content_at_ref tests ─────────────────────────────────────
+
+    #[test]
+    fn file_content_at_ref_reads_existing_file() {
+        let (dir, repo) = init_repo();
+        let content = "hello world\n";
+        commit_files(&repo, dir.path(), &[("src/main.ts", content)], "init");
+
+        let result = file_content_at_ref(&repo, "HEAD", "src/main.ts").unwrap();
+        assert_eq!(result, Some(content.to_string()));
+    }
+
+    #[test]
+    fn file_content_at_ref_returns_none_for_missing_file() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.ts", "x")], "init");
+
+        let result = file_content_at_ref(&repo, "HEAD", "nonexistent.ts").unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn file_content_at_ref_reads_at_specific_commit() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("f.ts", "v1")], "first");
+        commit_files(&repo, dir.path(), &[("f.ts", "v2")], "second");
+
+        // HEAD should have v2
+        let head = file_content_at_ref(&repo, "HEAD", "f.ts").unwrap();
+        assert_eq!(head, Some("v2".to_string()));
+
+        // HEAD~1 should have v1
+        let prev = file_content_at_ref(&repo, "HEAD~1", "f.ts").unwrap();
+        assert_eq!(prev, Some("v1".to_string()));
+    }
+
+    #[test]
+    fn file_content_at_ref_reads_by_branch_name() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("f.ts", "on main")], "init");
+
+        // Create a branch and commit different content
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch("feature", &head, false).unwrap();
+        repo.set_head("refs/heads/feature").unwrap();
+        commit_files(&repo, dir.path(), &[("f.ts", "on feature")], "feature change");
+
+        let main_content = file_content_at_ref(&repo, "main", "f.ts").unwrap();
+        assert_eq!(main_content, Some("on main".to_string()));
+
+        let feature_content = file_content_at_ref(&repo, "feature", "f.ts").unwrap();
+        assert_eq!(feature_content, Some("on feature".to_string()));
+    }
+
+    #[test]
+    fn file_content_at_ref_invalid_ref() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("f.ts", "x")], "init");
+
+        let result = file_content_at_ref(&repo, "nonexistent-branch", "f.ts");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn file_content_at_ref_nested_path() {
+        let (dir, repo) = init_repo();
+        let content = "deep content";
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("packages/core/src/handlers/auth.ts", content)],
+            "init",
+        );
+
+        let result = file_content_at_ref(&repo, "HEAD", "packages/core/src/handlers/auth.ts").unwrap();
+        assert_eq!(result, Some(content.to_string()));
+    }
+
+    #[test]
+    fn file_content_at_ref_by_sha() {
+        let (dir, repo) = init_repo();
+        let oid = commit_files(&repo, dir.path(), &[("f.ts", "by sha")], "init");
+
+        let result = file_content_at_ref(&repo, &oid.to_string(), "f.ts").unwrap();
+        assert_eq!(result, Some("by sha".to_string()));
+    }
+
+    #[test]
+    fn file_content_at_ref_deleted_file_in_later_commit() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.ts", "exists")], "add");
+        delete_files_and_commit(&repo, dir.path(), &["a.ts"], "delete");
+
+        // HEAD should not have the file
+        let head = file_content_at_ref(&repo, "HEAD", "a.ts").unwrap();
+        assert_eq!(head, None);
+
+        // HEAD~1 should still have it
+        let prev = file_content_at_ref(&repo, "HEAD~1", "a.ts").unwrap();
+        assert_eq!(prev, Some("exists".to_string()));
     }
 }

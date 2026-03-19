@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use git2::Repository;
 
 use flowdiff_core::ast;
@@ -29,6 +29,8 @@ struct Cli {
 enum Commands {
     /// Analyze a diff and produce semantic flow groups
     Analyze(AnalyzeArgs),
+    /// Launch an external diff tool for a flow group's files
+    Launch(LaunchArgs),
 }
 
 #[derive(Parser)]
@@ -74,12 +76,76 @@ struct AnalyzeArgs {
     repo: PathBuf,
 }
 
+/// Supported external diff tools.
+#[derive(Debug, Clone, ValueEnum)]
+enum DiffTool {
+    /// Beyond Compare
+    Bcompare,
+    /// Meld
+    Meld,
+    /// KDiff3
+    Kdiff3,
+    /// VS Code
+    Code,
+    /// macOS FileMerge
+    Opendiff,
+}
+
+impl DiffTool {
+    /// Returns the executable name for this diff tool.
+    fn executable(&self) -> &str {
+        match self {
+            DiffTool::Bcompare => "bcompare",
+            DiffTool::Meld => "meld",
+            DiffTool::Kdiff3 => "kdiff3",
+            DiffTool::Code => "code",
+            DiffTool::Opendiff => "opendiff",
+        }
+    }
+
+    /// Returns the display name for this diff tool.
+    fn display_name(&self) -> &str {
+        match self {
+            DiffTool::Bcompare => "Beyond Compare",
+            DiffTool::Meld => "Meld",
+            DiffTool::Kdiff3 => "KDiff3",
+            DiffTool::Code => "VS Code",
+            DiffTool::Opendiff => "FileMerge",
+        }
+    }
+}
+
+#[derive(Parser)]
+struct LaunchArgs {
+    /// External diff tool to use
+    #[arg(long, value_enum)]
+    tool: DiffTool,
+
+    /// Flow group ID to open (e.g., "group_1")
+    #[arg(long)]
+    group: String,
+
+    /// Path to the analysis JSON file (output of `flowdiff analyze`)
+    #[arg(long)]
+    input: PathBuf,
+
+    /// Path to the git repository (defaults to current directory)
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+}
+
 fn main() {
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Analyze(args) => {
             if let Err(e) = run_analyze(args) {
+                eprintln!("Error: {}", e);
+                process::exit(1);
+            }
+        }
+        Commands::Launch(args) => {
+            if let Err(e) = run_launch(args) {
                 eprintln!("Error: {}", e);
                 process::exit(1);
             }
@@ -357,6 +423,119 @@ async fn run_annotation(
     Ok(())
 }
 
+fn run_launch(args: LaunchArgs) -> Result<(), Box<dyn std::error::Error>> {
+    // Read and parse the analysis JSON
+    let json_content = std::fs::read_to_string(&args.input)
+        .map_err(|e| format!("Failed to read input file {:?}: {}", args.input, e))?;
+    let analysis: AnalysisOutput = serde_json::from_str(&json_content)
+        .map_err(|e| format!("Failed to parse analysis JSON: {}", e))?;
+
+    // Find the requested group
+    let group = analysis
+        .groups
+        .iter()
+        .find(|g| g.id == args.group)
+        .ok_or_else(|| {
+            let available: Vec<&str> = analysis.groups.iter().map(|g| g.id.as_str()).collect();
+            format!(
+                "Group '{}' not found. Available groups: {}",
+                args.group,
+                available.join(", ")
+            )
+        })?;
+
+    if group.files.is_empty() {
+        return Err("Group has no files to compare".into());
+    }
+
+    // Open the git repo
+    let repo_path = std::fs::canonicalize(&args.repo)?;
+    let repo = Repository::discover(&repo_path)
+        .map_err(|e| format!("Not a git repository: {}", e))?;
+    let workdir = repo
+        .workdir()
+        .ok_or("Bare repositories are not supported")?
+        .to_path_buf();
+
+    // Determine base and head refs from the analysis diff_source
+    let base_ref = analysis
+        .diff_source
+        .base_sha
+        .as_deref()
+        .or(analysis.diff_source.base.as_deref());
+    let head_ref = analysis
+        .diff_source
+        .head_sha
+        .as_deref()
+        .or(analysis.diff_source.head.as_deref());
+
+    // Create temp directories for old (base) and new (head) versions
+    let tmp_dir = tempfile::tempdir()
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+    let base_dir = tmp_dir.path().join("base");
+    let head_dir = tmp_dir.path().join("head");
+    std::fs::create_dir_all(&base_dir)?;
+    std::fs::create_dir_all(&head_dir)?;
+
+    let file_paths: Vec<&str> = group.files.iter().map(|f| f.path.as_str()).collect();
+
+    for file_path in &file_paths {
+        // Get base content from git ref
+        if let Some(ref base) = base_ref {
+            if let Ok(Some(content)) = git::file_content_at_ref(&repo, base, file_path) {
+                let dest = base_dir.join(file_path);
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&dest, content)?;
+            }
+        }
+
+        // Get head content: from git ref if available, otherwise from working tree
+        if let Some(ref head) = head_ref {
+            if let Ok(Some(content)) = git::file_content_at_ref(&repo, head, file_path) {
+                let dest = head_dir.join(file_path);
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&dest, content)?;
+            }
+        } else {
+            // Read from working tree
+            let src = workdir.join(file_path);
+            if src.exists() {
+                let dest = head_dir.join(file_path);
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&src, &dest)?;
+            }
+        }
+    }
+
+    // Launch the diff tool
+    let exe = args.tool.executable();
+    eprintln!(
+        "Launching {} for group '{}' ({} files)...",
+        args.tool.display_name(),
+        group.name,
+        file_paths.len()
+    );
+
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg(base_dir.as_os_str()).arg(head_dir.as_os_str());
+
+    let status = cmd
+        .status()
+        .map_err(|e| format!("Failed to launch '{}': {} (is it installed and in PATH?)", exe, e))?;
+
+    if !status.success() {
+        return Err(format!("{} exited with status {}", exe, status).into());
+    }
+
+    Ok(())
+}
+
 fn write_output(
     output: &AnalysisOutput,
     file_path: Option<&std::path::Path>,
@@ -375,171 +554,138 @@ fn write_output(
 mod tests {
     use super::*;
 
-    // ── CLI Argument Parsing Tests ──
+    // ── CLI Argument Parsing Tests (Analyze) ──
 
     #[test]
     fn test_parse_analyze_base_head() {
         let cli = Cli::parse_from(["flowdiff", "analyze", "--base", "main", "--head", "feature"]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert_eq!(args.base, Some("main".to_string()));
-                assert_eq!(args.head, Some("feature".to_string()));
-                assert!(!args.refine);
-                assert!(args.refine_model.is_none());
-            }
+        if let Commands::Analyze(args) = cli.command {
+            assert_eq!(args.base, Some("main".to_string()));
+            assert_eq!(args.head, Some("feature".to_string()));
+            assert!(!args.refine);
+            assert!(args.refine_model.is_none());
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
     #[test]
     fn test_parse_analyze_range() {
         let cli = Cli::parse_from(["flowdiff", "analyze", "--range", "HEAD~5..HEAD"]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert_eq!(args.range, Some("HEAD~5..HEAD".to_string()));
-                assert!(args.base.is_none());
-                assert!(args.head.is_none());
-            }
+        if let Commands::Analyze(args) = cli.command {
+            assert_eq!(args.range, Some("HEAD~5..HEAD".to_string()));
+            assert!(args.base.is_none());
+            assert!(args.head.is_none());
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
     #[test]
     fn test_parse_analyze_staged() {
         let cli = Cli::parse_from(["flowdiff", "analyze", "--staged"]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert!(args.staged);
-                assert!(!args.unstaged);
-            }
+        if let Commands::Analyze(args) = cli.command {
+            assert!(args.staged);
+            assert!(!args.unstaged);
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
     #[test]
     fn test_parse_analyze_unstaged() {
         let cli = Cli::parse_from(["flowdiff", "analyze", "--unstaged"]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert!(args.unstaged);
-                assert!(!args.staged);
-            }
+        if let Commands::Analyze(args) = cli.command {
+            assert!(args.unstaged);
+            assert!(!args.staged);
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
     #[test]
     fn test_parse_analyze_refine() {
         let cli = Cli::parse_from(["flowdiff", "analyze", "--base", "main", "--refine"]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert!(args.refine);
-                assert!(args.refine_model.is_none());
-            }
+        if let Commands::Analyze(args) = cli.command {
+            assert!(args.refine);
+            assert!(args.refine_model.is_none());
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
     #[test]
     fn test_parse_analyze_refine_model() {
         let cli = Cli::parse_from([
-            "flowdiff",
-            "analyze",
-            "--base",
-            "main",
-            "--refine",
-            "--refine-model",
-            "gpt-4o",
+            "flowdiff", "analyze", "--base", "main", "--refine", "--refine-model", "gpt-4o",
         ]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert!(args.refine);
-                assert_eq!(args.refine_model, Some("gpt-4o".to_string()));
-            }
+        if let Commands::Analyze(args) = cli.command {
+            assert!(args.refine);
+            assert_eq!(args.refine_model, Some("gpt-4o".to_string()));
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
     #[test]
     fn test_parse_analyze_refine_model_implies_refine() {
-        // --refine-model alone should still set the model
         let cli = Cli::parse_from([
-            "flowdiff",
-            "analyze",
-            "--base",
-            "main",
-            "--refine-model",
-            "claude-sonnet-4-20250514",
+            "flowdiff", "analyze", "--base", "main", "--refine-model", "claude-sonnet-4-20250514",
         ]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert_eq!(
-                    args.refine_model,
-                    Some("claude-sonnet-4-20250514".to_string())
-                );
-            }
+        if let Commands::Analyze(args) = cli.command {
+            assert_eq!(args.refine_model, Some("claude-sonnet-4-20250514".to_string()));
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
     #[test]
     fn test_parse_analyze_output_file() {
-        let cli = Cli::parse_from([
-            "flowdiff",
-            "analyze",
-            "--base",
-            "main",
-            "-o",
-            "review.json",
-        ]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert_eq!(args.output, Some(PathBuf::from("review.json")));
-            }
+        let cli = Cli::parse_from(["flowdiff", "analyze", "--base", "main", "-o", "review.json"]);
+        if let Commands::Analyze(args) = cli.command {
+            assert_eq!(args.output, Some(PathBuf::from("review.json")));
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
     #[test]
     fn test_parse_analyze_annotate() {
         let cli = Cli::parse_from(["flowdiff", "analyze", "--base", "main", "--annotate"]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert!(args.annotate);
-            }
+        if let Commands::Analyze(args) = cli.command {
+            assert!(args.annotate);
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
     #[test]
     fn test_parse_analyze_all_flags() {
         let cli = Cli::parse_from([
-            "flowdiff",
-            "analyze",
-            "--base",
-            "main",
-            "--head",
-            "feature",
-            "--annotate",
-            "--refine",
-            "--refine-model",
-            "gpt-4o",
-            "-o",
-            "out.json",
-            "--repo",
-            "/tmp/myrepo",
+            "flowdiff", "analyze", "--base", "main", "--head", "feature",
+            "--annotate", "--refine", "--refine-model", "gpt-4o",
+            "-o", "out.json", "--repo", "/tmp/myrepo",
         ]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert_eq!(args.base, Some("main".to_string()));
-                assert_eq!(args.head, Some("feature".to_string()));
-                assert!(args.annotate);
-                assert!(args.refine);
-                assert_eq!(args.refine_model, Some("gpt-4o".to_string()));
-                assert_eq!(args.output, Some(PathBuf::from("out.json")));
-                assert_eq!(args.repo, PathBuf::from("/tmp/myrepo"));
-            }
+        if let Commands::Analyze(args) = cli.command {
+            assert_eq!(args.base, Some("main".to_string()));
+            assert_eq!(args.head, Some("feature".to_string()));
+            assert!(args.annotate);
+            assert!(args.refine);
+            assert_eq!(args.refine_model, Some("gpt-4o".to_string()));
+            assert_eq!(args.output, Some(PathBuf::from("out.json")));
+            assert_eq!(args.repo, PathBuf::from("/tmp/myrepo"));
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
     #[test]
     fn test_default_repo_path() {
         let cli = Cli::parse_from(["flowdiff", "analyze", "--staged"]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert_eq!(args.repo, PathBuf::from("."));
-            }
+        if let Commands::Analyze(args) = cli.command {
+            assert_eq!(args.repo, PathBuf::from("."));
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
@@ -547,16 +693,14 @@ mod tests {
 
     #[test]
     fn test_extract_diff_selects_range() {
-        // We can't test actual git operations here without a repo,
-        // but we test the selection logic by checking args parsing
         let cli = Cli::parse_from(["flowdiff", "analyze", "--range", "abc..def"]);
-        match cli.command {
-            Commands::Analyze(args) => {
-                assert!(args.range.is_some());
-                assert!(!args.staged);
-                assert!(!args.unstaged);
-                assert!(args.base.is_none());
-            }
+        if let Commands::Analyze(args) = cli.command {
+            assert!(args.range.is_some());
+            assert!(!args.staged);
+            assert!(!args.unstaged);
+            assert!(args.base.is_none());
+        } else {
+            panic!("expected Analyze command");
         }
     }
 
@@ -567,7 +711,6 @@ mod tests {
         let mut config = FlowdiffConfig::default();
         assert!(!config.llm.refinement.enabled);
 
-        // Simulate what run_analyze does
         let refine = true;
         let refine_model: Option<String> = Some("gpt-4o".to_string());
 
@@ -588,7 +731,6 @@ mod tests {
         let mut config = FlowdiffConfig::default();
         assert!(!config.llm.refinement.enabled);
 
-        // Simulate: --refine-model passed without --refine
         let refine_model: Option<String> = Some("claude-sonnet-4-20250514".to_string());
         if let Some(ref model) = refine_model {
             config.llm.refinement.enabled = true;
@@ -620,7 +762,6 @@ mod tests {
             ..Default::default()
         };
 
-        // Simulate what run_refinement does: build refinement-specific LlmConfig
         let refinement_llm_config = flowdiff_core::config::LlmConfig {
             provider: config.llm.refinement.provider.clone().or_else(|| config.llm.provider.clone()),
             model: config.llm.refinement.model.clone().or_else(|| config.llm.model.clone()),
@@ -642,9 +783,9 @@ mod tests {
                 key_cmd: Some("echo main-key".to_string()),
                 refinement: flowdiff_core::config::RefinementConfig {
                     enabled: true,
-                    provider: None, // Falls back to main
-                    model: None,    // Falls back to main
-                    key_cmd: None,  // Falls back to main
+                    provider: None,
+                    model: None,
+                    key_cmd: None,
                     max_iterations: 1,
                 },
             },
@@ -687,8 +828,111 @@ mod tests {
             annotations: None,
         };
 
-        // Verify it serializes without error
         let json = serde_json::to_string_pretty(&output).unwrap();
         assert!(json.contains("\"version\": \"1.0.0\""));
+    }
+
+    // ── Launch Command Parsing Tests ──
+
+    #[test]
+    fn test_parse_launch_bcompare() {
+        let cli = Cli::parse_from([
+            "flowdiff", "launch", "--tool", "bcompare", "--group", "group_1",
+            "--input", "review.json",
+        ]);
+        if let Commands::Launch(args) = cli.command {
+            assert!(matches!(args.tool, DiffTool::Bcompare));
+            assert_eq!(args.group, "group_1");
+            assert_eq!(args.input, PathBuf::from("review.json"));
+            assert_eq!(args.repo, PathBuf::from("."));
+        } else {
+            panic!("expected Launch command");
+        }
+    }
+
+    #[test]
+    fn test_parse_launch_meld() {
+        let cli = Cli::parse_from([
+            "flowdiff", "launch", "--tool", "meld", "--group", "group_2",
+            "--input", "out.json",
+        ]);
+        if let Commands::Launch(args) = cli.command {
+            assert!(matches!(args.tool, DiffTool::Meld));
+            assert_eq!(args.group, "group_2");
+        } else {
+            panic!("expected Launch command");
+        }
+    }
+
+    #[test]
+    fn test_parse_launch_kdiff3() {
+        let cli = Cli::parse_from([
+            "flowdiff", "launch", "--tool", "kdiff3", "--group", "g1",
+            "--input", "a.json",
+        ]);
+        if let Commands::Launch(args) = cli.command {
+            assert!(matches!(args.tool, DiffTool::Kdiff3));
+        } else {
+            panic!("expected Launch command");
+        }
+    }
+
+    #[test]
+    fn test_parse_launch_code() {
+        let cli = Cli::parse_from([
+            "flowdiff", "launch", "--tool", "code", "--group", "g1",
+            "--input", "a.json",
+        ]);
+        if let Commands::Launch(args) = cli.command {
+            assert!(matches!(args.tool, DiffTool::Code));
+        } else {
+            panic!("expected Launch command");
+        }
+    }
+
+    #[test]
+    fn test_parse_launch_opendiff() {
+        let cli = Cli::parse_from([
+            "flowdiff", "launch", "--tool", "opendiff", "--group", "g1",
+            "--input", "a.json",
+        ]);
+        if let Commands::Launch(args) = cli.command {
+            assert!(matches!(args.tool, DiffTool::Opendiff));
+        } else {
+            panic!("expected Launch command");
+        }
+    }
+
+    #[test]
+    fn test_parse_launch_with_repo() {
+        let cli = Cli::parse_from([
+            "flowdiff", "launch", "--tool", "bcompare", "--group", "group_1",
+            "--input", "review.json", "--repo", "/tmp/myrepo",
+        ]);
+        if let Commands::Launch(args) = cli.command {
+            assert_eq!(args.repo, PathBuf::from("/tmp/myrepo"));
+        } else {
+            panic!("expected Launch command");
+        }
+    }
+
+    // ── DiffTool Tests ──
+
+    #[test]
+    fn test_diff_tool_executable() {
+        assert_eq!(DiffTool::Bcompare.executable(), "bcompare");
+        assert_eq!(DiffTool::Meld.executable(), "meld");
+        assert_eq!(DiffTool::Kdiff3.executable(), "kdiff3");
+        assert_eq!(DiffTool::Code.executable(), "code");
+        assert_eq!(DiffTool::Opendiff.executable(), "opendiff");
+    }
+
+    #[test]
+    fn test_diff_tool_display_name() {
+        assert_eq!(DiffTool::Bcompare.display_name(), "Beyond Compare");
+        assert_eq!(DiffTool::Meld.display_name(), "Meld");
+        assert_eq!(DiffTool::Kdiff3.display_name(), "KDiff3");
+        assert_eq!(DiffTool::Code.display_name(), "VS Code");
+        assert_eq!(DiffTool::Opendiff.display_name(), "FileMerge");
     }
 }
