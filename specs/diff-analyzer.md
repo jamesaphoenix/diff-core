@@ -624,11 +624,11 @@ flowdiff/
 - [x] Tauri project setup with React frontend (Tauri v2 + React 19 + Vite 6 + TypeScript, `flowdiff-tauri` crate with Cargo workspace integration, `tauri.conf.json` with 1440x900 window, RGBA placeholder icons, `capabilities/default.json`)
 - [x] Three-panel layout shell (CSS-based three-panel layout: 280px left / flex center / 300px right, top bar with repo path input + base ref + analyze button, dark Catppuccin-inspired theme)
 - [x] Left panel: flow group tree view (groups sorted by review_order, expandable file lists with role/path/change stats, risk score badges with high/medium/low color coding, infrastructure group section, selected state highlighting)
-- [ ] Center panel: Monaco diff viewer integration
-- [x] Right panel: annotations and graph display (flow group details: name, entrypoint info, risk score, file count, review order; Mermaid code display; edge list with type/from/to)
-- [ ] Mermaid rendering
-- [ ] Keyboard navigation (j/k/J/K)
-- [ ] File navigation within flow groups
+- [x] Center panel: Monaco diff viewer integration (`@monaco-editor/react` DiffEditor with custom `flowdiff-dark` theme matching Catppuccin palette, side-by-side view, read-only, syntax highlighting for all supported languages, `automaticLayout` for responsive sizing)
+- [x] Right panel: annotations and graph display (flow group details: name, entrypoint info, risk score, file count, review order; Mermaid diagram rendering; edge list with type/from/to)
+- [x] Mermaid rendering (`mermaid` library with dark theme, async SVG rendering via `mermaid.render()`, error handling for invalid diagrams, Catppuccin-themed color variables)
+- [x] Keyboard navigation (j/k/J/K) — `j`=next file, `k`=prev file, `J`=next group, `K`=prev group. Uses `useRef` for latest state access without re-registering listeners. Disabled when Monaco editor or input fields are focused. Keyboard hints footer bar shown when analysis is loaded
+- [x] File navigation within flow groups (click file in tree → loads diff via `get_file_diff` IPC → Monaco DiffEditor updates. Auto-selects first file when group is selected. Files shown in flow_position order with role badge, short path, +/- change stats)
 - [ ] Generate app icon using AI image generation (use the image-generator MCP tool to create a professional flowdiff logo/icon, then run `cargo tauri icon` to generate all required sizes)
 - [ ] Visual polish pass — use Playwright CLI to screenshot every page/state of the Tauri app (empty state, loaded analysis, expanded group, diff view, annotations panel, Mermaid graph, error states, dark/light mode if supported). Review each screenshot for visual quality. Fix any layout issues, spacing inconsistencies, ugly defaults, or broken rendering. The app should look beautiful and production-grade, not like a dev prototype. Save final screenshots to `docs/screenshots/` as the visual baseline
 

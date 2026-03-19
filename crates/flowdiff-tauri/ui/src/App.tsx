@@ -1,6 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AnalysisOutput, FlowGroup, FileDiffContent } from "./types";
+import DiffViewer from "./components/DiffViewer";
+import MermaidGraph from "./components/MermaidGraph";
 
 /** Three-panel layout: flow groups | diff viewer | annotations */
 export default function App() {
@@ -15,6 +17,13 @@ export default function App() {
   // Repo path — in a real app this would come from a dialog or CLI arg
   const [repoPath, setRepoPath] = useState("");
   const [baseRef, setBaseRef] = useState("main");
+
+  // Refs for keyboard nav to access latest state without re-registering listener
+  const selectedGroupRef = useRef(selectedGroup);
+  const selectedFileRef = useRef(selectedFile);
+  const sortedGroupsRef = useRef<FlowGroup[]>([]);
+  selectedGroupRef.current = selectedGroup;
+  selectedFileRef.current = selectedFile;
 
   const runAnalysis = useCallback(async () => {
     if (!repoPath) return;
@@ -93,6 +102,62 @@ export default function App() {
   const sortedGroups = analysis
     ? [...analysis.groups].sort((a, b) => a.review_order - b.review_order)
     : [];
+  sortedGroupsRef.current = sortedGroups;
+
+  // Keyboard navigation: j/k = next/prev file, J/K = next/prev group
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Skip if user is typing in an input or the Monaco editor is focused
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.closest(".monaco-editor")
+      ) {
+        return;
+      }
+
+      const groups = sortedGroupsRef.current;
+      const group = selectedGroupRef.current;
+      const file = selectedFileRef.current;
+
+      if (groups.length === 0 || !group) return;
+
+      const groupIdx = groups.findIndex((g) => g.id === group.id);
+      if (groupIdx === -1) return;
+
+      if (e.key === "j") {
+        // Next file in current group
+        e.preventDefault();
+        const fileIdx = group.files.findIndex((f) => f.path === file);
+        if (fileIdx < group.files.length - 1) {
+          handleSelectFile(group.files[fileIdx + 1].path);
+        }
+      } else if (e.key === "k") {
+        // Previous file in current group
+        e.preventDefault();
+        const fileIdx = group.files.findIndex((f) => f.path === file);
+        if (fileIdx > 0) {
+          handleSelectFile(group.files[fileIdx - 1].path);
+        }
+      } else if (e.key === "J") {
+        // Next group
+        e.preventDefault();
+        if (groupIdx < groups.length - 1) {
+          handleSelectGroup(groups[groupIdx + 1]);
+        }
+      } else if (e.key === "K") {
+        // Previous group
+        e.preventDefault();
+        if (groupIdx > 0) {
+          handleSelectGroup(groups[groupIdx - 1]);
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleSelectFile, handleSelectGroup]);
 
   return (
     <div className="app">
@@ -207,32 +272,13 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Center panel: Diff Viewer */}
+        {/* Center panel: Monaco Diff Viewer */}
         <main className="panel panel-center">
           <div className="panel-header">
             {fileDiff ? fileDiff.path : "Diff Viewer"}
           </div>
           <div className="panel-body diff-viewer">
-            {fileDiff ? (
-              <div className="diff-content">
-                <div className="diff-side diff-old">
-                  <div className="diff-side-header">Old</div>
-                  <pre>
-                    <code>{fileDiff.old_content || "(new file)"}</code>
-                  </pre>
-                </div>
-                <div className="diff-side diff-new">
-                  <div className="diff-side-header">New</div>
-                  <pre>
-                    <code>{fileDiff.new_content || "(deleted)"}</code>
-                  </pre>
-                </div>
-              </div>
-            ) : (
-              <div className="empty-state">
-                Select a file to view its diff.
-              </div>
-            )}
+            <DiffViewer fileDiff={fileDiff} />
           </div>
         </main>
 
@@ -260,9 +306,7 @@ export default function App() {
                 {mermaid && (
                   <div className="annotation-section">
                     <h3>Flow Graph</h3>
-                    <pre className="mermaid-code">
-                      <code>{mermaid}</code>
-                    </pre>
+                    <MermaidGraph code={mermaid} />
                   </div>
                 )}
                 {selectedGroup.edges.length > 0 && (
@@ -290,6 +334,16 @@ export default function App() {
           </div>
         </aside>
       </div>
+
+      {/* Keyboard shortcuts bar */}
+      {analysis && (
+        <footer className="keyboard-hints">
+          <span><kbd>j</kbd> next file</span>
+          <span><kbd>k</kbd> prev file</span>
+          <span><kbd>J</kbd> next group</span>
+          <span><kbd>K</kbd> prev group</span>
+        </footer>
+      )}
     </div>
   );
 }

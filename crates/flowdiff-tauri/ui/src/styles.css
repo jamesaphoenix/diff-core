@@ -453,6 +453,49 @@ body {
   color: var(--text-muted);
 }
 
+/* ── Mermaid ── */
+
+.mermaid-container {
+  background: var(--bg-surface);
+  border-radius: 4px;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-error {
+  color: var(--risk-high);
+  font-size: 11px;
+}
+
+/* ── Keyboard Hints ── */
+
+.keyboard-hints {
+  display: flex;
+  gap: 12px;
+  padding: 6px 12px;
+  font-size: 10px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.keyboard-hints kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
 /* ── Empty State ── */
 
 .empty-state {
