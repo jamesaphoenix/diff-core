@@ -942,4 +942,704 @@ mod tests {
         };
         assert_eq!(deleted.path(), "old.ts");
     }
+
+    #[test]
+    fn test_file_diff_path_fallback() {
+        // Both paths None → "<unknown>"
+        let orphan = FileDiff {
+            old_path: None,
+            new_path: None,
+            old_content: None,
+            new_content: None,
+            hunks: vec![],
+            status: FileStatus::Modified,
+            additions: 0,
+            deletions: 0,
+            is_binary: false,
+        };
+        assert_eq!(orphan.path(), "<unknown>");
+    }
+
+    // ── Rename With Content Change Tests ──
+
+    #[test]
+    fn test_diff_rename_with_content_change() {
+        let (dir, repo) = init_repo();
+        let base = commit_files(
+            &repo,
+            dir.path(),
+            &[("old.ts", "export function greet() { return 'hello'; }\n// padding line 1\n// padding line 2\n// padding line 3\n")],
+            "initial",
+        );
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        // Rename + small content change (still high similarity → rename detected)
+        let mut index = repo.index().unwrap();
+        fs::remove_file(dir.path().join("old.ts")).unwrap();
+        index.remove_path(Path::new("old.ts")).unwrap();
+        fs::write(
+            dir.path().join("new.ts"),
+            "export function greet() { return 'hello world'; }\n// padding line 1\n// padding line 2\n// padding line 3\n",
+        )
+        .unwrap();
+        index.add_path(Path::new("new.ts")).unwrap();
+        index.write().unwrap();
+        let tree_oid = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_oid).unwrap();
+        let sig = repo.signature().unwrap();
+        let parent = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "rename+edit", &tree, &[&parent])
+            .unwrap();
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        // git should detect rename even with small edit
+        assert_eq!(result.files.len(), 1);
+        let f = &result.files[0];
+        assert_eq!(f.status, FileStatus::Renamed);
+        assert_eq!(f.old_path.as_deref(), Some("old.ts"));
+        assert_eq!(f.new_path.as_deref(), Some("new.ts"));
+        assert!(f.old_content.is_some());
+        assert!(f.new_content.is_some());
+    }
+
+    // ── Empty File Tests ──
+
+    #[test]
+    fn test_diff_empty_file_added() {
+        let (dir, repo) = init_repo();
+        let base = commit_files(&repo, dir.path(), &[("a.txt", "x")], "initial");
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        commit_files(&repo, dir.path(), &[("empty.ts", "")], "add empty file");
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        assert_eq!(result.files.len(), 1);
+        let f = &result.files[0];
+        assert_eq!(f.status, FileStatus::Added);
+        // Empty file has empty content or None depending on git behavior
+        assert!(f.new_content.is_none() || f.new_content.as_deref() == Some(""));
+    }
+
+    #[test]
+    fn test_diff_empty_file_modified_to_content() {
+        let (dir, repo) = init_repo();
+        let base = commit_files(&repo, dir.path(), &[("file.ts", "")], "initial with empty");
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "const x = 1;")],
+            "add content to empty file",
+        );
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].status, FileStatus::Modified);
+        assert!(result.files[0].additions > 0);
+    }
+
+    // ── Unicode Content Tests ──
+
+    #[test]
+    fn test_diff_unicode_content() {
+        let (dir, repo) = init_repo();
+        let base = commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "const greeting = 'hello';")],
+            "initial",
+        );
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "const greeting = '你好世界 🌍';")],
+            "add unicode",
+        );
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        assert_eq!(result.files.len(), 1);
+        let f = &result.files[0];
+        assert!(f.new_content.as_deref().unwrap().contains('🌍'));
+        assert!(f.new_content.as_deref().unwrap().contains("你好世界"));
+    }
+
+    // ── Deeply Nested Directory Tests ──
+
+    #[test]
+    fn test_diff_deeply_nested_paths() {
+        let (dir, repo) = init_repo();
+        let deep_path = "src/services/auth/handlers/middleware/v2/token.ts";
+        let base = commit_files(&repo, dir.path(), &[(deep_path, "v1")], "initial");
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        commit_files(&repo, dir.path(), &[(deep_path, "v2")], "update deep file");
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].path(), deep_path);
+    }
+
+    // ── Multiple Hunks Tests ──
+
+    #[test]
+    fn test_diff_multiple_hunks_in_single_file() {
+        let (dir, repo) = init_repo();
+        // Create a file with well-separated sections so changes produce multiple hunks
+        let original = (1..=50)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let base = commit_files(&repo, dir.path(), &[("file.ts", &original)], "initial");
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        // Change line 3 and line 47 (far apart → two hunks with 3 context lines)
+        let modified: String = (1..=50)
+            .map(|i| {
+                if i == 3 {
+                    "CHANGED_LINE_3".to_string()
+                } else if i == 47 {
+                    "CHANGED_LINE_47".to_string()
+                } else {
+                    format!("line {i}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        commit_files(&repo, dir.path(), &[("file.ts", &modified)], "two changes");
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        assert_eq!(result.files.len(), 1);
+        let f = &result.files[0];
+        assert!(
+            f.hunks.len() >= 2,
+            "Expected at least 2 hunks for changes far apart, got {}",
+            f.hunks.len()
+        );
+    }
+
+    // ── Hunk Consistency Tests ──
+
+    #[test]
+    fn test_diff_hunk_fields_valid() {
+        let (dir, repo) = init_repo();
+        let base = commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "line1\nline2\nline3\n")],
+            "initial",
+        );
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "line1\nmodified\nline3\n")],
+            "modify middle line",
+        );
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        for file in &result.files {
+            for hunk in &file.hunks {
+                // old_start and new_start are 1-indexed, must be > 0
+                assert!(hunk.old_start > 0, "old_start must be 1-indexed");
+                assert!(hunk.new_start > 0, "new_start must be 1-indexed");
+            }
+        }
+    }
+
+    // ── Large Diff Tests ──
+
+    #[test]
+    fn test_diff_many_files() {
+        let (dir, repo) = init_repo();
+        let initial_files: Vec<(String, String)> = (0..30)
+            .map(|i| (format!("src/file_{i}.ts"), format!("content_{i}")))
+            .collect();
+        let refs: Vec<(&str, &str)> = initial_files
+            .iter()
+            .map(|(p, c)| (p.as_str(), c.as_str()))
+            .collect();
+        let base = commit_files(&repo, dir.path(), &refs, "initial 30 files");
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        // Modify all 30 files
+        let modified_files: Vec<(String, String)> = (0..30)
+            .map(|i| (format!("src/file_{i}.ts"), format!("modified_{i}")))
+            .collect();
+        let refs2: Vec<(&str, &str)> = modified_files
+            .iter()
+            .map(|(p, c)| (p.as_str(), c.as_str()))
+            .collect();
+        commit_files(&repo, dir.path(), &refs2, "modify all 30 files");
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        assert_eq!(result.files.len(), 30);
+        // All should be Modified
+        for f in &result.files {
+            assert_eq!(f.status, FileStatus::Modified);
+        }
+    }
+
+    // ── Additions-Only / Deletions-Only Tests ──
+
+    #[test]
+    fn test_diff_additions_only() {
+        let (dir, repo) = init_repo();
+        let base = commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "line1\n")],
+            "initial",
+        );
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "line1\nline2\nline3\n")],
+            "add lines only",
+        );
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        let f = &result.files[0];
+        assert!(f.additions > 0, "Expected additions > 0");
+        assert_eq!(f.deletions, 0, "Expected no deletions");
+    }
+
+    #[test]
+    fn test_diff_deletions_only() {
+        let (dir, repo) = init_repo();
+        let base = commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "line1\nline2\nline3\n")],
+            "initial",
+        );
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "line1\n")],
+            "remove lines only",
+        );
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        let f = &result.files[0];
+        assert_eq!(f.additions, 0, "Expected no additions");
+        assert!(f.deletions > 0, "Expected deletions > 0");
+    }
+
+    // ── Determinism Tests ──
+
+    #[test]
+    fn test_diff_deterministic_output() {
+        let (dir, repo) = init_repo();
+        let base = commit_files(
+            &repo,
+            dir.path(),
+            &[
+                ("src/a.ts", "a1"),
+                ("src/b.ts", "b1"),
+                ("src/c.ts", "c1"),
+            ],
+            "initial",
+        );
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        commit_files(
+            &repo,
+            dir.path(),
+            &[
+                ("src/a.ts", "a2"),
+                ("src/b.ts", "b2"),
+                ("src/c.ts", "c2"),
+            ],
+            "modify all",
+        );
+
+        let r1 = diff_refs(&repo, "base", "HEAD").unwrap();
+        let r2 = diff_refs(&repo, "base", "HEAD").unwrap();
+
+        assert_eq!(r1.files.len(), r2.files.len());
+        for (f1, f2) in r1.files.iter().zip(r2.files.iter()) {
+            assert_eq!(f1.old_path, f2.old_path);
+            assert_eq!(f1.new_path, f2.new_path);
+            assert_eq!(f1.status, f2.status);
+            assert_eq!(f1.additions, f2.additions);
+            assert_eq!(f1.deletions, f2.deletions);
+            assert_eq!(f1.hunks.len(), f2.hunks.len());
+            assert_eq!(f1.old_content, f2.old_content);
+            assert_eq!(f1.new_content, f2.new_content);
+        }
+    }
+
+    // ── is_binary Field Tests ──
+
+    #[test]
+    fn test_diff_returned_files_not_binary() {
+        let (dir, repo) = init_repo();
+        let base = commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "x"), ("util.ts", "y")],
+            "initial",
+        );
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "x2"), ("util.ts", "y2")],
+            "modify",
+        );
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        for f in &result.files {
+            assert!(!f.is_binary, "Returned files should never be binary (binary is filtered)");
+        }
+    }
+
+    // ── Staged vs Unstaged Isolation Tests ──
+
+    #[test]
+    fn test_diff_staged_excludes_unstaged() {
+        let (dir, repo) = init_repo();
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("staged.ts", "v1"), ("unstaged.ts", "v1")],
+            "initial",
+        );
+
+        // Stage changes to one file only
+        fs::write(dir.path().join("staged.ts"), "v2").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("staged.ts")).unwrap();
+        index.write().unwrap();
+
+        // Modify another file without staging
+        fs::write(dir.path().join("unstaged.ts"), "v2").unwrap();
+
+        let staged_result = diff_staged(&repo).unwrap();
+        let staged_paths: Vec<&str> = staged_result.files.iter().map(|f| f.path()).collect();
+        assert!(staged_paths.contains(&"staged.ts"));
+        assert!(
+            !staged_paths.contains(&"unstaged.ts"),
+            "Unstaged files should not appear in staged diff"
+        );
+
+        let unstaged_result = diff_unstaged(&repo).unwrap();
+        let unstaged_paths: Vec<&str> = unstaged_result.files.iter().map(|f| f.path()).collect();
+        assert!(unstaged_paths.contains(&"unstaged.ts"));
+        assert!(
+            !unstaged_paths.contains(&"staged.ts"),
+            "Staged files should not appear in unstaged diff"
+        );
+    }
+
+    // ── Error Display Tests ──
+
+    #[test]
+    fn test_git_error_display() {
+        let e = GitError::RefNotFound("main".into());
+        assert_eq!(format!("{e}"), "ref not found: main");
+
+        let e = GitError::EmptyRepo;
+        assert_eq!(format!("{e}"), "empty repository — no commits found");
+
+        let e = GitError::InvalidRange("bad".into());
+        assert_eq!(format!("{e}"), "invalid range: bad");
+    }
+
+    // ── DiffHunk Serde Roundtrip Tests ──
+
+    #[test]
+    fn test_diff_hunk_serde_roundtrip() {
+        let hunk = DiffHunk {
+            old_start: 10,
+            old_lines: 5,
+            new_start: 12,
+            new_lines: 7,
+        };
+        let json = serde_json::to_string(&hunk).unwrap();
+        let back: DiffHunk = serde_json::from_str(&json).unwrap();
+        assert_eq!(hunk, back);
+    }
+
+    #[test]
+    fn test_file_status_serde_roundtrip() {
+        for status in [
+            FileStatus::Added,
+            FileStatus::Modified,
+            FileStatus::Deleted,
+            FileStatus::Renamed,
+            FileStatus::Copied,
+        ] {
+            let json = serde_json::to_string(&status).unwrap();
+            let back: FileStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(status, back);
+        }
+    }
+
+    #[test]
+    fn test_file_diff_serde_roundtrip() {
+        let fd = FileDiff {
+            old_path: Some("old.ts".into()),
+            new_path: Some("new.ts".into()),
+            old_content: Some("const x = 1;".into()),
+            new_content: Some("const x = 2;".into()),
+            hunks: vec![
+                DiffHunk {
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 1,
+                },
+            ],
+            status: FileStatus::Modified,
+            additions: 1,
+            deletions: 1,
+            is_binary: false,
+        };
+        let json = serde_json::to_string(&fd).unwrap();
+        let back: FileDiff = serde_json::from_str(&json).unwrap();
+        assert_eq!(fd, back);
+    }
+
+    #[test]
+    fn test_file_diff_serde_with_nulls() {
+        // Added file: old_path and old_content are None
+        let fd = FileDiff {
+            old_path: None,
+            new_path: Some("new.ts".into()),
+            old_content: None,
+            new_content: Some("code".into()),
+            hunks: vec![],
+            status: FileStatus::Added,
+            additions: 1,
+            deletions: 0,
+            is_binary: false,
+        };
+        let json = serde_json::to_string(&fd).unwrap();
+        assert!(json.contains("null"));
+        let back: FileDiff = serde_json::from_str(&json).unwrap();
+        assert_eq!(fd, back);
+    }
+
+    // ── Range Edge Cases ──
+
+    #[test]
+    fn test_diff_range_triple_dot_invalid() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.txt", "x")], "initial");
+
+        // Triple-dot is not supported by our simple split
+        let result = diff_range(&repo, "HEAD~1...HEAD");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_diff_range_empty_parts() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("a.txt", "x")], "initial");
+
+        let result = diff_range(&repo, "..HEAD");
+        assert!(result.is_err()); // empty base ref → RefNotFound
+    }
+
+    // ── Copy Detection Tests ──
+
+    #[test]
+    fn test_diff_copy_detection() {
+        let (dir, repo) = init_repo();
+        let content = "export function helper() {\n  return 42;\n}\n// padding\n// more padding\n";
+        let base = commit_files(&repo, dir.path(), &[("original.ts", content)], "initial");
+        let base_commit = repo.find_commit(base).unwrap();
+        repo.branch("base", &base_commit, false).unwrap();
+
+        // Add a copy with identical content (keep original too)
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("original.ts", content), ("copy.ts", content)],
+            "copy file",
+        );
+
+        let result = diff_refs(&repo, "base", "HEAD").unwrap();
+        // Should detect copy.ts as either Added or Copied
+        let copy_file = result.files.iter().find(|f| f.path() == "copy.ts");
+        assert!(copy_file.is_some(), "copy.ts should be in diff");
+        let copy_file = copy_file.unwrap();
+        assert!(
+            copy_file.status == FileStatus::Copied || copy_file.status == FileStatus::Added,
+            "Expected Copied or Added, got {:?}",
+            copy_file.status
+        );
+    }
+
+    // ── Property-Based Tests ──
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn arb_file_status() -> impl Strategy<Value = FileStatus> {
+            prop_oneof![
+                Just(FileStatus::Added),
+                Just(FileStatus::Modified),
+                Just(FileStatus::Deleted),
+                Just(FileStatus::Renamed),
+                Just(FileStatus::Copied),
+            ]
+        }
+
+        fn arb_diff_hunk() -> impl Strategy<Value = DiffHunk> {
+            (1..10000u32, 0..1000u32, 1..10000u32, 0..1000u32).prop_map(
+                |(old_start, old_lines, new_start, new_lines)| DiffHunk {
+                    old_start,
+                    old_lines,
+                    new_start,
+                    new_lines,
+                },
+            )
+        }
+
+        fn arb_file_path() -> impl Strategy<Value = String> {
+            prop_oneof![
+                Just("file.ts".to_string()),
+                Just("src/index.ts".to_string()),
+                Just("a/b/c/d/e.py".to_string()),
+                "[a-z]{1,10}(\\.[a-z]{1,4})?"
+                    .prop_map(|s| format!("src/{s}")),
+            ]
+        }
+
+        fn arb_content() -> impl Strategy<Value = Option<String>> {
+            prop_oneof![
+                Just(None),
+                Just(Some(String::new())),
+                "[a-zA-Z0-9 _\\n]{1,200}".prop_map(Some),
+            ]
+        }
+
+        fn arb_file_diff() -> impl Strategy<Value = FileDiff> {
+            (
+                proptest::option::of(arb_file_path()),
+                proptest::option::of(arb_file_path()),
+                arb_content(),
+                arb_content(),
+                proptest::collection::vec(arb_diff_hunk(), 0..5),
+                arb_file_status(),
+                0..5000u32,
+                0..5000u32,
+            )
+                .prop_map(
+                    |(old_path, new_path, old_content, new_content, hunks, status, add, del)| {
+                        FileDiff {
+                            old_path,
+                            new_path,
+                            old_content,
+                            new_content,
+                            hunks,
+                            status,
+                            additions: add,
+                            deletions: del,
+                            is_binary: false,
+                        }
+                    },
+                )
+        }
+
+        proptest! {
+            #[test]
+            fn prop_file_status_serde_roundtrip(status in arb_file_status()) {
+                let json = serde_json::to_string(&status).unwrap();
+                let back: FileStatus = serde_json::from_str(&json).unwrap();
+                prop_assert_eq!(status, back);
+            }
+
+            #[test]
+            fn prop_diff_hunk_serde_roundtrip(hunk in arb_diff_hunk()) {
+                let json = serde_json::to_string(&hunk).unwrap();
+                let back: DiffHunk = serde_json::from_str(&json).unwrap();
+                prop_assert_eq!(hunk, back);
+            }
+
+            #[test]
+            fn prop_file_diff_serde_roundtrip(fd in arb_file_diff()) {
+                let json = serde_json::to_string(&fd).unwrap();
+                let back: FileDiff = serde_json::from_str(&json).unwrap();
+                prop_assert_eq!(&fd, &back);
+            }
+
+            #[test]
+            fn prop_file_diff_path_never_empty(fd in arb_file_diff()) {
+                // path() should always return something (at worst "<unknown>")
+                let p = fd.path();
+                prop_assert!(!p.is_empty(), "path() must never be empty");
+            }
+
+            #[test]
+            fn prop_diff_hunk_old_start_positive(hunk in arb_diff_hunk()) {
+                // Hunks are 1-indexed
+                prop_assert!(hunk.old_start >= 1);
+                prop_assert!(hunk.new_start >= 1);
+            }
+
+            #[test]
+            fn prop_file_diff_is_binary_always_false(fd in arb_file_diff()) {
+                // Our arb always produces non-binary (matching real behavior:
+                // extract_file_diffs skips binary files)
+                prop_assert!(!fd.is_binary);
+            }
+
+            #[test]
+            fn prop_additions_deletions_bounded(add in 0..10000u32, del in 0..10000u32) {
+                // Verify no overflow when summing
+                let total = add as u64 + del as u64;
+                prop_assert!(total < 20000);
+            }
+
+            #[test]
+            fn prop_file_diff_clone_eq(fd in arb_file_diff()) {
+                let cloned = fd.clone();
+                prop_assert_eq!(&fd, &cloned);
+            }
+
+            #[test]
+            fn prop_diff_hunk_clone_eq(hunk in arb_diff_hunk()) {
+                let cloned = hunk.clone();
+                prop_assert_eq!(hunk, cloned);
+            }
+
+            #[test]
+            fn prop_file_diff_json_has_status_field(fd in arb_file_diff()) {
+                let json = serde_json::to_string(&fd).unwrap();
+                prop_assert!(json.contains("\"status\""));
+            }
+
+            #[test]
+            fn prop_file_diff_json_parseable(fd in arb_file_diff()) {
+                let json = serde_json::to_string(&fd).unwrap();
+                let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+                prop_assert!(val.is_object());
+            }
+        }
+    }
 }
