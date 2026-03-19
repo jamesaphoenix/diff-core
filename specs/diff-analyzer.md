@@ -146,6 +146,7 @@ Go beyond import graphs — trace how data moves through the system:
 - React component trees and prop drilling
 - Prisma/SQLAlchemy/TypeORM model usage
 - Message queue producers/consumers
+- Effect.ts `HttpApi`/`HttpApiEndpoint`/`HttpApiGroup` routes, `Layer`/`Effect.Service`/`Context.Tag` services, `@effect/sql` Drizzle integration, `@effect/cli` commands
 
 ### 4.5 Entrypoint Detection
 
@@ -154,12 +155,19 @@ Automatically detect entry points into the application:
 | Type | Detection heuristic |
 |------|-------------------|
 | HTTP routes | Decorator patterns, router registrations, file-based routing |
+| HTTP routes (Effect.ts) | `HttpApi`, `HttpApiEndpoint`, `HttpApiGroup`, `HttpRouter`, `HttpServer` patterns |
 | CLI commands | `main()`, argument parser setup, `bin` entries |
+| CLI commands (Effect.ts) | `@effect/cli` `Command`, `Args`, `Options` patterns |
 | Queue consumers | Message handler registrations, subscriber patterns |
+| Queue consumers (Effect.ts) | Effect `Queue`, `PubSub` consumer patterns |
 | Cron jobs | Scheduler registrations, cron expressions |
+| Cron jobs (Effect.ts) | Effect `Schedule`, `@effect/cron` patterns |
 | React pages | Default exports from page/route directories |
 | Test files | Test function/describe block patterns |
+| Test files (Effect.ts) | `@effect/vitest` `it.effect`, `it.scoped`, `describe` patterns |
 | Event handlers | Event listener registrations |
+| Event handlers (Effect.ts) | Effect `Stream`, `PubSub`, `Hub` listener patterns |
+| Effect.ts Services | `Effect.Service`, `Context.Tag`, `Layer` definitions — primary service/DI entrypoints |
 
 ### 4.6 Semantic Clustering
 
@@ -548,7 +556,7 @@ flowdiff/
 - [x] Tree-sitter AST parsing (TS/JS + Python grammars first)
 - [x] Symbol graph construction (imports, exports, calls)
 - [x] Basic entrypoint detection
-- [ ] Semantic clustering (forward reachability from entrypoints)
+- [x] Semantic clustering (forward reachability from entrypoints)
 - [x] Review ranking (composite score)
 - [ ] JSON output
 - [x] CLI with clap (`flowdiff analyze --base main`)
@@ -560,6 +568,10 @@ flowdiff/
 - [x] Unit tests for graph construction (25 tests — import edges, call edges, namespace/default/aliased imports, cyclic imports, re-export chains, index file resolution, cross-directory imports, Python imports/calls, serialization roundtrip, node lookup, determinism)
 - [x] Property-based tests for graph construction (6 tests — every definition has node, node count ≥ file count, no self-edges, serialization roundtrip, determinism, empty input)
 - [x] Unit tests for entrypoint detection (41 tests — HTTP routes for Express/FastAPI/Flask/Next.js, CLI commands with click/commander/argparse, test file detection, queue consumers, cron jobs, React pages, event handlers, deduplication, edge cases)
+- [x] Unit tests for semantic clustering (16 tests — single/multiple entrypoint groups, shared file assignment by shortest path, infrastructure group, empty diff, disconnected components, file ordering by flow position, determinism, entrypoint not in graph, internal edges, file role inference, group name generation)
+- [x] Property-based tests for semantic clustering (6 tests — every file in exactly one group, empty diff → empty result, single file → single group, no entrypoints → all infrastructure, determinism, no edges → only entrypoint files grouped)
+- [ ] Effect.ts entrypoint detection (`HttpApi`/`HttpApiEndpoint`/`HttpApiGroup`/`HttpRouter`, `@effect/cli` Command, `Queue`/`PubSub` consumers, `Schedule`/`@effect/cron`, `@effect/vitest` test patterns, `Stream`/`Hub` handlers, `Effect.Service`/`Context.Tag`/`Layer` definitions)
+- [ ] Unit tests for Effect.ts entrypoint detection
 
 ### Phase 2: Data Flow Depth (Week 2-3)
 - [ ] Full data flow tracing (parameters, return values, assignments)
