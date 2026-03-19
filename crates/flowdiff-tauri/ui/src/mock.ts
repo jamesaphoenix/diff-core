@@ -2,7 +2,7 @@
  * Mock data for demo mode — used when running outside Tauri (browser dev/Playwright).
  * Provides realistic fixture data so all UI states can be exercised without IPC.
  */
-import type { AnalysisOutput, FileDiffContent } from "./types";
+import type { AnalysisOutput, FileDiffContent, Pass1Response, Pass2Response } from "./types";
 
 export const MOCK_ANALYSIS: AnalysisOutput = {
   version: "1.0.0",
@@ -486,5 +486,140 @@ export class EmailService {
     return tpl.replace(/\\{\\{(\\w+)\\}\\}/g, (_, key) => String(data[key] ?? ""));
   }
 }`,
+  },
+};
+
+export const MOCK_PASS1: Pass1Response = {
+  groups: [
+    {
+      id: "group_1",
+      name: "User creation API with validation and persistence",
+      summary:
+        "Adds input validation middleware, typed DTOs, and duplicate-email checking to the POST /api/users creation flow. The route handler now validates input before passing to the service layer, which hashes passwords before persisting via Prisma.",
+      review_order_rationale:
+        "Review first \u2014 this group changes the public API contract and touches the persistence layer (schema-adjacent). Downstream auth and email flows may depend on user creation succeeding correctly.",
+      risk_flags: ["schema_change", "auth_adjacent", "public_api_change"],
+    },
+    {
+      id: "group_2",
+      name: "Auth token refresh with rotation and rate limiting",
+      summary:
+        "Implements rotating refresh tokens: old tokens are revoked on refresh, and a new refresh token is issued alongside the access token. Adds rate limiting middleware to prevent brute-force attacks on the refresh endpoint.",
+      review_order_rationale:
+        "Review second \u2014 auth token rotation is a security-critical change. A bug here could lock users out or allow token reuse after revocation.",
+      risk_flags: ["auth_change", "security_critical", "breaking_api"],
+    },
+    {
+      id: "group_3",
+      name: "Email worker typed interface and priority routing",
+      summary:
+        "Adds TypeScript interfaces to the email worker queue consumer and introduces priority-based routing (high-priority emails are sent immediately). The email service now uses named templates with variable substitution.",
+      review_order_rationale:
+        "Review last \u2014 lowest risk. Changes are additive (new types, new feature) and isolated to the background worker pipeline.",
+      risk_flags: [],
+    },
+  ],
+  overall_summary:
+    "This PR strengthens the user-facing API layer with input validation and auth hardening (rotating refresh tokens + rate limiting), then adds typed email templates to the background worker. The highest-risk changes are in auth token rotation \u2014 review the transaction logic carefully.",
+  suggested_review_order: ["group_1", "group_2", "group_3"],
+};
+
+export const MOCK_PASS2: Record<string, Pass2Response> = {
+  group_1: {
+    group_id: "group_1",
+    flow_narrative:
+      "Request enters at POST /api/users route handler, which now runs the validateInput middleware (using the CreateUserInput schema). The handler calls UserService.validate() for business-rule validation, then UserService.create() which hashes the password and delegates to UserRepository.insert(). The repository checks for duplicate emails via Prisma before persisting. Error responses are now differentiated (409 for duplicates vs 400 for validation).",
+    file_annotations: [
+      {
+        file: "src/routes/users.ts",
+        role_in_flow: "Entrypoint \u2014 HTTP route handler for user creation",
+        changes_summary:
+          "Added validateInput middleware, typed response fields (id, email, created_at), and duplicate-email error handling (409 status).",
+        risks: [
+          "The validateInput middleware runs before the handler but errors from it may not match the handler's error format.",
+        ],
+        suggestions: [
+          "Consider a shared error-formatting middleware to ensure consistent error shapes across all routes.",
+        ],
+      },
+      {
+        file: "src/services/user-service.ts",
+        role_in_flow: "Service layer \u2014 validation and orchestration",
+        changes_summary:
+          "New validate() method with email format and password length checks. create() now hashes the password before persisting.",
+        risks: [
+          "Password hashing is imported from ../utils/crypto but the hash function is not shown \u2014 ensure it uses bcrypt/scrypt/argon2, not MD5/SHA.",
+        ],
+        suggestions: [],
+      },
+      {
+        file: "src/repositories/user-repo.ts",
+        role_in_flow: "Persistence layer \u2014 Prisma database operations",
+        changes_summary:
+          "Added duplicate-email check via findUnique before create. Throws custom DUPLICATE_EMAIL error code.",
+        risks: [
+          "Race condition: two concurrent requests with the same email could both pass the findUnique check. Rely on a DB unique constraint instead of application-level checks.",
+        ],
+        suggestions: [
+          "Add a unique constraint on the email column and catch the Prisma unique constraint violation error instead of the findUnique check.",
+        ],
+      },
+      {
+        file: "src/models/user.ts",
+        role_in_flow: "Data model \u2014 TypeScript type definitions",
+        changes_summary:
+          "New User and CreateUserInput interfaces defining the shape of user data.",
+        risks: [],
+        suggestions: [],
+      },
+    ],
+    cross_cutting_concerns: [
+      "Error handling: The route handler catches DUPLICATE_EMAIL but other error codes from the service/repo layers are not handled \u2014 they fall through to a generic 400.",
+      "The password field is included in CreateUserInput but should never appear in API responses. Consider a separate output DTO.",
+    ],
+  },
+  group_2: {
+    group_id: "group_2",
+    flow_narrative:
+      "Request enters at GET /api/auth/refresh, rate limited to 10 requests per 60-second window per IP. The handler extracts the bearer token, then calls AuthService.refresh(). The service verifies the token via JWT, checks it against the database (revocation check), rotates the token pair (revoke old, issue new), and returns both access and refresh tokens.",
+    file_annotations: [
+      {
+        file: "src/routes/auth.ts",
+        role_in_flow: "Entrypoint \u2014 auth refresh endpoint with rate limiting",
+        changes_summary:
+          "Added rateLimiter middleware, destructured response to return both tokens + expires_in, added TOKEN_EXPIRED error handling.",
+        risks: [],
+        suggestions: [],
+      },
+      {
+        file: "src/services/auth-service.ts",
+        role_in_flow: "Service layer \u2014 token verification, rotation, and issuance",
+        changes_summary:
+          "Token refresh now verifies against DB (revocation check), rotates via $transaction (revoke old + create new), and returns both token types.",
+        risks: [
+          "The rotateToken method creates a new refresh token row with the OLD token value (line: token: oldToken). This looks like a bug \u2014 the new row should contain a newly generated token, not the old one.",
+          "JWT_REFRESH_SECRET is used for refresh tokens but there is no rotation of this secret. If compromised, all refresh tokens are vulnerable.",
+        ],
+        suggestions: [
+          "Generate a fresh random token for the new refresh token row instead of reusing oldToken.",
+          "Consider adding a token family ID to detect token reuse attacks (if an old token is used after rotation, revoke the entire family).",
+        ],
+      },
+      {
+        file: "src/middleware/rate-limit.ts",
+        role_in_flow: "Utility \u2014 in-memory rate limiter",
+        changes_summary:
+          "Upgraded from no-op to a functional in-memory rate limiter with configurable max and window.",
+        risks: [
+          "In-memory store is not shared across multiple server instances. In a multi-process or clustered deployment, each instance tracks separately.",
+        ],
+        suggestions: [
+          "Consider Redis-backed rate limiting for production, or document the single-instance limitation.",
+        ],
+      },
+    ],
+    cross_cutting_concerns: [
+      "The rate limiter uses req.ip which may be the load balancer's IP behind a reverse proxy. Ensure trust-proxy is configured in Express.",
+    ],
   },
 };

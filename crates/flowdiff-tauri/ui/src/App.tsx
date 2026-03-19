@@ -1,8 +1,15 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { AnalysisOutput, FlowGroup, FileDiffContent } from "./types";
+import type {
+  AnalysisOutput,
+  FlowGroup,
+  FileDiffContent,
+  Pass1Response,
+  Pass1GroupAnnotation,
+  Pass2Response,
+} from "./types";
 import DiffViewer from "./components/DiffViewer";
 import MermaidGraph from "./components/MermaidGraph";
-import { MOCK_ANALYSIS, MOCK_MERMAID, MOCK_DIFFS } from "./mock";
+import { MOCK_ANALYSIS, MOCK_MERMAID, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2 } from "./mock";
 
 /** Detect if running inside Tauri (vs plain browser for demo/testing). */
 const IS_TAURI = typeof window !== "undefined" && "__TAURI__" in window;
@@ -22,6 +29,12 @@ export default function App() {
   const [mermaid, setMermaid] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // LLM annotation state
+  const [overview, setOverview] = useState<Pass1Response | null>(null);
+  const [deepAnalyses, setDeepAnalyses] = useState<Record<string, Pass2Response>>({});
+  const [annotating, setAnnotating] = useState(false);
+  const [deepAnalyzing, setDeepAnalyzing] = useState(false);
 
   // Repo path — in a real app this would come from a dialog or CLI arg
   const [repoPath, setRepoPath] = useState(IS_TAURI ? "" : "/demo/repo");
@@ -94,6 +107,9 @@ export default function App() {
     if (!repoPath) return;
     setLoading(true);
     setError(null);
+    // Reset LLM state on new analysis
+    setOverview(null);
+    setDeepAnalyses({});
     try {
       let result: AnalysisOutput;
       if (IS_TAURI) {
@@ -111,6 +127,10 @@ export default function App() {
         result = MOCK_ANALYSIS;
       }
       setAnalysis(result);
+      // If analysis came with annotations already (e.g., from --annotate), load them
+      if (result.annotations) {
+        setOverview(result.annotations);
+      }
       // Auto-select first group
       if (result.groups.length > 0) {
         const sorted = [...result.groups].sort(
@@ -124,6 +144,60 @@ export default function App() {
       setLoading(false);
     }
   }, [repoPath, baseRef, handleSelectGroup]);
+
+  /** Run LLM Pass 1: overview annotation for all groups. */
+  const runAnnotateOverview = useCallback(async () => {
+    setAnnotating(true);
+    setError(null);
+    try {
+      let result: Pass1Response;
+      if (IS_TAURI) {
+        result = await tauriInvoke<Pass1Response>("annotate_overview");
+      } else {
+        await new Promise((r) => setTimeout(r, 800));
+        result = MOCK_PASS1;
+      }
+      setOverview(result);
+    } catch (e) {
+      setError(`Annotation failed: ${String(e)}`);
+    } finally {
+      setAnnotating(false);
+    }
+  }, []);
+
+  /** Run LLM Pass 2: deep analysis for the selected group. */
+  const runDeepAnalysis = useCallback(async () => {
+    if (!selectedGroup) return;
+    setDeepAnalyzing(true);
+    setError(null);
+    try {
+      let result: Pass2Response;
+      if (IS_TAURI) {
+        result = await tauriInvoke<Pass2Response>("annotate_group", {
+          groupId: selectedGroup.id,
+          repoPath,
+          base: baseRef || "main",
+          head: null,
+          range: null,
+          staged: false,
+          unstaged: false,
+        });
+      } else {
+        await new Promise((r) => setTimeout(r, 600));
+        result = MOCK_PASS2[selectedGroup.id] || {
+          group_id: selectedGroup.id,
+          flow_narrative: "No deep analysis available for this group in demo mode.",
+          file_annotations: [],
+          cross_cutting_concerns: [],
+        };
+      }
+      setDeepAnalyses((prev) => ({ ...prev, [selectedGroup.id]: result }));
+    } catch (e) {
+      setError(`Deep analysis failed: ${String(e)}`);
+    } finally {
+      setDeepAnalyzing(false);
+    }
+  }, [selectedGroup, repoPath, baseRef]);
 
   // Auto-load demo data when not in Tauri
   useEffect(() => {
@@ -139,7 +213,17 @@ export default function App() {
     : [];
   sortedGroupsRef.current = sortedGroups;
 
-  // Keyboard navigation: j/k = next/prev file, J/K = next/prev group
+  // Get the Pass 1 annotation for the currently selected group
+  const groupAnnotation: Pass1GroupAnnotation | undefined = overview?.groups.find(
+    (g) => g.id === selectedGroup?.id,
+  );
+
+  // Get the Pass 2 deep analysis for the currently selected group
+  const groupDeepAnalysis: Pass2Response | undefined = selectedGroup
+    ? deepAnalyses[selectedGroup.id]
+    : undefined;
+
+  // Keyboard navigation: j/k = next/prev file, J/K = next/prev group, a = annotate
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       // Skip if user is typing in an input or the Monaco editor is focused
@@ -323,6 +407,7 @@ export default function App() {
           <div className="panel-body">
             {selectedGroup && (
               <>
+                {/* Deterministic group info */}
                 <div className="annotation-section">
                   <h3>Flow Group</h3>
                   <p className="group-detail-name">{selectedGroup.name}</p>
@@ -338,12 +423,106 @@ export default function App() {
                     Review order: <strong>#{selectedGroup.review_order}</strong>
                   </p>
                 </div>
+
+                {/* LLM Overview (Pass 1) — Overall summary shown once */}
+                {overview && !groupAnnotation && (
+                  <div className="annotation-section llm-section">
+                    <h3>LLM Overview</h3>
+                    <p className="llm-summary">{overview.overall_summary}</p>
+                  </div>
+                )}
+
+                {/* LLM Group Annotation (Pass 1) */}
+                {groupAnnotation && (
+                  <div className="annotation-section llm-section">
+                    <h3>LLM Summary</h3>
+                    <p className="llm-summary">{groupAnnotation.summary}</p>
+                    <p className="llm-rationale">
+                      <strong>Review rationale:</strong> {groupAnnotation.review_order_rationale}
+                    </p>
+                    {groupAnnotation.risk_flags.length > 0 && (
+                      <div className="risk-flags">
+                        {groupAnnotation.risk_flags.map((flag, i) => (
+                          <span key={i} className="risk-flag">{flag}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Overall summary (shown when overview exists and group annotation exists) */}
+                {overview && groupAnnotation && (
+                  <div className="annotation-section llm-section">
+                    <h3>Overall Summary</h3>
+                    <p className="llm-summary">{overview.overall_summary}</p>
+                  </div>
+                )}
+
+                {/* LLM Deep Analysis (Pass 2) */}
+                {groupDeepAnalysis && (
+                  <>
+                    <div className="annotation-section llm-section">
+                      <h3>Flow Narrative</h3>
+                      <p className="llm-narrative">{groupDeepAnalysis.flow_narrative}</p>
+                    </div>
+
+                    {groupDeepAnalysis.file_annotations.length > 0 && (
+                      <div className="annotation-section llm-section">
+                        <h3>File Annotations</h3>
+                        {groupDeepAnalysis.file_annotations.map((fa, i) => (
+                          <div key={i} className="file-annotation">
+                            <div className="file-annotation-header">
+                              <span className="file-annotation-path">{shortPath(fa.file)}</span>
+                              <span className="file-annotation-role">{fa.role_in_flow}</span>
+                            </div>
+                            <p className="file-annotation-changes">{fa.changes_summary}</p>
+                            {fa.risks.length > 0 && (
+                              <div className="file-annotation-list">
+                                <span className="annotation-label risk-label">Risks:</span>
+                                <ul>
+                                  {fa.risks.map((r, j) => (
+                                    <li key={j}>{r}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {fa.suggestions.length > 0 && (
+                              <div className="file-annotation-list">
+                                <span className="annotation-label suggestion-label">Suggestions:</span>
+                                <ul>
+                                  {fa.suggestions.map((s, j) => (
+                                    <li key={j}>{s}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {groupDeepAnalysis.cross_cutting_concerns.length > 0 && (
+                      <div className="annotation-section llm-section">
+                        <h3>Cross-Cutting Concerns</h3>
+                        <ul className="concerns-list">
+                          {groupDeepAnalysis.cross_cutting_concerns.map((c, i) => (
+                            <li key={i}>{c}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Mermaid flow graph */}
                 {mermaid && (
                   <div className="annotation-section">
                     <h3>Flow Graph</h3>
                     <MermaidGraph code={mermaid} />
                   </div>
                 )}
+
+                {/* Edge list */}
                 {selectedGroup.edges.length > 0 && (
                   <div className="annotation-section">
                     <h3>Edges</h3>
@@ -359,6 +538,28 @@ export default function App() {
                     </ul>
                   </div>
                 )}
+
+                {/* LLM action buttons */}
+                <div className="annotation-section annotation-actions">
+                  {!overview && (
+                    <button
+                      className="btn btn-annotate"
+                      onClick={runAnnotateOverview}
+                      disabled={annotating}
+                    >
+                      {annotating ? "Annotating..." : "Annotate All Groups"}
+                    </button>
+                  )}
+                  {!groupDeepAnalysis && (
+                    <button
+                      className="btn btn-deep"
+                      onClick={runDeepAnalysis}
+                      disabled={deepAnalyzing}
+                    >
+                      {deepAnalyzing ? "Analyzing..." : "Deep Analyze Group"}
+                    </button>
+                  )}
+                </div>
               </>
             )}
             {!selectedGroup && (

@@ -531,6 +531,170 @@ body {
   color: var(--text-primary);
 }
 
+/* ── LLM Annotation Sections ── */
+
+.llm-section {
+  border-left: 2px solid var(--accent);
+  background: #89b4fa08;
+}
+
+.llm-summary {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.llm-rationale {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+.llm-narrative {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.risk-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.risk-flag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #f38ba820;
+  color: var(--risk-high);
+}
+
+/* ── File Annotations (Pass 2) ── */
+
+.file-annotation {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-annotation:last-child {
+  border-bottom: none;
+}
+
+.file-annotation-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.file-annotation-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.file-annotation-role {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.file-annotation-changes {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.file-annotation-list {
+  margin-top: 4px;
+}
+
+.annotation-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.risk-label {
+  color: var(--risk-high);
+}
+
+.suggestion-label {
+  color: var(--accent);
+}
+
+.file-annotation-list ul {
+  list-style: none;
+  margin: 2px 0 0 0;
+  padding: 0;
+}
+
+.file-annotation-list li {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  padding: 2px 0 2px 8px;
+  border-left: 1px solid var(--border);
+  margin-left: 2px;
+}
+
+/* ── Cross-Cutting Concerns ── */
+
+.concerns-list {
+  list-style: none;
+  padding: 0;
+}
+
+.concerns-list li {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid var(--risk-medium);
+}
+
+.concerns-list li + li {
+  margin-top: 4px;
+}
+
+/* ── Annotation Action Buttons ── */
+
+.annotation-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.btn-annotate {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.btn-annotate:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-deep {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.btn-deep:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
 /* ── Empty State ── */
 
 .empty-state {

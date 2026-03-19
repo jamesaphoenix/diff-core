@@ -14,6 +14,8 @@ fn main() {
             commands::get_last_analysis,
             commands::get_mermaid,
             commands::get_file_diff,
+            commands::annotate_overview,
+            commands::annotate_group,
         ])
         .run(tauri::generate_context!())
         .expect("error while running flowdiff");

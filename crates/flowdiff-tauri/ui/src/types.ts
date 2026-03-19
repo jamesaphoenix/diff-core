@@ -69,7 +69,7 @@ export interface AnalysisOutput {
   summary: AnalysisSummary;
   groups: FlowGroup[];
   infrastructure_group: InfrastructureGroup | null;
-  annotations: unknown | null;
+  annotations: Pass1Response | null;
 }
 
 export interface FileDiffContent {
@@ -87,4 +87,45 @@ export interface AnalyzeParams {
   range?: string;
   staged: boolean;
   unstaged: boolean;
+}
+
+// ── LLM Annotation Types ──
+
+/** Pass 1 overview response — per-group summaries + overall summary. */
+export interface Pass1Response {
+  groups: Pass1GroupAnnotation[];
+  overall_summary: string;
+  suggested_review_order: string[];
+}
+
+/** Per-group annotation from Pass 1 overview. */
+export interface Pass1GroupAnnotation {
+  id: string;
+  name: string;
+  summary: string;
+  review_order_rationale: string;
+  risk_flags: string[];
+}
+
+/** Pass 2 deep analysis response for a single group. */
+export interface Pass2Response {
+  group_id: string;
+  flow_narrative: string;
+  file_annotations: Pass2FileAnnotation[];
+  cross_cutting_concerns: string[];
+}
+
+/** Per-file annotation from Pass 2 deep analysis. */
+export interface Pass2FileAnnotation {
+  file: string;
+  role_in_flow: string;
+  changes_summary: string;
+  risks: string[];
+  suggestions: string[];
+}
+
+/** Combined annotations container. */
+export interface Annotations {
+  overview: Pass1Response | null;
+  deep_analyses: Pass2Response[];
 }
