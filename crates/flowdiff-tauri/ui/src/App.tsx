@@ -17,6 +17,7 @@ import { LLM_PROVIDERS, MODELS_BY_PROVIDER } from "./types";
 import DiffViewer from "./components/DiffViewer";
 import FlowGraph from "./components/FlowGraph";
 import RiskHeatmap from "./components/RiskHeatmap";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT } from "./mock";
 
 /** Detect if running inside Tauri (vs plain browser for demo/testing). */
@@ -36,12 +37,16 @@ export default function App() {
   const [fileDiff, setFileDiff] = useState<FileDiffContent | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Test-only: when set, the named panel's ErrorBoundary will catch a deliberate crash
+  const [crashPanel, setCrashPanel] = useState<string | null>(null);
 
   // LLM annotation state
   const [overview, setOverview] = useState<Pass1Response | null>(null);
   const [deepAnalyses, setDeepAnalyses] = useState<Record<string, Pass2Response>>({});
   const [annotating, setAnnotating] = useState(false);
   const [deepAnalyzing, setDeepAnalyzing] = useState(false);
+  // Counter to track concurrent deep analysis requests — prevents premature loading state clear
+  const deepAnalyzingCount = useRef(0);
 
   // Repo and git state
   const [repoPath, setRepoPath] = useState(IS_TAURI ? "" : "/demo/repo");
@@ -155,24 +160,6 @@ export default function App() {
     }
   }, [repoPath, loadRepoInfo]);
 
-  const handleSelectGroup = useCallback(
-    async (group: FlowGroup) => {
-      setSelectedGroup(group);
-      // Exit replay mode when switching groups
-      setReplayActive(false);
-      setReplayStep(0);
-      setReplayVisited(new Set());
-      // Auto-select first file in group
-      if (group.files.length > 0) {
-        handleSelectFile(group.files[0].path);
-      } else {
-        setSelectedFile(null);
-        setFileDiff(null);
-      }
-    },
-    [repoPath, baseRef],
-  );
-
   const handleSelectFile = useCallback(
     async (path: string) => {
       setSelectedFile(path);
@@ -189,14 +176,33 @@ export default function App() {
             unstaged: false,
           });
           setFileDiff(diff);
-        } catch {
+        } catch (e) {
           setFileDiff(null);
+          setError(`Failed to load diff for ${path}: ${String(e)}`);
         }
       } else {
         setFileDiff(MOCK_DIFFS[path] || null);
       }
     },
     [repoPath, baseRef],
+  );
+
+  const handleSelectGroup = useCallback(
+    async (group: FlowGroup) => {
+      setSelectedGroup(group);
+      // Exit replay mode when switching groups
+      setReplayActive(false);
+      setReplayStep(0);
+      setReplayVisited(new Set());
+      // Auto-select first file in group
+      if (group.files.length > 0) {
+        handleSelectFile(group.files[0].path);
+      } else {
+        setSelectedFile(null);
+        setFileDiff(null);
+      }
+    },
+    [handleSelectFile],
   );
 
   const runAnalysis = useCallback(async () => {
@@ -276,6 +282,7 @@ export default function App() {
   /** Run LLM Pass 2: deep analysis for the selected group. */
   const runDeepAnalysis = useCallback(async () => {
     if (!selectedGroup) return;
+    deepAnalyzingCount.current += 1;
     setDeepAnalyzing(true);
     setError(null);
     try {
@@ -305,7 +312,12 @@ export default function App() {
     } catch (e) {
       setError(`Deep analysis failed: ${String(e)}`);
     } finally {
-      setDeepAnalyzing(false);
+      deepAnalyzingCount.current -= 1;
+      // Only clear loading state when all concurrent deep analyses have completed
+      if (deepAnalyzingCount.current <= 0) {
+        deepAnalyzingCount.current = 0;
+        setDeepAnalyzing(false);
+      }
     }
   }, [selectedGroup, repoPath, baseRef, llmSettings]);
 
@@ -406,6 +418,7 @@ export default function App() {
       enterReplay: () => enterReplay(),
       exitReplay: () => exitReplay(),
       getReplayState: () => ({ active: replayActive, step: replayStep, visited: Array.from(replayVisited) }),
+      crashPanel: (name: string | null) => setCrashPanel(name),
     };
     return () => { delete (window as any).__TEST_API__; };
   });
@@ -608,6 +621,14 @@ export default function App() {
 
   // Status display
   const statusText = formatBranchStatus(repoInfo);
+
+  /** Test-only component that throws during render to exercise ErrorBoundary. */
+  function CrashTest({ panel }: { panel: string }) {
+    if (crashPanel === panel) {
+      throw new Error(`Test crash in ${panel}`);
+    }
+    return null;
+  }
 
   return (
     <div className="app">
@@ -1060,7 +1081,10 @@ export default function App() {
             </div>
           )}
           <div className="panel-body diff-viewer">
-            <DiffViewer fileDiff={fileDiff} />
+            <ErrorBoundary panelName="Diff Viewer">
+              <CrashTest panel="Diff Viewer" />
+              <DiffViewer fileDiff={fileDiff} />
+            </ErrorBoundary>
           </div>
         </main>
 
@@ -1072,11 +1096,14 @@ export default function App() {
             {analysis && sortedGroups.length > 0 && (
               <div className="annotation-section">
                 <h3>Risk Heatmap</h3>
-                <RiskHeatmap
-                  groups={sortedGroups}
-                  selectedGroupId={selectedGroup?.id ?? null}
-                  onSelectGroup={handleSelectGroup}
-                />
+                <ErrorBoundary panelName="Risk Heatmap">
+                  <CrashTest panel="Risk Heatmap" />
+                  <RiskHeatmap
+                    groups={sortedGroups}
+                    selectedGroupId={selectedGroup?.id ?? null}
+                    onSelectGroup={handleSelectGroup}
+                  />
+                </ErrorBoundary>
               </div>
             )}
             {selectedGroup && (
@@ -1210,12 +1237,15 @@ export default function App() {
                 {selectedGroup.edges.length > 0 && (
                   <div className="annotation-section">
                     <h3>Flow Graph</h3>
-                    <FlowGraph
-                      edges={selectedGroup.edges}
-                      files={selectedGroup.files}
-                      onNodeClick={handleSelectFile}
-                      replayNodeId={replayActive && selectedGroup.files[replayStep] ? selectedGroup.files[replayStep].path : null}
-                    />
+                    <ErrorBoundary panelName="Flow Graph">
+                      <CrashTest panel="Flow Graph" />
+                      <FlowGraph
+                        edges={selectedGroup.edges}
+                        files={selectedGroup.files}
+                        onNodeClick={handleSelectFile}
+                        replayNodeId={replayActive && selectedGroup.files[replayStep] ? selectedGroup.files[replayStep].path : null}
+                      />
+                    </ErrorBoundary>
                   </div>
                 )}
 

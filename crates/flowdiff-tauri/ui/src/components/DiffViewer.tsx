@@ -1,4 +1,3 @@
-import { useRef, useCallback } from "react";
 import { DiffEditor } from "@monaco-editor/react";
 import type { FileDiffContent } from "../types";
 
@@ -8,15 +7,6 @@ interface DiffViewerProps {
 
 /** Monaco-based side-by-side diff viewer for the center panel. */
 export default function DiffViewer({ fileDiff }: DiffViewerProps) {
-  const editorRef = useRef<unknown>(null);
-
-  const handleMount = useCallback(
-    (editor: unknown) => {
-      editorRef.current = editor;
-    },
-    [],
-  );
-
   if (!fileDiff) {
     return (
       <div className="empty-state">Select a file to view its diff.</div>
@@ -32,7 +22,6 @@ export default function DiffViewer({ fileDiff }: DiffViewerProps) {
       modified={fileDiff.new_content || ""}
       language={monacoLang}
       theme="flowdiff-dark"
-      onMount={handleMount}
       options={{
         readOnly: true,
         renderSideBySide: true,
