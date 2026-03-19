@@ -23,6 +23,7 @@ fn main() {
             commands::check_api_key,
             commands::get_llm_settings,
             commands::save_llm_settings,
+            commands::refine_groups,
         ])
         .run(tauri::generate_context!())
         .expect("error while running flowdiff");

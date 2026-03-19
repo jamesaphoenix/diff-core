@@ -10,11 +10,13 @@ import type {
   BranchInfo,
   LlmSettings,
   LlmProvider,
+  RefinementResult,
+  RefinementResponse,
 } from "./types";
 import { LLM_PROVIDERS, MODELS_BY_PROVIDER } from "./types";
 import DiffViewer from "./components/DiffViewer";
 import FlowGraph from "./components/FlowGraph";
-import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS } from "./mock";
+import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT } from "./mock";
 
 /** Detect if running inside Tauri (vs plain browser for demo/testing). */
 const IS_TAURI = typeof window !== "undefined" && "__TAURI__" in window;
@@ -52,6 +54,15 @@ export default function App() {
   // LLM settings
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Refinement state
+  const [originalGroups, setOriginalGroups] = useState<FlowGroup[] | null>(null);
+  const [refinedGroups, setRefinedGroups] = useState<FlowGroup[] | null>(null);
+  const [refinementResponse, setRefinementResponse] = useState<RefinementResponse | null>(null);
+  const [refinementProvider, setRefinementProvider] = useState<string | null>(null);
+  const [refinementModel, setRefinementModel] = useState<string | null>(null);
+  const [showRefined, setShowRefined] = useState(false);
+  const [refining, setRefining] = useState(false);
 
   // Demo mode: auto-load mock data on mount when not in Tauri
   const demoLoaded = useRef(false);
@@ -181,6 +192,13 @@ export default function App() {
     // Reset LLM state on new analysis
     setOverview(null);
     setDeepAnalyses({});
+    // Reset refinement state
+    setOriginalGroups(null);
+    setRefinedGroups(null);
+    setRefinementResponse(null);
+    setRefinementProvider(null);
+    setRefinementModel(null);
+    setShowRefined(false);
     try {
       let result: AnalysisOutput;
       if (IS_TAURI) {
@@ -276,6 +294,82 @@ export default function App() {
       setDeepAnalyzing(false);
     }
   }, [selectedGroup, repoPath, baseRef, llmSettings]);
+
+  /** Run LLM refinement pass on the current analysis groups. */
+  const runRefinement = useCallback(async () => {
+    if (!analysis) return;
+    setRefining(true);
+    setError(null);
+    try {
+      let result: RefinementResult;
+      if (IS_TAURI) {
+        result = await tauriInvoke<RefinementResult>("refine_groups", {
+          repoPath: repoPath || null,
+          llmProvider: llmSettings?.refinement_provider ?? llmSettings?.provider ?? null,
+          llmModel: llmSettings?.refinement_model ?? llmSettings?.model ?? null,
+        });
+      } else {
+        await new Promise((r) => setTimeout(r, 1200));
+        result = MOCK_REFINEMENT;
+      }
+
+      // Store original groups before switching
+      if (!originalGroups) {
+        setOriginalGroups(analysis.groups);
+      }
+
+      setRefinedGroups(result.refined_groups);
+      setRefinementResponse(result.refinement_response);
+      setRefinementProvider(result.provider);
+      setRefinementModel(result.model);
+
+      if (result.had_changes) {
+        // Switch to refined view and update the analysis
+        setShowRefined(true);
+        setAnalysis((prev) =>
+          prev
+            ? {
+                ...prev,
+                groups: result.refined_groups,
+                infrastructure_group: result.infrastructure_group ?? prev.infrastructure_group,
+              }
+            : prev,
+        );
+        // Re-select first group in refined view
+        const sorted = [...result.refined_groups].sort(
+          (a, b) => a.review_order - b.review_order,
+        );
+        if (sorted.length > 0) {
+          handleSelectGroup(sorted[0]);
+        }
+      }
+    } catch (e) {
+      setError(`Refinement failed: ${String(e)}`);
+    } finally {
+      setRefining(false);
+    }
+  }, [analysis, repoPath, llmSettings, originalGroups, handleSelectGroup]);
+
+  /** Toggle between original and refined groups. */
+  const toggleRefinedView = useCallback(
+    (useRefined: boolean) => {
+      if (!analysis) return;
+      setShowRefined(useRefined);
+      const groups = useRefined ? refinedGroups : originalGroups;
+      if (groups) {
+        setAnalysis((prev) =>
+          prev ? { ...prev, groups } : prev,
+        );
+        const sorted = [...groups].sort(
+          (a, b) => a.review_order - b.review_order,
+        );
+        if (sorted.length > 0) {
+          handleSelectGroup(sorted[0]);
+        }
+      }
+    },
+    [analysis, refinedGroups, originalGroups, handleSelectGroup],
+  );
 
   // Auto-load demo data when not in Tauri
   useEffect(() => {
@@ -669,42 +763,115 @@ export default function App() {
       <div className="panels">
         {/* Left panel: Flow Groups */}
         <aside className="panel panel-left">
-          <div className="panel-header">Flow Groups</div>
+          <div className="panel-header">
+            <span>Flow Groups</span>
+            {showRefined && refinementProvider && (
+              <span className="refined-badge" title={`Refined by ${refinementProvider}/${refinementModel}`}>
+                Refined by {refinementModel}
+              </span>
+            )}
+          </div>
           <div className="panel-body">
-            {sortedGroups.map((group) => (
-              <div
-                key={group.id}
-                className={`group-item ${selectedGroup?.id === group.id ? "selected" : ""}`}
-                onClick={() => handleSelectGroup(group)}
-              >
-                <div className="group-header">
-                  <span className="group-name">{group.name}</span>
-                  <span className="risk-badge" data-risk={riskLevel(group.risk_score)}>
-                    {group.risk_score.toFixed(2)}
-                  </span>
-                </div>
-                {selectedGroup?.id === group.id && (
-                  <ul className="file-list">
-                    {group.files.map((file) => (
-                      <li
-                        key={file.path}
-                        className={`file-item ${selectedFile === file.path ? "selected" : ""}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSelectFile(file.path);
-                        }}
-                      >
-                        <span className="file-role">{file.role}</span>
-                        <span className="file-path">{shortPath(file.path)}</span>
-                        <span className="file-changes">
-                          +{file.changes.additions} -{file.changes.deletions}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+            {/* Refinement banner — shown after analysis when API key is available */}
+            {analysis && !refinedGroups && !refining && hasApiKey && llmSettings?.refinement_enabled && (
+              <div className="refinement-banner">
+                <span>AI can improve these groupings</span>
+                <button
+                  className="btn btn-refine"
+                  onClick={runRefinement}
+                  title={`Refine groupings using ${llmSettings?.refinement_provider ?? "anthropic"} (${llmSettings?.refinement_model ?? "default"})`}
+                >
+                  Refine
+                </button>
               </div>
-            ))}
+            )}
+
+            {/* Refinement loading state */}
+            {refining && (
+              <div className="refinement-loading">
+                <span className="refine-spinner" />
+                <span>
+                  Refining with {llmSettings?.refinement_provider ?? "anthropic"}/{llmSettings?.refinement_model ?? "..."}
+                </span>
+              </div>
+            )}
+
+            {/* Original/Refined toggle — shown when refined groups exist */}
+            {refinedGroups && originalGroups && (
+              <div className="refinement-toggle">
+                <button
+                  className={`toggle-btn ${!showRefined ? "active" : ""}`}
+                  onClick={() => toggleRefinedView(false)}
+                >
+                  Original
+                </button>
+                <button
+                  className={`toggle-btn ${showRefined ? "active" : ""}`}
+                  onClick={() => toggleRefinedView(true)}
+                >
+                  Refined
+                </button>
+              </div>
+            )}
+
+            {sortedGroups.map((group) => {
+              const changeIndicator = showRefined
+                ? getGroupChangeIndicator(group, refinementResponse)
+                : null;
+
+              return (
+                <div
+                  key={group.id}
+                  className={`group-item ${selectedGroup?.id === group.id ? "selected" : ""} ${changeIndicator ? "refined-change" : ""}`}
+                  onClick={() => handleSelectGroup(group)}
+                >
+                  <div className="group-header">
+                    <span className="group-name">{group.name}</span>
+                    <span className="risk-badge" data-risk={riskLevel(group.risk_score)}>
+                      {group.risk_score.toFixed(2)}
+                    </span>
+                  </div>
+                  {changeIndicator && (
+                    <div className="change-indicator" title={changeIndicator.reason}>
+                      <span className={`change-tag change-${changeIndicator.type}`}>
+                        {changeIndicator.label}
+                      </span>
+                    </div>
+                  )}
+                  {selectedGroup?.id === group.id && (
+                    <ul className="file-list">
+                      {group.files.map((file) => {
+                        const fileMoved = showRefined
+                          ? getFileMovedIndicator(file.path, refinementResponse)
+                          : null;
+
+                        return (
+                          <li
+                            key={file.path}
+                            className={`file-item ${selectedFile === file.path ? "selected" : ""} ${fileMoved ? "file-moved" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectFile(file.path);
+                            }}
+                          >
+                            <span className="file-role">{file.role}</span>
+                            <span className="file-path">{shortPath(file.path)}</span>
+                            <span className="file-changes">
+                              +{file.changes.additions} -{file.changes.deletions}
+                            </span>
+                            {fileMoved && (
+                              <span className="file-moved-tag" title={fileMoved.reason}>
+                                moved from {fileMoved.from}
+                              </span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
             {/* Infrastructure group */}
             {analysis?.infrastructure_group && (
               <div className="group-item infra-group">
@@ -957,6 +1124,69 @@ function shortSymbol(symbol: string): string {
   const parts = symbol.split("::");
   if (parts.length <= 1) return symbol;
   return parts[parts.length - 1];
+}
+
+/** Get a change indicator for a group based on the refinement response. */
+function getGroupChangeIndicator(
+  group: FlowGroup,
+  response: RefinementResponse | null,
+): { type: string; label: string; reason: string } | null {
+  if (!response) return null;
+
+  // Check if this group was created by a split
+  for (const split of response.splits) {
+    for (const newGroup of split.new_groups) {
+      if (group.name === newGroup.name || group.id.startsWith("group_refined_")) {
+        return {
+          type: "split",
+          label: `split from ${split.source_group_id}`,
+          reason: split.reason,
+        };
+      }
+    }
+  }
+
+  // Check if this group was created by a merge
+  for (const merge of response.merges) {
+    if (group.name === merge.merged_name) {
+      return {
+        type: "merge",
+        label: `merged from ${merge.group_ids.join(" + ")}`,
+        reason: merge.reason,
+      };
+    }
+  }
+
+  // Check if this group was re-ranked
+  for (const reRank of response.re_ranks) {
+    if (group.id === reRank.group_id) {
+      return {
+        type: "rerank",
+        label: `re-ranked to #${reRank.new_position}`,
+        reason: reRank.reason,
+      };
+    }
+  }
+
+  return null;
+}
+
+/** Check if a file was moved by a reclassification. */
+function getFileMovedIndicator(
+  filePath: string,
+  response: RefinementResponse | null,
+): { from: string; reason: string } | null {
+  if (!response) return null;
+
+  for (const reclass of response.reclassifications) {
+    if (reclass.file === filePath) {
+      return {
+        from: reclass.from_group_id,
+        reason: reclass.reason,
+      };
+    }
+  }
+  return null;
 }
 
 /** Format the branch tracking status into a readable string. */

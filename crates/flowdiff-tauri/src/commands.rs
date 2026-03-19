@@ -13,7 +13,8 @@ use flowdiff_core::flow::{self, FlowConfig};
 use flowdiff_core::git;
 use flowdiff_core::graph::SymbolGraph;
 use flowdiff_core::llm;
-use flowdiff_core::llm::schema::{Pass1Response, Pass2Response};
+use flowdiff_core::llm::refinement;
+use flowdiff_core::llm::schema::{Pass1Response, Pass2Response, RefinementResponse};
 use flowdiff_core::output::{self, build_analysis_output};
 use flowdiff_core::rank;
 use flowdiff_core::types::{AnalysisOutput, GroupRankInput};
@@ -464,6 +465,146 @@ pub async fn annotate_group(
         .map_err(|e| CommandError::Llm(format!("{}", e)))?;
 
     Ok(response)
+}
+
+/// Run LLM refinement pass on the cached analysis groups.
+///
+/// Takes the deterministic groups (v1) and asks an LLM to suggest structural
+/// improvements: splits, merges, re-ranks, and reclassifications. Applies the
+/// refinement operations and returns the result containing both the refined
+/// groups and the raw refinement response (for change indicators in the UI).
+///
+/// Falls back to returning the original groups if refinement produces no changes
+/// or validation fails.
+#[tauri::command]
+pub async fn refine_groups(
+    repo_path: Option<String>,
+    llm_provider: Option<String>,
+    llm_model: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<RefinementResult, CommandError> {
+    // Get the cached analysis
+    let analysis = {
+        let last = state
+            .last_analysis
+            .lock()
+            .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?;
+        last.clone()
+            .ok_or_else(|| CommandError::Analysis("No analysis available. Run analyze first.".into()))?
+    };
+
+    // Load config, applying frontend overrides
+    let (mut config, _) = load_config_from_path(repo_path.as_deref());
+    // Use refinement-specific provider/model if set, otherwise fall back to overrides
+    if let Some(p) = llm_provider {
+        config.llm.refinement.provider = Some(p.clone());
+        if config.llm.provider.is_none() {
+            config.llm.provider = Some(p);
+        }
+    }
+    if let Some(m) = llm_model {
+        config.llm.refinement.model = Some(m.clone());
+        if config.llm.model.is_none() {
+            config.llm.model = Some(m);
+        }
+    }
+
+    // Build LLM config for the refinement provider
+    let refinement_llm_config = flowdiff_core::config::LlmConfig {
+        provider: config.llm.refinement.provider.clone().or(config.llm.provider.clone()),
+        model: config.llm.refinement.model.clone().or(config.llm.model.clone()),
+        key_cmd: config.llm.key_cmd.clone(),
+        refinement: config.llm.refinement.clone(),
+    };
+
+    let provider = llm::create_provider(&refinement_llm_config)
+        .map_err(|e| CommandError::Llm(format!("{}", e)))?;
+
+    // Serialize analysis for the refinement request
+    let analysis_json = serde_json::to_string_pretty(&analysis)
+        .map_err(|e| CommandError::Llm(format!("Failed to serialize analysis: {}", e)))?;
+
+    let diff_summary = format!(
+        "{} files changed across {} groups",
+        analysis.summary.total_files_changed, analysis.summary.total_groups,
+    );
+
+    let request = refinement::build_refinement_request(
+        &analysis.groups,
+        &analysis_json,
+        &diff_summary,
+    );
+
+    let response = provider
+        .refine_groups(&request)
+        .await
+        .map_err(|e| CommandError::Llm(format!("{}", e)))?;
+
+    let provider_name = refinement_llm_config
+        .provider
+        .unwrap_or_else(|| "anthropic".to_string());
+    let model_name = refinement_llm_config
+        .model
+        .unwrap_or_else(|| default_model_for_provider(&provider_name).to_string());
+
+    if !refinement::has_refinements(&response) {
+        return Ok(RefinementResult {
+            refined_groups: analysis.groups.clone(),
+            infrastructure_group: analysis.infrastructure_group.clone(),
+            refinement_response: response,
+            provider: provider_name,
+            model: model_name,
+            had_changes: false,
+        });
+    }
+
+    // Apply the refinement
+    match refinement::apply_refinement(
+        &analysis.groups,
+        analysis.infrastructure_group.as_ref(),
+        &response,
+    ) {
+        Ok((refined_groups, infra)) => {
+            // Update cached analysis with refined groups
+            if let Ok(mut last) = state.last_analysis.lock() {
+                if let Some(ref mut a) = *last {
+                    a.groups = refined_groups.clone();
+                    a.infrastructure_group = infra.clone();
+                }
+            }
+
+            Ok(RefinementResult {
+                refined_groups,
+                infrastructure_group: infra,
+                refinement_response: response,
+                provider: provider_name,
+                model: model_name,
+                had_changes: true,
+            })
+        }
+        Err(e) => {
+            // Validation failed — return original groups with error info
+            Err(CommandError::Llm(format!("Refinement validation failed: {}", e)))
+        }
+    }
+}
+
+/// Result of a refinement pass, including both the refined groups and
+/// the raw refinement operations (for UI change indicators).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RefinementResult {
+    /// The refined flow groups (v2) — or original groups if no changes.
+    pub refined_groups: Vec<flowdiff_core::types::FlowGroup>,
+    /// The refined infrastructure group.
+    pub infrastructure_group: Option<flowdiff_core::types::InfrastructureGroup>,
+    /// The raw refinement response with split/merge/re-rank/reclassify operations.
+    pub refinement_response: RefinementResponse,
+    /// Which provider performed the refinement.
+    pub provider: String,
+    /// Which model performed the refinement.
+    pub model: String,
+    /// Whether the refinement actually produced changes.
+    pub had_changes: bool,
 }
 
 /// List all local branches in the repository.
@@ -1103,6 +1244,80 @@ mod tests {
         let (config, workdir) = load_config_from_path(Some("/nonexistent/path"));
         assert_eq!(config, FlowdiffConfig::default());
         assert!(workdir.is_none());
+    }
+
+    #[test]
+    fn test_refinement_result_serde_roundtrip() {
+        use flowdiff_core::llm::schema::RefinementResponse;
+
+        let result = RefinementResult {
+            refined_groups: vec![],
+            infrastructure_group: None,
+            refinement_response: RefinementResponse {
+                splits: vec![],
+                merges: vec![],
+                re_ranks: vec![],
+                reclassifications: vec![],
+                reasoning: "No changes needed".to_string(),
+            },
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-20250514".to_string(),
+            had_changes: false,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let back: RefinementResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.provider, "anthropic");
+        assert_eq!(back.model, "claude-sonnet-4-20250514");
+        assert!(!back.had_changes);
+        assert!(back.refined_groups.is_empty());
+        assert!(back.infrastructure_group.is_none());
+    }
+
+    #[test]
+    fn test_refinement_result_with_changes() {
+        use flowdiff_core::llm::schema::{RefinementResponse, RefinementSplit, RefinementNewGroup};
+        use flowdiff_core::types::{FlowGroup, FileChange, FileRole, ChangeStats};
+
+        let result = RefinementResult {
+            refined_groups: vec![FlowGroup {
+                id: "g1".to_string(),
+                name: "Refined group".to_string(),
+                entrypoint: None,
+                files: vec![FileChange {
+                    path: "test.ts".to_string(),
+                    flow_position: 0,
+                    role: FileRole::Entrypoint,
+                    changes: ChangeStats { additions: 10, deletions: 5 },
+                    symbols_changed: vec![],
+                }],
+                edges: vec![],
+                risk_score: 0.5,
+                review_order: 1,
+            }],
+            infrastructure_group: None,
+            refinement_response: RefinementResponse {
+                splits: vec![RefinementSplit {
+                    source_group_id: "g1".to_string(),
+                    new_groups: vec![RefinementNewGroup {
+                        name: "Sub A".to_string(),
+                        files: vec!["test.ts".to_string()],
+                    }],
+                    reason: "test split".to_string(),
+                }],
+                merges: vec![],
+                re_ranks: vec![],
+                reclassifications: vec![],
+                reasoning: "Split for clarity".to_string(),
+            },
+            provider: "openai".to_string(),
+            model: "gpt-4o".to_string(),
+            had_changes: true,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let back: RefinementResult = serde_json::from_str(&json).unwrap();
+        assert!(back.had_changes);
+        assert_eq!(back.refined_groups.len(), 1);
+        assert_eq!(back.refinement_response.splits.len(), 1);
     }
 
     #[test]

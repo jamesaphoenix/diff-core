@@ -2,7 +2,7 @@
  * Mock data for demo mode — used when running outside Tauri (browser dev/Playwright).
  * Provides realistic fixture data so all UI states can be exercised without IPC.
  */
-import type { AnalysisOutput, FileDiffContent, LlmSettings, Pass1Response, Pass2Response, RepoInfo } from "./types";
+import type { AnalysisOutput, FileDiffContent, LlmSettings, Pass1Response, Pass2Response, RefinementResult, RepoInfo } from "./types";
 
 export const MOCK_ANALYSIS: AnalysisOutput = {
   version: "1.0.0",
@@ -603,6 +603,158 @@ export const MOCK_PASS2: Record<string, Pass2Response> = {
       "The rate limiter uses req.ip which may be the load balancer's IP behind a reverse proxy. Ensure trust-proxy is configured in Express.",
     ],
   },
+};
+
+export const MOCK_REFINEMENT: RefinementResult = {
+  refined_groups: [
+    {
+      id: "group_1",
+      name: "User creation API with validation and persistence",
+      entrypoint: {
+        file: "src/routes/users.ts",
+        symbol: "POST /api/users",
+        entrypoint_type: "HttpRoute",
+      },
+      files: [
+        {
+          path: "src/routes/users.ts",
+          flow_position: 0,
+          role: "Entrypoint",
+          changes: { additions: 35, deletions: 8 },
+          symbols_changed: ["createUser", "validateInput"],
+        },
+        {
+          path: "src/services/user-service.ts",
+          flow_position: 1,
+          role: "Service",
+          changes: { additions: 42, deletions: 15 },
+          symbols_changed: ["UserService.create", "UserService.validate"],
+        },
+        {
+          path: "src/repositories/user-repo.ts",
+          flow_position: 2,
+          role: "Repository",
+          changes: { additions: 18, deletions: 3 },
+          symbols_changed: ["UserRepository.insert"],
+        },
+      ],
+      edges: [
+        { from: "src/routes/users.ts::createUser", to: "src/services/user-service.ts::UserService.create", edge_type: "Calls" },
+        { from: "src/services/user-service.ts::UserService.create", to: "src/repositories/user-repo.ts::UserRepository.insert", edge_type: "Calls" },
+      ],
+      risk_score: 0.82,
+      review_order: 1,
+    },
+    {
+      id: "group_refined_1",
+      name: "User data model definitions",
+      entrypoint: null,
+      files: [
+        {
+          path: "src/models/user.ts",
+          flow_position: 0,
+          role: "Model",
+          changes: { additions: 12, deletions: 0 },
+          symbols_changed: ["User", "CreateUserInput"],
+        },
+      ],
+      edges: [],
+      risk_score: 0.3,
+      review_order: 2,
+    },
+    {
+      id: "group_2",
+      name: "Auth token refresh with rotation and rate limiting",
+      entrypoint: {
+        file: "src/routes/auth.ts",
+        symbol: "GET /api/auth/refresh",
+        entrypoint_type: "HttpRoute",
+      },
+      files: [
+        {
+          path: "src/routes/auth.ts",
+          flow_position: 0,
+          role: "Entrypoint",
+          changes: { additions: 28, deletions: 12 },
+          symbols_changed: ["refreshToken", "validateRefreshToken"],
+        },
+        {
+          path: "src/services/auth-service.ts",
+          flow_position: 1,
+          role: "Service",
+          changes: { additions: 55, deletions: 20 },
+          symbols_changed: ["AuthService.refresh", "AuthService.rotateToken"],
+        },
+        {
+          path: "src/middleware/rate-limit.ts",
+          flow_position: 2,
+          role: "Utility",
+          changes: { additions: 8, deletions: 2 },
+          symbols_changed: ["rateLimiter"],
+        },
+      ],
+      edges: [
+        { from: "src/routes/auth.ts::refreshToken", to: "src/services/auth-service.ts::AuthService.refresh", edge_type: "Calls" },
+      ],
+      risk_score: 0.74,
+      review_order: 3,
+    },
+    {
+      id: "group_3",
+      name: "Email notification worker",
+      entrypoint: {
+        file: "src/workers/email-worker.ts",
+        symbol: "processEmailQueue",
+        entrypoint_type: "QueueConsumer",
+      },
+      files: [
+        {
+          path: "src/workers/email-worker.ts",
+          flow_position: 0,
+          role: "Entrypoint",
+          changes: { additions: 20, deletions: 5 },
+          symbols_changed: ["processEmailQueue"],
+        },
+        {
+          path: "src/services/email-service.ts",
+          flow_position: 1,
+          role: "Service",
+          changes: { additions: 15, deletions: 8 },
+          symbols_changed: ["EmailService.send", "EmailService.formatTemplate"],
+        },
+      ],
+      edges: [
+        { from: "src/workers/email-worker.ts::processEmailQueue", to: "src/services/email-service.ts::EmailService.send", edge_type: "Calls" },
+      ],
+      risk_score: 0.35,
+      review_order: 4,
+    },
+  ],
+  infrastructure_group: {
+    files: ["tsconfig.json", "package.json", ".eslintrc.json"],
+    reason: "Not reachable from any detected entrypoint",
+  },
+  refinement_response: {
+    splits: [
+      {
+        source_group_id: "group_1",
+        new_groups: [
+          { name: "User creation API with validation and persistence", files: ["src/routes/users.ts", "src/services/user-service.ts", "src/repositories/user-repo.ts"] },
+          { name: "User data model definitions", files: ["src/models/user.ts"] },
+        ],
+        reason: "The User/CreateUserInput type definitions are pure data models used across multiple flows \u2014 separating them from the API handler chain makes the review clearer",
+      },
+    ],
+    merges: [],
+    re_ranks: [
+      { group_id: "group_2", new_position: 3, reason: "Review auth after user creation since it depends on user model" },
+    ],
+    reclassifications: [],
+    reasoning: "Split the user creation group to isolate pure type definitions. Re-ranked auth flow after user creation for dependency order.",
+  },
+  provider: "anthropic",
+  model: "claude-sonnet-4-20250514",
+  had_changes: true,
 };
 
 export const MOCK_LLM_SETTINGS: LlmSettings = {

@@ -1344,3 +1344,175 @@ body {
   border-radius: 3px;
   text-align: center;
 }
+
+/* ── Refinement UX ── */
+
+/* Refined badge in panel header */
+.refined-badge {
+  font-size: 9px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(166, 227, 161, 0.15);
+  color: var(--risk-low);
+  margin-left: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+/* Panel header with refined badge */
+.panel-left .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+/* Refinement banner */
+.refinement-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(137, 180, 250, 0.08);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-secondary);
+  gap: 8px;
+}
+
+.btn-refine {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+  font-weight: 600;
+  font-size: 11px;
+  padding: 0 10px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-refine:hover {
+  background: var(--accent-hover);
+}
+
+/* Refinement loading indicator */
+.refinement-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(137, 180, 250, 0.06);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.refine-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: refine-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes refine-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Original/Refined toggle */
+.refinement-toggle {
+  display: flex;
+  margin: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.toggle-btn:first-child {
+  border-right: 1px solid var(--border);
+}
+
+.toggle-btn:hover:not(.active) {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.toggle-btn.active {
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-weight: 600;
+}
+
+/* Change indicators on groups */
+.change-indicator {
+  padding: 0 12px 4px;
+}
+
+.change-tag {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.change-split {
+  background: rgba(137, 180, 250, 0.15);
+  color: var(--accent);
+}
+
+.change-merge {
+  background: rgba(203, 166, 247, 0.15);
+  color: #cba6f7;
+}
+
+.change-rerank {
+  background: rgba(249, 226, 175, 0.15);
+  color: #f9e2af;
+}
+
+/* Group with refinement change highlight */
+.group-item.refined-change {
+  border-left: 2px solid var(--accent);
+}
+
+/* File moved indicator */
+.file-moved-tag {
+  font-size: 8px;
+  font-family: var(--font-mono);
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: rgba(203, 166, 247, 0.15);
+  color: #cba6f7;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.file-item.file-moved {
+  border-left: 2px solid #cba6f7;
+  padding-left: 18px;
+}

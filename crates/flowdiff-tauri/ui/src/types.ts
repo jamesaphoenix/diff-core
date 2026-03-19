@@ -179,6 +179,56 @@ export interface LlmSettings {
   refinement_max_iterations: number;
 }
 
+// ── LLM Refinement Types ──
+
+/** Result of an LLM refinement pass. */
+export interface RefinementResult {
+  refined_groups: FlowGroup[];
+  infrastructure_group: InfrastructureGroup | null;
+  refinement_response: RefinementResponse;
+  provider: string;
+  model: string;
+  had_changes: boolean;
+}
+
+/** Raw refinement response with structural operations. */
+export interface RefinementResponse {
+  splits: RefinementSplit[];
+  merges: RefinementMerge[];
+  re_ranks: RefinementReRank[];
+  reclassifications: RefinementReclassify[];
+  reasoning: string;
+}
+
+/** Split operation: one group becomes multiple. */
+export interface RefinementSplit {
+  source_group_id: string;
+  new_groups: { name: string; files: string[] }[];
+  reason: string;
+}
+
+/** Merge operation: multiple groups become one. */
+export interface RefinementMerge {
+  group_ids: string[];
+  merged_name: string;
+  reason: string;
+}
+
+/** Re-rank operation: change a group's review position. */
+export interface RefinementReRank {
+  group_id: string;
+  new_position: number;
+  reason: string;
+}
+
+/** Reclassify operation: move a file between groups. */
+export interface RefinementReclassify {
+  file: string;
+  from_group_id: string;
+  to_group_id: string;
+  reason: string;
+}
+
 /** Available LLM providers. */
 export const LLM_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
