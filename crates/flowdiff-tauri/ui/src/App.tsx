@@ -16,6 +16,7 @@ import type {
 import { LLM_PROVIDERS, MODELS_BY_PROVIDER } from "./types";
 import DiffViewer from "./components/DiffViewer";
 import FlowGraph from "./components/FlowGraph";
+import RiskHeatmap from "./components/RiskHeatmap";
 import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT } from "./mock";
 
 /** Detect if running inside Tauri (vs plain browser for demo/testing). */
@@ -923,6 +924,17 @@ export default function App() {
         <aside className="panel panel-right">
           <div className="panel-header">Annotations</div>
           <div className="panel-body">
+            {/* Risk heatmap — always visible when analysis exists */}
+            {analysis && sortedGroups.length > 0 && (
+              <div className="annotation-section">
+                <h3>Risk Heatmap</h3>
+                <RiskHeatmap
+                  groups={sortedGroups}
+                  selectedGroupId={selectedGroup?.id ?? null}
+                  onSelectGroup={handleSelectGroup}
+                />
+              </div>
+            )}
             {selectedGroup && (
               <>
                 {/* Deterministic group info */}
