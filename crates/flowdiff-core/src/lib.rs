@@ -5,6 +5,7 @@ pub mod entrypoint;
 pub mod flow;
 pub mod git;
 pub mod graph;
+pub mod ir;
 pub mod llm;
 pub mod output;
 pub mod rank;
