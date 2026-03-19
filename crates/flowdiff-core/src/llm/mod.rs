@@ -12,6 +12,7 @@ pub mod anthropic;
 pub mod gemini;
 pub mod openai;
 pub mod schema;
+pub mod vcr;
 
 use std::process::Command;
 
