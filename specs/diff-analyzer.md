@@ -544,7 +544,7 @@ flowdiff/
 
 ### Phase 1: Core Engine (Week 1-2)
 - [x] Cargo workspace setup
-- [ ] Git diff extraction via git2
+- [x] Git diff extraction via git2
 - [ ] Tree-sitter AST parsing (TS/JS + Python grammars first)
 - [ ] Symbol graph construction (imports, exports, calls)
 - [ ] Basic entrypoint detection

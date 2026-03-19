@@ -7,6 +7,9 @@ edition.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 petgraph = "0.6"
+git2 = "0.19"
+thiserror = "2"
 
 [dev-dependencies]
 proptest = "1"
+tempfile = "3"
