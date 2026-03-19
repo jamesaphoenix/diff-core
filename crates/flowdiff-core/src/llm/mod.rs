@@ -196,16 +196,23 @@ pub fn create_provider(config: &LlmConfig) -> Result<Box<dyn LlmProvider>, LlmEr
 
 /// Truncate text to fit within an approximate token budget.
 ///
-/// Uses a simple heuristic: ~4 characters per token (conservative estimate).
+/// Uses a simple heuristic: ~4 bytes per token (conservative estimate).
 /// This avoids pulling in a tokenizer dependency while being safe for context
-/// window management.
+/// window management. Handles multi-byte UTF-8 safely by snapping to the
+/// nearest char boundary.
 pub fn truncate_to_token_budget(text: &str, max_tokens: usize) -> String {
-    let max_chars = max_tokens * 4;
-    if text.len() <= max_chars {
+    let max_bytes = max_tokens * 4;
+    if text.len() <= max_bytes {
         return text.to_string();
     }
 
-    let truncated = &text[..max_chars];
+    // Snap to a valid UTF-8 char boundary at or before max_bytes
+    let mut end = max_bytes.min(text.len());
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let truncated = &text[..end];
+
     // Find the last newline to avoid cutting mid-line
     if let Some(last_newline) = truncated.rfind('\n') {
         format!(
