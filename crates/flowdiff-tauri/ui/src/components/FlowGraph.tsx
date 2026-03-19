@@ -22,6 +22,8 @@ interface FlowGraphProps {
   edges: FlowEdge[];
   files: FileChange[];
   onNodeClick?: (filePath: string) => void;
+  /** File path of the node to highlight during flow replay. */
+  replayNodeId?: string | null;
 }
 
 /** Color per edge type — Catppuccin palette. */
@@ -323,10 +325,17 @@ function FlowNode({ data }: { data: Record<string, unknown> }) {
   const additions = data.additions as number;
   const deletions = data.deletions as number;
   const isSelected = data.selected as boolean;
+  const isReplayActive = data.replayActive as boolean;
   const roleColor = ROLE_COLORS[role] || "#6c7086";
 
+  const classNames = [
+    "flow-node",
+    isSelected ? "flow-node-selected" : "",
+    isReplayActive ? "flow-node-replay" : "",
+  ].filter(Boolean).join(" ");
+
   return (
-    <div className={`flow-node ${isSelected ? "flow-node-selected" : ""}`}>
+    <div className={classNames}>
       <Handle type="target" position={Position.Top} className="flow-node-handle" />
       <div className="flow-node-header">
         <span className="flow-node-role" style={{ color: roleColor }}>{role}</span>
@@ -412,7 +421,7 @@ function ExportButtons({ containerRef }: { containerRef: React.RefObject<HTMLDiv
   );
 }
 
-export default function FlowGraph({ edges, files, onNodeClick }: FlowGraphProps) {
+export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: FlowGraphProps) {
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
     () => buildGraph(edges, files),
     [edges, files],
@@ -422,29 +431,32 @@ export default function FlowGraph({ edges, files, onNodeClick }: FlowGraphProps)
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // (6) Dim non-connected edges when a node is selected
+  // The "active" node is either the replay node (if replaying) or the user-clicked node
+  const activeNodeId = replayNodeId ?? selectedNodeId;
+
+  // (6) Dim non-connected edges when a node is active
   const processedEdges = useMemo(() => {
-    if (!selectedNodeId) return initialEdges;
+    if (!activeNodeId) return initialEdges;
     return initialEdges.map((edge) => ({
       ...edge,
       data: {
         ...edge.data,
-        dimmed: edge.source !== selectedNodeId && edge.target !== selectedNodeId,
+        dimmed: edge.source !== activeNodeId && edge.target !== activeNodeId,
       },
     }));
-  }, [initialEdges, selectedNodeId]);
+  }, [initialEdges, activeNodeId]);
 
-  // Track selected node for visual highlight
+  // Track active node for visual highlight + replay glow
   const processedNodes = useMemo(() => {
-    if (!selectedNodeId) return initialNodes;
     return initialNodes.map((node) => ({
       ...node,
       data: {
         ...node.data,
-        selected: node.id === selectedNodeId,
+        selected: node.id === activeNodeId,
+        replayActive: replayNodeId != null && node.id === replayNodeId,
       },
     }));
-  }, [initialNodes, selectedNodeId]);
+  }, [initialNodes, activeNodeId, replayNodeId]);
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {

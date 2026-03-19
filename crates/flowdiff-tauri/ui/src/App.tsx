@@ -56,6 +56,11 @@ export default function App() {
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // Flow replay state
+  const [replayActive, setReplayActive] = useState(false);
+  const [replayStep, setReplayStep] = useState(0);
+  const [replayVisited, setReplayVisited] = useState<Set<string>>(new Set());
+
   // Refinement state
   const [originalGroups, setOriginalGroups] = useState<FlowGroup[] | null>(null);
   const [refinedGroups, setRefinedGroups] = useState<FlowGroup[] | null>(null);
@@ -72,8 +77,12 @@ export default function App() {
   const selectedGroupRef = useRef(selectedGroup);
   const selectedFileRef = useRef(selectedFile);
   const sortedGroupsRef = useRef<FlowGroup[]>([]);
+  const replayActiveRef = useRef(replayActive);
+  const replayStepRef = useRef(replayStep);
   selectedGroupRef.current = selectedGroup;
   selectedFileRef.current = selectedFile;
+  replayActiveRef.current = replayActive;
+  replayStepRef.current = replayStep;
 
   /** Load LLM settings from backend. */
   const loadLlmSettings = useCallback(async (path: string | null) => {
@@ -149,6 +158,10 @@ export default function App() {
   const handleSelectGroup = useCallback(
     async (group: FlowGroup) => {
       setSelectedGroup(group);
+      // Exit replay mode when switching groups
+      setReplayActive(false);
+      setReplayStep(0);
+      setReplayVisited(new Set());
       // Auto-select first file in group
       if (group.files.length > 0) {
         handleSelectFile(group.files[0].path);
@@ -390,6 +403,9 @@ export default function App() {
       setAnalysis: (data: AnalysisOutput | null) => { setAnalysis(data); if (data && data.groups.length > 0) { const sorted = [...data.groups].sort((a, b) => a.review_order - b.review_order); handleSelectGroup(sorted[0]); } },
       setError: (msg: string | null) => setError(msg),
       clearAnalysis: () => { setAnalysis(null); setSelectedGroup(null); setSelectedFile(null); setFileDiff(null); setOverview(null); setDeepAnalyses({}); setOriginalGroups(null); setRefinedGroups(null); setRefinementResponse(null); setShowRefined(false); },
+      enterReplay: () => enterReplay(),
+      exitReplay: () => exitReplay(),
+      getReplayState: () => ({ active: replayActive, step: replayStep, visited: Array.from(replayVisited) }),
     };
     return () => { delete (window as any).__TEST_API__; };
   });
@@ -454,7 +470,42 @@ export default function App() {
     ? deepAnalyses[selectedGroup.id]
     : undefined;
 
-  // Keyboard navigation: j/k = next/prev file, J/K = next/prev group, a = annotate
+  /** Enter flow replay mode for the currently selected group. */
+  const enterReplay = useCallback(() => {
+    const group = selectedGroupRef.current;
+    if (!group || group.files.length === 0) return;
+    setReplayActive(true);
+    setReplayStep(0);
+    setReplayVisited(new Set([group.files[0].path]));
+    handleSelectFile(group.files[0].path);
+  }, [handleSelectFile]);
+
+  /** Exit flow replay mode. */
+  const exitReplay = useCallback(() => {
+    setReplayActive(false);
+    setReplayStep(0);
+    setReplayVisited(new Set());
+  }, []);
+
+  /** Move to a specific replay step. */
+  const goToReplayStep = useCallback(
+    (step: number) => {
+      const group = selectedGroupRef.current;
+      if (!group) return;
+      const clamped = Math.max(0, Math.min(step, group.files.length - 1));
+      setReplayStep(clamped);
+      const filePath = group.files[clamped].path;
+      setReplayVisited((prev) => {
+        const next = new Set(prev);
+        next.add(filePath);
+        return next;
+      });
+      handleSelectFile(filePath);
+    },
+    [handleSelectFile],
+  );
+
+  // Keyboard navigation: j/k = next/prev file, J/K = next/prev group, r = replay
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       // Skip if user is typing in an input or the Monaco editor is focused
@@ -471,6 +522,43 @@ export default function App() {
       const groups = sortedGroupsRef.current;
       const group = selectedGroupRef.current;
       const file = selectedFileRef.current;
+      const isReplaying = replayActiveRef.current;
+      const step = replayStepRef.current;
+
+      // Replay mode keys
+      if (isReplaying && group) {
+        if (e.key === "Escape" || e.key === "r") {
+          e.preventDefault();
+          exitReplay();
+          return;
+        }
+        if (e.key === "n" || e.key === "ArrowRight" || e.key === " ") {
+          e.preventDefault();
+          if (step < group.files.length - 1) {
+            goToReplayStep(step + 1);
+          }
+          return;
+        }
+        if (e.key === "p" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          if (step > 0) {
+            goToReplayStep(step - 1);
+          }
+          return;
+        }
+        // Block other navigation while replaying
+        if (["j", "k", "J", "K"].includes(e.key)) {
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // Normal mode: r enters replay
+      if (e.key === "r" && group && group.files.length > 0) {
+        e.preventDefault();
+        enterReplay();
+        return;
+      }
 
       if (groups.length === 0 || !group) return;
 
@@ -508,7 +596,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleSelectFile, handleSelectGroup]);
+  }, [handleSelectFile, handleSelectGroup, enterReplay, exitReplay, goToReplayStep]);
 
   const handleSelectBase = useCallback((branch: string) => {
     setBaseRef(branch);
@@ -869,6 +957,9 @@ export default function App() {
                               handleSelectFile(file.path);
                             }}
                           >
+                            {replayActive && replayVisited.has(file.path) && (
+                              <span className="replay-visited-check" title="Visited">&#10003;</span>
+                            )}
                             <span className="file-role">{file.role}</span>
                             <span className="file-path">{shortPath(file.path)}</span>
                             <span className="file-changes">
@@ -915,6 +1006,59 @@ export default function App() {
           <div className="panel-header">
             {fileDiff ? fileDiff.path : "Diff Viewer"}
           </div>
+          {/* Replay bar — shown when replay mode is active */}
+          {replayActive && selectedGroup && (
+            <div className="replay-bar">
+              <div className="replay-bar-left">
+                <span className="replay-badge">REPLAY</span>
+                <span className="replay-step-label">
+                  Step {replayStep + 1} of {selectedGroup.files.length}
+                </span>
+                {selectedGroup.files[replayStep] && (
+                  <span className="replay-file-role">
+                    {selectedGroup.files[replayStep].role}
+                  </span>
+                )}
+              </div>
+              <div className="replay-bar-center">
+                <div className="replay-progress">
+                  {selectedGroup.files.map((f, i) => (
+                    <button
+                      key={f.path}
+                      className={`replay-dot ${i === replayStep ? "active" : ""} ${replayVisited.has(f.path) ? "visited" : ""}`}
+                      onClick={() => goToReplayStep(i)}
+                      title={shortPath(f.path)}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="replay-bar-right">
+                <button
+                  className="btn replay-btn"
+                  onClick={() => goToReplayStep(replayStep - 1)}
+                  disabled={replayStep === 0}
+                  title="Previous (p / Left Arrow)"
+                >
+                  &#9664;
+                </button>
+                <button
+                  className="btn replay-btn"
+                  onClick={() => goToReplayStep(replayStep + 1)}
+                  disabled={replayStep >= selectedGroup.files.length - 1}
+                  title="Next (n / Right Arrow / Space)"
+                >
+                  &#9654;
+                </button>
+                <button
+                  className="btn replay-btn replay-exit"
+                  onClick={exitReplay}
+                  title="Exit replay (Esc)"
+                >
+                  &#10005;
+                </button>
+              </div>
+            </div>
+          )}
           <div className="panel-body diff-viewer">
             <DiffViewer fileDiff={fileDiff} />
           </div>
@@ -952,6 +1096,24 @@ export default function App() {
                     | Files: <strong>{selectedGroup.files.length}</strong> |
                     Review order: <strong>#{selectedGroup.review_order}</strong>
                   </p>
+                  {selectedGroup.files.length > 1 && !replayActive && (
+                    <button
+                      className="btn btn-replay"
+                      onClick={enterReplay}
+                      title="Step through files in data flow order (r)"
+                    >
+                      &#9654; Replay Flow
+                    </button>
+                  )}
+                  {replayActive && (
+                    <button
+                      className="btn btn-replay-exit"
+                      onClick={exitReplay}
+                      title="Exit replay mode (Esc)"
+                    >
+                      &#10005; Exit Replay
+                    </button>
+                  )}
                 </div>
 
                 {/* LLM Overview (Pass 1) — Overall summary shown once */}
@@ -1052,6 +1214,7 @@ export default function App() {
                       edges={selectedGroup.edges}
                       files={selectedGroup.files}
                       onNodeClick={handleSelectFile}
+                      replayNodeId={replayActive && selectedGroup.files[replayStep] ? selectedGroup.files[replayStep].path : null}
                     />
                   </div>
                 )}
@@ -1124,10 +1287,21 @@ export default function App() {
       {/* Keyboard shortcuts bar */}
       {analysis && (
         <footer className="keyboard-hints">
-          <span><kbd>j</kbd> next file</span>
-          <span><kbd>k</kbd> prev file</span>
-          <span><kbd>J</kbd> next group</span>
-          <span><kbd>K</kbd> prev group</span>
+          {replayActive ? (
+            <>
+              <span><kbd>n</kbd> / <kbd>&#8594;</kbd> / <kbd>Space</kbd> next step</span>
+              <span><kbd>p</kbd> / <kbd>&#8592;</kbd> prev step</span>
+              <span><kbd>Esc</kbd> exit replay</span>
+            </>
+          ) : (
+            <>
+              <span><kbd>j</kbd> next file</span>
+              <span><kbd>k</kbd> prev file</span>
+              <span><kbd>J</kbd> next group</span>
+              <span><kbd>K</kbd> prev group</span>
+              <span><kbd>r</kbd> replay flow</span>
+            </>
+          )}
         </footer>
       )}
     </div>
