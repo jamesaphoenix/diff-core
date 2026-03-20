@@ -893,14 +893,14 @@ Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The
 - [x] Integration test: synthetic Spring Boot REST API
 
 **C#:**
-- [ ] Add `tree-sitter-c-sharp` grammar dependency
-- [ ] Add `Language::CSharp` variant
-- [ ] Write `.scm` query files for C#
-- [ ] Handle: namespace/using statements, class hierarchy, interfaces, attributes, async/await, partial classes
-- [ ] Entrypoint detection: `static void Main`, `[ApiController]`/`[HttpGet]`, `[TestMethod]`/`[Fact]`, minimal API `app.MapGet`
-- [ ] Framework detection: ASP.NET Core, Entity Framework, xUnit/NUnit, Blazor
-- [ ] Tests: using resolution, class/interface extraction, attribute detection, namespace edges
-- [ ] Integration test: synthetic ASP.NET Core Web API
+- [x] Add `tree-sitter-c-sharp` grammar dependency
+- [x] Add `Language::CSharp` variant
+- [x] Write `.scm` query files for C#
+- [x] Handle: namespace/using statements, class hierarchy, interfaces, attributes, async/await, partial classes
+- [x] Entrypoint detection: `static void Main`, `[ApiController]`/`[HttpGet]`, `[TestMethod]`/`[Fact]`, minimal API `app.MapGet`
+- [x] Framework detection: ASP.NET Core, Entity Framework, xUnit/NUnit, Blazor
+- [x] Tests: using resolution, class/interface extraction, attribute detection, namespace edges
+- [x] Integration test: synthetic ASP.NET Core Web API
 
 **PHP:**
 - [ ] Add `tree-sitter-php` grammar dependency

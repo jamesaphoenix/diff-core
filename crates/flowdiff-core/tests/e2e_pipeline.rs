@@ -1543,3 +1543,287 @@ public class UserServiceTest {
         "should detect *Test.java as test file entrypoint"
     );
 }
+
+// ---------------------------------------------------------------------------
+// C# integration tests (Phase 11.2)
+// ---------------------------------------------------------------------------
+
+/// Test: C# ASP.NET Core Web API with controller → service → repository pattern.
+///
+/// Verifies full pipeline: language detection, file accounting, flow groups,
+/// entrypoint detection, framework detection, and Mermaid graph.
+#[test]
+fn test_e2e_csharp_aspnet_core_api() {
+    let rb = RepoBuilder::new();
+
+    // Initial commit
+    rb.write_file(
+        "MyApp.csproj",
+        r#"<Project Sdk="Microsoft.NET.Sdk.Web">
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+    </ItemGroup>
+</Project>
+"#,
+    );
+    rb.commit("Initial commit: csproj");
+    rb.create_branch("main");
+
+    // Feature branch: add ASP.NET Core API
+    rb.create_branch("feature/csharp-api");
+    rb.checkout("feature/csharp-api");
+
+    rb.write_file(
+        "Program.cs",
+        r#"
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddControllers();
+var app = builder.Build();
+app.MapControllers();
+app.Run();
+"#,
+    );
+
+    rb.write_file(
+        "Controllers/UsersController.cs",
+        r#"
+using System.Collections.Generic;
+using Microsoft.AspNetCore.Mvc;
+using MyApp.Models;
+using MyApp.Services;
+
+namespace MyApp.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class UsersController : ControllerBase
+    {
+        private readonly IUserService _userService;
+
+        public UsersController(IUserService userService)
+        {
+            _userService = userService;
+        }
+
+        [HttpGet]
+        public ActionResult<IEnumerable<User>> GetUsers()
+        {
+            return Ok(_userService.FindAll());
+        }
+
+        [HttpPost]
+        public ActionResult<User> CreateUser(User user)
+        {
+            return Ok(_userService.Save(user));
+        }
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "Services/UserService.cs",
+        r#"
+using System.Collections.Generic;
+using MyApp.Models;
+using MyApp.Repositories;
+
+namespace MyApp.Services
+{
+    public interface IUserService
+    {
+        List<User> FindAll();
+        User Save(User user);
+    }
+
+    public class UserService : IUserService
+    {
+        private readonly IUserRepository _repository;
+
+        public UserService(IUserRepository repository)
+        {
+            _repository = repository;
+        }
+
+        public List<User> FindAll()
+        {
+            return _repository.FindAll();
+        }
+
+        public User Save(User user)
+        {
+            return _repository.Save(user);
+        }
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "Repositories/UserRepository.cs",
+        r#"
+using System.Collections.Generic;
+using MyApp.Models;
+
+namespace MyApp.Repositories
+{
+    public interface IUserRepository
+    {
+        List<User> FindAll();
+        User Save(User user);
+    }
+
+    public class UserRepository : IUserRepository
+    {
+        private readonly List<User> _users = new List<User>();
+
+        public List<User> FindAll()
+        {
+            return _users;
+        }
+
+        public User Save(User user)
+        {
+            _users.Add(user);
+            return user;
+        }
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "Models/User.cs",
+        r#"
+namespace MyApp.Models
+{
+    public record User(int Id, string Name, string Email);
+}
+"#,
+    );
+
+    rb.commit("Add ASP.NET Core Web API with controller-service-repo");
+
+    let result = run_pipeline(rb.path(), "main", "feature/csharp-api");
+
+    // Verify basic output shape
+    assert_valid_json_schema(&result);
+    assert_valid_scores(&result);
+
+    // Verify C# files were detected
+    assert_language_detected(&result, "csharp");
+
+    // Verify all changed files are accounted for
+    assert_all_files_accounted(&result);
+
+    // Verify there are flow groups
+    assert!(
+        !result.groups.is_empty(),
+        "should produce at least one flow group"
+    );
+
+    // Verify entrypoint detection (Main or HTTP routes)
+    let has_entrypoint = result.groups.iter().any(|g| g.entrypoint.is_some());
+    assert!(
+        has_entrypoint,
+        "should detect at least one entrypoint"
+    );
+
+    // Verify ASP.NET Core framework detection
+    let has_aspnet = result
+        .summary
+        .frameworks_detected
+        .iter()
+        .any(|f| f.contains("ASP.NET"));
+    assert!(
+        has_aspnet,
+        "should detect ASP.NET Core framework; detected: {:?}",
+        result.summary.frameworks_detected
+    );
+
+    // Verify Mermaid graph is valid
+    assert_valid_mermaid(&result);
+}
+
+/// Test: C# test file detection.
+///
+/// Verifies that *Test.cs and *Tests.cs files are detected as test entrypoints.
+#[test]
+fn test_e2e_csharp_test_file_detection() {
+    let rb = RepoBuilder::new();
+
+    rb.write_file(
+        "MyApp.csproj",
+        r#"<Project Sdk="Microsoft.NET.Sdk.Web">
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+    </PropertyGroup>
+</Project>
+"#,
+    );
+    rb.commit("Initial commit");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/tests");
+    rb.checkout("feature/tests");
+
+    rb.write_file(
+        "Services/UserService.cs",
+        r#"
+namespace MyApp.Services
+{
+    public class UserService
+    {
+        public string GetGreeting(string name)
+        {
+            return $"Hello, {name}!";
+        }
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "Tests/UserServiceTests.cs",
+        r#"
+using Xunit;
+using MyApp.Services;
+
+namespace MyApp.Tests
+{
+    public class UserServiceTests
+    {
+        [Fact]
+        public void GetGreeting_ReturnsExpected()
+        {
+            var svc = new UserService();
+            var result = svc.GetGreeting("World");
+            Assert.Equal("Hello, World!", result);
+        }
+    }
+}
+"#,
+    );
+
+    rb.commit("Add UserService and tests");
+
+    let result = run_pipeline(rb.path(), "main", "feature/tests");
+
+    // Verify test file detection
+    let test_eps: Vec<_> = result
+        .groups
+        .iter()
+        .flat_map(|g| g.entrypoint.as_ref())
+        .filter(|ep| ep.entrypoint_type == flowdiff_core::types::EntrypointType::TestFile)
+        .collect();
+    assert!(
+        !test_eps.is_empty(),
+        "should detect *Tests.cs as test file entrypoint"
+    );
+}

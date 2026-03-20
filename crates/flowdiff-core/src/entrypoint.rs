@@ -96,6 +96,10 @@ fn is_test_path(path: &str) -> bool {
         || (lower.ends_with(".java") && (
             path.split('/').last().map_or(false, |f| f.ends_with("Test.java") || f.ends_with("Tests.java") || f.starts_with("Test"))
         ))
+        // C# test files
+        || (lower.ends_with(".cs") && (
+            path.split('/').last().map_or(false, |f| f.ends_with("Tests.cs") || f.ends_with("Test.cs"))
+        ))
 }
 
 fn is_test_symbol_name(name: &str) -> bool {
@@ -121,6 +125,7 @@ fn detect_http_routes(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         Language::Go => detect_http_routes_go(file, out),
         Language::Rust => detect_http_routes_rust(file, out),
         Language::Java => detect_http_routes_java(file, out),
+        Language::CSharp => detect_http_routes_csharp(file, out),
         Language::Unknown => {}
     }
 }
@@ -554,6 +559,85 @@ fn detect_http_routes_java(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     }
 }
 
+/// Detect C# HTTP route handlers: ASP.NET Core controllers, minimal API patterns.
+fn detect_http_routes_csharp(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    // Check for ASP.NET Core web framework imports
+    let has_aspnet_import = file.imports.iter().any(|i| {
+        i.source.starts_with("Microsoft.AspNetCore")
+            || i.source.starts_with("Microsoft.AspNet")
+            || i.source == "System.Web"
+            || i.source.starts_with("System.Web")
+    });
+
+    if !has_aspnet_import {
+        // Also check path-based heuristic for controller files
+        let is_controller_file = file.path.contains("/Controllers/")
+            || file.path.contains("/controllers/")
+            || file.path.contains("/Endpoints/")
+            || file.path.contains("/endpoints/")
+            || file.path.contains("/Api/")
+            || file.path.contains("/api/")
+            || file
+                .path
+                .split('/')
+                .last()
+                .map_or(false, |f| f.ends_with("Controller.cs"));
+
+        if is_controller_file {
+            for def in &file.definitions {
+                if def.kind == crate::types::SymbolKind::Function {
+                    out.push(Entrypoint {
+                        file: file.path.clone(),
+                        symbol: def.name.clone(),
+                        entrypoint_type: EntrypointType::HttpRoute,
+                    });
+                }
+            }
+        }
+        return;
+    }
+
+    // ASP.NET Core: controller classes with action methods
+    // C# using directives import entire namespaces, so check source directly
+    let has_controller_import = file.imports.iter().any(|i| {
+        i.source.starts_with("Microsoft.AspNetCore.Mvc")
+            || i.source.starts_with("Microsoft.AspNetCore.Http")
+            || i.source.starts_with("Microsoft.AspNetCore.Routing")
+    });
+
+    if has_controller_import {
+        for def in &file.definitions {
+            if def.kind == crate::types::SymbolKind::Function
+                && def.name != file.path.split('/').last().unwrap_or("").trim_end_matches(".cs")
+            {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: def.name.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+    }
+
+    // Minimal API: app.MapGet, app.MapPost, etc.
+    let map_methods = [
+        "MapGet", "MapPost", "MapPut", "MapDelete", "MapPatch",
+    ];
+    for call in &file.call_sites {
+        if map_methods.iter().any(|m| call.callee == *m || call.callee.ends_with(&format!(".{m}"))) {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::HttpRoute,
+            });
+        }
+    }
+}
+
 fn is_web_framework_import(imp: &ImportInfo) -> bool {
     let src = &imp.source;
     src == "flask"
@@ -580,7 +664,7 @@ fn detect_cli_commands(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         // JS/TS: main() function in entry-like files
         // Go: func main() is always a CLI entrypoint
         let is_cli_path = is_cli_file_path(&file.path);
-        if is_cli_path || file.language == Language::Python || file.language == Language::Go || file.language == Language::Rust || file.language == Language::Java {
+        if is_cli_path || file.language == Language::Python || file.language == Language::Go || file.language == Language::Rust || file.language == Language::Java || file.language == Language::CSharp {
             out.push(Entrypoint {
                 file: file.path.clone(),
                 symbol: "main".to_string(),

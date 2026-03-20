@@ -27,6 +27,7 @@ schemars = "0.8"
 rayon = "1.10"
 log = { workspace = true }
 tempfile = "3"
+tree-sitter-c-sharp = "0.23.1"
 
 [features]
 ## Enables test-only APIs like `with_base_url` on LLM provider structs.

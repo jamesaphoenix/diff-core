@@ -2211,6 +2211,7 @@ mod proptests {
             Just(Language::Go),
             Just(Language::Rust),
             Just(Language::Java),
+            Just(Language::CSharp),
             Just(Language::Unknown),
         ]
     }
@@ -2259,6 +2260,7 @@ mod proptests {
                     Language::Go => ".go",
                     Language::Rust => ".rs",
                     Language::Java => ".java",
+                    Language::CSharp => ".cs",
                     Language::Unknown => "",
                 };
                 IrFile {
