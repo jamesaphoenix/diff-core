@@ -89,8 +89,9 @@ fn is_test_path(path: &str) -> bool {
         || path.split('/').last().map_or(false, |f| f.starts_with("test_"))
         // Go test files
         || lower.ends_with("_test.go")
-        // Rust test files (though not currently parsed)
-        || lower.contains("_tests.rs")
+        // Rust test files
+        || lower.ends_with("_test.rs")
+        || lower.ends_with("_tests.rs")
 }
 
 fn is_test_symbol_name(name: &str) -> bool {
@@ -114,6 +115,7 @@ fn detect_http_routes(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         Language::TypeScript | Language::JavaScript => detect_http_routes_js(file, out),
         Language::Python => detect_http_routes_python(file, out),
         Language::Go => detect_http_routes_go(file, out),
+        Language::Rust => detect_http_routes_rust(file, out),
         Language::Unknown => {}
     }
 }
@@ -333,6 +335,106 @@ fn detect_http_routes_go(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     }
 }
 
+fn detect_http_routes_rust(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    // Check if we have a Rust web framework import
+    let has_http_import = file.imports.iter().any(|i| {
+        i.source.starts_with("actix_web")
+            || i.source.starts_with("actix-web")
+            || i.source.starts_with("axum")
+            || i.source.starts_with("rocket")
+            || i.source.starts_with("warp")
+            || i.source.starts_with("hyper")
+            || i.source.starts_with("tower")
+    });
+
+    if !has_http_import {
+        return;
+    }
+
+    // Check for actix-web attribute-style route handlers: #[get("/")], #[post("/")]
+    // These are detected by looking for functions in handler-like modules
+    // and for call patterns like Router::new().route()
+    for call in &file.call_sites {
+        let callee = &call.callee;
+
+        // Axum: Router::new, .route(), get(), post(), etc.
+        if callee.contains("Router::new")
+            || callee.contains(".route")
+            || callee.contains("axum::routing::get")
+            || callee.contains("axum::routing::post")
+            || callee.contains("axum::routing::put")
+            || callee.contains("axum::routing::delete")
+            || callee.contains("routing::get")
+            || callee.contains("routing::post")
+            || callee.contains("routing::put")
+            || callee.contains("routing::delete")
+            || callee == "get"
+            || callee == "post"
+            || callee == "put"
+            || callee == "delete"
+        {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::HttpRoute,
+            });
+        }
+
+        // Actix-web: web::resource, web::scope, App::new().service()
+        if callee.contains("web::resource")
+            || callee.contains("web::scope")
+            || callee.contains("App::new")
+            || callee.contains(".service")
+            || callee.contains("HttpServer::new")
+        {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::HttpRoute,
+            });
+        }
+
+        // Rocket: routes!, mount()
+        if callee.contains("routes!") || callee.contains(".mount") || callee.contains("rocket::build") {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::HttpRoute,
+            });
+        }
+    }
+
+    // Detect handler-like functions by path convention
+    let is_handler_module = file.path.contains("/handler")
+        || file.path.contains("/handlers/")
+        || file.path.contains("/routes/")
+        || file.path.contains("/api/");
+
+    if is_handler_module {
+        for def in &file.definitions {
+            if def.kind == crate::types::SymbolKind::Function {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: def.name.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+    }
+}
+
 fn is_web_framework_import(imp: &ImportInfo) -> bool {
     let src = &imp.source;
     src == "flask"
@@ -359,7 +461,7 @@ fn detect_cli_commands(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         // JS/TS: main() function in entry-like files
         // Go: func main() is always a CLI entrypoint
         let is_cli_path = is_cli_file_path(&file.path);
-        if is_cli_path || file.language == Language::Python || file.language == Language::Go {
+        if is_cli_path || file.language == Language::Python || file.language == Language::Go || file.language == Language::Rust {
             out.push(Entrypoint {
                 file: file.path.clone(),
                 symbol: "main".to_string(),
@@ -403,6 +505,29 @@ fn detect_cli_commands(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
             for call in &file.call_sites {
                 if call.callee.contains("cobra.Command")
                     || call.callee.contains("AddCommand")
+                {
+                    if let Some(ref func) = call.containing_function {
+                        out.push(Entrypoint {
+                            file: file.path.clone(),
+                            symbol: func.clone(),
+                            entrypoint_type: EntrypointType::CliCommand,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Rust: check for clap imports
+    if file.language == Language::Rust {
+        let has_clap = file.imports.iter().any(|i| {
+            i.source.starts_with("clap")
+        });
+        if has_clap {
+            for call in &file.call_sites {
+                if call.callee.contains("Command::new")
+                    || call.callee.contains("Parser::parse")
+                    || call.callee.contains("clap::Command")
                 {
                     if let Some(ref func) = call.containing_function {
                         out.push(Entrypoint {

@@ -66,12 +66,13 @@ pub fn build_analysis_output(
         })
         .collect();
 
+    let frameworks_detected = crate::flow::detect_frameworks(parsed_files);
+
     let summary = AnalysisSummary {
         total_files_changed: diff_result.files.len() as u32,
         total_groups: groups.len() as u32,
         languages_detected,
-        // Framework detection is Phase 2; empty for now.
-        frameworks_detected: vec![],
+        frameworks_detected,
     };
 
     AnalysisOutput {

@@ -316,6 +316,24 @@ const FRAMEWORK_IMPORTS: &[(&str, &str)] = &[
     ("database/sql", "Go database/sql"),
     ("github.com/go-playground/validator", "Go Validator"),
     ("github.com/stretchr/testify", "Testify"),
+    // Rust
+    ("actix_web", "Actix-web"),
+    ("actix-web", "Actix-web"),
+    ("axum", "Axum"),
+    ("rocket", "Rocket"),
+    ("warp", "Warp"),
+    ("hyper", "Hyper"),
+    ("tokio", "Tokio"),
+    ("diesel", "Diesel"),
+    ("sqlx", "SQLx"),
+    ("sea_orm", "SeaORM"),
+    ("sea-orm", "SeaORM"),
+    ("clap", "Clap"),
+    ("tauri", "Tauri"),
+    ("serde", "Serde"),
+    ("tower", "Tower"),
+    ("tonic", "Tonic"),
+    ("tracing", "Tracing"),
 ];
 
 // ---------------------------------------------------------------------------
@@ -394,10 +412,11 @@ pub fn detect_frameworks(files: &[ParsedFile]) -> Vec<String> {
         for import in &file.imports {
             let source = &import.source;
             for &(pattern, name) in FRAMEWORK_IMPORTS {
-                // Match exact, slash-prefixed (JS/TS), or dot-prefixed (Python)
+                // Match exact, slash-prefixed (JS/TS), dot-prefixed (Python), or ::-prefixed (Rust)
                 if source == pattern
                     || source.starts_with(&format!("{}/", pattern))
                     || source.starts_with(&format!("{}.", pattern))
+                    || source.starts_with(&format!("{}::", pattern))
                 {
                     frameworks.insert(name.to_string());
                 }

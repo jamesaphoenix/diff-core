@@ -10,7 +10,6 @@ use std::path::Path;
 use git2::{Repository, Signature};
 use tempfile::TempDir;
 
-use crate::ast;
 use crate::cluster;
 use crate::entrypoint;
 use crate::flow::{self, FlowConfig};
@@ -161,11 +160,13 @@ pub fn run_pipeline(repo_path: &Path, base_ref: &str, head_ref: &str) -> Analysi
     let repo = Repository::open(repo_path).expect("failed to open repo");
     let diff_result = crate::git::diff_refs(&repo, base_ref, head_ref).expect("diff_refs failed");
 
+    // Use QueryEngine for parsing — supports all languages including Rust
+    let engine = crate::query_engine::QueryEngine::new().expect("failed to create query engine");
     let mut parsed_files = Vec::new();
     for file_diff in &diff_result.files {
         if let Some(ref content) = file_diff.new_content {
             let path = file_diff.path();
-            if let Ok(parsed) = ast::parse_file(path, content) {
+            if let Ok(parsed) = engine.parse_file(path, content) {
                 parsed_files.push(parsed);
             }
         }
@@ -1069,11 +1070,16 @@ pub fn load_config(path: &Option<String>) -> Config {
 
     let baseline = EvalBaseline {
         name: "Rust CLI".to_string(),
-        expected_languages: vec![], // No Rust grammar in tree-sitter deps
-        min_groups: 0,
+        expected_languages: vec!["rust".to_string()],
+        min_groups: 1,
         max_groups: 5,
         expected_file_count: 5,
-        expected_entrypoints: vec![], // No Rust entrypoint detection yet
+        expected_entrypoints: vec![
+            ExpectedEntrypoint {
+                file_contains: "src/main.rs".to_string(),
+                ep_type: EntrypointType::CliCommand,
+            },
+        ],
         expected_groups: vec![],
         risk_ordering: vec![],
         expected_infrastructure: vec![],

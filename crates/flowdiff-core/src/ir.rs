@@ -1793,7 +1793,7 @@ mod tests {
     fn struct_definition_maps_to_type_def() {
         let parsed = ParsedFile {
             path: "test.rs".into(),
-            language: Language::Unknown, // Rust not yet supported in Language enum
+            language: Language::Rust,
             definitions: vec![Definition {
                 name: "Config".into(),
                 kind: SymbolKind::Struct,
@@ -2209,6 +2209,7 @@ mod proptests {
             Just(Language::JavaScript),
             Just(Language::Python),
             Just(Language::Go),
+            Just(Language::Rust),
             Just(Language::Unknown),
         ]
     }
@@ -2255,6 +2256,7 @@ mod proptests {
                     Language::JavaScript => ".js",
                     Language::Python => ".py",
                     Language::Go => ".go",
+                    Language::Rust => ".rs",
                     Language::Unknown => "",
                 };
                 IrFile {

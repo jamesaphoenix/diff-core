@@ -21,6 +21,7 @@ pub enum Language {
     JavaScript,
     Python,
     Go,
+    Rust,
     Unknown,
 }
 
@@ -32,6 +33,7 @@ impl Language {
             "js" | "jsx" | "mjs" | "cjs" => Language::JavaScript,
             "py" | "pyi" => Language::Python,
             "go" => Language::Go,
+            "rs" => Language::Rust,
             _ => Language::Unknown,
         }
     }
@@ -143,9 +145,9 @@ pub fn parse_file(path: &str, source: &str) -> Result<ParsedFile, AstError> {
         Language::TypeScript | Language::JavaScript => parse_typescript(path, source, language),
         Language::Python => parse_python(path, source),
         Language::Go => parse_go(path, source),
-        Language::Unknown => Ok(ParsedFile {
+        Language::Rust | Language::Unknown => Ok(ParsedFile {
             path: path.to_string(),
-            language: Language::Unknown,
+            language,
             definitions: vec![],
             imports: vec![],
             exports: vec![],
@@ -221,7 +223,7 @@ pub fn extract_data_flow_info(path: &str, source: &str) -> Result<DataFlowInfo, 
         Language::TypeScript | Language::JavaScript => extract_ts_data_flow(source),
         Language::Python => extract_python_data_flow(source),
         Language::Go => extract_go_data_flow(source),
-        Language::Unknown => Ok(DataFlowInfo {
+        Language::Rust | Language::Unknown => Ok(DataFlowInfo {
             assignments: vec![],
             calls_with_args: vec![],
         }),
@@ -2108,8 +2110,8 @@ class GuideDog(Dog, ServiceAnimal):
 
     #[test]
     fn test_parse_unknown_language() {
-        let source = "fn main() { println!(\"hello\"); }";
-        let result = parse_file("main.rs", source).unwrap();
+        let source = "some random content that is not code";
+        let result = parse_file("main.xyz", source).unwrap();
         assert_eq!(result.language, Language::Unknown);
         assert!(result.definitions.is_empty());
         assert!(result.imports.is_empty());
@@ -2198,7 +2200,7 @@ const VALUE = 42;
         assert_eq!(Language::from_path("app.py"), Language::Python);
         assert_eq!(Language::from_path("app.pyi"), Language::Python);
         assert_eq!(Language::from_path("app.go"), Language::Go);
-        assert_eq!(Language::from_path("app.rs"), Language::Unknown);
+        assert_eq!(Language::from_path("app.rs"), Language::Rust);
         assert_eq!(Language::from_path("Makefile"), Language::Unknown);
     }
 

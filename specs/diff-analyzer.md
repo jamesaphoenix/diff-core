@@ -871,14 +871,14 @@ Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The
 - [x] Integration test: synthetic Go HTTP API app with handler→service→repo pattern
 
 **Rust:**
-- [ ] Add `tree-sitter-rust` grammar dependency to `Cargo.toml`
-- [ ] Add `Language::Rust` variant to enum in `ast.rs`
-- [ ] Write `.scm` query files: `queries/rust/imports.scm`, `exports.scm`, `definitions.scm`, `calls.scm`, `assignments.scm`
-- [ ] Handle Rust-specific patterns: `mod`/`use`/`pub` visibility, trait implementations, `impl` blocks, macro invocations, `async fn`, lifetime annotations (ignore for grouping)
-- [ ] Entrypoint detection: `fn main()`, `#[tokio::main]`, actix-web/axum route handlers, `#[test]`, clap derive patterns
-- [ ] Framework detection: Actix-web, Axum, Rocket, Warp, Tokio, Diesel, SQLx, SeaORM, Clap, Tauri commands
-- [ ] Tests: mod tree resolution, use path resolution, trait impl edges, async fn extraction, macro call detection
-- [ ] Integration test: synthetic Rust axum API with handler→service→repo pattern
+- [x] Add `tree-sitter-rust` grammar dependency to `Cargo.toml`
+- [x] Add `Language::Rust` variant to enum in `ast.rs`
+- [x] Write `.scm` query files: `queries/rust/imports.scm`, `definitions.scm`, `calls.scm`, `assignments.scm`
+- [x] Handle Rust-specific patterns: `use`/`pub` visibility, trait definitions, `impl` blocks, macro definitions, `async fn`, struct/enum/const/static definitions
+- [x] Entrypoint detection: `fn main()`, `#[tokio::main]`, actix-web/axum route handlers, `#[test]`, clap derive patterns
+- [x] Framework detection: Actix-web, Axum, Rocket, Warp, Tokio, Diesel, SQLx, SeaORM, Clap, Tauri commands, Serde, Tower, Tonic, Tracing
+- [x] Tests: use path resolution, use list/alias/glob/crate imports, trait/struct/enum definitions, async fn extraction, macro definition detection, impl method extraction, call site detection, data flow tracing (25 unit tests)
+- [x] Integration test: synthetic Rust axum API with handler→service→repo pattern + test file detection
 
 #### 11.2 Tier 2 — High value
 
