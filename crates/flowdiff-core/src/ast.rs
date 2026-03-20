@@ -28,6 +28,8 @@ pub enum Language {
     Ruby,
     Kotlin,
     Swift,
+    C,
+    Cpp,
     Unknown,
 }
 
@@ -46,6 +48,10 @@ impl Language {
             "rb" => Language::Ruby,
             "kt" | "kts" => Language::Kotlin,
             "swift" => Language::Swift,
+            "c" => Language::C,
+            "h" => Language::C,
+            "cpp" | "cc" | "cxx" | "c++" => Language::Cpp,
+            "hpp" | "hxx" | "h++" | "hh" => Language::Cpp,
             _ => Language::Unknown,
         }
     }
@@ -157,7 +163,7 @@ pub fn parse_file(path: &str, source: &str) -> Result<ParsedFile, AstError> {
         Language::TypeScript | Language::JavaScript => parse_typescript(path, source, language),
         Language::Python => parse_python(path, source),
         Language::Go => parse_go(path, source),
-        Language::Rust | Language::Java | Language::CSharp | Language::Php | Language::Ruby | Language::Kotlin | Language::Swift | Language::Unknown => Ok(ParsedFile {
+        Language::Rust | Language::Java | Language::CSharp | Language::Php | Language::Ruby | Language::Kotlin | Language::Swift | Language::C | Language::Cpp | Language::Unknown => Ok(ParsedFile {
             path: path.to_string(),
             language,
             definitions: vec![],
@@ -235,7 +241,7 @@ pub fn extract_data_flow_info(path: &str, source: &str) -> Result<DataFlowInfo, 
         Language::TypeScript | Language::JavaScript => extract_ts_data_flow(source),
         Language::Python => extract_python_data_flow(source),
         Language::Go => extract_go_data_flow(source),
-        Language::Rust | Language::Java | Language::CSharp | Language::Php | Language::Ruby | Language::Kotlin | Language::Swift | Language::Unknown => Ok(DataFlowInfo {
+        Language::Rust | Language::Java | Language::CSharp | Language::Php | Language::Ruby | Language::Kotlin | Language::Swift | Language::C | Language::Cpp | Language::Unknown => Ok(DataFlowInfo {
             assignments: vec![],
             calls_with_args: vec![],
         }),

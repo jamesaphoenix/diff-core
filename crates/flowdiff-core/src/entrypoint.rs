@@ -118,6 +118,21 @@ fn is_test_path(path: &str) -> bool {
             path.split('/').last().map_or(false, |f| f.ends_with("Tests.swift") || f.ends_with("Test.swift"))
             || lower.contains("/tests/")
         ))
+        // C test files: *_test.c, test_*.c, or in test/ directory
+        || ((lower.ends_with(".c") || lower.ends_with(".h")) && (
+            path.split('/').last().map_or(false, |f| f.ends_with("_test.c") || f.ends_with("_tests.c") || f.starts_with("test_"))
+            || lower.contains("/tests/") || lower.contains("/test/")
+        ))
+        // C++ test files: *_test.cpp, *Test.cpp, test_*.cpp, or in test/ directory
+        || ((lower.ends_with(".cpp") || lower.ends_with(".cc") || lower.ends_with(".cxx")) && (
+            path.split('/').last().map_or(false, |f| {
+                f.ends_with("_test.cpp") || f.ends_with("_test.cc") || f.ends_with("_test.cxx")
+                || f.ends_with("_tests.cpp") || f.ends_with("_tests.cc")
+                || f.ends_with("Test.cpp") || f.ends_with("Test.cc")
+                || f.starts_with("test_")
+            })
+            || lower.contains("/tests/") || lower.contains("/test/")
+        ))
 }
 
 fn is_test_symbol_name(name: &str) -> bool {
@@ -130,6 +145,12 @@ fn is_test_symbol_name(name: &str) -> bool {
         || name.starts_with("Test")
         || name.starts_with("Benchmark")
         || name.starts_with("Example")
+        // C/C++ test frameworks: Google Test TEST/TEST_F, Catch2 TEST_CASE
+        || name == "TEST"
+        || name == "TEST_F"
+        || name == "TEST_P"
+        || name == "TEST_CASE"
+        || name == "SCENARIO"
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +169,8 @@ fn detect_http_routes(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         Language::Ruby => detect_http_routes_ruby(file, out),
         Language::Kotlin => detect_http_routes_kotlin(file, out),
         Language::Swift => detect_http_routes_swift(file, out),
+        Language::C => detect_http_routes_c_cpp(file, out),
+        Language::Cpp => detect_http_routes_c_cpp(file, out),
         Language::Unknown => {}
     }
 }
@@ -921,6 +944,58 @@ fn detect_http_routes_swift(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     }
 }
 
+fn detect_http_routes_c_cpp(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    // Crow framework: CROW_ROUTE, app.route_dynamic
+    // cpp-httplib: svr.Get, svr.Post, etc.
+    // Pistache: Rest::Routes::Get, Rest::Routes::Post
+    // Drogon: app().registerHandler
+    let http_methods = ["Get", "Post", "Put", "Delete", "Patch", "Head", "Options"];
+
+    // Check for C++ HTTP framework imports
+    let has_http_framework = file.imports.iter().any(|i| {
+        i.source.contains("crow") || i.source.contains("httplib")
+            || i.source.contains("pistache") || i.source.contains("drogon")
+            || i.source.contains("cpprest") || i.source.contains("beast")
+            || i.source.contains("mongoose")
+    });
+
+    if has_http_framework {
+        for call in &file.call_sites {
+            let callee_lower = call.callee.to_lowercase();
+            if http_methods.iter().any(|m| callee_lower == m.to_lowercase())
+                || callee_lower.contains("route")
+                || callee_lower.contains("handler")
+                || callee_lower == "crow_route"
+            {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: call.callee.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+        return;
+    }
+
+    // Path-based heuristic for handler/controller files
+    let is_handler_file = file.path.contains("/handlers/")
+        || file.path.contains("/controllers/")
+        || file.path.contains("/routes/")
+        || file.path.contains("/endpoints/");
+
+    if is_handler_file {
+        for def in &file.definitions {
+            if def.kind == crate::types::SymbolKind::Function && !def.name.starts_with('_') {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: def.name.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+    }
+}
+
 fn is_web_framework_import(imp: &ImportInfo) -> bool {
     let src = &imp.source;
     src == "flask"
@@ -947,7 +1022,7 @@ fn detect_cli_commands(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         // JS/TS: main() function in entry-like files
         // Go: func main() is always a CLI entrypoint
         let is_cli_path = is_cli_file_path(&file.path);
-        if is_cli_path || file.language == Language::Python || file.language == Language::Go || file.language == Language::Rust || file.language == Language::Java || file.language == Language::CSharp || file.language == Language::Php || file.language == Language::Ruby || file.language == Language::Kotlin || file.language == Language::Swift {
+        if is_cli_path || file.language == Language::Python || file.language == Language::Go || file.language == Language::Rust || file.language == Language::Java || file.language == Language::CSharp || file.language == Language::Php || file.language == Language::Ruby || file.language == Language::Kotlin || file.language == Language::Swift || file.language == Language::C || file.language == Language::Cpp {
             out.push(Entrypoint {
                 file: file.path.clone(),
                 symbol: "main".to_string(),

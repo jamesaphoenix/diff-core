@@ -2269,6 +2269,8 @@ mod proptests {
                     Language::Ruby => ".rb",
                     Language::Kotlin => ".kt",
                     Language::Swift => ".swift",
+                    Language::C => ".c",
+                    Language::Cpp => ".cpp",
                     Language::Unknown => "",
                 };
                 IrFile {

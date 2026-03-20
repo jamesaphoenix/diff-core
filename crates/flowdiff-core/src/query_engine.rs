@@ -83,6 +83,18 @@ mod queries {
         pub const CALLS: &str = include_str!("../queries/swift/calls.scm");
         pub const ASSIGNMENTS: &str = include_str!("../queries/swift/assignments.scm");
     }
+    pub mod c {
+        pub const IMPORTS: &str = include_str!("../queries/c/imports.scm");
+        pub const DEFINITIONS: &str = include_str!("../queries/c/definitions.scm");
+        pub const CALLS: &str = include_str!("../queries/c/calls.scm");
+        pub const ASSIGNMENTS: &str = include_str!("../queries/c/assignments.scm");
+    }
+    pub mod cpp {
+        pub const IMPORTS: &str = include_str!("../queries/cpp/imports.scm");
+        pub const DEFINITIONS: &str = include_str!("../queries/cpp/definitions.scm");
+        pub const CALLS: &str = include_str!("../queries/cpp/calls.scm");
+        pub const ASSIGNMENTS: &str = include_str!("../queries/cpp/assignments.scm");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +234,8 @@ pub struct QueryEngine {
     ruby_queries: LanguageQueries,
     kotlin_queries: LanguageQueries,
     swift_queries: LanguageQueries,
+    c_queries: LanguageQueries,
+    cpp_queries: LanguageQueries,
 }
 
 impl QueryEngine {
@@ -541,6 +555,68 @@ impl QueryEngine {
             )?,
         };
 
+        let c_lang: tree_sitter::Language = tree_sitter_c::LANGUAGE.into();
+
+        let c_queries = LanguageQueries {
+            language: c_lang.clone(),
+            imports: QueryWithCaptures::new(
+                &c_lang,
+                queries::c::IMPORTS,
+                "c",
+                "imports",
+            )?,
+            exports: None, // C has no explicit export syntax
+            definitions: QueryWithCaptures::new(
+                &c_lang,
+                queries::c::DEFINITIONS,
+                "c",
+                "definitions",
+            )?,
+            calls: QueryWithCaptures::new(
+                &c_lang,
+                queries::c::CALLS,
+                "c",
+                "calls",
+            )?,
+            assignments: QueryWithCaptures::new(
+                &c_lang,
+                queries::c::ASSIGNMENTS,
+                "c",
+                "assignments",
+            )?,
+        };
+
+        let cpp_lang: tree_sitter::Language = tree_sitter_cpp::LANGUAGE.into();
+
+        let cpp_queries = LanguageQueries {
+            language: cpp_lang.clone(),
+            imports: QueryWithCaptures::new(
+                &cpp_lang,
+                queries::cpp::IMPORTS,
+                "cpp",
+                "imports",
+            )?,
+            exports: None, // C++ has no explicit export syntax
+            definitions: QueryWithCaptures::new(
+                &cpp_lang,
+                queries::cpp::DEFINITIONS,
+                "cpp",
+                "definitions",
+            )?,
+            calls: QueryWithCaptures::new(
+                &cpp_lang,
+                queries::cpp::CALLS,
+                "cpp",
+                "calls",
+            )?,
+            assignments: QueryWithCaptures::new(
+                &cpp_lang,
+                queries::cpp::ASSIGNMENTS,
+                "cpp",
+                "assignments",
+            )?,
+        };
+
         Ok(Self {
             ts_queries,
             py_queries,
@@ -552,6 +628,8 @@ impl QueryEngine {
             ruby_queries,
             kotlin_queries,
             swift_queries,
+            c_queries,
+            cpp_queries,
         })
     }
 
@@ -591,6 +669,12 @@ impl QueryEngine {
             Language::Swift => {
                 self.parse_with_queries(path, source, language, &self.swift_queries)
             }
+            Language::C => {
+                self.parse_with_queries(path, source, language, &self.c_queries)
+            }
+            Language::Cpp => {
+                self.parse_with_queries(path, source, language, &self.cpp_queries)
+            }
             Language::Unknown => Ok(ParsedFile {
                 path: path.to_string(),
                 language: Language::Unknown,
@@ -622,6 +706,8 @@ impl QueryEngine {
             Language::Ruby => &self.ruby_queries,
             Language::Kotlin => &self.kotlin_queries,
             Language::Swift => &self.swift_queries,
+            Language::C => &self.c_queries,
+            Language::Cpp => &self.cpp_queries,
             Language::Unknown => {
                 return Ok(DataFlowInfo {
                     assignments: vec![],
@@ -737,6 +823,7 @@ impl QueryEngine {
             Language::Ruby => self.extract_ruby_imports(root, source, qwc),
             Language::Kotlin => self.extract_kotlin_imports(root, source, qwc),
             Language::Swift => self.extract_swift_imports(root, source, qwc),
+            Language::C | Language::Cpp => self.extract_c_imports(root, source, qwc),
             _ => Ok(vec![]),
         }
     }
@@ -1856,6 +1943,70 @@ impl QueryEngine {
         Ok(imports)
     }
 
+    fn extract_c_imports(
+        &self,
+        root: &Node,
+        source: &[u8],
+        qwc: &QueryWithCaptures,
+    ) -> Result<Vec<ImportInfo>, QueryEngineError> {
+        let mut cursor = QueryCursor::new();
+        let matches = collect_matches(&mut cursor, &qwc.query, *root, source);
+
+        let stmt_idx = qwc.capture_index("stmt");
+        let source_idx = qwc.capture_index("source");
+
+        let mut imports = Vec::new();
+        let mut seen: Vec<(usize, String)> = Vec::new();
+
+        for m in &matches {
+            let line = m
+                .get_capture(stmt_idx)
+                .map(|n| n.start_position().row + 1)
+                .unwrap_or(0);
+
+            if m.has_capture(source_idx) {
+                let raw = m
+                    .get_capture(source_idx)
+                    .map(|n| node_text(&n, source).to_string())
+                    .unwrap_or_default();
+                // Strip quotes and angle brackets: "foo.h" -> foo.h, <stdio.h> -> stdio.h
+                let source_text = raw
+                    .trim_start_matches('"')
+                    .trim_end_matches('"')
+                    .trim_start_matches('<')
+                    .trim_end_matches('>')
+                    .to_string();
+                if !source_text.is_empty() {
+                    let key = (line, source_text.clone());
+                    if !seen.contains(&key) {
+                        seen.push(key);
+                        // Extract the header name without path for the imported name
+                        let header_name = source_text
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or(&source_text)
+                            .trim_end_matches(".h")
+                            .trim_end_matches(".hpp")
+                            .trim_end_matches(".hxx")
+                            .to_string();
+                        imports.push(ImportInfo {
+                            source: source_text,
+                            names: vec![ImportedName {
+                                name: header_name,
+                                alias: None,
+                            }],
+                            is_default: false,
+                            is_namespace: true, // #include brings everything into scope
+                            line,
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(imports)
+    }
+
     // -----------------------------------------------------------------------
     // Export extraction (TypeScript only)
     // -----------------------------------------------------------------------
@@ -2678,6 +2829,119 @@ impl QueryEngine {
                     }
                 }
             }
+            Language::C => {
+                let func_name_idx = qwc.capture_index("func_name");
+                let func_node_idx = qwc.capture_index("func_node");
+                let struct_name_idx = qwc.capture_index("struct_name");
+                let struct_node_idx = qwc.capture_index("struct_node");
+                let enum_name_idx = qwc.capture_index("enum_name");
+                let enum_node_idx = qwc.capture_index("enum_node");
+                let union_name_idx = qwc.capture_index("union_name");
+                let union_node_idx = qwc.capture_index("union_node");
+                let typedef_name_idx = qwc.capture_index("typedef_name");
+                let typedef_node_idx = qwc.capture_index("typedef_node");
+                let global_name_idx = qwc.capture_index("global_name");
+                let global_node_idx = qwc.capture_index("global_node");
+
+                let c_def_captures: &[(Option<u32>, Option<u32>, SymbolKind)] = &[
+                    (func_name_idx, func_node_idx, SymbolKind::Function),
+                    (struct_name_idx, struct_node_idx, SymbolKind::Class),
+                    (enum_name_idx, enum_node_idx, SymbolKind::Class),
+                    (union_name_idx, union_node_idx, SymbolKind::Class),
+                    (typedef_name_idx, typedef_node_idx, SymbolKind::TypeAlias),
+                    (global_name_idx, global_node_idx, SymbolKind::Constant),
+                ];
+
+                for m in &matches {
+                    for &(name_cap, node_cap, kind) in c_def_captures {
+                        if m.has_capture(name_cap) {
+                            let name_node = m.get_capture(name_cap);
+                            let name_text = name_node
+                                .map(|n| node_text(&n, source).to_string())
+                                .unwrap_or_default();
+                            let (start_line, end_line, _node_start) =
+                                node_span(m, node_cap);
+                            if !name_text.is_empty() {
+                                let name_start = name_node
+                                    .map(|n| n.start_byte())
+                                    .unwrap_or(0);
+                                let key = (name_start, hash_str(&name_text));
+                                if !seen_nodes.contains(&key) {
+                                    seen_nodes.push(key);
+                                    definitions.push(Definition {
+                                        name: name_text,
+                                        kind,
+                                        start_line,
+                                        end_line,
+                                    });
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            Language::Cpp => {
+                let func_name_idx = qwc.capture_index("func_name");
+                let func_node_idx = qwc.capture_index("func_node");
+                let method_name_idx = qwc.capture_index("method_name");
+                let method_node_idx = qwc.capture_index("method_node");
+                let class_name_idx = qwc.capture_index("class_name");
+                let class_node_idx = qwc.capture_index("class_node");
+                let struct_name_idx = qwc.capture_index("struct_name");
+                let struct_node_idx = qwc.capture_index("struct_node");
+                let enum_name_idx = qwc.capture_index("enum_name");
+                let enum_node_idx = qwc.capture_index("enum_node");
+                let namespace_name_idx = qwc.capture_index("namespace_name");
+                let namespace_node_idx = qwc.capture_index("namespace_node");
+                let alias_name_idx = qwc.capture_index("alias_name");
+                let alias_node_idx = qwc.capture_index("alias_node");
+                let template_func_name_idx = qwc.capture_index("template_func_name");
+                let template_func_node_idx = qwc.capture_index("template_func_node");
+                let template_class_name_idx = qwc.capture_index("template_class_name");
+                let template_class_node_idx = qwc.capture_index("template_class_node");
+
+                let cpp_def_captures: &[(Option<u32>, Option<u32>, SymbolKind)] = &[
+                    (func_name_idx, func_node_idx, SymbolKind::Function),
+                    (method_name_idx, method_node_idx, SymbolKind::Function),
+                    (class_name_idx, class_node_idx, SymbolKind::Class),
+                    (struct_name_idx, struct_node_idx, SymbolKind::Class),
+                    (enum_name_idx, enum_node_idx, SymbolKind::Class),
+                    (namespace_name_idx, namespace_node_idx, SymbolKind::Module),
+                    (alias_name_idx, alias_node_idx, SymbolKind::TypeAlias),
+                    (template_func_name_idx, template_func_node_idx, SymbolKind::Function),
+                    (template_class_name_idx, template_class_node_idx, SymbolKind::Class),
+                ];
+
+                for m in &matches {
+                    for &(name_cap, node_cap, kind) in cpp_def_captures {
+                        if m.has_capture(name_cap) {
+                            let name_node = m.get_capture(name_cap);
+                            let name_text = name_node
+                                .map(|n| node_text(&n, source).to_string())
+                                .unwrap_or_default();
+                            let (start_line, end_line, _node_start) =
+                                node_span(m, node_cap);
+                            if !name_text.is_empty() {
+                                let name_start = name_node
+                                    .map(|n| n.start_byte())
+                                    .unwrap_or(0);
+                                let key = (name_start, hash_str(&name_text));
+                                if !seen_nodes.contains(&key) {
+                                    seen_nodes.push(key);
+                                    definitions.push(Definition {
+                                        name: name_text,
+                                        kind,
+                                        start_line,
+                                        end_line,
+                                    });
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -2962,6 +3226,8 @@ fn find_containing_function(node: &Node, source: &[u8], language: Language) -> O
         Language::Ruby => &["method", "singleton_method"],
         Language::Kotlin => &["function_declaration"],
         Language::Swift => &["function_declaration"],
+        Language::C => &["function_definition"],
+        Language::Cpp => &["function_definition"],
         Language::Unknown => return None,
     };
 
@@ -6863,5 +7129,466 @@ typealias UserID = UUID
         assert!(callees.contains(&"get"), "should detect get route; got: {:?}", callees);
         assert!(callees.contains(&"post"), "should detect post route; got: {:?}", callees);
         assert!(callees.contains(&"all"), "should detect query().all(); got: {:?}", callees);
+    }
+}
+
+// ===========================================================================
+// C language tests
+// ===========================================================================
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+mod c_tests {
+    use super::*;
+
+    fn engine() -> QueryEngine {
+        QueryEngine::new().expect("query engine should compile")
+    }
+
+    // === C imports (#include) ===
+
+    #[test]
+    fn test_c_system_include() {
+        let e = engine();
+        let result = e
+            .parse_file("main.c", "#include <stdio.h>\n#include <stdlib.h>\n")
+            .unwrap();
+        assert_eq!(result.imports.len(), 2);
+        assert_eq!(result.imports[0].source, "stdio.h");
+        assert_eq!(result.imports[0].names[0].name, "stdio");
+        assert_eq!(result.imports[1].source, "stdlib.h");
+        assert_eq!(result.imports[1].names[0].name, "stdlib");
+    }
+
+    #[test]
+    fn test_c_local_include() {
+        let e = engine();
+        let result = e
+            .parse_file("main.c", "#include \"myheader.h\"\n")
+            .unwrap();
+        assert_eq!(result.imports.len(), 1);
+        assert_eq!(result.imports[0].source, "myheader.h");
+        assert_eq!(result.imports[0].names[0].name, "myheader");
+    }
+
+    #[test]
+    fn test_c_include_with_path() {
+        let e = engine();
+        let result = e
+            .parse_file("main.c", "#include <curl/curl.h>\n")
+            .unwrap();
+        assert_eq!(result.imports.len(), 1);
+        assert_eq!(result.imports[0].source, "curl/curl.h");
+        assert_eq!(result.imports[0].names[0].name, "curl");
+    }
+
+    // === C function definitions ===
+
+    #[test]
+    fn test_c_function_definition() {
+        let e = engine();
+        let source = r#"
+int add(int a, int b) {
+    return a + b;
+}
+
+void print_hello() {
+    printf("Hello\n");
+}
+"#;
+        let result = e.parse_file("math.c", source).unwrap();
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"add"), "should detect add function; got: {:?}", def_names);
+        assert!(def_names.contains(&"print_hello"), "should detect print_hello function; got: {:?}", def_names);
+    }
+
+    #[test]
+    fn test_c_struct_definition() {
+        let e = engine();
+        let source = r#"
+struct Point {
+    int x;
+    int y;
+};
+"#;
+        let result = e.parse_file("types.c", source).unwrap();
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"Point"), "should detect struct Point; got: {:?}", def_names);
+    }
+
+    #[test]
+    fn test_c_enum_definition() {
+        let e = engine();
+        let source = r#"
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+};
+"#;
+        let result = e.parse_file("color.c", source).unwrap();
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"Color"), "should detect enum Color; got: {:?}", def_names);
+    }
+
+    #[test]
+    fn test_c_typedef() {
+        let e = engine();
+        // typedef struct X NewName; — struct typedef has type_identifier as declarator
+        let source = "typedef struct Config AppConfig;\n";
+        let result = e.parse_file("types.c", source).unwrap();
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"AppConfig"), "should detect typedef; got: {:?}", def_names);
+    }
+
+    // === C call sites ===
+
+    #[test]
+    fn test_c_simple_call() {
+        let e = engine();
+        let source = r#"
+void foo() {
+    int x = bar(42);
+    printf("result: %d\n", x);
+}
+"#;
+        let result = e.parse_file("main.c", source).unwrap();
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"bar"), "should detect bar call; got: {:?}", callees);
+        assert!(callees.contains(&"printf"), "should detect printf call; got: {:?}", callees);
+    }
+
+    #[test]
+    fn test_c_member_call() {
+        let e = engine();
+        let source = r#"
+void process(struct Obj *obj) {
+    obj->init();
+}
+"#;
+        let result = e.parse_file("main.c", source).unwrap();
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"init"), "should detect member call via ->; got: {:?}", callees);
+    }
+
+    // === C data flow ===
+
+    #[test]
+    fn test_c_assignment_from_call() {
+        let e = engine();
+        let source = r#"
+void foo() {
+    int result = process_data();
+}
+"#;
+        let df = e.extract_data_flow("main.c", source).unwrap();
+        assert!(!df.assignments.is_empty(), "should detect assignment from call");
+        assert_eq!(df.assignments[0].variable, "result");
+        assert_eq!(df.assignments[0].callee, "process_data");
+    }
+
+    // === C language detection ===
+
+    #[test]
+    fn test_c_language_detection() {
+        assert_eq!(Language::from_path("main.c"), Language::C);
+        assert_eq!(Language::from_path("header.h"), Language::C);
+    }
+
+    // === C full integration ===
+
+    #[test]
+    fn test_c_full_file() {
+        let e = engine();
+        let source = r#"
+#include <stdio.h>
+#include "service.h"
+
+struct Config {
+    int port;
+    char* host;
+};
+
+typedef struct Config AppConfig;
+
+int process_request(int fd) {
+    char* data = read_data(fd);
+    int result = handle(data);
+    printf("Done: %d\n", result);
+    return result;
+}
+
+int main() {
+    int server = init_server();
+    process_request(server);
+    return 0;
+}
+"#;
+        let result = e.parse_file("server.c", source).unwrap();
+
+        // Imports
+        assert_eq!(result.imports.len(), 2);
+
+        // Definitions
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"Config"), "struct Config; got: {:?}", def_names);
+        assert!(def_names.contains(&"AppConfig"), "typedef AppConfig; got: {:?}", def_names);
+        assert!(def_names.contains(&"process_request"), "process_request fn; got: {:?}", def_names);
+        assert!(def_names.contains(&"main"), "main fn; got: {:?}", def_names);
+
+        // Call sites
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"read_data"), "read_data call; got: {:?}", callees);
+        assert!(callees.contains(&"handle"), "handle call; got: {:?}", callees);
+        assert!(callees.contains(&"printf"), "printf call; got: {:?}", callees);
+        assert!(callees.contains(&"init_server"), "init_server call; got: {:?}", callees);
+        assert!(callees.contains(&"process_request"), "process_request call; got: {:?}", callees);
+    }
+}
+
+// ===========================================================================
+// C++ language tests
+// ===========================================================================
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+mod cpp_tests {
+    use super::*;
+
+    fn engine() -> QueryEngine {
+        QueryEngine::new().expect("query engine should compile")
+    }
+
+    // === C++ imports (#include) ===
+
+    #[test]
+    fn test_cpp_system_include() {
+        let e = engine();
+        let result = e
+            .parse_file("main.cpp", "#include <iostream>\n#include <vector>\n")
+            .unwrap();
+        assert_eq!(result.imports.len(), 2);
+        assert_eq!(result.imports[0].source, "iostream");
+        assert_eq!(result.imports[1].source, "vector");
+    }
+
+    #[test]
+    fn test_cpp_local_include() {
+        let e = engine();
+        let result = e
+            .parse_file("main.cpp", "#include \"service.hpp\"\n")
+            .unwrap();
+        assert_eq!(result.imports.len(), 1);
+        assert_eq!(result.imports[0].source, "service.hpp");
+        assert_eq!(result.imports[0].names[0].name, "service");
+    }
+
+    // === C++ definitions ===
+
+    #[test]
+    fn test_cpp_function_definition() {
+        let e = engine();
+        let source = r#"
+int add(int a, int b) {
+    return a + b;
+}
+
+std::string greet(const std::string& name) {
+    return "Hello, " + name;
+}
+"#;
+        let result = e.parse_file("math.cpp", source).unwrap();
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"add"), "should detect add function; got: {:?}", def_names);
+        assert!(def_names.contains(&"greet"), "should detect greet function; got: {:?}", def_names);
+    }
+
+    #[test]
+    fn test_cpp_class_definition() {
+        let e = engine();
+        let source = r#"
+class UserService {
+public:
+    void create_user(const std::string& name);
+    bool delete_user(int id);
+private:
+    int count_;
+};
+"#;
+        let result = e.parse_file("service.cpp", source).unwrap();
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"UserService"), "should detect class UserService; got: {:?}", def_names);
+    }
+
+    #[test]
+    fn test_cpp_struct_definition() {
+        let e = engine();
+        let source = r#"
+struct Point {
+    double x;
+    double y;
+};
+"#;
+        let result = e.parse_file("types.cpp", source).unwrap();
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"Point"), "should detect struct Point; got: {:?}", def_names);
+    }
+
+    #[test]
+    fn test_cpp_namespace_definition() {
+        let e = engine();
+        let source = r#"
+namespace myapp {
+    void init();
+}
+"#;
+        let result = e.parse_file("app.cpp", source).unwrap();
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"myapp"), "should detect namespace myapp; got: {:?}", def_names);
+    }
+
+    #[test]
+    fn test_cpp_enum_definition() {
+        let e = engine();
+        let source = r#"
+enum class Status {
+    Active,
+    Inactive,
+    Deleted
+};
+"#;
+        let result = e.parse_file("status.cpp", source).unwrap();
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"Status"), "should detect enum class Status; got: {:?}", def_names);
+    }
+
+    #[test]
+    fn test_cpp_using_alias() {
+        let e = engine();
+        let source = "using StringVec = std::vector<std::string>;\n";
+        let result = e.parse_file("types.cpp", source).unwrap();
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"StringVec"), "should detect using alias; got: {:?}", def_names);
+    }
+
+    // === C++ call sites ===
+
+    #[test]
+    fn test_cpp_simple_call() {
+        let e = engine();
+        let source = r#"
+void foo() {
+    auto result = process();
+    std::cout << result << std::endl;
+}
+"#;
+        let result = e.parse_file("main.cpp", source).unwrap();
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"process"), "should detect process call; got: {:?}", callees);
+    }
+
+    #[test]
+    fn test_cpp_method_call() {
+        let e = engine();
+        let source = r#"
+void bar(UserService& svc) {
+    svc.create_user("Alice");
+    svc.delete_user(42);
+}
+"#;
+        let result = e.parse_file("main.cpp", source).unwrap();
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"create_user"), "should detect method call; got: {:?}", callees);
+        assert!(callees.contains(&"delete_user"), "should detect method call; got: {:?}", callees);
+    }
+
+    #[test]
+    fn test_cpp_qualified_call() {
+        let e = engine();
+        let source = r#"
+void foo() {
+    std::sort(v.begin(), v.end());
+    std::transform(a.begin(), a.end(), b.begin(), op);
+}
+"#;
+        let result = e.parse_file("algo.cpp", source).unwrap();
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"sort"), "should detect std::sort; got: {:?}", callees);
+        assert!(callees.contains(&"transform"), "should detect std::transform; got: {:?}", callees);
+    }
+
+    // === C++ data flow ===
+
+    #[test]
+    fn test_cpp_assignment_from_call() {
+        let e = engine();
+        let source = r#"
+void foo() {
+    auto result = compute();
+}
+"#;
+        let df = e.extract_data_flow("main.cpp", source).unwrap();
+        assert!(!df.assignments.is_empty(), "should detect assignment from call");
+        assert_eq!(df.assignments[0].variable, "result");
+        assert_eq!(df.assignments[0].callee, "compute");
+    }
+
+    // === C++ language detection ===
+
+    #[test]
+    fn test_cpp_language_detection() {
+        assert_eq!(Language::from_path("main.cpp"), Language::Cpp);
+        assert_eq!(Language::from_path("main.cc"), Language::Cpp);
+        assert_eq!(Language::from_path("main.cxx"), Language::Cpp);
+        assert_eq!(Language::from_path("header.hpp"), Language::Cpp);
+        assert_eq!(Language::from_path("header.hxx"), Language::Cpp);
+        assert_eq!(Language::from_path("header.hh"), Language::Cpp);
+        assert_eq!(Language::from_path("header.h++"), Language::Cpp);
+    }
+
+    // === C++ full integration ===
+
+    #[test]
+    fn test_cpp_full_file() {
+        let e = engine();
+        let source = r#"
+#include <iostream>
+#include <vector>
+#include "repository.hpp"
+
+namespace api {
+
+class UserService {
+public:
+    std::vector<User> list_users() {
+        return repo_.find_all();
+    }
+
+    void create_user(const std::string& name) {
+        repo_.insert(name);
+    }
+private:
+    UserRepository repo_;
+};
+
+using UserList = std::vector<User>;
+
+}
+"#;
+        let result = e.parse_file("service.cpp", source).unwrap();
+
+        // Imports
+        assert_eq!(result.imports.len(), 3);
+
+        // Definitions
+        let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(def_names.contains(&"api"), "namespace api; got: {:?}", def_names);
+        assert!(def_names.contains(&"UserService"), "class UserService; got: {:?}", def_names);
+        assert!(def_names.contains(&"UserList"), "using alias UserList; got: {:?}", def_names);
+
+        // Call sites
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"find_all"), "find_all method call; got: {:?}", callees);
+        assert!(callees.contains(&"insert"), "insert method call; got: {:?}", callees);
     }
 }

@@ -943,13 +943,13 @@ Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The
 - [x] Tests and integration test: synthetic Vapor API
 
 **C/C++:**
-- [ ] Add `tree-sitter-c` and `tree-sitter-cpp` grammar dependencies
-- [ ] Add `Language::C` and `Language::Cpp` variants
-- [ ] Write `.scm` query files for C and C++
-- [ ] Handle: `#include` (header resolution is hard — use heuristics), function declarations, class hierarchy (C++), namespaces (C++), templates (ignore for grouping)
-- [ ] Entrypoint detection: `int main()`, test framework macros (`TEST`, `TEST_F`)
-- [ ] Framework detection: Google Test, Catch2, CMake project structure
-- [ ] Tests and integration test: synthetic C++ project
+- [x] Add `tree-sitter-c` and `tree-sitter-cpp` grammar dependencies
+- [x] Add `Language::C` and `Language::Cpp` variants
+- [x] Write `.scm` query files for C and C++
+- [x] Handle: `#include` (header resolution is hard — use heuristics), function declarations, class hierarchy (C++), namespaces (C++), templates (ignore for grouping)
+- [x] Entrypoint detection: `int main()`, test framework macros (`TEST`, `TEST_F`)
+- [x] Framework detection: Google Test, Catch2, CMake project structure
+- [x] Tests and integration test: synthetic C++ project
 
 **Scala:**
 - [ ] Add `tree-sitter-scala` grammar dependency
@@ -960,9 +960,69 @@ Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The
 - [ ] Framework detection: Akka, Play Framework, ZIO, Cats Effect, ScalaTest, Slick
 - [ ] Tests and integration test: synthetic Akka HTTP API
 
-## 12. Testing Plan
+## 12. Incremental Parse Caching (Performance) — **NEXT PRIORITY**
 
-### 12.1 Test Convention
+Tree-sitter parsing is the main bottleneck in the analysis pipeline. Each file is parsed **twice** (once for imports/definitions/calls in `parse_with_queries()`, once for assignments/arguments in `extract_data_flow()`), and no results are cached between runs. With 1500+ tests and growing, this adds up fast.
+
+Goal: cache deterministic intermediate results so repeated/unchanged inputs skip expensive work.
+
+### 12.1 Deduplicate per-file double parse
+
+**Problem:** `parse_with_queries()` and `extract_data_flow()` both call `parse_tree()` independently, creating two `Parser` instances and two full tree-sitter parses for the same source.
+
+- [ ] Refactor `parse_to_ir()` in `pipeline.rs` to call `parse_tree()` once and pass the resulting `tree_sitter::Tree` to both `parse_with_queries()` and `extract_data_flow()`
+- [ ] Update method signatures to accept an optional pre-parsed tree
+- [ ] Benchmark: expect ~2x speedup on per-file parse time
+
+### 12.2 Content-addressed IrFile cache
+
+**Problem:** Re-running analysis on the same file content re-parses and re-extracts everything from scratch.
+
+- [ ] Add `sha2` content hash of source → `IrFile` cache (in-memory `HashMap<[u8; 32], IrFile>`)
+- [ ] Key: `SHA-256(file_path + source_content)` — content-addressed, so identical content = cache hit regardless of branch/ref
+- [ ] Integrate into `parse_to_ir()` and `parse_all_to_ir()`: check cache before parsing
+- [ ] Thread the cache through `run_pipeline()` and the eval harness so it persists across test fixtures that share identical files
+- [ ] For tests: use a shared `Arc<Mutex<HashMap>>` or `DashMap` across the test binary
+- [ ] For CLI: populate cache per invocation (single-run benefit from dedup; cross-run benefit requires disk cache in 12.4)
+
+### 12.3 Lazy QueryEngine initialization per language
+
+**Problem:** `QueryEngine::new()` compiles `.scm` queries for all 12+ languages upfront, even if the diff only contains TypeScript files.
+
+- [ ] Change query compilation from eager (all languages in constructor) to lazy (compile on first use per language)
+- [ ] Use `OnceCell<CompiledQuery>` or equivalent for each language's query set
+- [ ] Benchmark: measure `QueryEngine::new()` time before/after — expect significant reduction for single-language diffs
+
+### 12.4 Disk-persistent IrFile cache (optional, for CLI)
+
+**Problem:** CLI invocations don't share state. Re-running `flowdiff analyze` on the same branch re-parses all files.
+
+- [ ] Serialize `IrFile` cache to `.flowdiff/cache/ir/{content_hash}.bincode` (or MessagePack)
+- [ ] On startup, load existing cache entries; on shutdown, write new entries
+- [ ] Add cache size limit (e.g. 100MB) with LRU eviction
+- [ ] Add `--no-cache` flag to bypass
+- [ ] Invalidation: content-addressed, so no explicit invalidation needed — stale entries just get evicted by LRU
+
+### 12.5 Test harness optimizations
+
+**Problem:** E2E tests create fresh `QueryEngine` instances per test and re-parse identical fixture files.
+
+- [ ] Create a `lazy_static` or `OnceLock<QueryEngine>` shared across the test binary (thread-safe since `QueryEngine` is read-only after init)
+- [ ] Share the IrFile cache (from 12.2) across tests via `lazy_static` `DashMap`
+- [ ] Measure: run full `cargo test --package flowdiff-core` before/after, report wall-clock time reduction
+
+### 12.6 Verification
+
+- [ ] All 1572+ existing tests still pass
+- [ ] Add a benchmark test (`#[bench]` or criterion) for: single-file parse, 50-file parallel parse, full pipeline on largest fixture
+- [ ] Cache hit/miss logging behind `FLOWDIFF_CACHE_DEBUG=1` env var
+- [ ] No behavior change: cached results must be byte-identical to uncached results
+
+---
+
+## 13. Testing Plan
+
+### 13.1 Test Convention
 
 **Rust convention — structural separation, not file suffixes:**
 
@@ -1051,7 +1111,7 @@ cd crates/flowdiff-tauri/ui && npx playwright test
 cd extensions/vscode && npm test
 ```
 
-### 12.2 Test Infrastructure
+### 13.2 Test Infrastructure
 
 **Framework:** `cargo test` for Rust, Vitest + React Testing Library for Tauri UI unit/integration, Playwright for Tauri E2E, Jest for VS Code extension
 
@@ -1082,7 +1142,7 @@ tests/
 
 **Fixture repo builder:** A test helper that programmatically creates git repos with known structure, commits changes, and produces diffs with predictable flow groupings. This is critical — it makes tests deterministic and self-contained.
 
-### 12.2 Unit Tests — Core Engine
+### 13.3 Unit Tests — Core Engine
 
 #### Git Layer (`git.rs`)
 | Test | What it verifies |
@@ -1186,7 +1246,7 @@ tests/
 | `test_output_file_write` | `-o` flag writes to file correctly |
 | `test_stdout_output` | Default outputs to stdout |
 
-### 12.3 Unit Tests — LLM Layer
+### 13.4 Unit Tests — LLM Layer
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1203,7 +1263,7 @@ tests/
 | `test_mock_anthropic_pass1` | Full Pass 1 flow with mock HTTP responses |
 | `test_mock_openai_pass2` | Full Pass 2 flow with mock HTTP responses |
 
-### 12.4 Integration Tests — End-to-End Pipeline
+### 13.5 Integration Tests — End-to-End Pipeline
 
 These tests create real git repos, make real commits, and run the full pipeline.
 
@@ -1223,7 +1283,7 @@ These tests create real git repos, make real commits, and run the full pipeline.
 | `test_e2e_no_changes` | Run on repo with no diff | Graceful empty result, not an error |
 | `test_e2e_config_overrides` | Provide `.flowdiff.toml` with custom entrypoints | Config entrypoints detected even if heuristics miss them |
 
-### 12.5 Snapshot Tests
+### 13.6 Snapshot Tests
 
 Use `insta` crate for snapshot testing of JSON output.
 
@@ -1242,7 +1302,7 @@ fn test_snapshot_simple_app() {
 }
 ```
 
-### 12.6 Property-Based Tests
+### 13.7 Property-Based Tests
 
 Use `proptest` crate for fuzzing graph construction and ranking.
 
@@ -1257,7 +1317,7 @@ Use `proptest` crate for fuzzing graph construction and ranking.
 | Graph with no edges → all infrastructure | Disconnected files go to infrastructure group |
 | Determinism | `analyze(X) == analyze(X)` for any input (run 10 times) |
 
-### 12.7 Performance Benchmarks
+### 13.8 Performance Benchmarks
 
 Use `criterion` crate for benchmarking critical paths.
 
@@ -1273,7 +1333,7 @@ Use `criterion` crate for benchmarking critical paths.
 
 Benchmarks run in CI to catch performance regressions.
 
-### 12.8 Tauri App Tests
+### 13.9 Tauri App Tests
 
 **React component tests (Vitest + React Testing Library):**
 
@@ -1357,7 +1417,7 @@ Benchmarks run in CI to catch performance regressions.
 | `DiffViewer.test.tsx` | Monaco instance has accessible label |
 | `Annotations.test.tsx` | Risk badges have screen-reader text |
 
-### 12.9 Tauri App — Playwright E2E Tests
+### 13.10 Tauri App — Playwright E2E Tests
 
 **Testing philosophy:** Prefer integration tests over unit tests when code touches renderers (Monaco, Mermaid, Tauri webview). Unit tests with mocked renderers give false confidence — Playwright tests hit the real rendered output in a real browser context.
 
@@ -1419,7 +1479,7 @@ Benchmarks run in CI to catch performance regressions.
 | `e2e/visual.spec.ts` | Risk heatmap colors render correctly |
 | `e2e/visual.spec.ts` | Mermaid graph layout is stable (no random repositioning between runs) |
 
-### 12.10 VS Code Extension Tests
+### 13.11 VS Code Extension Tests
 
 **Unit tests (Jest):**
 
@@ -1441,7 +1501,7 @@ Benchmarks run in CI to catch performance regressions.
 | `test_open_diff` | Clicking tree item opens VS Code diff editor |
 | `test_next_file_command` | `flowdiff.nextFile` navigates to correct file |
 
-### 12.10 LLM Integration Tests (Live, Optional)
+### 13.12 LLM Integration Tests (Live, Optional)
 
 These tests hit real APIs and are gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`.
 
@@ -1453,7 +1513,7 @@ These tests hit real APIs and are gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`.
 | `test_live_reasoning_model` | Extended thinking / o3 models produce richer output |
 | `test_live_structured_output_compliance` | Response conforms to schema (no hallucinated fields) |
 
-### 12.11 Regression Test Suite
+### 13.13 Regression Test Suite
 
 Maintained list of real-world diffs that previously caused issues:
 
@@ -1473,7 +1533,7 @@ Each regression test:
 2. Has an `expected.json` with correct output
 3. Runs in CI to prevent regression
 
-### 12.12 CI Pipeline
+### 13.14 CI Pipeline
 
 ```yaml
 # Runs on every PR
@@ -1504,7 +1564,7 @@ test-binary-artifacts:
   - Test Tauri app launches on each platform
 ```
 
-### 12.13 Manual Acceptance Testing Checklist
+### 13.15 Manual Acceptance Testing Checklist
 
 Before each release, run through manually:
 

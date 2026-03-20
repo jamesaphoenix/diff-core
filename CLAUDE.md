@@ -34,7 +34,7 @@ Three levels of semantics, each building on the last:
 
 ## Tests
 
-1572 tests: unit (co-located `#[cfg(test)]`), integration (`tests/` directory), property-based (proptest), live LLM (gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`), VCR replay, CLI arg parsing + config override tests, eval harness. Playwright E2E planned for Tauri app.
+1582 tests: unit (co-located `#[cfg(test)]`), integration (`tests/` directory), property-based (proptest), live LLM (gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`), VCR replay, CLI arg parsing + config override tests, eval harness. Playwright E2E planned for Tauri app.
 
 ## Specs
 
