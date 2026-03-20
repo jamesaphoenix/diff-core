@@ -925,13 +925,13 @@ Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The
 #### 11.3 Tier 3 — Nice to have
 
 **Kotlin:**
-- [ ] Add `tree-sitter-kotlin` grammar dependency
-- [ ] Add `Language::Kotlin` variant
-- [ ] Write `.scm` query files for Kotlin
-- [ ] Handle: package/import, data classes, sealed classes, extension functions, coroutines
-- [ ] Entrypoint detection: `fun main()`, Ktor route handlers, `@SpringBootApplication`, JUnit `@Test`
-- [ ] Framework detection: Ktor, Spring Boot (Kotlin), Exposed, Jetpack Compose
-- [ ] Tests and integration test: synthetic Ktor API
+- [x] Add `tree-sitter-kotlin-ng` grammar dependency
+- [x] Add `Language::Kotlin` variant
+- [x] Write `.scm` query files for Kotlin
+- [x] Handle: package/import (regular, aliased, wildcard), data classes, sealed classes, extension functions, object declarations, typealias, property declarations
+- [x] Entrypoint detection: `fun main()`, Ktor route handlers (`get`/`post`/`put`/`delete`), Spring Boot controllers, JUnit `@Test`
+- [x] Framework detection: Ktor, Spring Boot (Kotlin), Exposed, Jetpack Compose, Kotlin Coroutines, Kotlin Serialization, JUnit, Kotest, MockK, Koin, Retrofit, OkHttp, Arrow, Dagger/Hilt
+- [x] Tests and integration test: synthetic Ktor API (6 unit tests + 2 integration tests)
 
 **Swift:**
 - [ ] Add `tree-sitter-swift` grammar dependency

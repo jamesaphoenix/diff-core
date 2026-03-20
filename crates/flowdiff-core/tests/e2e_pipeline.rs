@@ -2344,3 +2344,254 @@ end
         result.summary.frameworks_detected
     );
 }
+
+/// Test: Kotlin Ktor REST API with handler→service→repo pattern.
+///
+/// Verifies that the pipeline can:
+/// - Parse Kotlin source files via tree-sitter
+/// - Extract import statements (regular, aliased, wildcard)
+/// - Detect fun, class, object, val/var definitions
+/// - Detect Ktor route handler entrypoints
+/// - Detect Ktor framework from imports
+/// - Cluster files into meaningful flow groups
+#[test]
+fn test_e2e_kotlin_ktor_api() {
+    let rb = RepoBuilder::new();
+
+    // Initial commit
+    rb.write_file("build.gradle.kts", "plugins {\n    kotlin(\"jvm\")\n}\n");
+    rb.commit("Initial commit: build.gradle.kts");
+    rb.create_branch("main");
+
+    // Feature branch: add Ktor REST API
+    rb.create_branch("feature/kotlin-api");
+    rb.checkout("feature/kotlin-api");
+
+    rb.write_file(
+        "src/main/kotlin/routes/UserRoutes.kt",
+        r#"import io.ktor.server.routing.Route
+import io.ktor.server.routing.get
+import io.ktor.server.routing.post
+import io.ktor.server.response.respond
+import com.example.services.UserService
+
+fun Route.userRoutes(userService: UserService) {
+    get("/users") {
+        val users = userService.findAll()
+        call.respond(users)
+    }
+
+    post("/users") {
+        val user = userService.create(call)
+        call.respond(user)
+    }
+
+    get("/users/{id}") {
+        val user = userService.findById(call)
+        call.respond(user)
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/main/kotlin/services/UserService.kt",
+        r#"import com.example.repositories.UserRepository
+import com.example.models.User
+
+class UserService(private val repository: UserRepository) {
+    fun findAll(): List<User> {
+        val users = repository.findAll()
+        return users
+    }
+
+    fun findById(id: String): User {
+        val user = repository.findById(id)
+        return user
+    }
+
+    fun create(data: Map<String, String>): User {
+        val user = repository.save(data)
+        return user
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/main/kotlin/repositories/UserRepository.kt",
+        r#"import org.jetbrains.exposed.sql.Database
+import com.example.models.User
+
+class UserRepository(private val db: Database) {
+    fun findAll(): List<User> {
+        val results = db.query("SELECT * FROM users")
+        return results
+    }
+
+    fun findById(id: String): User {
+        val result = db.query("SELECT * FROM users WHERE id = ?")
+        return result
+    }
+
+    fun save(data: Map<String, String>): User {
+        val result = db.execute("INSERT INTO users ...")
+        return result
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/main/kotlin/models/User.kt",
+        r#"import kotlinx.serialization.Serializable
+
+@Serializable
+data class User(
+    val id: String,
+    val name: String,
+    val email: String
+)
+"#,
+    );
+
+    rb.write_file(
+        "src/main/kotlin/Application.kt",
+        r#"import io.ktor.server.engine.embeddedServer
+import io.ktor.server.netty.Netty
+import com.example.routes.userRoutes
+import com.example.services.UserService
+import com.example.repositories.UserRepository
+
+fun main() {
+    val repo = UserRepository()
+    val service = UserService(repo)
+    embeddedServer(Netty, port = 8080) {
+        userRoutes(service)
+    }
+}
+"#,
+    );
+
+    rb.commit("Add Ktor REST API with routes-service-repo");
+
+    let result = run_pipeline(rb.path(), "main", "feature/kotlin-api");
+
+    // Verify basic output shape
+    assert_valid_json_schema(&result);
+    assert_valid_scores(&result);
+
+    // Verify Kotlin files were detected
+    assert_language_detected(&result, "kotlin");
+
+    // Verify all changed files are accounted for
+    assert_all_files_accounted(&result);
+
+    // Verify there are flow groups
+    assert!(
+        !result.groups.is_empty(),
+        "should produce at least one flow group"
+    );
+
+    // Verify entrypoint detection (Ktor route handlers or main)
+    let has_entrypoint = result.groups.iter().any(|g| g.entrypoint.is_some());
+    assert!(
+        has_entrypoint,
+        "should detect at least one entrypoint (Ktor routes or main)"
+    );
+
+    // Verify Ktor framework detection
+    let has_ktor = result
+        .summary
+        .frameworks_detected
+        .iter()
+        .any(|f| f.contains("Ktor"));
+    assert!(
+        has_ktor,
+        "should detect Ktor framework; detected: {:?}",
+        result.summary.frameworks_detected
+    );
+
+    // Verify Mermaid graph is valid
+    assert_valid_mermaid(&result);
+
+    // Verify JSON roundtrip
+    assert_json_roundtrip(&result);
+}
+
+/// Test: Kotlin test file detection.
+///
+/// Verifies that *Test.kt files are detected as test entrypoints.
+#[test]
+fn test_e2e_kotlin_test_file_detection() {
+    let rb = RepoBuilder::new();
+
+    rb.write_file("build.gradle.kts", "plugins {\n    kotlin(\"jvm\")\n}\n");
+    rb.commit("Initial commit");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/tests");
+    rb.checkout("feature/tests");
+
+    rb.write_file(
+        "src/main/kotlin/services/UserService.kt",
+        r#"import com.example.models.User
+
+class UserService {
+    fun greet(name: String): String {
+        return "Hello, $name"
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/test/kotlin/services/UserServiceTest.kt",
+        r#"import org.junit.Test
+import com.example.services.UserService
+
+class UserServiceTest {
+    fun testGreet() {
+        val service = UserService()
+        val result = service.greet("Alice")
+    }
+
+    fun testGreetEmpty() {
+        val service = UserService()
+        val result = service.greet("")
+    }
+}
+"#,
+    );
+
+    rb.commit("Add UserService with JUnit tests");
+
+    let result = run_pipeline(rb.path(), "main", "feature/tests");
+
+    // Verify test file detection
+    let test_eps: Vec<_> = result
+        .groups
+        .iter()
+        .flat_map(|g| g.entrypoint.as_ref())
+        .filter(|ep| ep.entrypoint_type == flowdiff_core::types::EntrypointType::TestFile)
+        .collect();
+    assert!(
+        !test_eps.is_empty(),
+        "should detect *Test.kt as test file entrypoint"
+    );
+
+    // Verify Kotlin language detected
+    assert_language_detected(&result, "kotlin");
+
+    // Verify JUnit framework detected
+    let has_junit = result
+        .summary
+        .frameworks_detected
+        .iter()
+        .any(|f| f.contains("JUnit"));
+    assert!(
+        has_junit,
+        "should detect JUnit framework; detected: {:?}",
+        result.summary.frameworks_detected
+    );
+}
