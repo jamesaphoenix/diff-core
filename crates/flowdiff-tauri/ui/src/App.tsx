@@ -91,6 +91,9 @@ export default function App() {
   const [commentText, setCommentText] = useState("");
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Flow graph collapse state (collapses when node is clicked in graph)
+  const [graphCollapsed, setGraphCollapsed] = useState(false);
+
   // Toast notification state (auto-dismiss)
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -207,6 +210,15 @@ export default function App() {
     [repoPath, baseRef],
   );
 
+  /** Called when a node in the React Flow graph is clicked — opens the file AND collapses the graph. */
+  const handleGraphNodeClick = useCallback(
+    (path: string) => {
+      handleSelectFile(path);
+      setGraphCollapsed(true);
+    },
+    [handleSelectFile],
+  );
+
   const handleSelectGroup = useCallback(
     async (group: FlowGroup) => {
       setSelectedGroup(group);
@@ -214,6 +226,8 @@ export default function App() {
       setReplayActive(false);
       setReplayStep(0);
       setReplayVisited(new Set());
+      // Reset graph collapse state when switching groups
+      setGraphCollapsed(false);
       // Auto-select first file in group
       if (group.files.length > 0) {
         handleSelectFile(group.files[0].path);
@@ -1747,19 +1761,28 @@ export default function App() {
                   </>
                 )}
 
-                {/* Flow graph (React Flow) */}
+                {/* Flow graph (React Flow) — collapses when a node is clicked */}
                 {selectedGroup.edges.length > 0 && (
-                  <div className="annotation-section">
-                    <h3>Flow Graph</h3>
+                  <div className={`annotation-section flow-graph-section ${graphCollapsed ? "flow-graph-collapsed" : ""}`}>
+                    <button
+                      className="flow-graph-toggle"
+                      onClick={() => setGraphCollapsed(!graphCollapsed)}
+                      aria-expanded={!graphCollapsed}
+                    >
+                      <span className="flow-graph-toggle-icon">{graphCollapsed ? "\u25B6" : "\u25BC"}</span>
+                      <h3>Flow Graph</h3>
+                    </button>
+                    {!graphCollapsed && (
                     <ErrorBoundary panelName="Flow Graph">
                       <CrashTest panel="Flow Graph" />
                       <FlowGraph
                         edges={selectedGroup.edges}
                         files={selectedGroup.files}
-                        onNodeClick={handleSelectFile}
+                        onNodeClick={handleGraphNodeClick}
                         replayNodeId={replayActive && selectedGroup.files[replayStep] ? selectedGroup.files[replayStep].path : null}
                       />
                     </ErrorBoundary>
+                    )}
                   </div>
                 )}
 

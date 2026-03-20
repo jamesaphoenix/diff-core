@@ -733,7 +733,7 @@ Add the ability to leave comments on flow groups, individual files, and specific
 **Persistence:**
 - [x] Comments stored as JSON in `.flowdiff/comments.json` (alongside cache and other flowdiff state)
 - [x] Keyed by analysis hash (so comments are scoped to a specific diff/analysis run)
-- [ ] Format:
+- [x] Format:
   ```json
   {
     "analysis_hash": "abc123",
@@ -777,11 +777,11 @@ Add the ability to leave comments on flow groups, individual files, and specific
 #### 9.10 Flowchart node click → collapse graph + open file
 When a user clicks a node in the React Flow graph, it should collapse the graph section within the right panel and open that file in the diff viewer. This creates a smooth "explore graph → dive into file" workflow.
 
-- [ ] Click a React Flow node → file opens in the center panel Monaco diff viewer (existing behavior)
-- [ ] Additionally: the React Flow graph section in the right panel **collapses** (animates to a thin bar or accordion header showing "Flow Graph ▶")
-- [ ] The right panel reclaims the space — annotations/details section expands to fill
-- [ ] Click the collapsed graph header to re-expand it
-- [ ] Graph collapse state resets when switching to a different group
+- [x] Click a React Flow node → file opens in the center panel Monaco diff viewer (existing behavior)
+- [x] Additionally: the React Flow graph section in the right panel **collapses** (animates to a thin bar or accordion header showing "Flow Graph ▶")
+- [x] The right panel reclaims the space — annotations/details section expands to fill
+- [x] Click the collapsed graph header to re-expand it
+- [x] Graph collapse state resets when switching to a different group
 
 ## 12. Testing Plan
 

@@ -583,6 +583,38 @@ body {
   flex-shrink: 0;
 }
 
+/* ── Flow Graph Collapsible Section ── */
+
+.flow-graph-section .flow-graph-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  width: 100%;
+  text-align: left;
+}
+
+.flow-graph-section .flow-graph-toggle h3 {
+  margin-bottom: 0;
+}
+
+.flow-graph-toggle-icon {
+  font-size: 9px;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+}
+
+.flow-graph-section:not(.flow-graph-collapsed) .flow-graph-toggle {
+  margin-bottom: 8px;
+}
+
+.flow-graph-collapsed .flow-graph-toggle-icon {
+  color: var(--accent);
+}
+
 /* ── Flow Graph (React Flow) ── */
 
 .flow-graph-container {
