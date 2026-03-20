@@ -133,6 +133,15 @@ fn is_test_path(path: &str) -> bool {
             })
             || lower.contains("/tests/") || lower.contains("/test/")
         ))
+        // Scala test files: *Test.scala, *Spec.scala, *Suite.scala, or in test/ directory
+        || (lower.ends_with(".scala") && (
+            path.split('/').last().map_or(false, |f| {
+                f.ends_with("Test.scala") || f.ends_with("Tests.scala")
+                || f.ends_with("Spec.scala") || f.ends_with("Suite.scala")
+                || f.starts_with("Test")
+            })
+            || lower.contains("/test/") || lower.contains("/tests/")
+        ))
 }
 
 fn is_test_symbol_name(name: &str) -> bool {
@@ -171,6 +180,7 @@ fn detect_http_routes(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         Language::Swift => detect_http_routes_swift(file, out),
         Language::C => detect_http_routes_c_cpp(file, out),
         Language::Cpp => detect_http_routes_c_cpp(file, out),
+        Language::Scala => detect_http_routes_scala(file, out),
         Language::Unknown => {}
     }
 }
@@ -984,6 +994,91 @@ fn detect_http_routes_c_cpp(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         || file.path.contains("/endpoints/");
 
     if is_handler_file {
+        for def in &file.definitions {
+            if def.kind == crate::types::SymbolKind::Function && !def.name.starts_with('_') {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: def.name.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+    }
+}
+
+fn detect_http_routes_scala(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    // Check for Scala web framework imports
+    let has_akka_http = file.imports.iter().any(|i| {
+        i.source.starts_with("akka.http")
+    });
+
+    let has_play_import = file.imports.iter().any(|i| {
+        i.source.starts_with("play.api.mvc") || i.source.starts_with("play.mvc")
+    });
+
+    let has_http4s_import = file.imports.iter().any(|i| {
+        i.source.starts_with("org.http4s")
+    });
+
+    // Akka HTTP route DSL: get, post, put, delete, patch, path, pathPrefix, complete
+    if has_akka_http {
+        let http_methods = [
+            "get", "post", "put", "delete", "patch", "head", "options",
+            "path", "pathPrefix", "complete",
+        ];
+        for call in &file.call_sites {
+            if http_methods.contains(&call.callee.as_str()) {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: call.callee.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+        return;
+    }
+
+    // Play Framework controller actions
+    if has_play_import {
+        for def in &file.definitions {
+            if def.kind == crate::types::SymbolKind::Function && !def.name.starts_with('_') {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: def.name.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+        return;
+    }
+
+    // http4s route DSL
+    if has_http4s_import {
+        let http_methods = ["get", "post", "put", "delete", "patch"];
+        for call in &file.call_sites {
+            let callee_lower = call.callee.to_lowercase();
+            if http_methods.contains(&callee_lower.as_str()) {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: call.callee.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+        return;
+    }
+
+    // Path-based heuristic for controller files
+    let is_controller_file = file.path.contains("/controllers/")
+        || file.path.contains("/controller/")
+        || file.path.contains("/routes/")
+        || file
+            .path
+            .split('/')
+            .last()
+            .map_or(false, |f| f.ends_with("Controller.scala"));
+
+    if is_controller_file {
         for def in &file.definitions {
             if def.kind == crate::types::SymbolKind::Function && !def.name.starts_with('_') {
                 out.push(Entrypoint {

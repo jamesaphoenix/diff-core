@@ -2271,6 +2271,7 @@ mod proptests {
                     Language::Swift => ".swift",
                     Language::C => ".c",
                     Language::Cpp => ".cpp",
+                    Language::Scala => ".scala",
                     Language::Unknown => "",
                 };
                 IrFile {

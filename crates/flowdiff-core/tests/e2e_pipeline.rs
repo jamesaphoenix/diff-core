@@ -3114,3 +3114,196 @@ int main() {
         result.groups.iter().map(|g| (&g.name, &g.entrypoint)).collect::<Vec<_>>()
     );
 }
+
+// ─── Scala Integration Tests ─────────────────────────────────────────────
+
+/// Test: Synthetic Scala Akka HTTP API with handler → service → repository pattern.
+#[test]
+fn test_e2e_scala_akka_http_api() {
+    let rb = RepoBuilder::new();
+
+    rb.write_file("build.sbt", "name := \"akka-api\"\nscalaVersion := \"2.13.12\"\n");
+    rb.commit("Initial commit");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/users-api");
+    rb.checkout("feature/users-api");
+
+    rb.write_file(
+        "src/main/scala/routes/UserRoutes.scala",
+        r#"import akka.http.scaladsl.server.Directives._
+import akka.http.scaladsl.server.Route
+import com.example.services.UserService
+
+class UserRoutes(service: UserService) {
+  def routes(): Route = {
+    pathPrefix("users") {
+      get {
+        val users = service.listUsers()
+        complete(users.toString())
+      } ~
+      post {
+        val user = service.createUser("test")
+        complete(user.toString())
+      }
+    }
+  }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/main/scala/services/UserService.scala",
+        r#"import com.example.repositories.UserRepository
+
+class UserService(repo: UserRepository) {
+  def listUsers(): List[User] = {
+    val users = repo.findAll()
+    users
+  }
+
+  def createUser(name: String): User = {
+    val user = repo.save(name)
+    println("Created user")
+    user
+  }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/main/scala/repositories/UserRepository.scala",
+        r#"import slick.jdbc.PostgresProfile.api._
+
+class UserRepository(db: Database) {
+  def findAll(): List[User] = {
+    val result = db.run(users.result)
+    result
+  }
+
+  def save(name: String): User = {
+    val user = User(name)
+    db.run(users.insertOrUpdate(user))
+    user
+  }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/main/scala/models/User.scala",
+        r#"case class User(id: String, name: String, email: String)
+
+type UserId = String
+"#,
+    );
+
+    rb.commit("Add users API with Akka HTTP");
+
+    let result = run_pipeline(rb.path(), "main", "feature/users-api");
+
+    assert_valid_json_schema(&result);
+    assert_all_files_accounted(&result);
+
+    // Verify Scala language detected
+    assert_language_detected(&result, "scala");
+
+    // Verify HTTP route entrypoint detected
+    let has_http_entrypoint = result.groups.iter().any(|g| {
+        g.entrypoint.as_ref().map_or(false, |e| {
+            e.entrypoint_type == flowdiff_core::types::EntrypointType::HttpRoute
+        })
+    });
+    assert!(
+        has_http_entrypoint,
+        "should detect Akka HTTP route entrypoint; groups: {:?}",
+        result
+            .groups
+            .iter()
+            .map(|g| (&g.name, &g.entrypoint))
+            .collect::<Vec<_>>()
+    );
+
+    // Verify framework detected
+    let frameworks = &result.summary.frameworks_detected;
+    assert!(
+        frameworks.iter().any(|f| f.contains("Akka") || f.contains("Slick")),
+        "should detect Akka HTTP or Slick framework; got: {:?}",
+        frameworks
+    );
+}
+
+/// Test: Scala test file detection with ScalaTest.
+#[test]
+fn test_e2e_scala_test_file_detection() {
+    let rb = RepoBuilder::new();
+
+    rb.write_file("build.sbt", "name := \"scala-test\"\n");
+    rb.commit("Initial commit");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/tests");
+    rb.checkout("feature/tests");
+
+    rb.write_file(
+        "src/main/scala/services/Calculator.scala",
+        r#"object Calculator {
+  def add(a: Int, b: Int): Int = a + b
+  def multiply(a: Int, b: Int): Int = a * b
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/test/scala/services/CalculatorSpec.scala",
+        r#"import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.matchers.should.Matchers
+
+class CalculatorSpec extends AnyFlatSpec with Matchers {
+  def testAdd(): Unit = {
+    val result = Calculator.add(2, 3)
+    result shouldEqual 5
+  }
+
+  def testMultiply(): Unit = {
+    val result = Calculator.multiply(3, 4)
+    result shouldEqual 12
+  }
+}
+"#,
+    );
+
+    rb.commit("Add calculator with tests");
+
+    let result = run_pipeline(rb.path(), "main", "feature/tests");
+
+    assert_valid_json_schema(&result);
+    assert_all_files_accounted(&result);
+
+    // Verify Scala language detected
+    assert_language_detected(&result, "scala");
+
+    // Verify test file detected as entrypoint
+    let has_test_entrypoint = result.groups.iter().any(|g| {
+        g.entrypoint.as_ref().map_or(false, |e| {
+            e.entrypoint_type == flowdiff_core::types::EntrypointType::TestFile
+        })
+    });
+    assert!(
+        has_test_entrypoint,
+        "should detect ScalaTest spec as test entrypoint; groups: {:?}",
+        result
+            .groups
+            .iter()
+            .map(|g| (&g.name, &g.entrypoint))
+            .collect::<Vec<_>>()
+    );
+
+    // Verify ScalaTest framework detected
+    let frameworks = &result.summary.frameworks_detected;
+    assert!(
+        frameworks.iter().any(|f| f.contains("ScalaTest")),
+        "should detect ScalaTest framework; got: {:?}",
+        frameworks
+    );
+}

@@ -952,13 +952,13 @@ Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The
 - [x] Tests and integration test: synthetic C++ project
 
 **Scala:**
-- [ ] Add `tree-sitter-scala` grammar dependency
-- [ ] Add `Language::Scala` variant
-- [ ] Write `.scm` query files for Scala
-- [ ] Handle: package/import, class/trait/object hierarchy, case classes, implicits, pattern matching
-- [ ] Entrypoint detection: `def main`, `extends App`, Akka HTTP routes, Play Framework controllers, ScalaTest
-- [ ] Framework detection: Akka, Play Framework, ZIO, Cats Effect, ScalaTest, Slick
-- [ ] Tests and integration test: synthetic Akka HTTP API
+- [x] Add `tree-sitter-scala` grammar dependency
+- [x] Add `Language::Scala` variant
+- [x] Write `.scm` query files for Scala
+- [x] Handle: package/import, class/trait/object hierarchy, case classes, implicits, pattern matching
+- [x] Entrypoint detection: `def main`, `extends App`, Akka HTTP routes, Play Framework controllers, ScalaTest
+- [x] Framework detection: Akka, Play Framework, ZIO, Cats Effect, ScalaTest, Slick
+- [x] Tests and integration test: synthetic Akka HTTP API
 
 ## 12. Incremental Parse Caching (Performance) — **NEXT PRIORITY**
 
@@ -1011,9 +1011,41 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 - [ ] Share the IrFile cache (from 12.2) across tests via `lazy_static` `DashMap`
 - [ ] Measure: run full `cargo test --package flowdiff-core` before/after, report wall-clock time reduction
 
-### 12.6 Verification
+### 12.6 Test profile optimization
 
-- [ ] All 1572+ existing tests still pass
+**Problem:** Tests compile and run with default `[profile.dev]` settings — no optimizations at all.
+
+- [ ] Add `[profile.test] opt-level = 1` to root `Cargo.toml` — trades slightly longer compile for 10-30% faster runtime
+- [ ] Document recommended test invocation: `cargo test -- --test-threads=$(nproc)` (tests are isolated via TempDirs, safe to parallelize)
+
+### 12.7 Reuse Parser instances per language
+
+**Problem:** `parse_tree()` in `query_engine.rs` creates a new `tree_sitter::Parser` on every call. Across the test suite this means thousands of unnecessary allocations.
+
+- [ ] Store a `Parser` per language inside `QueryEngine` (e.g. `RefCell<Parser>` or `Cell<Parser>`)
+- [ ] Reuse across all `parse_tree()` calls for the same language — just call `parser.parse(source, None)` on the existing instance
+- [ ] Verify thread safety: `Parser` is `!Send`, so this works naturally with the single-threaded-per-file model; for rayon parallel parsing, use thread-local parsers
+
+### 12.8 Parallelize graph building
+
+**Problem:** `SymbolGraph::build()` and `build_from_ir()` in `graph.rs` run sequentially — Phase 1 (add nodes) and Phase 2 (add edges) iterate files one at a time with no parallelism.
+
+- [ ] Phase 1: use rayon to collect node data per file in parallel, then merge into graph single-threaded
+- [ ] Phase 2: use rayon to compute edges per file in parallel, then add to graph single-threaded
+- [ ] Benchmark: expect 2-4x speedup for 20-100 file diffs
+
+### 12.9 Efficient flow pattern matching
+
+**Problem:** Heuristic flow analysis in `flow.rs` matches call sites against 100+ pattern strings (DB_WRITE_METHODS, EVENT_EMIT_METHODS, etc.) using `.contains()` per pattern per call — O(patterns × calls) substring searches.
+
+- [ ] Replace linear `.contains()` scans with Aho-Corasick automaton (single-pass multi-pattern match) or `phf` perfect hash set for exact matches
+- [ ] Add `aho-corasick` crate dependency (or `phf` for compile-time sets)
+- [ ] Build automaton once (lazy_static or in QueryEngine), reuse across all files
+- [ ] Benchmark: expect 3-5x speedup for flow analysis on large diffs
+
+### 12.10 Verification
+
+- [ ] All existing tests still pass
 - [ ] Add a benchmark test (`#[bench]` or criterion) for: single-file parse, 50-file parallel parse, full pipeline on largest fixture
 - [ ] Cache hit/miss logging behind `FLOWDIFF_CACHE_DEBUG=1` env var
 - [ ] No behavior change: cached results must be byte-identical to uncached results
