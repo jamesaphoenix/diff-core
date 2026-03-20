@@ -87,6 +87,8 @@ fn is_test_path(path: &str) -> bool {
         || lower.starts_with("test/")
         // Python test convention
         || path.split('/').last().map_or(false, |f| f.starts_with("test_"))
+        // Go test files
+        || lower.ends_with("_test.go")
         // Rust test files (though not currently parsed)
         || lower.contains("_tests.rs")
 }
@@ -97,6 +99,10 @@ fn is_test_symbol_name(name: &str) -> bool {
         || name == "describe"
         || name == "it"
         || name == "test"
+        // Go test conventions: Test*, Benchmark*, Example*
+        || name.starts_with("Test")
+        || name.starts_with("Benchmark")
+        || name.starts_with("Example")
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +113,7 @@ fn detect_http_routes(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     match file.language {
         Language::TypeScript | Language::JavaScript => detect_http_routes_js(file, out),
         Language::Python => detect_http_routes_python(file, out),
+        Language::Go => detect_http_routes_go(file, out),
         Language::Unknown => {}
     }
 }
@@ -246,6 +253,86 @@ fn detect_http_routes_python(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     }
 }
 
+/// Detect Go HTTP route handlers: net/http, gin, echo, chi, fiber patterns.
+fn detect_http_routes_go(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    let http_methods = ["get", "post", "put", "delete", "patch", "options", "head", "any", "group"];
+
+    // Check if we have a Go web framework import
+    let has_http_import = file.imports.iter().any(|i| {
+        i.source == "net/http"
+            || i.source == "github.com/gin-gonic/gin"
+            || i.source.starts_with("github.com/labstack/echo")
+            || i.source.starts_with("github.com/go-chi/chi")
+            || i.source.starts_with("github.com/gofiber/fiber")
+            || i.source.starts_with("github.com/gorilla/mux")
+    });
+
+    if !has_http_import {
+        return;
+    }
+
+    // Check for handler function patterns
+    for call in &file.call_sites {
+        let callee = &call.callee;
+
+        // Standard library: http.HandleFunc, http.Handle
+        if callee == "http.HandleFunc" || callee == "http.Handle" || callee == "http.ListenAndServe" {
+            let symbol = call
+                .containing_function
+                .clone()
+                .unwrap_or_else(|| call.callee.clone());
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol,
+                entrypoint_type: EntrypointType::HttpRoute,
+            });
+            continue;
+        }
+
+        // Framework patterns: router.GET, r.Post, c.Get, app.Get, e.GET, etc.
+        if let Some((_, method)) = callee.rsplit_once('.') {
+            let method_lower = method.to_lowercase();
+            if http_methods.contains(&method_lower.as_str())
+                || method == "HandleFunc"
+                || method == "Handle"
+            {
+                let symbol = call
+                    .containing_function
+                    .clone()
+                    .unwrap_or_else(|| call.callee.clone());
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol,
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+    }
+
+    // Detect handler-like functions by convention
+    let is_handler_module = file.path.contains("/handler")
+        || file.path.contains("/handlers/")
+        || file.path.contains("/routes/")
+        || file.path.contains("/api/");
+
+    if is_handler_module {
+        for def in &file.definitions {
+            if def.kind == crate::types::SymbolKind::Function
+                && def.name.chars().next().map_or(false, |c| c.is_uppercase())
+                && (def.name.contains("Handler")
+                    || def.name.ends_with("Handle")
+                    || def.name.starts_with("Handle"))
+            {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: def.name.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+    }
+}
+
 fn is_web_framework_import(imp: &ImportInfo) -> bool {
     let src = &imp.source;
     src == "flask"
@@ -270,8 +357,9 @@ fn detect_cli_commands(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     if has_main {
         // Python: if __name__ == '__main__' pattern (detected via main def + path convention)
         // JS/TS: main() function in entry-like files
+        // Go: func main() is always a CLI entrypoint
         let is_cli_path = is_cli_file_path(&file.path);
-        if is_cli_path || file.language == Language::Python {
+        if is_cli_path || file.language == Language::Python || file.language == Language::Go {
             out.push(Entrypoint {
                 file: file.path.clone(),
                 symbol: "main".to_string(),
@@ -293,6 +381,28 @@ fn detect_cli_commands(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
                     || call.callee == "click.group"
                     || call.callee == "app.command"
                     || call.callee == "typer.command"
+                {
+                    if let Some(ref func) = call.containing_function {
+                        out.push(Entrypoint {
+                            file: file.path.clone(),
+                            symbol: func.clone(),
+                            entrypoint_type: EntrypointType::CliCommand,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Go: check for cobra imports
+    if file.language == Language::Go {
+        let has_cobra = file.imports.iter().any(|i| {
+            i.source.starts_with("github.com/spf13/cobra")
+        });
+        if has_cobra {
+            for call in &file.call_sites {
+                if call.callee.contains("cobra.Command")
+                    || call.callee.contains("AddCommand")
                 {
                     if let Some(ref func) = call.containing_function {
                         out.push(Entrypoint {
@@ -342,6 +452,7 @@ fn is_cli_file_path(path: &str) -> bool {
         || path.ends_with("/cli.ts")
         || path.ends_with("/cli.js")
         || path.ends_with("/cli.py")
+        || path.ends_with("/main.go")
 }
 
 fn is_bin_path(path: &str) -> bool {

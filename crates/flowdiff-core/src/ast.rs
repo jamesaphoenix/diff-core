@@ -20,6 +20,7 @@ pub enum Language {
     TypeScript,
     JavaScript,
     Python,
+    Go,
     Unknown,
 }
 
@@ -30,6 +31,7 @@ impl Language {
             "ts" | "tsx" => Language::TypeScript,
             "js" | "jsx" | "mjs" | "cjs" => Language::JavaScript,
             "py" | "pyi" => Language::Python,
+            "go" => Language::Go,
             _ => Language::Unknown,
         }
     }
@@ -140,6 +142,7 @@ pub fn parse_file(path: &str, source: &str) -> Result<ParsedFile, AstError> {
     match language {
         Language::TypeScript | Language::JavaScript => parse_typescript(path, source, language),
         Language::Python => parse_python(path, source),
+        Language::Go => parse_go(path, source),
         Language::Unknown => Ok(ParsedFile {
             path: path.to_string(),
             language: Language::Unknown,
@@ -217,6 +220,7 @@ pub fn extract_data_flow_info(path: &str, source: &str) -> Result<DataFlowInfo, 
     match language {
         Language::TypeScript | Language::JavaScript => extract_ts_data_flow(source),
         Language::Python => extract_python_data_flow(source),
+        Language::Go => extract_go_data_flow(source),
         Language::Unknown => Ok(DataFlowInfo {
             assignments: vec![],
             calls_with_args: vec![],
@@ -900,7 +904,8 @@ fn collect_call_sites(
         "function_declaration"
         | "generator_function_declaration"
         | "function_definition"
-        | "method_definition" => node
+        | "method_definition"
+        | "method_declaration" => node
             .child_by_field_name("name")
             .map(|n| node_text(&n, source).to_string()),
         "variable_declarator" => {
@@ -985,7 +990,8 @@ fn collect_ts_data_flow(
         "function_declaration"
         | "generator_function_declaration"
         | "function_definition"
-        | "method_definition" => node
+        | "method_definition"
+        | "method_declaration" => node
             .child_by_field_name("name")
             .map(|n| node_text(&n, source).to_string()),
         "variable_declarator" => {
@@ -1200,6 +1206,446 @@ fn extract_python_argument_texts(call_node: &Node, source: &[u8]) -> Vec<String>
             }
             continue;
         }
+        let text = node_text(&child, source).to_string();
+        if !text.is_empty() {
+            args.push(text);
+        }
+    }
+    args
+}
+
+// ---------------------------------------------------------------------------
+// Go parsing
+// ---------------------------------------------------------------------------
+
+fn parse_go(path: &str, source: &str) -> Result<ParsedFile, AstError> {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_go::LANGUAGE.into())
+        .map_err(|e| AstError::LanguageError(e.to_string()))?;
+
+    let tree = parser
+        .parse(source, None)
+        .ok_or_else(|| AstError::ParseError("tree-sitter failed to parse".into()))?;
+
+    let root = tree.root_node();
+    let src = source.as_bytes();
+    let mut definitions = Vec::new();
+    let mut imports = Vec::new();
+    let mut call_sites = Vec::new();
+    let mut exports = Vec::new();
+
+    let mut cursor = root.walk();
+    for child in root.named_children(&mut cursor) {
+        match child.kind() {
+            "function_declaration" => {
+                if let Some(def) =
+                    extract_definition_with_name(&child, src, SymbolKind::Function)
+                {
+                    if def.name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                        exports.push(ExportInfo {
+                            name: def.name.clone(),
+                            is_default: false,
+                            is_reexport: false,
+                            source: None,
+                            line: def.start_line,
+                        });
+                    }
+                    definitions.push(def);
+                }
+            }
+            "method_declaration" => {
+                if let Some(name_node) = child.child_by_field_name("name") {
+                    let name = node_text(&name_node, src).to_string();
+                    let def = Definition {
+                        name: name.clone(),
+                        kind: SymbolKind::Function,
+                        start_line: child.start_position().row + 1,
+                        end_line: child.end_position().row + 1,
+                    };
+                    if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                        exports.push(ExportInfo {
+                            name: name.clone(),
+                            is_default: false,
+                            is_reexport: false,
+                            source: None,
+                            line: def.start_line,
+                        });
+                    }
+                    definitions.push(def);
+                }
+            }
+            "type_declaration" => {
+                extract_go_type_defs(&child, src, &mut definitions, &mut exports);
+            }
+            "const_declaration" => {
+                extract_go_const_defs(&child, src, &mut definitions, &mut exports);
+            }
+            "var_declaration" => {
+                extract_go_var_defs(&child, src, &mut definitions);
+            }
+            "import_declaration" => {
+                extract_go_imports(&child, src, &mut imports);
+            }
+            _ => {}
+        }
+    }
+
+    collect_call_sites(&root, src, &mut call_sites, &None, "call_expression");
+
+    Ok(ParsedFile {
+        path: path.to_string(),
+        language: Language::Go,
+        definitions,
+        imports,
+        exports,
+        call_sites,
+    })
+}
+
+fn extract_go_imports(node: &Node, source: &[u8], imports: &mut Vec<ImportInfo>) {
+    let line = node.start_position().row + 1;
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            "import_spec" => {
+                if let Some(imp) = extract_single_go_import(&child, source, line) {
+                    imports.push(imp);
+                }
+            }
+            "import_spec_list" => {
+                let mut list_cursor = child.walk();
+                for spec in child.named_children(&mut list_cursor) {
+                    if spec.kind() == "import_spec" {
+                        let spec_line = spec.start_position().row + 1;
+                        if let Some(imp) = extract_single_go_import(&spec, source, spec_line) {
+                            imports.push(imp);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn extract_single_go_import(node: &Node, source: &[u8], line: usize) -> Option<ImportInfo> {
+    let path_node = node.child_by_field_name("path")?;
+    let raw = node_text(&path_node, source);
+    // Strip quotes from Go string literal: "fmt" → fmt
+    let source_str = raw.trim_matches('"').to_string();
+
+    let alias_node = node.child_by_field_name("name");
+    let mut names = Vec::new();
+    let mut is_namespace = false;
+
+    match alias_node.map(|n| n.kind()) {
+        Some("package_identifier") => {
+            // Aliased import: import alias "path"
+            let alias_text = node_text(&alias_node.unwrap(), source).to_string();
+            names.push(ImportedName {
+                name: go_package_name(&source_str),
+                alias: Some(alias_text),
+            });
+            is_namespace = true;
+        }
+        Some("dot") => {
+            // Dot import: import . "path" — imports all exported names
+            names.push(ImportedName {
+                name: "*".to_string(),
+                alias: None,
+            });
+        }
+        Some("blank_identifier") => {
+            // Blank import: import _ "path" — side-effect only
+            // No names imported
+        }
+        _ => {
+            // Simple import: import "path" — imports the package name
+            let pkg = go_package_name(&source_str);
+            names.push(ImportedName {
+                name: pkg,
+                alias: None,
+            });
+            is_namespace = true;
+        }
+    }
+
+    Some(ImportInfo {
+        source: source_str,
+        names,
+        is_default: false,
+        is_namespace,
+        line,
+    })
+}
+
+/// Extract Go package name from import path (last path segment).
+/// e.g., "net/http" → "http", "github.com/gin-gonic/gin" → "gin"
+fn go_package_name(import_path: &str) -> String {
+    import_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(import_path)
+        .to_string()
+}
+
+fn extract_go_type_defs(
+    node: &Node,
+    source: &[u8],
+    definitions: &mut Vec<Definition>,
+    exports: &mut Vec<ExportInfo>,
+) {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() == "type_spec" {
+            if let Some(name_node) = child.child_by_field_name("name") {
+                let name = node_text(&name_node, source).to_string();
+                let type_node = child.child_by_field_name("type");
+                let kind = match type_node.as_ref().map(|n| n.kind()) {
+                    Some("interface_type") => SymbolKind::Interface,
+                    Some("struct_type") => SymbolKind::Class, // Use Class for structs
+                    _ => SymbolKind::TypeAlias,
+                };
+                let def = Definition {
+                    name: name.clone(),
+                    kind,
+                    start_line: child.start_position().row + 1,
+                    end_line: child.end_position().row + 1,
+                };
+                if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    exports.push(ExportInfo {
+                        name: name.clone(),
+                        is_default: false,
+                        is_reexport: false,
+                        source: None,
+                        line: def.start_line,
+                    });
+                }
+                definitions.push(def);
+            }
+        }
+        // type_alias is handled by same pattern (type_spec fallthrough above)
+        if child.kind() == "type_alias" {
+            if let Some(name_node) = child.child_by_field_name("name") {
+                let name = node_text(&name_node, source).to_string();
+                let def = Definition {
+                    name: name.clone(),
+                    kind: SymbolKind::TypeAlias,
+                    start_line: child.start_position().row + 1,
+                    end_line: child.end_position().row + 1,
+                };
+                if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    exports.push(ExportInfo {
+                        name: name.clone(),
+                        is_default: false,
+                        is_reexport: false,
+                        source: None,
+                        line: def.start_line,
+                    });
+                }
+                definitions.push(def);
+            }
+        }
+    }
+}
+
+fn extract_go_const_defs(
+    node: &Node,
+    source: &[u8],
+    definitions: &mut Vec<Definition>,
+    exports: &mut Vec<ExportInfo>,
+) {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() == "const_spec" {
+            // const_spec can have multiple names: const A, B = 1, 2
+            let mut name_cursor = child.walk();
+            for name_child in child.children_by_field_name("name", &mut name_cursor) {
+                if name_child.kind() == "identifier" {
+                    let name = node_text(&name_child, source).to_string();
+                    let def = Definition {
+                        name: name.clone(),
+                        kind: SymbolKind::Constant,
+                        start_line: child.start_position().row + 1,
+                        end_line: child.end_position().row + 1,
+                    };
+                    if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                        exports.push(ExportInfo {
+                            name: name.clone(),
+                            is_default: false,
+                            is_reexport: false,
+                            source: None,
+                            line: def.start_line,
+                        });
+                    }
+                    definitions.push(def);
+                }
+            }
+        }
+    }
+}
+
+fn extract_go_var_defs(
+    node: &Node,
+    source: &[u8],
+    definitions: &mut Vec<Definition>,
+) {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            "var_spec" => {
+                let mut name_cursor = child.walk();
+                for name_child in child.children_by_field_name("name", &mut name_cursor) {
+                    if name_child.kind() == "identifier" {
+                        definitions.push(Definition {
+                            name: node_text(&name_child, source).to_string(),
+                            kind: SymbolKind::Constant, // Use Constant for package-level vars
+                            start_line: child.start_position().row + 1,
+                            end_line: child.end_position().row + 1,
+                        });
+                    }
+                }
+            }
+            "var_spec_list" => {
+                let mut list_cursor = child.walk();
+                for spec in child.named_children(&mut list_cursor) {
+                    if spec.kind() == "var_spec" {
+                        let mut name_cursor = spec.walk();
+                        for name_child in spec.children_by_field_name("name", &mut name_cursor) {
+                            if name_child.kind() == "identifier" {
+                                definitions.push(Definition {
+                                    name: node_text(&name_child, source).to_string(),
+                                    kind: SymbolKind::Constant,
+                                    start_line: spec.start_position().row + 1,
+                                    end_line: spec.end_position().row + 1,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Data flow extraction: Go
+// ---------------------------------------------------------------------------
+
+fn extract_go_data_flow(source: &str) -> Result<DataFlowInfo, AstError> {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_go::LANGUAGE.into())
+        .map_err(|e| AstError::LanguageError(e.to_string()))?;
+
+    let tree = parser
+        .parse(source, None)
+        .ok_or_else(|| AstError::ParseError("tree-sitter failed to parse".into()))?;
+
+    let root = tree.root_node();
+    let src = source.as_bytes();
+    let mut assignments = Vec::new();
+    let mut calls_with_args = Vec::new();
+
+    collect_go_data_flow(&root, src, &mut assignments, &mut calls_with_args, &None);
+
+    Ok(DataFlowInfo {
+        assignments,
+        calls_with_args,
+    })
+}
+
+fn collect_go_data_flow(
+    node: &Node,
+    source: &[u8],
+    assignments: &mut Vec<VarCallAssignment>,
+    calls: &mut Vec<CallWithArgs>,
+    containing: &Option<String>,
+) {
+    // Update containing function context.
+    let new_containing = match node.kind() {
+        "function_declaration" => node
+            .child_by_field_name("name")
+            .map(|n| node_text(&n, source).to_string()),
+        "method_declaration" => node
+            .child_by_field_name("name")
+            .map(|n| node_text(&n, source).to_string()),
+        _ => None,
+    };
+
+    let effective = if new_containing.is_some() {
+        &new_containing
+    } else {
+        containing
+    };
+
+    // Detect short variable declaration from call: `x := foo()`
+    if node.kind() == "short_var_declaration" {
+        if let (Some(left), Some(right)) = (
+            node.child_by_field_name("left"),
+            node.child_by_field_name("right"),
+        ) {
+            // Get the first identifier in the expression_list
+            if left.kind() == "expression_list" {
+                let first_id = left.named_child(0);
+                if let Some(first_id) = first_id {
+                    if first_id.kind() == "identifier" {
+                        // Check if right side is a call
+                        if right.kind() == "expression_list" {
+                            let first_val = right.named_child(0);
+                            if let Some(first_val) = first_val {
+                                if first_val.kind() == "call_expression" {
+                                    if let Some(callee) =
+                                        extract_callee(&first_val, source)
+                                    {
+                                        assignments.push(VarCallAssignment {
+                                            variable: node_text(&first_id, source)
+                                                .to_string(),
+                                            callee,
+                                            line: node.start_position().row + 1,
+                                            containing_function: effective.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Detect call expressions with arguments
+    if node.kind() == "call_expression" {
+        if let Some(callee) = extract_callee(node, source) {
+            let arguments = extract_go_argument_texts(node, source);
+            calls.push(CallWithArgs {
+                callee,
+                arguments,
+                line: node.start_position().row + 1,
+                containing_function: effective.clone(),
+            });
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_go_data_flow(&child, source, assignments, calls, effective);
+    }
+}
+
+/// Extract argument texts from a Go call's argument_list.
+fn extract_go_argument_texts(call_node: &Node, source: &[u8]) -> Vec<String> {
+    let args_node = match call_node.child_by_field_name("arguments") {
+        Some(n) => n,
+        None => return vec![],
+    };
+
+    let mut args = Vec::new();
+    let mut cursor = args_node.walk();
+    for child in args_node.named_children(&mut cursor) {
         let text = node_text(&child, source).to_string();
         if !text.is_empty() {
             args.push(text);
@@ -1662,16 +2108,8 @@ class GuideDog(Dog, ServiceAnimal):
 
     #[test]
     fn test_parse_unknown_language() {
-        let source = r#"
-package main
-
-import "fmt"
-
-func main() {
-    fmt.Println("Hello")
-}
-"#;
-        let result = parse_file("main.go", source).unwrap();
+        let source = "fn main() { println!(\"hello\"); }";
+        let result = parse_file("main.rs", source).unwrap();
         assert_eq!(result.language, Language::Unknown);
         assert!(result.definitions.is_empty());
         assert!(result.imports.is_empty());
@@ -1759,7 +2197,7 @@ const VALUE = 42;
         assert_eq!(Language::from_path("app.cjs"), Language::JavaScript);
         assert_eq!(Language::from_path("app.py"), Language::Python);
         assert_eq!(Language::from_path("app.pyi"), Language::Python);
-        assert_eq!(Language::from_path("app.go"), Language::Unknown);
+        assert_eq!(Language::from_path("app.go"), Language::Go);
         assert_eq!(Language::from_path("app.rs"), Language::Unknown);
         assert_eq!(Language::from_path("Makefile"), Language::Unknown);
     }
@@ -2167,7 +2605,7 @@ def get_user(user_id):
 
     #[test]
     fn test_data_flow_unknown_language() {
-        let info = extract_data_flow_info("main.go", "package main").unwrap();
+        let info = extract_data_flow_info("main.rs", "fn main() {}").unwrap();
         assert!(info.assignments.is_empty());
         assert!(info.calls_with_args.is_empty());
     }
@@ -2489,5 +2927,460 @@ var legacy = "old";
         let result = parse_file("consts.ts", source).unwrap();
         assert!(result.exports.iter().any(|e| e.name == "A"));
         assert!(result.exports.iter().any(|e| e.name == "B"));
+    }
+
+    // ========================================================================
+    // Go parsing tests
+    // ========================================================================
+
+    #[test]
+    fn test_go_language_detection() {
+        assert_eq!(Language::from_path("main.go"), Language::Go);
+        assert_eq!(Language::from_path("handlers/user.go"), Language::Go);
+    }
+
+    #[test]
+    fn test_go_simple_imports() {
+        let source = r#"
+package main
+
+import "fmt"
+import "net/http"
+"#;
+        let result = parse_file("main.go", source).unwrap();
+        assert_eq!(result.language, Language::Go);
+        assert_eq!(result.imports.len(), 2);
+
+        assert_eq!(result.imports[0].source, "fmt");
+        assert!(result.imports[0].is_namespace);
+        assert_eq!(result.imports[0].names[0].name, "fmt");
+
+        assert_eq!(result.imports[1].source, "net/http");
+        assert!(result.imports[1].is_namespace);
+        assert_eq!(result.imports[1].names[0].name, "http");
+    }
+
+    #[test]
+    fn test_go_grouped_imports() {
+        let source = r#"
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "github.com/gin-gonic/gin"
+)
+"#;
+        let result = parse_file("main.go", source).unwrap();
+        assert_eq!(result.imports.len(), 3);
+        assert_eq!(result.imports[0].source, "fmt");
+        assert_eq!(result.imports[1].source, "net/http");
+        assert_eq!(result.imports[2].source, "github.com/gin-gonic/gin");
+        assert_eq!(result.imports[2].names[0].name, "gin");
+    }
+
+    #[test]
+    fn test_go_aliased_import() {
+        let source = r#"
+package main
+
+import (
+    myhttp "net/http"
+    _ "database/sql"
+)
+"#;
+        let result = parse_file("main.go", source).unwrap();
+        assert_eq!(result.imports.len(), 2);
+
+        // Aliased import
+        assert_eq!(result.imports[0].source, "net/http");
+        assert_eq!(result.imports[0].names[0].name, "http");
+        assert_eq!(result.imports[0].names[0].alias, Some("myhttp".to_string()));
+
+        // Blank import (side-effect only)
+        assert_eq!(result.imports[1].source, "database/sql");
+        assert!(result.imports[1].names.is_empty());
+    }
+
+    #[test]
+    fn test_go_function_definitions() {
+        let source = r#"
+package main
+
+func main() {
+    fmt.Println("Hello")
+}
+
+func greet(name string) string {
+    return "Hello " + name
+}
+
+func add(a, b int) int {
+    return a + b
+}
+"#;
+        let result = parse_file("main.go", source).unwrap();
+        assert_eq!(result.language, Language::Go);
+
+        let fns: Vec<&str> = result
+            .definitions
+            .iter()
+            .filter(|d| d.kind == SymbolKind::Function)
+            .map(|d| d.name.as_str())
+            .collect();
+        assert!(fns.contains(&"main"));
+        assert!(fns.contains(&"greet"));
+        assert!(fns.contains(&"add"));
+    }
+
+    #[test]
+    fn test_go_struct_definitions() {
+        let source = r#"
+package models
+
+type User struct {
+    ID   int
+    Name string
+    Email string
+}
+
+type Config struct {
+    Port int
+    Host string
+}
+"#;
+        let result = parse_file("models.go", source).unwrap();
+
+        let user = result.definitions.iter().find(|d| d.name == "User").unwrap();
+        assert_eq!(user.kind, SymbolKind::Class); // structs map to Class
+
+        let config = result.definitions.iter().find(|d| d.name == "Config").unwrap();
+        assert_eq!(config.kind, SymbolKind::Class);
+    }
+
+    #[test]
+    fn test_go_interface_definitions() {
+        let source = r#"
+package service
+
+type UserService interface {
+    GetUser(id int) (*User, error)
+    CreateUser(data UserInput) (*User, error)
+    DeleteUser(id int) error
+}
+
+type Repository interface {
+    Find(id int) (interface{}, error)
+    Save(entity interface{}) error
+}
+"#;
+        let result = parse_file("service.go", source).unwrap();
+
+        let user_svc = result.definitions.iter().find(|d| d.name == "UserService").unwrap();
+        assert_eq!(user_svc.kind, SymbolKind::Interface);
+
+        let repo = result.definitions.iter().find(|d| d.name == "Repository").unwrap();
+        assert_eq!(repo.kind, SymbolKind::Interface);
+    }
+
+    #[test]
+    fn test_go_method_declarations() {
+        let source = r#"
+package models
+
+type User struct {
+    Name string
+}
+
+func (u *User) Greet() string {
+    return "Hello " + u.Name
+}
+
+func (u User) String() string {
+    return u.Name
+}
+"#;
+        let result = parse_file("models.go", source).unwrap();
+
+        let methods: Vec<&str> = result
+            .definitions
+            .iter()
+            .filter(|d| d.kind == SymbolKind::Function)
+            .map(|d| d.name.as_str())
+            .collect();
+        assert!(methods.contains(&"Greet"), "method Greet should be detected");
+        assert!(methods.contains(&"String"), "method String should be detected");
+    }
+
+    #[test]
+    fn test_go_constants() {
+        let source = r#"
+package config
+
+const MaxRetries = 3
+const (
+    DefaultPort = 8080
+    DefaultHost = "localhost"
+)
+"#;
+        let result = parse_file("config.go", source).unwrap();
+
+        let consts: Vec<&str> = result
+            .definitions
+            .iter()
+            .filter(|d| d.kind == SymbolKind::Constant)
+            .map(|d| d.name.as_str())
+            .collect();
+        assert!(consts.contains(&"MaxRetries"));
+        assert!(consts.contains(&"DefaultPort"));
+        assert!(consts.contains(&"DefaultHost"));
+    }
+
+    #[test]
+    fn test_go_type_alias() {
+        let source = r#"
+package types
+
+type UserID int64
+type Handler func(w http.ResponseWriter, r *http.Request)
+"#;
+        let result = parse_file("types.go", source).unwrap();
+
+        // UserID should be detected as TypeAlias (not struct/interface)
+        let user_id = result.definitions.iter().find(|d| d.name == "UserID").unwrap();
+        assert_eq!(user_id.kind, SymbolKind::TypeAlias);
+
+        let handler = result.definitions.iter().find(|d| d.name == "Handler").unwrap();
+        assert_eq!(handler.kind, SymbolKind::TypeAlias);
+    }
+
+    #[test]
+    fn test_go_call_sites() {
+        let source = r#"
+package main
+
+import "fmt"
+
+func process(data string) {
+    validated := validate(data)
+    result := db.Save(validated)
+    fmt.Println(result)
+}
+"#;
+        let result = parse_file("handler.go", source).unwrap();
+
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"validate"));
+        assert!(callees.contains(&"db.Save"));
+        assert!(callees.contains(&"fmt.Println"));
+
+        // All calls inside process function
+        for call in &result.call_sites {
+            assert_eq!(call.containing_function, Some("process".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_go_call_sites_in_method() {
+        let source = r#"
+package service
+
+func (s *UserService) Create(data UserInput) (*User, error) {
+    validated := s.validate(data)
+    return s.repo.Save(validated)
+}
+"#;
+        let result = parse_file("service.go", source).unwrap();
+
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"s.validate"));
+        assert!(callees.contains(&"s.repo.Save"));
+
+        for call in &result.call_sites {
+            assert_eq!(call.containing_function, Some("Create".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_go_exported_symbols() {
+        let source = r#"
+package models
+
+type User struct {
+    Name string
+}
+
+type internalState struct {
+    cache map[string]string
+}
+
+func GetUser(id int) *User {
+    return nil
+}
+
+func helper() {
+}
+
+const MaxSize = 100
+const defaultTimeout = 30
+"#;
+        let result = parse_file("models.go", source).unwrap();
+
+        let export_names: Vec<&str> = result.exports.iter().map(|e| e.name.as_str()).collect();
+        // Uppercase = exported
+        assert!(export_names.contains(&"User"));
+        assert!(export_names.contains(&"GetUser"));
+        assert!(export_names.contains(&"MaxSize"));
+        // Lowercase = not exported
+        assert!(!export_names.contains(&"internalState"));
+        assert!(!export_names.contains(&"helper"));
+        assert!(!export_names.contains(&"defaultTimeout"));
+    }
+
+    #[test]
+    fn test_go_data_flow_short_var_decl() {
+        let source = r#"
+package main
+
+func handler(req string) {
+    data := parseBody(req)
+    result := transform(data)
+    save(result)
+}
+"#;
+        let info = extract_data_flow_info("handler.go", source).unwrap();
+
+        assert_eq!(info.assignments.len(), 2);
+
+        let vars: Vec<&str> = info.assignments.iter().map(|a| a.variable.as_str()).collect();
+        assert!(vars.contains(&"data"));
+        assert!(vars.contains(&"result"));
+
+        let callees: Vec<&str> = info.assignments.iter().map(|a| a.callee.as_str()).collect();
+        assert!(callees.contains(&"parseBody"));
+        assert!(callees.contains(&"transform"));
+    }
+
+    #[test]
+    fn test_go_data_flow_method_call() {
+        let source = r#"
+package main
+
+func getUser(id int) {
+    user := db.FindOne(id)
+    save(user)
+}
+"#;
+        let info = extract_data_flow_info("service.go", source).unwrap();
+
+        assert_eq!(info.assignments.len(), 1);
+        assert_eq!(info.assignments[0].variable, "user");
+        assert_eq!(info.assignments[0].callee, "db.FindOne");
+        assert_eq!(info.assignments[0].containing_function, Some("getUser".to_string()));
+    }
+
+    #[test]
+    fn test_go_data_flow_call_with_args() {
+        let source = r#"
+package main
+
+func process() {
+    x := getFirst()
+    y := getSecond()
+    combine(x, y, 42)
+}
+"#;
+        let info = extract_data_flow_info("process.go", source).unwrap();
+
+        let combine = info
+            .calls_with_args
+            .iter()
+            .find(|c| c.callee == "combine")
+            .unwrap();
+        assert!(combine.arguments.contains(&"x".to_string()));
+        assert!(combine.arguments.contains(&"y".to_string()));
+        assert!(combine.arguments.contains(&"42".to_string()));
+    }
+
+    #[test]
+    fn test_go_empty_source() {
+        let source = "package main\n";
+        let result = parse_file("empty.go", source).unwrap();
+        assert_eq!(result.language, Language::Go);
+        assert!(result.definitions.is_empty());
+        assert!(result.imports.is_empty());
+        assert!(result.call_sites.is_empty());
+    }
+
+    #[test]
+    fn test_go_goroutine_call() {
+        let source = r#"
+package main
+
+func startWorker() {
+    go processQueue()
+    go handleMessages()
+}
+"#;
+        let result = parse_file("worker.go", source).unwrap();
+
+        // Goroutine calls should still be detected as call sites
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"processQueue"));
+        assert!(callees.contains(&"handleMessages"));
+    }
+
+    #[test]
+    fn test_go_var_declaration() {
+        let source = r#"
+package config
+
+var GlobalConfig Config
+var (
+    Logger  *log.Logger
+    Verbose bool
+)
+"#;
+        let result = parse_file("config.go", source).unwrap();
+        let vars: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
+        assert!(vars.contains(&"GlobalConfig"));
+        assert!(vars.contains(&"Logger"));
+        assert!(vars.contains(&"Verbose"));
+    }
+
+    #[test]
+    fn test_go_http_handler_pattern() {
+        let source = r#"
+package main
+
+import "net/http"
+
+func main() {
+    http.HandleFunc("/users", handleUsers)
+    http.ListenAndServe(":8080", nil)
+}
+
+func handleUsers(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintln(w, "users")
+}
+"#;
+        let result = parse_file("main.go", source).unwrap();
+
+        let fns: Vec<&str> = result
+            .definitions
+            .iter()
+            .filter(|d| d.kind == SymbolKind::Function)
+            .map(|d| d.name.as_str())
+            .collect();
+        assert!(fns.contains(&"main"));
+        assert!(fns.contains(&"handleUsers"));
+
+        // Verify http import
+        assert!(result.imports.iter().any(|i| i.source == "net/http"));
+
+        // Verify call sites
+        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"http.HandleFunc"));
+        assert!(callees.contains(&"http.ListenAndServe"));
     }
 }

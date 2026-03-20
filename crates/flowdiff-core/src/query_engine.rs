@@ -35,6 +35,12 @@ mod queries {
         pub const CALLS: &str = include_str!("../queries/python/calls.scm");
         pub const ASSIGNMENTS: &str = include_str!("../queries/python/assignments.scm");
     }
+    pub mod go {
+        pub const IMPORTS: &str = include_str!("../queries/go/imports.scm");
+        pub const DEFINITIONS: &str = include_str!("../queries/go/definitions.scm");
+        pub const CALLS: &str = include_str!("../queries/go/calls.scm");
+        pub const ASSIGNMENTS: &str = include_str!("../queries/go/assignments.scm");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +172,7 @@ fn collect_matches<'tree>(
 pub struct QueryEngine {
     ts_queries: LanguageQueries,
     py_queries: LanguageQueries,
+    go_queries: LanguageQueries,
 }
 
 impl QueryEngine {
@@ -237,9 +244,41 @@ impl QueryEngine {
             )?,
         };
 
+        let go_lang: tree_sitter::Language = tree_sitter_go::LANGUAGE.into();
+
+        let go_queries = LanguageQueries {
+            language: go_lang.clone(),
+            imports: QueryWithCaptures::new(
+                &go_lang,
+                queries::go::IMPORTS,
+                "go",
+                "imports",
+            )?,
+            exports: None, // Go uses capitalization for exports, handled in Rust code
+            definitions: QueryWithCaptures::new(
+                &go_lang,
+                queries::go::DEFINITIONS,
+                "go",
+                "definitions",
+            )?,
+            calls: QueryWithCaptures::new(
+                &go_lang,
+                queries::go::CALLS,
+                "go",
+                "calls",
+            )?,
+            assignments: QueryWithCaptures::new(
+                &go_lang,
+                queries::go::ASSIGNMENTS,
+                "go",
+                "assignments",
+            )?,
+        };
+
         Ok(Self {
             ts_queries,
             py_queries,
+            go_queries,
         })
     }
 
@@ -254,6 +293,9 @@ impl QueryEngine {
             }
             Language::Python => {
                 self.parse_with_queries(path, source, language, &self.py_queries)
+            }
+            Language::Go => {
+                self.parse_with_queries(path, source, language, &self.go_queries)
             }
             Language::Unknown => Ok(ParsedFile {
                 path: path.to_string(),
@@ -278,6 +320,7 @@ impl QueryEngine {
         let lang_queries = match language {
             Language::TypeScript | Language::JavaScript => &self.ts_queries,
             Language::Python => &self.py_queries,
+            Language::Go => &self.go_queries,
             Language::Unknown => {
                 return Ok(DataFlowInfo {
                     assignments: vec![],
@@ -385,6 +428,7 @@ impl QueryEngine {
                 self.extract_ts_imports(root, source, qwc)
             }
             Language::Python => self.extract_python_imports(root, source, qwc),
+            Language::Go => self.extract_go_imports(root, source, qwc),
             _ => Ok(vec![]),
         }
     }
@@ -670,6 +714,114 @@ impl QueryEngine {
         }
 
         Ok(import_map.into_iter().map(|(_, b)| b.build()).collect())
+    }
+
+    fn extract_go_imports(
+        &self,
+        root: &Node,
+        source: &[u8],
+        qwc: &QueryWithCaptures,
+    ) -> Result<Vec<ImportInfo>, QueryEngineError> {
+        let mut cursor = QueryCursor::new();
+        let matches = collect_matches(&mut cursor, &qwc.query, *root, source);
+
+        let stmt_idx = qwc.capture_index("stmt");
+        let source_idx = qwc.capture_index("source");
+        let alias_name_idx = qwc.capture_index("alias_name");
+        let dot_import_idx = qwc.capture_index("dot_import");
+        let blank_import_idx = qwc.capture_index("blank_import");
+
+        let mut imports = Vec::new();
+        let mut seen: Vec<(usize, String)> = Vec::new();
+
+        for m in &matches {
+            let mut line = 0usize;
+            let mut source_text = String::new();
+
+            for &(idx, node) in &m.captures {
+                if Some(idx) == stmt_idx {
+                    line = node.start_position().row + 1;
+                }
+                if Some(idx) == source_idx {
+                    // Strip quotes from Go string literal
+                    let raw = node_text(&node, source);
+                    source_text = raw.trim_matches('"').to_string();
+                    line = node.start_position().row + 1;
+                }
+            }
+
+            if source_text.is_empty() {
+                continue;
+            }
+
+            // Dedup: same source at same line
+            let key = (line, source_text.clone());
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+
+            let pkg_name = source_text
+                .rsplit('/')
+                .next()
+                .unwrap_or(&source_text)
+                .to_string();
+
+            if m.has_capture(dot_import_idx) {
+                // import . "path" — wildcard import
+                imports.push(ImportInfo {
+                    source: source_text,
+                    names: vec![ImportedName {
+                        name: "*".to_string(),
+                        alias: None,
+                    }],
+                    is_default: false,
+                    is_namespace: false,
+                    line,
+                });
+            } else if m.has_capture(blank_import_idx) {
+                // import _ "path" — side-effect only
+                imports.push(ImportInfo {
+                    source: source_text,
+                    names: vec![],
+                    is_default: false,
+                    is_namespace: false,
+                    line,
+                });
+            } else if m.has_capture(alias_name_idx) {
+                // import alias "path"
+                let mut alias_text = String::new();
+                for &(idx, node) in &m.captures {
+                    if Some(idx) == alias_name_idx {
+                        alias_text = node_text(&node, source).to_string();
+                    }
+                }
+                imports.push(ImportInfo {
+                    source: source_text,
+                    names: vec![ImportedName {
+                        name: pkg_name,
+                        alias: Some(alias_text),
+                    }],
+                    is_default: false,
+                    is_namespace: true,
+                    line,
+                });
+            } else {
+                // Simple import "path"
+                imports.push(ImportInfo {
+                    source: source_text,
+                    names: vec![ImportedName {
+                        name: pkg_name,
+                        alias: None,
+                    }],
+                    is_default: false,
+                    is_namespace: true,
+                    line,
+                });
+            }
+        }
+
+        Ok(imports)
     }
 
     // -----------------------------------------------------------------------
@@ -1066,6 +1218,58 @@ impl QueryEngine {
                     }
                 }
             }
+            Language::Go => {
+                let fn_name_idx = qwc.capture_index("fn_name");
+                let fn_node_idx = qwc.capture_index("fn_node");
+                let method_name_idx = qwc.capture_index("method_name");
+                let method_node_idx = qwc.capture_index("method_node");
+                let struct_name_idx = qwc.capture_index("struct_name");
+                let struct_node_idx = qwc.capture_index("struct_node");
+                let iface_name_idx = qwc.capture_index("iface_name");
+                let iface_node_idx = qwc.capture_index("iface_node");
+                let type_name_idx = qwc.capture_index("type_name");
+                let type_node_idx = qwc.capture_index("type_node");
+                let const_name_idx = qwc.capture_index("const_name");
+                let const_node_idx = qwc.capture_index("const_node");
+                let var_decl_name_idx = qwc.capture_index("var_decl_name");
+                let var_decl_node_idx = qwc.capture_index("var_decl_node");
+
+                let go_def_captures: &[(Option<u32>, Option<u32>, SymbolKind)] = &[
+                    (fn_name_idx, fn_node_idx, SymbolKind::Function),
+                    (method_name_idx, method_node_idx, SymbolKind::Function),
+                    (struct_name_idx, struct_node_idx, SymbolKind::Class),
+                    (iface_name_idx, iface_node_idx, SymbolKind::Interface),
+                    (type_name_idx, type_node_idx, SymbolKind::TypeAlias),
+                    (const_name_idx, const_node_idx, SymbolKind::Constant),
+                    (var_decl_name_idx, var_decl_node_idx, SymbolKind::Constant),
+                ];
+
+                for m in &matches {
+                    for &(name_cap, node_cap, kind) in go_def_captures {
+                        if m.has_capture(name_cap) {
+                            let name_text = m
+                                .get_capture(name_cap)
+                                .map(|n| node_text(&n, source).to_string())
+                                .unwrap_or_default();
+                            let (start_line, end_line, node_start) =
+                                node_span(m, node_cap);
+                            if !name_text.is_empty() {
+                                let key = (node_start, hash_str(&name_text));
+                                if !seen_nodes.contains(&key) {
+                                    seen_nodes.push(key);
+                                    definitions.push(Definition {
+                                        name: name_text,
+                                        kind,
+                                        start_line,
+                                        end_line,
+                                    });
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -1342,6 +1546,7 @@ fn find_containing_function(node: &Node, source: &[u8], language: Language) -> O
             "method_definition",
         ],
         Language::Python => &["function_definition"],
+        Language::Go => &["function_declaration", "method_declaration"],
         Language::Unknown => return None,
     };
 

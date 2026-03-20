@@ -301,6 +301,21 @@ const FRAMEWORK_IMPORTS: &[(&str, &str)] = &[
     ("aiohttp", "aiohttp"),
     ("httpx", "httpx"),
     ("uvicorn", "Uvicorn"),
+    // Go
+    ("net/http", "Go net/http"),
+    ("github.com/gin-gonic/gin", "Gin"),
+    ("github.com/labstack/echo", "Echo"),
+    ("github.com/go-chi/chi", "Chi"),
+    ("github.com/gofiber/fiber", "Fiber"),
+    ("github.com/gorilla/mux", "Gorilla Mux"),
+    ("google.golang.org/grpc", "gRPC"),
+    ("github.com/spf13/cobra", "Cobra"),
+    ("github.com/spf13/viper", "Viper"),
+    ("gorm.io/gorm", "GORM"),
+    ("github.com/jmoiron/sqlx", "sqlx"),
+    ("database/sql", "Go database/sql"),
+    ("github.com/go-playground/validator", "Go Validator"),
+    ("github.com/stretchr/testify", "Testify"),
 ];
 
 // ---------------------------------------------------------------------------
@@ -1869,6 +1884,78 @@ import { useEffect } from 'react';
         ]);
         let react_count = frameworks.iter().filter(|f| *f == "React").count();
         assert_eq!(react_count, 1, "React should appear exactly once");
+    }
+
+    // ========================================================================
+    // Go framework detection
+    // ========================================================================
+
+    #[test]
+    fn test_detect_go_gin_framework() {
+        let frameworks = detect_fw(&[(
+            "main.go",
+            r#"
+package main
+
+import "github.com/gin-gonic/gin"
+
+func main() {
+    r := gin.Default()
+    r.Run(":8080")
+}
+"#,
+        )]);
+        assert!(
+            frameworks.contains(&"Gin".to_string()),
+            "should detect Gin framework, got: {:?}",
+            frameworks,
+        );
+    }
+
+    #[test]
+    fn test_detect_go_multiple_frameworks() {
+        let frameworks = detect_fw(&[
+            (
+                "main.go",
+                r#"
+package main
+
+import (
+    "net/http"
+    "github.com/spf13/cobra"
+    "gorm.io/gorm"
+)
+
+func main() {
+    http.ListenAndServe(":8080", nil)
+}
+"#,
+            ),
+        ]);
+        assert!(frameworks.contains(&"Go net/http".to_string()));
+        assert!(frameworks.contains(&"Cobra".to_string()));
+        assert!(frameworks.contains(&"GORM".to_string()));
+    }
+
+    #[test]
+    fn test_detect_go_grpc_framework() {
+        let frameworks = detect_fw(&[(
+            "server.go",
+            r#"
+package main
+
+import "google.golang.org/grpc"
+
+func main() {
+    s := grpc.NewServer()
+}
+"#,
+        )]);
+        assert!(
+            frameworks.contains(&"gRPC".to_string()),
+            "should detect gRPC framework, got: {:?}",
+            frameworks,
+        );
     }
 
     // ========================================================================

@@ -861,14 +861,14 @@ Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The
 #### 11.1 Tier 1 — Must have
 
 **Go:**
-- [ ] Add `tree-sitter-go` grammar dependency to `Cargo.toml`
-- [ ] Add `Language::Go` variant to enum in `ast.rs`
-- [ ] Write `.scm` query files: `queries/go/imports.scm`, `exports.scm`, `definitions.scm`, `calls.scm`, `assignments.scm`
-- [ ] Handle Go-specific patterns: package imports, struct methods, interface implementations, goroutine spawning, channel send/receive
-- [ ] Entrypoint detection: `func main()`, `http.HandleFunc`, `http.Handle`, gin/echo/chi router patterns, `cobra.Command`
-- [ ] Framework detection: net/http, Gin, Echo, Chi, Fiber, gRPC, Cobra, GORM, sqlx
-- [ ] Tests: import resolution (relative packages, module paths), function/method extraction, struct definitions, interface edges, call graph across packages
-- [ ] Integration test: synthetic Go HTTP API app with handler→service→repo pattern
+- [x] Add `tree-sitter-go` grammar dependency to `Cargo.toml`
+- [x] Add `Language::Go` variant to enum in `ast.rs`
+- [x] Write `.scm` query files: `queries/go/imports.scm`, `exports.scm`, `definitions.scm`, `calls.scm`, `assignments.scm`
+- [x] Handle Go-specific patterns: package imports, struct methods, interface implementations, goroutine spawning, channel send/receive
+- [x] Entrypoint detection: `func main()`, `http.HandleFunc`, `http.Handle`, gin/echo/chi router patterns, `cobra.Command`
+- [x] Framework detection: net/http, Gin, Echo, Chi, Fiber, gRPC, Cobra, GORM, sqlx
+- [x] Tests: import resolution (relative packages, module paths), function/method extraction, struct definitions, interface edges, call graph across packages
+- [x] Integration test: synthetic Go HTTP API app with handler→service→repo pattern
 
 **Rust:**
 - [ ] Add `tree-sitter-rust` grammar dependency to `Cargo.toml`

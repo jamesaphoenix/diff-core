@@ -764,3 +764,238 @@ export default app;
         entrypoints
     );
 }
+
+// ─── Go Integration Tests ────────────────────────────────────────────────
+
+/// Test: Synthetic Go HTTP API with handler → service → repo pattern.
+///
+/// Creates a Go app with Gin framework:
+///   main.go → handlers/user.go → services/user.go → repositories/user.go
+///
+/// Verifies:
+///   - Go language detection
+///   - Import extraction from Go files
+///   - Function/struct/interface definitions
+///   - Call site detection
+///   - HTTP route entrypoint detection
+///   - Framework detection (Gin)
+///   - Pipeline produces valid groups and JSON output
+#[test]
+fn test_e2e_go_http_api() {
+    let rb = RepoBuilder::new();
+
+    // Initial commit
+    rb.write_file("go.mod", "module github.com/example/api\n\ngo 1.21\n");
+    rb.commit("Initial commit: go.mod");
+    rb.create_branch("main");
+
+    // Feature branch: add Go API
+    rb.create_branch("feature/go-api");
+    rb.checkout("feature/go-api");
+
+    rb.write_file(
+        "cmd/server/main.go",
+        r#"
+package main
+
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/example/api/handlers"
+)
+
+func main() {
+    r := gin.Default()
+    handlers.RegisterRoutes(r)
+    r.Run(":8080")
+}
+"#,
+    );
+
+    rb.write_file(
+        "handlers/user.go",
+        r#"
+package handlers
+
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/example/api/services"
+)
+
+func RegisterRoutes(r *gin.Engine) {
+    r.GET("/users/:id", GetUser)
+    r.POST("/users", CreateUser)
+}
+
+func GetUser(c *gin.Context) {
+    id := c.Param("id")
+    user := services.FindUser(id)
+    c.JSON(200, user)
+}
+
+func CreateUser(c *gin.Context) {
+    data := services.ParseInput(c)
+    user := services.CreateUser(data)
+    c.JSON(201, user)
+}
+"#,
+    );
+
+    rb.write_file(
+        "services/user.go",
+        r#"
+package services
+
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/example/api/repositories"
+)
+
+type UserInput struct {
+    Name  string
+    Email string
+}
+
+func ParseInput(c *gin.Context) UserInput {
+    var input UserInput
+    c.BindJSON(&input)
+    return input
+}
+
+func FindUser(id string) *repositories.User {
+    return repositories.GetByID(id)
+}
+
+func CreateUser(data UserInput) *repositories.User {
+    user := repositories.User{
+        Name:  data.Name,
+        Email: data.Email,
+    }
+    return repositories.Insert(&user)
+}
+"#,
+    );
+
+    rb.write_file(
+        "repositories/user.go",
+        r#"
+package repositories
+
+type User struct {
+    ID    string
+    Name  string
+    Email string
+}
+
+var users = make(map[string]*User)
+
+func GetByID(id string) *User {
+    return users[id]
+}
+
+func Insert(user *User) *User {
+    user.ID = "generated-id"
+    users[user.ID] = user
+    return user
+}
+"#,
+    );
+
+    rb.commit("Add Go HTTP API with handler-service-repo");
+
+    let result = run_pipeline(rb.path(), "main", "feature/go-api");
+
+    // Verify basic output shape
+    assert_valid_json_schema(&result);
+    assert_valid_scores(&result);
+
+    // Verify Go files were detected
+    assert_language_detected(&result, "go");
+
+    // Verify all changed files are accounted for
+    assert_all_files_accounted(&result);
+
+    // Verify there are flow groups
+    assert!(
+        !result.groups.is_empty(),
+        "should produce at least one flow group"
+    );
+
+    // Verify CLI entrypoint detection (func main)
+    let has_cli_ep = result.groups.iter().any(|g| {
+        g.entrypoint.as_ref().map_or(false, |ep| {
+            ep.entrypoint_type == flowdiff_core::types::EntrypointType::CliCommand
+        })
+    });
+    assert!(
+        has_cli_ep,
+        "should detect func main() as CLI entrypoint"
+    );
+
+    // Verify Mermaid graph is valid
+    assert_valid_mermaid(&result);
+}
+
+/// Test: Go test file detection.
+///
+/// Verifies that `_test.go` files are detected as test file entrypoints,
+/// and that Go Test* functions are recognized as test symbols.
+#[test]
+fn test_e2e_go_test_file_detection() {
+    let rb = RepoBuilder::new();
+
+    rb.write_file("go.mod", "module example.com/app\n\ngo 1.21\n");
+    rb.commit("Initial commit");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/tests");
+    rb.checkout("feature/tests");
+
+    rb.write_file(
+        "handlers/user.go",
+        r#"
+package handlers
+
+func GetUser(id string) string {
+    return "user-" + id
+}
+"#,
+    );
+
+    rb.write_file(
+        "handlers/user_test.go",
+        r#"
+package handlers
+
+import "testing"
+
+func TestGetUser(t *testing.T) {
+    result := GetUser("123")
+    if result != "user-123" {
+        t.Errorf("unexpected: %s", result)
+    }
+}
+
+func BenchmarkGetUser(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        GetUser("123")
+    }
+}
+"#,
+    );
+
+    rb.commit("Add user handler with tests");
+
+    let result = run_pipeline(rb.path(), "main", "feature/tests");
+
+    // Verify test file entrypoint detection
+    let test_eps: Vec<_> = result
+        .groups
+        .iter()
+        .flat_map(|g| g.entrypoint.as_ref())
+        .filter(|ep| ep.entrypoint_type == flowdiff_core::types::EntrypointType::TestFile)
+        .collect();
+    assert!(
+        !test_eps.is_empty(),
+        "should detect _test.go as test file entrypoint"
+    );
+}

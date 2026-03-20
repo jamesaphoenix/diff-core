@@ -2208,6 +2208,7 @@ mod proptests {
             Just(Language::TypeScript),
             Just(Language::JavaScript),
             Just(Language::Python),
+            Just(Language::Go),
             Just(Language::Unknown),
         ]
     }
@@ -2253,6 +2254,7 @@ mod proptests {
                     Language::TypeScript => ".ts",
                     Language::JavaScript => ".js",
                     Language::Python => ".py",
+                    Language::Go => ".go",
                     Language::Unknown => "",
                 };
                 IrFile {

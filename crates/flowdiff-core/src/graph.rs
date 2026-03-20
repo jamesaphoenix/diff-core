@@ -1729,12 +1729,8 @@ function login(user: User) {}
     #[test]
     fn test_unknown_language_no_crash() {
         let graph = build_graph_from_sources(&[(
-            "src/main.go",
-            r#"
-package main
-import "fmt"
-func main() { fmt.Println("hello") }
-"#,
+            "src/main.rs",
+            r#"fn main() { println!("hello"); }"#,
         )]);
 
         // Should have module node only, no definitions from unknown language.
