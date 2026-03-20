@@ -104,6 +104,11 @@ fn is_test_path(path: &str) -> bool {
         || (lower.ends_with(".php") && (
             path.split('/').last().map_or(false, |f| f.ends_with("Test.php") || f.ends_with("Tests.php") || f.starts_with("test_"))
         ))
+        // Ruby test files: RSpec spec/*_spec.rb, Minitest test/*_test.rb
+        || (lower.ends_with(".rb") && (
+            path.split('/').last().map_or(false, |f| f.ends_with("_spec.rb") || f.ends_with("_test.rb") || f.starts_with("test_"))
+            || lower.contains("/spec/")
+        ))
 }
 
 fn is_test_symbol_name(name: &str) -> bool {
@@ -131,6 +136,7 @@ fn detect_http_routes(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         Language::Java => detect_http_routes_java(file, out),
         Language::CSharp => detect_http_routes_csharp(file, out),
         Language::Php => detect_http_routes_php(file, out),
+        Language::Ruby => detect_http_routes_ruby(file, out),
         Language::Unknown => {}
     }
 }
@@ -719,6 +725,80 @@ fn detect_http_routes_php(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     }
 }
 
+fn detect_http_routes_ruby(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    // Check for Ruby web framework imports
+    let has_rails_import = file.imports.iter().any(|i| {
+        i.source == "action_controller"
+            || i.source == "rails"
+            || i.source == "active_record"
+    });
+
+    let has_sinatra_import = file.imports.iter().any(|i| {
+        i.source == "sinatra" || i.source == "sinatra/base"
+    });
+
+    let has_grape_import = file.imports.iter().any(|i| {
+        i.source == "grape"
+    });
+
+    // Sinatra-style: detect get/post/put/delete/patch route DSL calls
+    if has_sinatra_import || has_grape_import {
+        let http_methods = ["get", "post", "put", "delete", "patch", "options", "head"];
+        for call in &file.call_sites {
+            if http_methods.contains(&call.callee.as_str()) {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: call.callee.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+        return;
+    }
+
+    // Rails: controller action methods
+    if has_rails_import {
+        for def in &file.definitions {
+            if def.kind == crate::types::SymbolKind::Function
+                && !def.name.starts_with('_')
+                && def.name != "initialize"
+            {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: def.name.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+        return;
+    }
+
+    // Path-based heuristic for Rails controller files
+    let is_controller_file = file.path.contains("/controllers/")
+        || file.path.contains("/Controllers/")
+        || file.path.contains("/routes/")
+        || file
+            .path
+            .split('/')
+            .last()
+            .map_or(false, |f| f.ends_with("_controller.rb"));
+
+    if is_controller_file {
+        for def in &file.definitions {
+            if def.kind == crate::types::SymbolKind::Function
+                && !def.name.starts_with('_')
+                && def.name != "initialize"
+            {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: def.name.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+    }
+}
+
 fn is_web_framework_import(imp: &ImportInfo) -> bool {
     let src = &imp.source;
     src == "flask"
@@ -745,7 +825,7 @@ fn detect_cli_commands(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         // JS/TS: main() function in entry-like files
         // Go: func main() is always a CLI entrypoint
         let is_cli_path = is_cli_file_path(&file.path);
-        if is_cli_path || file.language == Language::Python || file.language == Language::Go || file.language == Language::Rust || file.language == Language::Java || file.language == Language::CSharp || file.language == Language::Php {
+        if is_cli_path || file.language == Language::Python || file.language == Language::Go || file.language == Language::Rust || file.language == Language::Java || file.language == Language::CSharp || file.language == Language::Php || file.language == Language::Ruby {
             out.push(Entrypoint {
                 file: file.path.clone(),
                 symbol: "main".to_string(),

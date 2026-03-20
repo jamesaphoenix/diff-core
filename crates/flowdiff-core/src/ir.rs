@@ -2213,6 +2213,7 @@ mod proptests {
             Just(Language::Java),
             Just(Language::CSharp),
             Just(Language::Php),
+            Just(Language::Ruby),
             Just(Language::Unknown),
         ]
     }
@@ -2263,6 +2264,7 @@ mod proptests {
                     Language::Java => ".java",
                     Language::CSharp => ".cs",
                     Language::Php => ".php",
+                    Language::Ruby => ".rb",
                     Language::Unknown => "",
                 };
                 IrFile {

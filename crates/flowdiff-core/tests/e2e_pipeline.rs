@@ -2116,3 +2116,231 @@ class UserServiceTest extends TestCase
         result.summary.frameworks_detected
     );
 }
+
+/// Test: Ruby Rails REST API with controller→service→model pattern.
+///
+/// Verifies that the pipeline can:
+/// - Parse Ruby source files via tree-sitter
+/// - Extract require/require_relative imports, include/extend mixins
+/// - Detect class, module, and method definitions
+/// - Detect Rails controller action entrypoints
+/// - Detect Rails framework from imports
+/// - Cluster files into meaningful flow groups
+#[test]
+fn test_e2e_ruby_rails_api() {
+    let rb = RepoBuilder::new();
+
+    // Initial commit
+    rb.write_file("Gemfile", "source 'https://rubygems.org'\ngem 'rails', '~> 7.1'\n");
+    rb.commit("Initial commit: Gemfile");
+    rb.create_branch("main");
+
+    // Feature branch: add Rails REST API
+    rb.create_branch("feature/ruby-api");
+    rb.checkout("feature/ruby-api");
+
+    rb.write_file(
+        "app/controllers/users_controller.rb",
+        r#"require 'action_controller'
+require_relative '../models/user'
+require_relative '../services/user_service'
+
+class UsersController < ApplicationController
+  include Authentication
+
+  def index
+    @users = User.all()
+    respond_to()
+  end
+
+  def show
+    @user = User.find(params())
+  end
+
+  def create
+    @user = UserService.new().create(user_params())
+    redirect_to(@user)
+  end
+
+  def destroy
+    @user = User.find(params())
+    @user.destroy()
+  end
+
+  private
+
+  def user_params
+    params().require().permit()
+  end
+end
+"#,
+    );
+
+    rb.write_file(
+        "app/models/user.rb",
+        r#"require 'active_record'
+
+class User < ActiveRecord::Base
+  include Validatable
+
+  def full_name
+    first_name.to_s()
+  end
+
+  def active?
+    status == 'active'
+  end
+end
+"#,
+    );
+
+    rb.write_file(
+        "app/services/user_service.rb",
+        r#"require_relative '../models/user'
+
+class UserService
+  def create(attrs)
+    user = User.new(attrs)
+    user.save()
+    notify(user)
+    user
+  end
+
+  def find(id)
+    User.find(id)
+  end
+
+  private
+
+  def notify(user)
+    EventBus.publish('user.created', user)
+  end
+end
+"#,
+    );
+
+    rb.write_file(
+        "config/routes.rb",
+        r#"require 'action_controller'
+
+Rails.application.routes.draw()
+"#,
+    );
+
+    rb.commit("Add Rails REST API with controller-service-model");
+
+    let result = run_pipeline(rb.path(), "main", "feature/ruby-api");
+
+    // Verify basic output shape
+    assert_valid_json_schema(&result);
+    assert_valid_scores(&result);
+
+    // Verify Ruby files were detected
+    assert_language_detected(&result, "ruby");
+
+    // Verify all changed files are accounted for
+    assert_all_files_accounted(&result);
+
+    // Verify there are flow groups
+    assert!(
+        !result.groups.is_empty(),
+        "should produce at least one flow group"
+    );
+
+    // Verify entrypoint detection (controller action methods)
+    let has_entrypoint = result.groups.iter().any(|g| g.entrypoint.is_some());
+    assert!(
+        has_entrypoint,
+        "should detect at least one entrypoint (Rails controller actions)"
+    );
+
+    // Verify Rails framework detection
+    let has_rails = result
+        .summary
+        .frameworks_detected
+        .iter()
+        .any(|f| f.contains("Rails"));
+    assert!(
+        has_rails,
+        "should detect Rails framework; detected: {:?}",
+        result.summary.frameworks_detected
+    );
+
+    // Verify Mermaid graph is valid
+    assert_valid_mermaid(&result);
+
+    // Verify JSON roundtrip
+    assert_json_roundtrip(&result);
+}
+
+/// Test: Ruby test file detection.
+///
+/// Verifies that *_spec.rb and *_test.rb files are detected as test entrypoints.
+#[test]
+fn test_e2e_ruby_test_file_detection() {
+    let rb = RepoBuilder::new();
+
+    rb.write_file("Gemfile", "source 'https://rubygems.org'\ngem 'rspec'\n");
+    rb.commit("Initial commit");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/tests");
+    rb.checkout("feature/tests");
+
+    rb.write_file(
+        "app/services/user_service.rb",
+        "class UserService\n  def greet(name)\n    name.to_s()\n  end\nend\n",
+    );
+
+    rb.write_file(
+        "spec/services/user_service_spec.rb",
+        r#"require 'rspec'
+require_relative '../../app/services/user_service'
+
+RSpec.describe(UserService)
+
+class UserServiceSpec
+  def test_greet
+    service = UserService.new()
+    result = service.greet("Alice")
+  end
+
+  def test_greet_empty
+    service = UserService.new()
+    result = service.greet("")
+  end
+end
+"#,
+    );
+
+    rb.commit("Add UserService with RSpec tests");
+
+    let result = run_pipeline(rb.path(), "main", "feature/tests");
+
+    // Verify test file detection
+    let test_eps: Vec<_> = result
+        .groups
+        .iter()
+        .flat_map(|g| g.entrypoint.as_ref())
+        .filter(|ep| ep.entrypoint_type == flowdiff_core::types::EntrypointType::TestFile)
+        .collect();
+    assert!(
+        !test_eps.is_empty(),
+        "should detect *_spec.rb as test file entrypoint"
+    );
+
+    // Verify Ruby language detected
+    assert_language_detected(&result, "ruby");
+
+    // Verify RSpec framework detected
+    let has_rspec = result
+        .summary
+        .frameworks_detected
+        .iter()
+        .any(|f| f.contains("RSpec"));
+    assert!(
+        has_rspec,
+        "should detect RSpec framework; detected: {:?}",
+        result.summary.frameworks_detected
+    );
+}

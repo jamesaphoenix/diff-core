@@ -29,6 +29,7 @@ log = { workspace = true }
 tempfile = "3"
 tree-sitter-c-sharp = "0.23.1"
 tree-sitter-php = "0.24.2"
+tree-sitter-ruby = "0.23.1"
 
 [features]
 ## Enables test-only APIs like `with_base_url` on LLM provider structs.

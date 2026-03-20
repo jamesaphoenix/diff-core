@@ -913,14 +913,14 @@ Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The
 - [x] Integration test: synthetic Laravel REST API with controller→service→model pattern
 
 **Ruby:**
-- [ ] Add `tree-sitter-ruby` grammar dependency
-- [ ] Add `Language::Ruby` variant
-- [ ] Write `.scm` query files for Ruby
-- [ ] Handle: `require`/`require_relative`, module/class hierarchy, mixins (`include`/`extend`), blocks/procs
-- [ ] Entrypoint detection: Rails route definitions, controller actions, Rake tasks, RSpec `describe`/`it`
-- [ ] Framework detection: Rails, Sinatra, RSpec, ActiveRecord, Sidekiq
-- [ ] Tests: require resolution, class/module extraction, mixin edges, route detection
-- [ ] Integration test: synthetic Rails REST API with controller→service→model pattern
+- [x] Add `tree-sitter-ruby` grammar dependency
+- [x] Add `Language::Ruby` variant
+- [x] Write `.scm` query files for Ruby
+- [x] Handle: `require`/`require_relative`, module/class hierarchy, mixins (`include`/`extend`), blocks/procs
+- [x] Entrypoint detection: Rails route definitions, controller actions, Rake tasks, RSpec `describe`/`it`
+- [x] Framework detection: Rails, Sinatra, RSpec, ActiveRecord, Sidekiq
+- [x] Tests: require resolution, class/module extraction, mixin edges, route detection
+- [x] Integration test: synthetic Rails REST API with controller→service→model pattern
 
 #### 11.3 Tier 3 — Nice to have
 
