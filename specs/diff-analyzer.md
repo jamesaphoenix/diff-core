@@ -822,10 +822,10 @@ Bug: After LLM refinement changes the number of groups, the UI shows stale count
 #### 10.5 Auto-center/fit-all when opening flow graph
 When the flow graph component opens, it should automatically zoom and pan to show all nodes.
 
-- [ ] Call `fitView()` (React Flow API) when the graph section is expanded or when switching to a new group
-- [ ] Add appropriate padding so nodes aren't flush against edges
-- [ ] Animate the fit-view transition for a smooth experience
-- [ ] Respect any user zoom/pan after initial fit — don't re-fit on every render
+- [x] Call `fitView()` (React Flow API) when the graph section is expanded or when switching to a new group
+- [x] Add appropriate padding so nodes aren't flush against edges
+- [x] Animate the fit-view transition for a smooth experience
+- [x] Respect any user zoom/pan after initial fit — don't re-fit on every render
 
 #### 10.6 Consolidate "Open With" into single dropdown
 Replace the separate editor buttons in the diff viewer toolbar with a single "Open With" dropdown.

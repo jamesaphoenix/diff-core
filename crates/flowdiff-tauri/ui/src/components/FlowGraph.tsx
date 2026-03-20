@@ -430,6 +430,7 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const reactFlowInstance = useRef<any>(null);
 
   // The "active" node is either the replay node (if replaying) or the user-clicked node
   const activeNodeId = replayNodeId ?? selectedNodeId;
@@ -472,6 +473,16 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
   const handlePaneClick = useCallback(() => {
     setSelectedNodeId(null);
   }, []);
+
+  // Auto-fit view when the node set changes (group switch or section expand).
+  // Small delay lets dagre layout settle before fitting.
+  useEffect(() => {
+    if (!reactFlowInstance.current) return;
+    const timer = setTimeout(() => {
+      reactFlowInstance.current?.fitView({ padding: 0.3, duration: 400 });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [initialNodes]);
 
   // (4) Fullscreen: Escape key exits
   useEffect(() => {
@@ -521,6 +532,7 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
         edgeTypes={edgeTypes}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
+        onInit={(instance: any) => { reactFlowInstance.current = instance; }}
         fitView
         fitViewOptions={{ padding: 0.3, duration: 800 }}
         minZoom={0.3}
