@@ -210,11 +210,10 @@ export default function App() {
     [repoPath, baseRef],
   );
 
-  /** Called when a node in the React Flow graph is clicked — opens the file AND collapses the graph. */
+  /** Called when a node in the React Flow graph is clicked — opens the file without collapsing the graph. */
   const handleGraphNodeClick = useCallback(
     (path: string) => {
       handleSelectFile(path);
-      setGraphCollapsed(true);
     },
     [handleSelectFile],
   );

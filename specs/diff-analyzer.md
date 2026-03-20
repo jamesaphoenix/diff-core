@@ -783,6 +783,183 @@ When a user clicks a node in the React Flow graph, it should collapse the graph 
 - [x] Click the collapsed graph header to re-expand it
 - [x] Graph collapse state resets when switching to a different group
 
+### Phase 10: UX Fixes & Bug Fixes
+
+Focused on fixing usability issues, keyboard shortcut conflicts, and UI bugs discovered during daily use.
+
+#### 10.1 Flow graph: navigate on node click without closing
+When clicking a node in the React Flow graph, navigate to that file in the diff viewer but do NOT close/collapse the graph. The current Phase 9.10 behavior (collapse on click) is too aggressive — users want to explore the graph and jump between nodes without losing the visual context.
+
+- [x] Remove the auto-collapse behavior when clicking a React Flow node
+- [x] Keep the navigation behavior: clicking a node still selects the file and updates the diff viewer
+- [x] Graph stays open and visible after node click — user can click multiple nodes to explore
+- [x] Manual collapse still works via the accordion header toggle
+
+#### 10.2 Fix c/C keyboard shortcuts — Monaco read-only conflict
+Pressing `c` or `C` currently shows "Cannot edit in read-only editor" because the keypress reaches Monaco before the app's keyboard handler intercepts it.
+
+- [ ] Intercept `c` and `C` keypresses at the app level before they reach Monaco
+- [ ] `c` opens comment input (context-sensitive: code selection → code comment, file → file comment, group → group comment) — already specified in 9.9 but not working due to Monaco capture
+- [ ] `C` copies all comments — already specified in 9.9 but not working due to Monaco capture
+- [ ] Verify no other single-key shortcuts are being swallowed by Monaco's read-only editor
+
+#### 10.3 Make "Copy All Comments" more visible
+The "Copy All Comments" button is hard to discover in the current UI.
+
+- [ ] Move or duplicate the button to a more prominent location (e.g. sticky footer bar in the left panel, or a toolbar button with clear label)
+- [ ] Add a visual badge showing comment count (e.g. "Copy All Comments (5)")
+- [ ] Consider a floating action button or persistent toolbar element that's always visible when comments exist
+- [ ] Keyboard hint tooltip showing `C` shortcut on hover
+
+#### 10.4 Fix group/reviewed count after LLM refinement
+Bug: After LLM refinement changes the number of groups, the UI shows stale counts like "4/3 reviewed" where the denominator doesn't match the actual group count.
+
+- [ ] When refinement completes and group structure changes, reset the reviewed state
+- [ ] Update the total group count in the "N/M reviewed" display to reflect the new group count
+- [ ] Clear per-group reviewed checkmarks since the groups have been reorganized
+- [ ] Show a brief toast: "Groups updated by refinement — review state reset"
+
+#### 10.5 Auto-center/fit-all when opening flow graph
+When the flow graph component opens, it should automatically zoom and pan to show all nodes.
+
+- [ ] Call `fitView()` (React Flow API) when the graph section is expanded or when switching to a new group
+- [ ] Add appropriate padding so nodes aren't flush against edges
+- [ ] Animate the fit-view transition for a smooth experience
+- [ ] Respect any user zoom/pan after initial fit — don't re-fit on every render
+
+#### 10.6 Consolidate "Open With" into single dropdown
+Replace the separate editor buttons in the diff viewer toolbar with a single "Open With" dropdown.
+
+- [ ] Single "Open With" dropdown button in the toolbar with a dropdown arrow
+- [ ] Dropdown lists available editors: VS Code, Cursor, Zed, Vim, Terminal
+- [ ] Each option has an icon and label
+- [ ] **Actually opens the file** — use Tauri `shell.open` or `Command` API to execute: `code <path>`, `cursor <path>`, `zed <path>`, `vim <path>` (in terminal), `open -a Terminal <folder>`
+- [ ] Remove the "Would open..." placeholder behavior — execute the real command
+- [ ] Detect which editors are installed (check if command exists) and only show installed ones
+- [ ] Remember last-used editor choice in session
+
+#### 10.7 Adversarial edge cases: circular refs & import graph semantics
+Create adversarial test fixtures to stress-test the clustering algorithm with degenerate dependency patterns. Use LLM-based evaluation to verify improvements.
+
+- [ ] **Circular imports**: A→B→C→A cycles — verify no infinite loops, groups are still meaningful
+- [ ] **Diamond dependencies**: A→B, A→C, B→D, C→D — verify D is assigned to the correct group
+- [ ] **Barrel file explosion**: `index.ts` re-exporting 50+ modules — verify barrel files don't distort grouping
+- [ ] **Re-export chains**: A re-exports B which re-exports C — verify edge resolution traces through
+- [ ] **Self-referencing modules**: File imports from itself (aliased paths) — verify no crash
+- [ ] **Deeply nested transitive deps**: 10+ levels of transitive imports — verify depth limiting works
+- [ ] **Hub-and-spoke**: One file imported by 30+ others — verify it doesn't pull everything into one group
+- [ ] **Orphan clusters**: Groups of files connected to each other but not to any entrypoint — verify they form their own infrastructure group, not silently dropped
+- [ ] **Cross-language imports**: Python calling a compiled Rust module, TS importing WASM — verify graceful handling
+- [ ] Create test fixtures for each case with expected grouping output
+- [ ] Run LLM refinement on each case and score with eval suite — compare deterministic vs refined groupings
+- [ ] Add adversarial fixtures to the regression test suite
+
+### Phase 11: Multi-Language Support
+
+Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The architecture supports this declaratively — adding a language requires writing `.scm` query files for `imports`, `exports`, `definitions`, `calls`, and `assignments` under `crates/flowdiff-core/queries/{lang}/`, plus updating the `Language` enum in `ast.rs` and adding the tree-sitter grammar dependency.
+
+#### 11.1 Tier 1 — Must have
+
+**Go:**
+- [ ] Add `tree-sitter-go` grammar dependency to `Cargo.toml`
+- [ ] Add `Language::Go` variant to enum in `ast.rs`
+- [ ] Write `.scm` query files: `queries/go/imports.scm`, `exports.scm`, `definitions.scm`, `calls.scm`, `assignments.scm`
+- [ ] Handle Go-specific patterns: package imports, struct methods, interface implementations, goroutine spawning, channel send/receive
+- [ ] Entrypoint detection: `func main()`, `http.HandleFunc`, `http.Handle`, gin/echo/chi router patterns, `cobra.Command`
+- [ ] Framework detection: net/http, Gin, Echo, Chi, Fiber, gRPC, Cobra, GORM, sqlx
+- [ ] Tests: import resolution (relative packages, module paths), function/method extraction, struct definitions, interface edges, call graph across packages
+- [ ] Integration test: synthetic Go HTTP API app with handler→service→repo pattern
+
+**Rust:**
+- [ ] Add `tree-sitter-rust` grammar dependency to `Cargo.toml`
+- [ ] Add `Language::Rust` variant to enum in `ast.rs`
+- [ ] Write `.scm` query files: `queries/rust/imports.scm`, `exports.scm`, `definitions.scm`, `calls.scm`, `assignments.scm`
+- [ ] Handle Rust-specific patterns: `mod`/`use`/`pub` visibility, trait implementations, `impl` blocks, macro invocations, `async fn`, lifetime annotations (ignore for grouping)
+- [ ] Entrypoint detection: `fn main()`, `#[tokio::main]`, actix-web/axum route handlers, `#[test]`, clap derive patterns
+- [ ] Framework detection: Actix-web, Axum, Rocket, Warp, Tokio, Diesel, SQLx, SeaORM, Clap, Tauri commands
+- [ ] Tests: mod tree resolution, use path resolution, trait impl edges, async fn extraction, macro call detection
+- [ ] Integration test: synthetic Rust axum API with handler→service→repo pattern
+
+#### 11.2 Tier 2 — High value
+
+**Java:**
+- [ ] Add `tree-sitter-java` grammar dependency
+- [ ] Add `Language::Java` variant
+- [ ] Write `.scm` query files for Java
+- [ ] Handle: package/import statements, class hierarchy (extends/implements), annotations, generics (ignore for grouping), method overloading
+- [ ] Entrypoint detection: `public static void main`, `@RestController`/`@RequestMapping`, `@SpringBootApplication`, JUnit `@Test`
+- [ ] Framework detection: Spring Boot, Spring MVC, JPA/Hibernate, Maven/Gradle project structure
+- [ ] Tests: import resolution, class/interface extraction, annotation detection, inheritance edges
+- [ ] Integration test: synthetic Spring Boot REST API
+
+**C#:**
+- [ ] Add `tree-sitter-c-sharp` grammar dependency
+- [ ] Add `Language::CSharp` variant
+- [ ] Write `.scm` query files for C#
+- [ ] Handle: namespace/using statements, class hierarchy, interfaces, attributes, async/await, partial classes
+- [ ] Entrypoint detection: `static void Main`, `[ApiController]`/`[HttpGet]`, `[TestMethod]`/`[Fact]`, minimal API `app.MapGet`
+- [ ] Framework detection: ASP.NET Core, Entity Framework, xUnit/NUnit, Blazor
+- [ ] Tests: using resolution, class/interface extraction, attribute detection, namespace edges
+- [ ] Integration test: synthetic ASP.NET Core Web API
+
+**PHP:**
+- [ ] Add `tree-sitter-php` grammar dependency
+- [ ] Add `Language::Php` variant
+- [ ] Write `.scm` query files for PHP
+- [ ] Handle: `use`/`namespace` statements, class hierarchy, traits, interfaces, type hints
+- [ ] Entrypoint detection: Laravel route definitions, controller methods, artisan commands, PHPUnit tests
+- [ ] Framework detection: Laravel, Symfony, WordPress, Composer autoload, Eloquent ORM, Doctrine
+- [ ] Tests: namespace/use resolution, class extraction, trait usage, route detection
+- [ ] Integration test: synthetic Laravel REST API with controller→service→model pattern
+
+**Ruby:**
+- [ ] Add `tree-sitter-ruby` grammar dependency
+- [ ] Add `Language::Ruby` variant
+- [ ] Write `.scm` query files for Ruby
+- [ ] Handle: `require`/`require_relative`, module/class hierarchy, mixins (`include`/`extend`), blocks/procs
+- [ ] Entrypoint detection: Rails route definitions, controller actions, Rake tasks, RSpec `describe`/`it`
+- [ ] Framework detection: Rails, Sinatra, RSpec, ActiveRecord, Sidekiq
+- [ ] Tests: require resolution, class/module extraction, mixin edges, route detection
+- [ ] Integration test: synthetic Rails REST API with controller→service→model pattern
+
+#### 11.3 Tier 3 — Nice to have
+
+**Kotlin:**
+- [ ] Add `tree-sitter-kotlin` grammar dependency
+- [ ] Add `Language::Kotlin` variant
+- [ ] Write `.scm` query files for Kotlin
+- [ ] Handle: package/import, data classes, sealed classes, extension functions, coroutines
+- [ ] Entrypoint detection: `fun main()`, Ktor route handlers, `@SpringBootApplication`, JUnit `@Test`
+- [ ] Framework detection: Ktor, Spring Boot (Kotlin), Exposed, Jetpack Compose
+- [ ] Tests and integration test: synthetic Ktor API
+
+**Swift:**
+- [ ] Add `tree-sitter-swift` grammar dependency
+- [ ] Add `Language::Swift` variant
+- [ ] Write `.scm` query files for Swift
+- [ ] Handle: `import`, class/struct/enum/protocol hierarchy, extensions, closures, `@main`
+- [ ] Entrypoint detection: `@main`, SwiftUI `App` protocol, `XCTestCase`
+- [ ] Framework detection: SwiftUI, Vapor, UIKit, XCTest
+- [ ] Tests and integration test: synthetic Vapor API
+
+**C/C++:**
+- [ ] Add `tree-sitter-c` and `tree-sitter-cpp` grammar dependencies
+- [ ] Add `Language::C` and `Language::Cpp` variants
+- [ ] Write `.scm` query files for C and C++
+- [ ] Handle: `#include` (header resolution is hard — use heuristics), function declarations, class hierarchy (C++), namespaces (C++), templates (ignore for grouping)
+- [ ] Entrypoint detection: `int main()`, test framework macros (`TEST`, `TEST_F`)
+- [ ] Framework detection: Google Test, Catch2, CMake project structure
+- [ ] Tests and integration test: synthetic C++ project
+
+**Scala:**
+- [ ] Add `tree-sitter-scala` grammar dependency
+- [ ] Add `Language::Scala` variant
+- [ ] Write `.scm` query files for Scala
+- [ ] Handle: package/import, class/trait/object hierarchy, case classes, implicits, pattern matching
+- [ ] Entrypoint detection: `def main`, `extends App`, Akka HTTP routes, Play Framework controllers, ScalaTest
+- [ ] Framework detection: Akka, Play Framework, ZIO, Cats Effect, ScalaTest, Slick
+- [ ] Tests and integration test: synthetic Akka HTTP API
+
 ## 12. Testing Plan
 
 ### 12.1 Test Convention
