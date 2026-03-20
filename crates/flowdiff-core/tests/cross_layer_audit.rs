@@ -1553,3 +1553,276 @@ def health():
     let json2 = output::to_json(&parsed).unwrap();
     assert_eq!(json1, json2);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 26. Barrel file explosion — index.ts re-exporting 50+ modules
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn adversarial_barrel_file_explosion() {
+    let rb = RepoBuilder::new();
+    rb.write_file("init.txt", "initial");
+    rb.commit("init");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/barrel");
+    rb.checkout("feature/barrel");
+
+    // 50 utility modules
+    for i in 0..50 {
+        rb.write_file(
+            &format!("src/utils/util_{}.ts", i),
+            &format!(
+                "export function util_{}() {{ return {}; }}\n",
+                i, i
+            ),
+        );
+    }
+
+    // Barrel file re-exporting all 50
+    let barrel: String = (0..50)
+        .map(|i| format!("export {{ util_{i} }} from './util_{i}';\n", i = i))
+        .collect();
+    rb.write_file("src/utils/index.ts", &barrel);
+
+    // Entrypoint that imports from the barrel
+    rb.write_file(
+        "src/route.ts",
+        r#"
+import express from 'express';
+import { util_0, util_25, util_49 } from './utils';
+
+const router = express.Router();
+export function handler(req: any, res: any) {
+    res.json({ a: util_0(), b: util_25(), c: util_49() });
+}
+router.get('/barrel', handler);
+"#,
+    );
+    rb.commit("barrel file explosion");
+
+    let output = run_full_pipeline(&rb, "main", "feature/barrel");
+
+    // 50 utils + 1 barrel + 1 route = 52 files
+    assert_eq!(output.summary.total_files_changed, 52);
+    assert_all_files_accounted(&output);
+    assert_json_roundtrip(&output);
+    assert_valid_scores(&output);
+    // The barrel file should not distort grouping — all files should end up
+    // in groups, not be silently dropped.
+    let total_in_groups: usize = output
+        .groups
+        .iter()
+        .map(|g| g.files.len())
+        .sum::<usize>()
+        + output
+            .infrastructure_group
+            .as_ref()
+            .map(|ig| ig.files.len())
+            .unwrap_or(0);
+    assert_eq!(total_in_groups, 52);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 27. Re-export chains — A re-exports B which re-exports C
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn adversarial_reexport_chains() {
+    let rb = RepoBuilder::new();
+    rb.write_file("init.txt", "initial");
+    rb.commit("init");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/reexport");
+    rb.checkout("feature/reexport");
+
+    // Chain: index.ts → services/index.ts → services/auth.ts → services/db.ts
+    rb.write_file(
+        "src/services/db.ts",
+        "export function query(sql: string) { return sql; }\n",
+    );
+    rb.write_file(
+        "src/services/auth.ts",
+        "import { query } from './db';\nexport function authenticate(token: string) { return query('SELECT * FROM users WHERE token=' + token); }\nexport { query } from './db';\n",
+    );
+    rb.write_file(
+        "src/services/index.ts",
+        "export { authenticate, query } from './auth';\n",
+    );
+    rb.write_file(
+        "src/index.ts",
+        "export { authenticate, query } from './services';\n",
+    );
+
+    // Entrypoint that uses the top-level re-export
+    rb.write_file(
+        "src/route.ts",
+        r#"
+import express from 'express';
+import { authenticate } from './index';
+
+const router = express.Router();
+export function handler(req: any, res: any) {
+    const result = authenticate(req.headers.authorization);
+    res.json({ result });
+}
+router.post('/auth', handler);
+"#,
+    );
+    rb.commit("re-export chains");
+
+    let output = run_full_pipeline(&rb, "main", "feature/reexport");
+
+    assert_eq!(output.summary.total_files_changed, 5);
+    assert_all_files_accounted(&output);
+    assert_json_roundtrip(&output);
+    assert_valid_scores(&output);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 28. Deeply nested transitive deps — 10+ levels of import chains
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn adversarial_deeply_nested_transitive_deps() {
+    let rb = RepoBuilder::new();
+    rb.write_file("init.txt", "initial");
+    rb.commit("init");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/deep-chain");
+    rb.checkout("feature/deep-chain");
+
+    let depth = 12;
+
+    // Create a chain: layer_0 → layer_1 → ... → layer_11
+    for i in (0..depth).rev() {
+        let content = if i == depth - 1 {
+            // Leaf — no imports
+            format!(
+                "export function layer_{}() {{ return 'leaf'; }}\n",
+                i
+            )
+        } else {
+            // Imports the next layer
+            format!(
+                "import {{ layer_{next} }} from './layer_{next}';\nexport function layer_{i}() {{ return layer_{next}() + '_{i}'; }}\n",
+                i = i,
+                next = i + 1
+            )
+        };
+        rb.write_file(&format!("src/layer_{}.ts", i), &content);
+    }
+
+    // Entrypoint imports layer_0
+    rb.write_file(
+        "src/route.ts",
+        r#"
+import express from 'express';
+import { layer_0 } from './layer_0';
+
+const router = express.Router();
+export function handler(req: any, res: any) {
+    res.json({ result: layer_0() });
+}
+router.get('/deep', handler);
+"#,
+    );
+    rb.commit("deeply nested transitive deps");
+
+    let output = run_full_pipeline(&rb, "main", "feature/deep-chain");
+
+    // 12 layers + 1 route = 13 files
+    assert_eq!(output.summary.total_files_changed, 13);
+    assert_all_files_accounted(&output);
+    assert_json_roundtrip(&output);
+    assert_valid_scores(&output);
+
+    // All files should be in groups (reachable from the entrypoint via transitive chain)
+    let grouped_count: usize = output.groups.iter().map(|g| g.files.len()).sum();
+    let infra_count = output
+        .infrastructure_group
+        .as_ref()
+        .map(|ig| ig.files.len())
+        .unwrap_or(0);
+    assert_eq!(grouped_count + infra_count, 13);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 29. Orphan clusters — connected files with no entrypoint reachability
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn adversarial_orphan_clusters() {
+    let rb = RepoBuilder::new();
+    rb.write_file("init.txt", "initial");
+    rb.commit("init");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/orphans");
+    rb.checkout("feature/orphans");
+
+    // Cluster 1: connected internally but no entrypoint
+    rb.write_file(
+        "src/helpers/format.ts",
+        "import { validate } from './validate';\nexport function format(s: string) { return validate(s) ? s.trim() : s; }\n",
+    );
+    rb.write_file(
+        "src/helpers/validate.ts",
+        "export function validate(s: string) { return s.length > 0; }\n",
+    );
+
+    // Cluster 2: another connected group, also no entrypoint
+    rb.write_file(
+        "src/lib/parser.ts",
+        "import { tokenize } from './tokenizer';\nexport function parse(input: string) { return tokenize(input); }\n",
+    );
+    rb.write_file(
+        "src/lib/tokenizer.ts",
+        "export function tokenize(input: string) { return input.split(' '); }\n",
+    );
+
+    // One real entrypoint with its own chain
+    rb.write_file(
+        "src/route.ts",
+        r#"
+import express from 'express';
+import { doWork } from './worker';
+
+const router = express.Router();
+export function handler(req: any, res: any) {
+    res.json({ result: doWork() });
+}
+router.get('/work', handler);
+"#,
+    );
+    rb.write_file(
+        "src/worker.ts",
+        "export function doWork() { return 'done'; }\n",
+    );
+    rb.commit("orphan clusters");
+
+    let output = run_full_pipeline(&rb, "main", "feature/orphans");
+
+    assert_eq!(output.summary.total_files_changed, 6);
+    assert_all_files_accounted(&output);
+    assert_json_roundtrip(&output);
+    assert_valid_scores(&output);
+
+    // The entrypoint chain (route + worker) should form a group.
+    // The orphan clusters (helpers/format+validate, lib/parser+tokenizer)
+    // should end up in infrastructure since they have no entrypoint.
+    let infra = output.infrastructure_group.as_ref();
+    assert!(
+        infra.is_some(),
+        "Orphan clusters should form an infrastructure group"
+    );
+    let infra_files = &infra.unwrap().files;
+    // At minimum, the orphan files should be in infrastructure
+    assert!(
+        infra_files.len() >= 2,
+        "Expected at least 2 orphan files in infrastructure, got {}",
+        infra_files.len()
+    );
+}

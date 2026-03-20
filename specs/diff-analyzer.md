@@ -841,18 +841,18 @@ Replace the separate editor buttons in the diff viewer toolbar with a single "Op
 #### 10.7 Adversarial edge cases: circular refs & import graph semantics
 Create adversarial test fixtures to stress-test the clustering algorithm with degenerate dependency patterns. Use LLM-based evaluation to verify improvements.
 
-- [ ] **Circular imports**: A→B→C→A cycles — verify no infinite loops, groups are still meaningful
-- [ ] **Diamond dependencies**: A→B, A→C, B→D, C→D — verify D is assigned to the correct group
-- [ ] **Barrel file explosion**: `index.ts` re-exporting 50+ modules — verify barrel files don't distort grouping
-- [ ] **Re-export chains**: A re-exports B which re-exports C — verify edge resolution traces through
-- [ ] **Self-referencing modules**: File imports from itself (aliased paths) — verify no crash
-- [ ] **Deeply nested transitive deps**: 10+ levels of transitive imports — verify depth limiting works
-- [ ] **Hub-and-spoke**: One file imported by 30+ others — verify it doesn't pull everything into one group
-- [ ] **Orphan clusters**: Groups of files connected to each other but not to any entrypoint — verify they form their own infrastructure group, not silently dropped
-- [ ] **Cross-language imports**: Python calling a compiled Rust module, TS importing WASM — verify graceful handling
-- [ ] Create test fixtures for each case with expected grouping output
+- [x] **Circular imports**: A→B→C→A cycles — verify no infinite loops, groups are still meaningful
+- [x] **Diamond dependencies**: A→B, A→C, B→D, C→D — verify D is assigned to the correct group
+- [x] **Barrel file explosion**: `index.ts` re-exporting 50+ modules — verify barrel files don't distort grouping
+- [x] **Re-export chains**: A re-exports B which re-exports C — verify edge resolution traces through
+- [x] **Self-referencing modules**: File imports from itself (aliased paths) — verify no crash
+- [x] **Deeply nested transitive deps**: 10+ levels of transitive imports — verify depth limiting works
+- [x] **Hub-and-spoke**: One file imported by 30+ others — verify it doesn't pull everything into one group
+- [x] **Orphan clusters**: Groups of files connected to each other but not to any entrypoint — verify they form their own infrastructure group, not silently dropped
+- [x] **Cross-language imports**: Python calling a compiled Rust module, TS importing WASM — verify graceful handling
+- [x] Create test fixtures for each case with expected grouping output
 - [ ] Run LLM refinement on each case and score with eval suite — compare deterministic vs refined groupings
-- [ ] Add adversarial fixtures to the regression test suite
+- [x] Add adversarial fixtures to the regression test suite
 
 ### Phase 11: Multi-Language Support
 
