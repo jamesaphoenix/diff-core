@@ -851,7 +851,7 @@ Create adversarial test fixtures to stress-test the clustering algorithm with de
 - [x] **Orphan clusters**: Groups of files connected to each other but not to any entrypoint — verify they form their own infrastructure group, not silently dropped
 - [x] **Cross-language imports**: Python calling a compiled Rust module, TS importing WASM — verify graceful handling
 - [x] Create test fixtures for each case with expected grouping output
-- [ ] Run LLM refinement on each case and score with eval suite — compare deterministic vs refined groupings
+- [x] Run LLM refinement on each case and score with eval suite — compare deterministic vs refined groupings
 - [x] Add adversarial fixtures to the regression test suite
 
 ### Phase 11: Multi-Language Support
