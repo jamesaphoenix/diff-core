@@ -632,9 +632,9 @@ Currently API keys require env vars or `.flowdiff.toml` config. Add a text input
 #### 9.4 Hide risk heatmap
 Remove the risk heatmap (squarified treemap) from the right panel UI entirely. The component and code remain in the codebase for future re-enablement, but are not rendered.
 
-- [ ] Remove `<RiskHeatmap>` from the right panel render tree (comment out or conditional render with `false`)
-- [ ] Remove the "Risk heatmap colors render correctly" Playwright test assertion (or skip it)
-- [ ] Keep `RiskHeatmap.tsx` component and CSS — do not delete, just hide
+- [x] Remove `<RiskHeatmap>` from the right panel render tree (comment out or conditional render with `false`)
+- [x] Remove the "Risk heatmap colors render correctly" Playwright test assertion (or skip it)
+- [x] Keep `RiskHeatmap.tsx` component and CSS — do not delete, just hide
 
 #### 9.5 Flow tick-off (mark as reviewed)
 Add a way to mark flow groups as "reviewed / I'm happy with this" during a review session. Session-only state (not persisted).

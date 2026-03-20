@@ -16,7 +16,8 @@ import type {
 import { LLM_PROVIDERS, MODELS_BY_PROVIDER } from "./types";
 import DiffViewer from "./components/DiffViewer";
 import FlowGraph from "./components/FlowGraph";
-import RiskHeatmap from "./components/RiskHeatmap";
+// RiskHeatmap hidden (Phase 9.4) — component kept for future re-enablement
+// import RiskHeatmap from "./components/RiskHeatmap";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT } from "./mock";
 
@@ -1156,20 +1157,7 @@ export default function App() {
         <aside className="panel panel-right">
           <div className="panel-header">Annotations</div>
           <div className="panel-body">
-            {/* Risk heatmap — always visible when analysis exists */}
-            {analysis && sortedGroups.length > 0 && (
-              <div className="annotation-section">
-                <h3>Risk Heatmap</h3>
-                <ErrorBoundary panelName="Risk Heatmap">
-                  <CrashTest panel="Risk Heatmap" />
-                  <RiskHeatmap
-                    groups={sortedGroups}
-                    selectedGroupId={selectedGroup?.id ?? null}
-                    onSelectGroup={handleSelectGroup}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
+            {/* Risk heatmap — hidden (Phase 9.4). Component kept for future re-enablement. */}
             {selectedGroup && (
               <>
                 {/* Deterministic group info */}

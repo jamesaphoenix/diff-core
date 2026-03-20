@@ -161,7 +161,7 @@ test.describe("Error Boundaries", () => {
     }
   });
 
-  test("Risk Heatmap crash shows error boundary fallback", async ({ page }) => {
+  test.skip("Risk Heatmap crash shows error boundary fallback — hidden in Phase 9.4", async ({ page }) => {
     await page.goto("/");
     await waitForAnalysis(page);
 
@@ -203,7 +203,7 @@ test.describe("Error Boundaries", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    // Crash both Diff Viewer and Risk Heatmap
+    // Crash both Diff Viewer and Flow Graph
     await page.evaluate(() => {
       (window as any).__TEST_API__.crashPanel("Diff Viewer");
     });
@@ -211,17 +211,17 @@ test.describe("Error Boundaries", () => {
     const diffFallback = page.locator('[data-testid="error-boundary-Diff Viewer"]');
     await expect(diffFallback).toBeVisible({ timeout: 5_000 });
 
-    // Now crash Risk Heatmap too
+    // Now crash Flow Graph too
     await page.evaluate(() => {
-      (window as any).__TEST_API__.crashPanel("Risk Heatmap");
+      (window as any).__TEST_API__.crashPanel("Flow Graph");
     });
 
-    const heatmapFallback = page.locator('[data-testid="error-boundary-Risk Heatmap"]');
-    await expect(heatmapFallback).toBeVisible({ timeout: 5_000 });
+    const graphFallback = page.locator('[data-testid="error-boundary-Flow Graph"]');
+    await expect(graphFallback).toBeVisible({ timeout: 5_000 });
 
     // Both fallbacks visible — neither took down the whole app
     await expect(diffFallback).toBeVisible();
-    await expect(heatmapFallback).toBeVisible();
+    await expect(graphFallback).toBeVisible();
 
     // Left panel (flow groups) still works
     await expect(page.locator(".group-item").first()).toBeVisible();
@@ -442,7 +442,7 @@ test.describe("Large Dataset Performance", () => {
     expect(elapsed).toBeLessThan(2_000);
   });
 
-  test("Risk heatmap renders with 100 groups", async ({ page }) => {
+  test.skip("Risk heatmap renders with 100 groups — hidden in Phase 9.4", async ({ page }) => {
     await page.goto("/");
     await waitForAnalysis(page);
 
