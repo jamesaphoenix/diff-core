@@ -798,10 +798,10 @@ When clicking a node in the React Flow graph, navigate to that file in the diff 
 #### 10.2 Fix c/C keyboard shortcuts — Monaco read-only conflict
 Pressing `c` or `C` currently shows "Cannot edit in read-only editor" because the keypress reaches Monaco before the app's keyboard handler intercepts it.
 
-- [ ] Intercept `c` and `C` keypresses at the app level before they reach Monaco
-- [ ] `c` opens comment input (context-sensitive: code selection → code comment, file → file comment, group → group comment) — already specified in 9.9 but not working due to Monaco capture
-- [ ] `C` copies all comments — already specified in 9.9 but not working due to Monaco capture
-- [ ] Verify no other single-key shortcuts are being swallowed by Monaco's read-only editor
+- [x] Intercept `c` and `C` keypresses at the app level before they reach Monaco
+- [x] `c` opens comment input (context-sensitive: code selection → code comment, file → file comment, group → group comment) — already specified in 9.9 but not working due to Monaco capture
+- [x] `C` copies all comments — already specified in 9.9 but not working due to Monaco capture
+- [x] Verify no other single-key shortcuts are being swallowed by Monaco's read-only editor
 
 #### 10.3 Make "Copy All Comments" more visible
 The "Copy All Comments" button is hard to discover in the current UI.

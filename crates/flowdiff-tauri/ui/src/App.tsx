@@ -903,18 +903,35 @@ export default function App() {
   );
 
   // Keyboard navigation: j/k = next/prev file, J/K = next/prev group, r = replay
+  // Registered on capture phase so shortcuts work even when Monaco editor has focus.
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Skip if user is typing in an input or the Monaco editor is focused
+      // Skip if user is typing in an input field
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT" ||
-        target.closest(".monaco-editor")
+        target.tagName === "SELECT"
       ) {
         return;
       }
+
+      // When Monaco has focus, only intercept known app shortcut keys.
+      // Let other keys (arrows, Page Up/Down, etc.) pass through to Monaco for scrolling.
+      const isInMonaco = !!target.closest(".monaco-editor");
+      if (isInMonaco) {
+        const appKeys = new Set(["j", "k", "J", "K", "r", "x", "y", "Y", "c", "C"]);
+        if (!appKeys.has(e.key)) {
+          return;
+        }
+      }
+
+      // Helper: prevent default AND stop propagation (needed to prevent Monaco
+      // from showing "Cannot edit in read-only editor" for intercepted keys).
+      const consume = () => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
 
       const groups = sortedGroupsRef.current;
       const group = selectedGroupRef.current;
@@ -925,19 +942,19 @@ export default function App() {
       // Replay mode keys
       if (isReplaying && group) {
         if (e.key === "Escape" || e.key === "r") {
-          e.preventDefault();
+          consume();
           exitReplay();
           return;
         }
         if (e.key === "n" || e.key === "ArrowRight" || e.key === " ") {
-          e.preventDefault();
+          consume();
           if (step < group.files.length - 1) {
             goToReplayStep(step + 1);
           }
           return;
         }
         if (e.key === "p" || e.key === "ArrowLeft") {
-          e.preventDefault();
+          consume();
           if (step > 0) {
             goToReplayStep(step - 1);
           }
@@ -945,49 +962,49 @@ export default function App() {
         }
         // Block other navigation while replaying
         if (["j", "k", "J", "K"].includes(e.key)) {
-          e.preventDefault();
+          consume();
           return;
         }
       }
 
       // Normal mode: r enters replay
       if (e.key === "r" && group && group.files.length > 0) {
-        e.preventDefault();
+        consume();
         enterReplay();
         return;
       }
 
       // x toggles reviewed state on the currently selected group
       if (e.key === "x" && group) {
-        e.preventDefault();
+        consume();
         toggleGroupReviewed(group.id);
         return;
       }
 
       // y copies the absolute path of the currently selected file
       if (e.key === "y" && !e.shiftKey && file) {
-        e.preventDefault();
+        consume();
         copyFilePath(file);
         return;
       }
 
       // Y (shift+y) copies all file paths in the current group
       if (e.key === "Y" && group) {
-        e.preventDefault();
+        consume();
         copyFlowPaths(group);
         return;
       }
 
       // c opens context-sensitive comment input
       if (e.key === "c" && !e.shiftKey && group) {
-        e.preventDefault();
+        consume();
         openCommentInput();
         return;
       }
 
       // C (shift+c) copies all comments
       if (e.key === "C" && group) {
-        e.preventDefault();
+        consume();
         exportComments();
         return;
       }
@@ -999,35 +1016,35 @@ export default function App() {
 
       if (e.key === "j") {
         // Next file in current group
-        e.preventDefault();
+        consume();
         const fileIdx = group.files.findIndex((f) => f.path === file);
         if (fileIdx < group.files.length - 1) {
           handleSelectFile(group.files[fileIdx + 1].path);
         }
       } else if (e.key === "k") {
         // Previous file in current group
-        e.preventDefault();
+        consume();
         const fileIdx = group.files.findIndex((f) => f.path === file);
         if (fileIdx > 0) {
           handleSelectFile(group.files[fileIdx - 1].path);
         }
       } else if (e.key === "J") {
         // Next group
-        e.preventDefault();
+        consume();
         if (groupIdx < groups.length - 1) {
           handleSelectGroup(groups[groupIdx + 1]);
         }
       } else if (e.key === "K") {
         // Previous group
-        e.preventDefault();
+        consume();
         if (groupIdx > 0) {
           handleSelectGroup(groups[groupIdx - 1]);
         }
       }
     }
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [handleSelectFile, handleSelectGroup, enterReplay, exitReplay, goToReplayStep, toggleGroupReviewed, copyFilePath, copyFlowPaths, openCommentInput, exportComments]);
 
   const handleSelectBase = useCallback((branch: string) => {
