@@ -970,6 +970,51 @@ pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandEr
     }
 }
 
+/// Check which editors are available on the system.
+///
+/// Returns a map of editor id → available (true/false).
+#[tauri::command]
+pub fn check_editors_available() -> std::collections::HashMap<String, bool> {
+    let editors = [
+        ("vscode", "code"),
+        ("cursor", "cursor"),
+        ("zed", "zed"),
+        ("vim", "vim"),
+        ("terminal", "true"), // terminal is always available
+    ];
+
+    editors
+        .iter()
+        .map(|(id, bin)| {
+            let available = if *id == "terminal" {
+                true
+            } else {
+                #[cfg(unix)]
+                {
+                    std::process::Command::new("which")
+                        .arg(bin)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                        .map(|s| s.success())
+                        .unwrap_or(false)
+                }
+                #[cfg(windows)]
+                {
+                    std::process::Command::new("where")
+                        .arg(bin)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                        .map(|s| s.success())
+                        .unwrap_or(false)
+                }
+            };
+            (id.to_string(), available)
+        })
+        .collect()
+}
+
 /// Load config from a repo path, returning both config and optional workdir.
 fn load_config_from_path(repo_path: Option<&str>) -> (FlowdiffConfig, Option<PathBuf>) {
     if let Some(path) = repo_path {

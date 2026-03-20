@@ -835,7 +835,7 @@ Replace the separate editor buttons in the diff viewer toolbar with a single "Op
 - [x] Each option has an icon and label
 - [x] **Actually opens the file** — use Tauri `shell.open` or `Command` API to execute: `code <path>`, `cursor <path>`, `zed <path>`, `vim <path>` (in terminal), `open -a Terminal <folder>`
 - [x] Remove the "Would open..." placeholder behavior — execute the real command
-- [ ] Detect which editors are installed (check if command exists) and only show installed ones
+- [x] Detect which editors are installed (check if command exists) and only show installed ones
 - [x] Remember last-used editor choice in session
 
 #### 10.7 Adversarial edge cases: circular refs & import graph semantics

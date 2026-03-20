@@ -841,15 +841,43 @@ export default function App() {
   type EditorId = "vscode" | "cursor" | "zed" | "vim" | "terminal";
   const [openWithDropdown, setOpenWithDropdown] = useState(false);
   const [lastEditor, setLastEditor] = useState<EditorId>("vscode");
+  const [availableEditors, setAvailableEditors] = useState<Set<EditorId> | null>(null);
   const openWithRef = useRef<HTMLDivElement>(null);
 
-  const editorOptions: { id: EditorId; label: string }[] = [
+  const allEditorOptions: { id: EditorId; label: string }[] = [
     { id: "vscode", label: "VS Code" },
     { id: "cursor", label: "Cursor" },
     { id: "zed", label: "Zed" },
     { id: "vim", label: "Vim" },
     { id: "terminal", label: "Terminal" },
   ];
+
+  const editorOptions = availableEditors
+    ? allEditorOptions.filter((opt) => availableEditors.has(opt.id))
+    : allEditorOptions;
+
+  // Detect which editors are installed
+  useEffect(() => {
+    if (!IS_TAURI) return;
+    tauriInvoke<Record<string, boolean>>("check_editors_available").then(
+      (result) => {
+        const available = new Set<EditorId>();
+        for (const [id, isAvailable] of Object.entries(result)) {
+          if (isAvailable) available.add(id as EditorId);
+        }
+        setAvailableEditors(available);
+        // If current lastEditor is not available, switch to first available
+        if (!available.has(lastEditor)) {
+          const first = allEditorOptions.find((opt) => available.has(opt.id));
+          if (first) setLastEditor(first.id);
+        }
+      },
+      () => {
+        // On error, show all editors (graceful fallback)
+      },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openInEditor = useCallback(
     async (editor: EditorId) => {

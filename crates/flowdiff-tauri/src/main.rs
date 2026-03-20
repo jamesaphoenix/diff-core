@@ -63,6 +63,7 @@ fn main() {
             commands::clear_api_key,
             commands::refine_groups,
             commands::open_in_editor,
+            commands::check_editors_available,
             commands::save_comment,
             commands::delete_comment,
             commands::load_comments,
