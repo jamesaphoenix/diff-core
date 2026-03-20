@@ -593,6 +593,22 @@ export default function App() {
     [buildAbsolutePath, showToast],
   );
 
+  /** Copy all file paths in a flow group to clipboard (absolute, one per line, flow order). */
+  const copyFlowPaths = useCallback(
+    async (group: FlowGroup) => {
+      const paths = group.files
+        .map((f) => buildAbsolutePath(f.path))
+        .join("\n");
+      try {
+        await navigator.clipboard.writeText(paths);
+        showToast(`${group.files.length} file paths copied to clipboard`);
+      } catch {
+        showToast("Failed to copy paths");
+      }
+    },
+    [buildAbsolutePath, showToast],
+  );
+
   /** Open the current file in an external editor. */
   const openInEditor = useCallback(
     async (editor: "vscode" | "cursor" | "terminal") => {
@@ -724,9 +740,16 @@ export default function App() {
       }
 
       // y copies the absolute path of the currently selected file
-      if (e.key === "y" && file) {
+      if (e.key === "y" && !e.shiftKey && file) {
         e.preventDefault();
         copyFilePath(file);
+        return;
+      }
+
+      // Y (shift+y) copies all file paths in the current group
+      if (e.key === "Y" && group) {
+        e.preventDefault();
+        copyFlowPaths(group);
         return;
       }
 
@@ -766,7 +789,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleSelectFile, handleSelectGroup, enterReplay, exitReplay, goToReplayStep, toggleGroupReviewed, copyFilePath]);
+  }, [handleSelectFile, handleSelectGroup, enterReplay, exitReplay, goToReplayStep, toggleGroupReviewed, copyFilePath, copyFlowPaths]);
 
   const handleSelectBase = useCallback((branch: string) => {
     setBaseRef(branch);
@@ -1155,6 +1178,16 @@ export default function App() {
                       {reviewedGroupIds.has(group.id) ? "\u2713" : ""}
                     </span>
                     <span className="group-name">{group.name}</span>
+                    <button
+                      className="copy-flow-btn"
+                      title="Copy all file paths in this flow"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        copyFlowPaths(group);
+                      }}
+                    >
+                      &#128203;
+                    </button>
                     <span className="risk-badge" data-risk={riskLevel(group.risk_score)}>
                       {group.risk_score.toFixed(2)}
                     </span>
@@ -1548,6 +1581,7 @@ export default function App() {
               <span><kbd>K</kbd> prev group</span>
               <span><kbd>x</kbd> mark reviewed</span>
               <span><kbd>y</kbd> copy path</span>
+              <span><kbd>Y</kbd> copy flow</span>
               <span><kbd>r</kbd> replay flow</span>
             </>
           )}

@@ -323,6 +323,33 @@ body {
   color: var(--risk-low);
 }
 
+/* ── Copy Flow Paths Button ── */
+
+.copy-flow-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  margin-left: 4px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+.group-header:hover .copy-flow-btn,
+.group-item.selected .copy-flow-btn {
+  opacity: 0.6;
+}
+
+.copy-flow-btn:hover {
+  opacity: 1 !important;
+  background: var(--bg-hover);
+}
+
 /* ── Review Tick-off ── */
 
 .group-review-check {

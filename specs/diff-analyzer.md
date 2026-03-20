@@ -672,16 +672,16 @@ Add buttons in the center panel toolbar to open the current file in external edi
 #### 9.8 Copy entire flow (all file paths)
 One-click button on each flow group to copy all file paths in that flow.
 
-- [ ] "Copy Flow Paths" button (clipboard icon) on each flow group header in the left panel, or as a right-click context menu option on the group
-- [ ] Copies all file paths in the group as **absolute paths**, one per line, in flow order
-- [ ] Format: raw paths, no metadata, no group name — ready to paste to an AI agent
+- [x] "Copy Flow Paths" button (clipboard icon) on each flow group header in the left panel, or as a right-click context menu option on the group
+- [x] Copies all file paths in the group as **absolute paths**, one per line, in flow order
+- [x] Format: raw paths, no metadata, no group name — ready to paste to an AI agent
   ```
   /Users/james/project/src/routes/auth.ts
   /Users/james/project/src/services/auth-service.ts
   /Users/james/project/src/repositories/user-repo.ts
   ```
-- [ ] Toast/notification confirming "N file paths copied to clipboard"
-- [ ] Keyboard shortcut: `Y` (shift+y) to copy all paths in the currently selected group
+- [x] Toast/notification confirming "N file paths copied to clipboard"
+- [x] Keyboard shortcut: `Y` (shift+y) to copy all paths in the currently selected group
 
 #### 9.9 Review comments
 Add the ability to leave comments on flow groups, individual files, and specific code blocks during review. Three comment scopes: **group-level**, **file-level**, and **code-level** (line range selection). Comments are persisted to the `.flowdiff/` folder so they survive app restarts within the same review session.
