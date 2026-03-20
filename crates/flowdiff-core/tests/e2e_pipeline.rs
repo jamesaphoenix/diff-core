@@ -1254,3 +1254,292 @@ fn test_add_negative() {
         "should detect _test.rs as test file entrypoint"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Java integration tests (Phase 11.2)
+// ---------------------------------------------------------------------------
+
+/// Test: Java Spring Boot REST API with controller → service → repository pattern.
+///
+/// Verifies full pipeline: language detection, file accounting, flow groups,
+/// entrypoint detection, framework detection, and Mermaid graph.
+#[test]
+fn test_e2e_java_spring_boot_api() {
+    let rb = RepoBuilder::new();
+
+    // Initial commit
+    rb.write_file(
+        "pom.xml",
+        r#"<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>demo</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+    </dependencies>
+</project>
+"#,
+    );
+    rb.commit("Initial commit: pom.xml");
+    rb.create_branch("main");
+
+    // Feature branch: add Spring Boot API
+    rb.create_branch("feature/java-api");
+    rb.checkout("feature/java-api");
+
+    rb.write_file(
+        "src/main/java/com/example/demo/DemoApplication.java",
+        r#"
+package com.example.demo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class DemoApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args);
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/main/java/com/example/demo/controller/UserController.java",
+        r#"
+package com.example.demo.controller;
+
+import java.util.List;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import com.example.demo.model.User;
+import com.example.demo.service.UserService;
+
+@RestController
+public class UserController {
+
+    private final UserService userService;
+
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    @GetMapping("/users")
+    public List<User> getUsers() {
+        return userService.findAll();
+    }
+
+    @PostMapping("/users")
+    public User createUser(@RequestBody User user) {
+        return userService.save(user);
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/main/java/com/example/demo/service/UserService.java",
+        r#"
+package com.example.demo.service;
+
+import java.util.List;
+import com.example.demo.model.User;
+import com.example.demo.repository.UserRepository;
+
+public class UserService {
+
+    private final UserRepository userRepository;
+
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    public List<User> findAll() {
+        return userRepository.findAll();
+    }
+
+    public User save(User user) {
+        return userRepository.save(user);
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/main/java/com/example/demo/repository/UserRepository.java",
+        r#"
+package com.example.demo.repository;
+
+import java.util.List;
+import java.util.ArrayList;
+import com.example.demo.model.User;
+
+public class UserRepository {
+
+    private final List<User> users = new ArrayList<>();
+
+    public List<User> findAll() {
+        return users;
+    }
+
+    public User save(User user) {
+        users.add(user);
+        return user;
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/main/java/com/example/demo/model/User.java",
+        r#"
+package com.example.demo.model;
+
+public class User {
+    private Long id;
+    private String name;
+    private String email;
+
+    public User() {}
+
+    public User(String name, String email) {
+        this.name = name;
+        this.email = email;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+}
+"#,
+    );
+
+    rb.commit("Add Spring Boot REST API with controller-service-repo");
+
+    let result = run_pipeline(rb.path(), "main", "feature/java-api");
+
+    // Verify basic output shape
+    assert_valid_json_schema(&result);
+    assert_valid_scores(&result);
+
+    // Verify Java files were detected
+    assert_language_detected(&result, "java");
+
+    // Verify all changed files are accounted for
+    assert_all_files_accounted(&result);
+
+    // Verify there are flow groups
+    assert!(
+        !result.groups.is_empty(),
+        "should produce at least one flow group"
+    );
+
+    // Verify entrypoint detection (main or HTTP routes)
+    let has_entrypoint = result.groups.iter().any(|g| g.entrypoint.is_some());
+    assert!(
+        has_entrypoint,
+        "should detect at least one entrypoint"
+    );
+
+    // Verify Spring Boot framework detection
+    let has_spring = result
+        .summary
+        .frameworks_detected
+        .iter()
+        .any(|f| f.contains("Spring"));
+    assert!(
+        has_spring,
+        "should detect Spring Boot framework; detected: {:?}",
+        result.summary.frameworks_detected
+    );
+
+    // Verify Mermaid graph is valid
+    assert_valid_mermaid(&result);
+}
+
+/// Test: Java test file detection.
+///
+/// Verifies that *Test.java files and @Test annotated methods are detected as test entrypoints.
+#[test]
+fn test_e2e_java_test_file_detection() {
+    let rb = RepoBuilder::new();
+
+    rb.write_file(
+        "pom.xml",
+        r#"<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>demo</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+</project>
+"#,
+    );
+    rb.commit("Initial commit");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/tests");
+    rb.checkout("feature/tests");
+
+    rb.write_file(
+        "src/main/java/com/example/demo/UserService.java",
+        r#"
+package com.example.demo;
+
+public class UserService {
+    public String greet(String name) {
+        return "Hello, " + name;
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "src/test/java/com/example/demo/UserServiceTest.java",
+        r#"
+package com.example.demo;
+
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+public class UserServiceTest {
+
+    @Test
+    public void testGreet() {
+        UserService svc = new UserService();
+        assertEquals("Hello, Alice", svc.greet("Alice"));
+    }
+
+    @Test
+    public void testGreetEmpty() {
+        UserService svc = new UserService();
+        assertEquals("Hello, ", svc.greet(""));
+    }
+}
+"#,
+    );
+
+    rb.commit("Add UserService and tests");
+
+    let result = run_pipeline(rb.path(), "main", "feature/tests");
+
+    // Verify test file detection
+    let test_eps: Vec<_> = result
+        .groups
+        .iter()
+        .flat_map(|g| g.entrypoint.as_ref())
+        .filter(|ep| ep.entrypoint_type == flowdiff_core::types::EntrypointType::TestFile)
+        .collect();
+    assert!(
+        !test_eps.is_empty(),
+        "should detect *Test.java as test file entrypoint"
+    );
+}

@@ -22,6 +22,7 @@ pub enum Language {
     Python,
     Go,
     Rust,
+    Java,
     Unknown,
 }
 
@@ -34,6 +35,7 @@ impl Language {
             "py" | "pyi" => Language::Python,
             "go" => Language::Go,
             "rs" => Language::Rust,
+            "java" => Language::Java,
             _ => Language::Unknown,
         }
     }
@@ -145,7 +147,7 @@ pub fn parse_file(path: &str, source: &str) -> Result<ParsedFile, AstError> {
         Language::TypeScript | Language::JavaScript => parse_typescript(path, source, language),
         Language::Python => parse_python(path, source),
         Language::Go => parse_go(path, source),
-        Language::Rust | Language::Unknown => Ok(ParsedFile {
+        Language::Rust | Language::Java | Language::Unknown => Ok(ParsedFile {
             path: path.to_string(),
             language,
             definitions: vec![],
@@ -223,7 +225,7 @@ pub fn extract_data_flow_info(path: &str, source: &str) -> Result<DataFlowInfo, 
         Language::TypeScript | Language::JavaScript => extract_ts_data_flow(source),
         Language::Python => extract_python_data_flow(source),
         Language::Go => extract_go_data_flow(source),
-        Language::Rust | Language::Unknown => Ok(DataFlowInfo {
+        Language::Rust | Language::Java | Language::Unknown => Ok(DataFlowInfo {
             assignments: vec![],
             calls_with_args: vec![],
         }),

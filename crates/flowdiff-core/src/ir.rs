@@ -2210,6 +2210,7 @@ mod proptests {
             Just(Language::Python),
             Just(Language::Go),
             Just(Language::Rust),
+            Just(Language::Java),
             Just(Language::Unknown),
         ]
     }
@@ -2257,6 +2258,7 @@ mod proptests {
                     Language::Python => ".py",
                     Language::Go => ".go",
                     Language::Rust => ".rs",
+                    Language::Java => ".java",
                     Language::Unknown => "",
                 };
                 IrFile {

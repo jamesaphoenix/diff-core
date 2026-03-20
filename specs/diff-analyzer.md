@@ -883,14 +883,14 @@ Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The
 #### 11.2 Tier 2 — High value
 
 **Java:**
-- [ ] Add `tree-sitter-java` grammar dependency
-- [ ] Add `Language::Java` variant
-- [ ] Write `.scm` query files for Java
-- [ ] Handle: package/import statements, class hierarchy (extends/implements), annotations, generics (ignore for grouping), method overloading
-- [ ] Entrypoint detection: `public static void main`, `@RestController`/`@RequestMapping`, `@SpringBootApplication`, JUnit `@Test`
-- [ ] Framework detection: Spring Boot, Spring MVC, JPA/Hibernate, Maven/Gradle project structure
-- [ ] Tests: import resolution, class/interface extraction, annotation detection, inheritance edges
-- [ ] Integration test: synthetic Spring Boot REST API
+- [x] Add `tree-sitter-java` grammar dependency
+- [x] Add `Language::Java` variant
+- [x] Write `.scm` query files for Java
+- [x] Handle: package/import statements, class hierarchy (extends/implements), annotations, generics (ignore for grouping), method overloading
+- [x] Entrypoint detection: `public static void main`, `@RestController`/`@RequestMapping`, `@SpringBootApplication`, JUnit `@Test`
+- [x] Framework detection: Spring Boot, Spring MVC, JPA/Hibernate, Maven/Gradle project structure
+- [x] Tests: import resolution, class/interface extraction, annotation detection, inheritance edges
+- [x] Integration test: synthetic Spring Boot REST API
 
 **C#:**
 - [ ] Add `tree-sitter-c-sharp` grammar dependency

@@ -334,6 +334,28 @@ const FRAMEWORK_IMPORTS: &[(&str, &str)] = &[
     ("tower", "Tower"),
     ("tonic", "Tonic"),
     ("tracing", "Tracing"),
+    // Java
+    ("org.springframework.boot", "Spring Boot"),
+    ("org.springframework.web", "Spring MVC"),
+    ("org.springframework.data", "Spring Data"),
+    ("org.springframework.stereotype", "Spring Boot"),
+    ("org.springframework.beans", "Spring Boot"),
+    ("org.springframework.context", "Spring Boot"),
+    ("org.springframework.security", "Spring Security"),
+    ("jakarta.persistence", "JPA"),
+    ("javax.persistence", "JPA"),
+    ("jakarta.ws.rs", "JAX-RS"),
+    ("javax.ws.rs", "JAX-RS"),
+    ("jakarta.servlet", "Servlet"),
+    ("javax.servlet", "Servlet"),
+    ("org.hibernate", "Hibernate"),
+    ("org.junit", "JUnit"),
+    ("org.junit.jupiter", "JUnit 5"),
+    ("org.mockito", "Mockito"),
+    ("com.google.inject", "Guice"),
+    ("io.micronaut", "Micronaut"),
+    ("io.quarkus", "Quarkus"),
+    ("org.apache.maven", "Maven"),
 ];
 
 // ---------------------------------------------------------------------------

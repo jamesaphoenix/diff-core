@@ -92,6 +92,10 @@ fn is_test_path(path: &str) -> bool {
         // Rust test files
         || lower.ends_with("_test.rs")
         || lower.ends_with("_tests.rs")
+        // Java test files
+        || (lower.ends_with(".java") && (
+            path.split('/').last().map_or(false, |f| f.ends_with("Test.java") || f.ends_with("Tests.java") || f.starts_with("Test"))
+        ))
 }
 
 fn is_test_symbol_name(name: &str) -> bool {
@@ -116,6 +120,7 @@ fn detect_http_routes(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         Language::Python => detect_http_routes_python(file, out),
         Language::Go => detect_http_routes_go(file, out),
         Language::Rust => detect_http_routes_rust(file, out),
+        Language::Java => detect_http_routes_java(file, out),
         Language::Unknown => {}
     }
 }
@@ -435,6 +440,120 @@ fn detect_http_routes_rust(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     }
 }
 
+/// Detect Java HTTP route handlers: Spring Boot, JAX-RS, Servlet patterns.
+fn detect_http_routes_java(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    // Check if we have a Java web framework import
+    let has_spring_import = file.imports.iter().any(|i| {
+        i.source.starts_with("org.springframework.web")
+            || i.source.starts_with("org.springframework.boot")
+            || i.source.starts_with("org.springframework.stereotype")
+    });
+
+    let has_jaxrs_import = file.imports.iter().any(|i| {
+        i.source.starts_with("jakarta.ws.rs")
+            || i.source.starts_with("javax.ws.rs")
+    });
+
+    let has_servlet_import = file.imports.iter().any(|i| {
+        i.source.starts_with("jakarta.servlet")
+            || i.source.starts_with("javax.servlet")
+    });
+
+    if !has_spring_import && !has_jaxrs_import && !has_servlet_import {
+        return;
+    }
+
+    // Spring Boot: look for @GetMapping, @PostMapping, @RequestMapping, etc. in import names
+    if has_spring_import {
+        let has_mapping_annotation = file.imports.iter().any(|i| {
+            i.names.iter().any(|n| {
+                n.name.ends_with("Mapping")
+                    || n.name == "RestController"
+                    || n.name == "Controller"
+                    || n.name == "RequestMapping"
+            })
+        });
+
+        if has_mapping_annotation {
+            // All public methods in a controller are potential endpoints
+            for def in &file.definitions {
+                if def.kind == crate::types::SymbolKind::Function
+                    && def.name != "<init>"
+                {
+                    out.push(Entrypoint {
+                        file: file.path.clone(),
+                        symbol: def.name.clone(),
+                        entrypoint_type: EntrypointType::HttpRoute,
+                    });
+                }
+            }
+        }
+    }
+
+    // JAX-RS: @GET, @POST, @Path
+    if has_jaxrs_import {
+        let has_path_annotation = file.imports.iter().any(|i| {
+            i.names.iter().any(|n| {
+                n.name == "Path"
+                    || n.name == "GET"
+                    || n.name == "POST"
+                    || n.name == "PUT"
+                    || n.name == "DELETE"
+            })
+        });
+
+        if has_path_annotation {
+            for def in &file.definitions {
+                if def.kind == crate::types::SymbolKind::Function {
+                    out.push(Entrypoint {
+                        file: file.path.clone(),
+                        symbol: def.name.clone(),
+                        entrypoint_type: EntrypointType::HttpRoute,
+                    });
+                }
+            }
+        }
+    }
+
+    // Servlet: doGet, doPost, etc.
+    if has_servlet_import {
+        for def in &file.definitions {
+            if def.kind == crate::types::SymbolKind::Function
+                && (def.name.starts_with("do")
+                    && ["doGet", "doPost", "doPut", "doDelete", "doHead", "doOptions"]
+                        .contains(&def.name.as_str()))
+            {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: def.name.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+    }
+
+    // Detect handler-like files by path convention
+    let is_controller_module = file.path.contains("/controller")
+        || file.path.contains("/controllers/")
+        || file.path.contains("/resource/")
+        || file.path.contains("/resources/")
+        || file.path.contains("/endpoint/")
+        || file.path.contains("/endpoints/")
+        || file.path.contains("/api/");
+
+    if is_controller_module && !has_spring_import && !has_jaxrs_import {
+        for def in &file.definitions {
+            if def.kind == crate::types::SymbolKind::Function {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: def.name.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+    }
+}
+
 fn is_web_framework_import(imp: &ImportInfo) -> bool {
     let src = &imp.source;
     src == "flask"
@@ -461,7 +580,7 @@ fn detect_cli_commands(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         // JS/TS: main() function in entry-like files
         // Go: func main() is always a CLI entrypoint
         let is_cli_path = is_cli_file_path(&file.path);
-        if is_cli_path || file.language == Language::Python || file.language == Language::Go || file.language == Language::Rust {
+        if is_cli_path || file.language == Language::Python || file.language == Language::Go || file.language == Language::Rust || file.language == Language::Java {
             out.push(Entrypoint {
                 file: file.path.clone(),
                 symbol: "main".to_string(),
