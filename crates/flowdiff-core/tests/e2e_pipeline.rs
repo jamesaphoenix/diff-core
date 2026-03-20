@@ -1827,3 +1827,292 @@ namespace MyApp.Tests
         "should detect *Tests.cs as test file entrypoint"
     );
 }
+
+// ─── PHP E2E Tests ────────────────────────────────────────────────────────
+
+/// Test: Synthetic Laravel REST API with controller → service → model pattern.
+///
+/// Verifies PHP parsing, import resolution, entrypoint detection (Laravel controllers),
+/// framework detection (Laravel), and flow grouping.
+#[test]
+fn test_e2e_php_laravel_api() {
+    let rb = RepoBuilder::new();
+
+    // Initial commit
+    rb.write_file(
+        "composer.json",
+        r#"{"name": "example/demo", "require": {"laravel/framework": "^11.0"}}"#,
+    );
+    rb.commit("Initial commit: composer.json");
+    rb.create_branch("main");
+
+    // Feature branch: add Laravel REST API
+    rb.create_branch("feature/php-api");
+    rb.checkout("feature/php-api");
+
+    rb.write_file(
+        "app/Http/Controllers/UserController.php",
+        r#"<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Models\User;
+use App\Services\UserService;
+
+class UserController extends Controller
+{
+    private $userService;
+
+    public function __construct(UserService $userService)
+    {
+        $this->userService = $userService;
+    }
+
+    public function index()
+    {
+        $users = User::all();
+        return response()->json($users);
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->validated();
+        $user = User::create($data);
+        return response()->json($user, 201);
+    }
+
+    public function show(User $user)
+    {
+        return response()->json($user);
+    }
+
+    public function destroy(User $user)
+    {
+        $user->delete();
+        return response()->json(null, 204);
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "app/Models/User.php",
+        r#"<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class User extends Model
+{
+    protected $fillable = ['name', 'email'];
+
+    public function posts()
+    {
+        return $this->hasMany(Post::class);
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "app/Services/UserService.php",
+        r#"<?php
+
+namespace App\Services;
+
+use App\Models\User;
+
+class UserService
+{
+    public function findAll()
+    {
+        return User::all();
+    }
+
+    public function findById($id)
+    {
+        return User::find($id);
+    }
+
+    public function create(array $data)
+    {
+        return User::create($data);
+    }
+
+    public function update(User $user, array $data)
+    {
+        $user->update($data);
+        return $user;
+    }
+
+    public function delete(User $user)
+    {
+        $user->delete();
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "app/Providers/AppServiceProvider.php",
+        r#"<?php
+
+namespace App\Providers;
+
+use Illuminate\Support\ServiceProvider;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function register()
+    {
+        //
+    }
+
+    public function boot()
+    {
+        //
+    }
+}
+"#,
+    );
+
+    rb.commit("Add Laravel REST API with controller-service-model");
+
+    let result = run_pipeline(rb.path(), "main", "feature/php-api");
+
+    // Verify basic output shape
+    assert_valid_json_schema(&result);
+    assert_valid_scores(&result);
+
+    // Verify PHP files were detected
+    assert_language_detected(&result, "php");
+
+    // Verify all changed files are accounted for
+    assert_all_files_accounted(&result);
+
+    // Verify there are flow groups
+    assert!(
+        !result.groups.is_empty(),
+        "should produce at least one flow group"
+    );
+
+    // Verify entrypoint detection (controller action methods)
+    let has_entrypoint = result.groups.iter().any(|g| g.entrypoint.is_some());
+    assert!(
+        has_entrypoint,
+        "should detect at least one entrypoint (Laravel controller actions)"
+    );
+
+    // Verify Laravel framework detection
+    let has_laravel = result
+        .summary
+        .frameworks_detected
+        .iter()
+        .any(|f| f.contains("Laravel"));
+    assert!(
+        has_laravel,
+        "should detect Laravel framework; detected: {:?}",
+        result.summary.frameworks_detected
+    );
+
+    // Verify Mermaid graph is valid
+    assert_valid_mermaid(&result);
+
+    // Verify JSON roundtrip
+    assert_json_roundtrip(&result);
+}
+
+/// Test: PHP test file detection.
+///
+/// Verifies that *Test.php files are detected as test entrypoints.
+#[test]
+fn test_e2e_php_test_file_detection() {
+    let rb = RepoBuilder::new();
+
+    rb.write_file(
+        "composer.json",
+        r#"{"name": "example/demo", "require-dev": {"phpunit/phpunit": "^11.0"}}"#,
+    );
+    rb.commit("Initial commit");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/tests");
+    rb.checkout("feature/tests");
+
+    rb.write_file(
+        "app/Services/UserService.php",
+        r#"<?php
+
+namespace App\Services;
+
+class UserService
+{
+    public function greet($name)
+    {
+        return "Hello, " . $name;
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "tests/Unit/UserServiceTest.php",
+        r#"<?php
+
+namespace Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use App\Services\UserService;
+
+class UserServiceTest extends TestCase
+{
+    public function test_greet()
+    {
+        $service = new UserService();
+        $result = $service->greet("Alice");
+        $this->assertEquals("Hello, Alice", $result);
+    }
+
+    public function test_greet_empty()
+    {
+        $service = new UserService();
+        $result = $service->greet("");
+        $this->assertEquals("Hello, ", $result);
+    }
+}
+"#,
+    );
+
+    rb.commit("Add UserService with PHPUnit tests");
+
+    let result = run_pipeline(rb.path(), "main", "feature/tests");
+
+    // Verify test file detection
+    let test_eps: Vec<_> = result
+        .groups
+        .iter()
+        .flat_map(|g| g.entrypoint.as_ref())
+        .filter(|ep| ep.entrypoint_type == flowdiff_core::types::EntrypointType::TestFile)
+        .collect();
+    assert!(
+        !test_eps.is_empty(),
+        "should detect *Test.php as test file entrypoint"
+    );
+
+    // Verify PHP language detected
+    assert_language_detected(&result, "php");
+
+    // Verify PHPUnit framework detected
+    let has_phpunit = result
+        .summary
+        .frameworks_detected
+        .iter()
+        .any(|f| f.contains("PHPUnit"));
+    assert!(
+        has_phpunit,
+        "should detect PHPUnit framework; detected: {:?}",
+        result.summary.frameworks_detected
+    );
+}

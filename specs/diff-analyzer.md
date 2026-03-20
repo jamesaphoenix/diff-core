@@ -903,14 +903,14 @@ Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The
 - [x] Integration test: synthetic ASP.NET Core Web API
 
 **PHP:**
-- [ ] Add `tree-sitter-php` grammar dependency
-- [ ] Add `Language::Php` variant
-- [ ] Write `.scm` query files for PHP
-- [ ] Handle: `use`/`namespace` statements, class hierarchy, traits, interfaces, type hints
-- [ ] Entrypoint detection: Laravel route definitions, controller methods, artisan commands, PHPUnit tests
-- [ ] Framework detection: Laravel, Symfony, WordPress, Composer autoload, Eloquent ORM, Doctrine
-- [ ] Tests: namespace/use resolution, class extraction, trait usage, route detection
-- [ ] Integration test: synthetic Laravel REST API with controller→service→model pattern
+- [x] Add `tree-sitter-php` grammar dependency
+- [x] Add `Language::Php` variant
+- [x] Write `.scm` query files for PHP
+- [x] Handle: `use`/`namespace` statements, class hierarchy, traits, interfaces, type hints
+- [x] Entrypoint detection: Laravel route definitions, controller methods, artisan commands, PHPUnit tests
+- [x] Framework detection: Laravel, Symfony, WordPress, Composer autoload, Eloquent ORM, Doctrine
+- [x] Tests: namespace/use resolution, class extraction, trait usage, route detection
+- [x] Integration test: synthetic Laravel REST API with controller→service→model pattern
 
 **Ruby:**
 - [ ] Add `tree-sitter-ruby` grammar dependency

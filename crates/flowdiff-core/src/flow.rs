@@ -381,6 +381,28 @@ const FRAMEWORK_IMPORTS: &[(&str, &str)] = &[
     ("System.Text.Json", "System.Text.Json"),
     ("Dapper", "Dapper"),
     ("Microsoft.AspNetCore.Components", "Blazor"),
+    // PHP (use namespace segments without trailing backslash;
+    // the match logic adds \ as a separator)
+    ("Illuminate", "Laravel"),
+    ("Illuminate\\Http", "Laravel"),
+    ("Illuminate\\Routing", "Laravel"),
+    ("Illuminate\\Database", "Laravel Eloquent"),
+    ("Illuminate\\Queue", "Laravel Queue"),
+    ("Illuminate\\Console", "Laravel Artisan"),
+    ("Illuminate\\Support", "Laravel"),
+    ("Laravel", "Laravel"),
+    ("Symfony", "Symfony"),
+    ("Symfony\\Component\\HttpFoundation", "Symfony"),
+    ("Symfony\\Component\\Console", "Symfony Console"),
+    ("Symfony\\Component\\Routing", "Symfony"),
+    ("Doctrine\\ORM", "Doctrine ORM"),
+    ("Doctrine\\DBAL", "Doctrine DBAL"),
+    ("Slim", "Slim"),
+    ("GuzzleHttp", "Guzzle"),
+    ("Monolog", "Monolog"),
+    ("PHPUnit", "PHPUnit"),
+    ("Livewire", "Livewire"),
+    ("Inertia", "Inertia"),
 ];
 
 // ---------------------------------------------------------------------------
@@ -459,11 +481,13 @@ pub fn detect_frameworks(files: &[ParsedFile]) -> Vec<String> {
         for import in &file.imports {
             let source = &import.source;
             for &(pattern, name) in FRAMEWORK_IMPORTS {
-                // Match exact, slash-prefixed (JS/TS), dot-prefixed (Python), or ::-prefixed (Rust)
+                // Match exact, or prefixed by separator: slash (JS/TS),
+                // dot (Python), :: (Rust), or backslash (PHP namespaces)
                 if source == pattern
                     || source.starts_with(&format!("{}/", pattern))
                     || source.starts_with(&format!("{}.", pattern))
                     || source.starts_with(&format!("{}::", pattern))
+                    || source.starts_with(&format!("{}\\", pattern))
                 {
                     frameworks.insert(name.to_string());
                 }
