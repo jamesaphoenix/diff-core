@@ -400,6 +400,9 @@ export default function App() {
               }
             : prev,
         );
+        // Reset reviewed state — groups have been reorganized
+        setReviewedGroupIds(new Set());
+        showToast("Groups updated by refinement \u2014 review state reset");
         // Re-select first group in refined view
         const sorted = [...result.refined_groups].sort(
           (a, b) => a.review_order - b.review_order,
@@ -1158,7 +1161,7 @@ export default function App() {
               {analysis.summary.total_groups} groups
               {reviewedGroupIds.size > 0 && (
                 <span className="reviewed-counter">
-                  {" "}&middot; {reviewedGroupIds.size}/{analysis.summary.total_groups} reviewed
+                  {" "}&middot; {reviewedGroupIds.size}/{sortedGroups.length} reviewed
                 </span>
               )}
             </span>

@@ -814,10 +814,10 @@ The "Copy All Comments" button is hard to discover in the current UI.
 #### 10.4 Fix group/reviewed count after LLM refinement
 Bug: After LLM refinement changes the number of groups, the UI shows stale counts like "4/3 reviewed" where the denominator doesn't match the actual group count.
 
-- [ ] When refinement completes and group structure changes, reset the reviewed state
-- [ ] Update the total group count in the "N/M reviewed" display to reflect the new group count
-- [ ] Clear per-group reviewed checkmarks since the groups have been reorganized
-- [ ] Show a brief toast: "Groups updated by refinement — review state reset"
+- [x] When refinement completes and group structure changes, reset the reviewed state
+- [x] Update the total group count in the "N/M reviewed" display to reflect the new group count
+- [x] Clear per-group reviewed checkmarks since the groups have been reorganized
+- [x] Show a brief toast: "Groups updated by refinement — review state reset"
 
 #### 10.5 Auto-center/fit-all when opening flow graph
 When the flow graph component opens, it should automatically zoom and pan to show all nodes.
