@@ -934,13 +934,13 @@ Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The
 - [x] Tests and integration test: synthetic Ktor API (6 unit tests + 2 integration tests)
 
 **Swift:**
-- [ ] Add `tree-sitter-swift` grammar dependency
-- [ ] Add `Language::Swift` variant
-- [ ] Write `.scm` query files for Swift
-- [ ] Handle: `import`, class/struct/enum/protocol hierarchy, extensions, closures, `@main`
-- [ ] Entrypoint detection: `@main`, SwiftUI `App` protocol, `XCTestCase`
-- [ ] Framework detection: SwiftUI, Vapor, UIKit, XCTest
-- [ ] Tests and integration test: synthetic Vapor API
+- [x] Add `tree-sitter-swift` grammar dependency
+- [x] Add `Language::Swift` variant
+- [x] Write `.scm` query files for Swift
+- [x] Handle: `import`, class/struct/enum/protocol hierarchy, extensions, closures, `@main`
+- [x] Entrypoint detection: `@main`, SwiftUI `App` protocol, `XCTestCase`
+- [x] Framework detection: SwiftUI, Vapor, UIKit, XCTest
+- [x] Tests and integration test: synthetic Vapor API
 
 **C/C++:**
 - [ ] Add `tree-sitter-c` and `tree-sitter-cpp` grammar dependencies

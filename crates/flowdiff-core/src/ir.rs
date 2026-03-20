@@ -2215,6 +2215,7 @@ mod proptests {
             Just(Language::Php),
             Just(Language::Ruby),
             Just(Language::Kotlin),
+            Just(Language::Swift),
             Just(Language::Unknown),
         ]
     }
@@ -2267,6 +2268,7 @@ mod proptests {
                     Language::Php => ".php",
                     Language::Ruby => ".rb",
                     Language::Kotlin => ".kt",
+                    Language::Swift => ".swift",
                     Language::Unknown => "",
                 };
                 IrFile {

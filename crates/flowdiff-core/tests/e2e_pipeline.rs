@@ -2595,3 +2595,267 @@ class UserServiceTest {
         result.summary.frameworks_detected
     );
 }
+
+/// Test: Swift Vapor REST API with controller→service→repo pattern.
+///
+/// Creates a synthetic Swift Vapor app to verify:
+/// - Swift file detection (.swift extension)
+/// - Import extraction (module-level imports)
+/// - Definition extraction (struct, class, protocol, func)
+/// - Call site extraction (method calls, function calls)
+/// - Entrypoint detection (Vapor route handlers)
+/// - Framework detection (Vapor, Fluent)
+/// - Semantic grouping and ranking
+#[test]
+fn test_e2e_swift_vapor_api() {
+    let rb = RepoBuilder::new();
+
+    // Initial commit
+    rb.write_file("Package.swift", "// swift-tools-version:5.9\nimport PackageDescription\n");
+    rb.commit("Initial commit: Package.swift");
+    rb.create_branch("main");
+
+    // Feature branch: add Vapor REST API
+    rb.create_branch("feature/swift-api");
+    rb.checkout("feature/swift-api");
+
+    rb.write_file(
+        "Sources/App/Controllers/UserController.swift",
+        r#"import Vapor
+import Fluent
+
+struct UserController: RouteCollection {
+    func boot(routes: RoutesBuilder) throws {
+        let users = routes.grouped("users")
+        users.get(use: index)
+        users.post(use: create)
+    }
+
+    func index(req: Request) throws -> EventLoopFuture<[User]> {
+        return User.query(on: req.db).all()
+    }
+
+    func create(req: Request) throws -> EventLoopFuture<User> {
+        let user = try req.content.decode(User.self)
+        return user.save(on: req.db).map { user }
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "Sources/App/Services/UserService.swift",
+        r#"import Foundation
+import Vapor
+
+class UserService {
+    let repository: UserRepository
+
+    init(repository: UserRepository) {
+        self.repository = repository
+    }
+
+    func findAll() -> [User] {
+        let users = repository.findAll()
+        return users
+    }
+
+    func findById(id: UUID) -> User? {
+        let user = repository.findById(id: id)
+        return user
+    }
+
+    func create(name: String) -> User {
+        let user = repository.save(name: name)
+        return user
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "Sources/App/Repositories/UserRepository.swift",
+        r#"import Foundation
+import Fluent
+
+class UserRepository {
+    let db: Database
+
+    init(db: Database) {
+        self.db = db
+    }
+
+    func findAll() -> [User] {
+        let results = db.query(User.self)
+        return results
+    }
+
+    func findById(id: UUID) -> User? {
+        let result = db.find(User.self, id: id)
+        return result
+    }
+
+    func save(name: String) -> User {
+        let user = User(name: name)
+        db.save(user)
+        return user
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "Sources/App/Models/User.swift",
+        r#"import Foundation
+import Fluent
+
+final class User: Model, Content {
+    static let schema = "users"
+
+    var id: UUID?
+    var name: String
+
+    init() {}
+
+    init(id: UUID? = nil, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "Sources/App/configure.swift",
+        r#"import Vapor
+import Fluent
+
+func configure(app: Application) throws {
+    let controller = UserController()
+    try app.register(collection: controller)
+}
+"#,
+    );
+
+    rb.commit("Add Vapor REST API with controller-service-repo");
+
+    let result = run_pipeline(rb.path(), "main", "feature/swift-api");
+
+    // Verify basic output shape
+    assert_valid_json_schema(&result);
+    assert_valid_scores(&result);
+
+    // Verify Swift files were detected
+    assert_language_detected(&result, "swift");
+
+    // Verify all changed files are accounted for
+    assert_all_files_accounted(&result);
+
+    // Verify there are flow groups
+    assert!(
+        !result.groups.is_empty(),
+        "should produce at least one flow group"
+    );
+
+    // Verify entrypoint detection (Vapor route handlers)
+    let has_entrypoint = result.groups.iter().any(|g| g.entrypoint.is_some());
+    assert!(
+        has_entrypoint,
+        "should detect at least one entrypoint (Vapor routes)"
+    );
+
+    // Verify Vapor framework detection
+    let has_vapor = result
+        .summary
+        .frameworks_detected
+        .iter()
+        .any(|f| f.contains("Vapor"));
+    assert!(
+        has_vapor,
+        "should detect Vapor framework; detected: {:?}",
+        result.summary.frameworks_detected
+    );
+
+    // Verify Mermaid graph is valid
+    assert_valid_mermaid(&result);
+
+    // Verify JSON roundtrip
+    assert_json_roundtrip(&result);
+}
+
+/// Test: Swift test file detection.
+///
+/// Verifies that *Tests.swift and *Test.swift files are detected as test entrypoints.
+#[test]
+fn test_e2e_swift_test_file_detection() {
+    let rb = RepoBuilder::new();
+
+    rb.write_file("Package.swift", "// swift-tools-version:5.9\n");
+    rb.commit("Initial commit");
+    rb.create_branch("main");
+
+    rb.create_branch("feature/tests");
+    rb.checkout("feature/tests");
+
+    rb.write_file(
+        "Sources/App/Services/UserService.swift",
+        r#"import Foundation
+
+class UserService {
+    func greet(name: String) -> String {
+        return "Hello, \(name)"
+    }
+}
+"#,
+    );
+
+    rb.write_file(
+        "Tests/AppTests/UserServiceTests.swift",
+        r#"import XCTest
+import Foundation
+
+final class UserServiceTests: XCTestCase {
+    func testGreet() {
+        let service = UserService()
+        let result = service.greet(name: "Alice")
+    }
+
+    func testGreetEmpty() {
+        let service = UserService()
+        let result = service.greet(name: "")
+    }
+}
+"#,
+    );
+
+    rb.commit("Add UserService with XCTest tests");
+
+    let result = run_pipeline(rb.path(), "main", "feature/tests");
+
+    // Verify test file detection
+    let test_eps: Vec<_> = result
+        .groups
+        .iter()
+        .flat_map(|g| g.entrypoint.as_ref())
+        .filter(|ep| ep.entrypoint_type == flowdiff_core::types::EntrypointType::TestFile)
+        .collect();
+    assert!(
+        !test_eps.is_empty(),
+        "should detect *Tests.swift as test file entrypoint"
+    );
+
+    // Verify Swift language detected
+    assert_language_detected(&result, "swift");
+
+    // Verify XCTest framework detected
+    let has_xctest = result
+        .summary
+        .frameworks_detected
+        .iter()
+        .any(|f| f.contains("XCTest"));
+    assert!(
+        has_xctest,
+        "should detect XCTest framework; detected: {:?}",
+        result.summary.frameworks_detected
+    );
+}

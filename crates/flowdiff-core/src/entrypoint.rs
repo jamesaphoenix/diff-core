@@ -113,6 +113,11 @@ fn is_test_path(path: &str) -> bool {
         || (lower.ends_with(".kt") && (
             path.split('/').last().map_or(false, |f| f.ends_with("Test.kt") || f.ends_with("Tests.kt") || f.starts_with("Test"))
         ))
+        // Swift test files: XCTest *Tests.swift, *Test.swift
+        || (lower.ends_with(".swift") && (
+            path.split('/').last().map_or(false, |f| f.ends_with("Tests.swift") || f.ends_with("Test.swift"))
+            || lower.contains("/tests/")
+        ))
 }
 
 fn is_test_symbol_name(name: &str) -> bool {
@@ -142,6 +147,7 @@ fn detect_http_routes(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         Language::Php => detect_http_routes_php(file, out),
         Language::Ruby => detect_http_routes_ruby(file, out),
         Language::Kotlin => detect_http_routes_kotlin(file, out),
+        Language::Swift => detect_http_routes_swift(file, out),
         Language::Unknown => {}
     }
 }
@@ -870,6 +876,51 @@ fn detect_http_routes_kotlin(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     }
 }
 
+fn detect_http_routes_swift(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    // Check for Vapor framework imports
+    let has_vapor_import = file.imports.iter().any(|i| i.source == "Vapor");
+
+    if has_vapor_import {
+        // Vapor route DSL: get, post, put, delete, patch, route
+        let http_methods = [
+            "get", "post", "put", "delete", "patch", "head", "options", "route",
+        ];
+        for call in &file.call_sites {
+            if http_methods.contains(&call.callee.as_str()) {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: call.callee.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+        return;
+    }
+
+    // Path-based heuristic for controller files
+    let is_controller_file = file.path.contains("/Controllers/")
+        || file.path.contains("/controllers/")
+        || file.path.contains("/Routes/")
+        || file.path.contains("/routes/")
+        || file
+            .path
+            .split('/')
+            .last()
+            .map_or(false, |f| f.ends_with("Controller.swift"));
+
+    if is_controller_file {
+        for def in &file.definitions {
+            if def.kind == crate::types::SymbolKind::Function && !def.name.starts_with('_') {
+                out.push(Entrypoint {
+                    file: file.path.clone(),
+                    symbol: def.name.clone(),
+                    entrypoint_type: EntrypointType::HttpRoute,
+                });
+            }
+        }
+    }
+}
+
 fn is_web_framework_import(imp: &ImportInfo) -> bool {
     let src = &imp.source;
     src == "flask"
@@ -896,7 +947,7 @@ fn detect_cli_commands(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
         // JS/TS: main() function in entry-like files
         // Go: func main() is always a CLI entrypoint
         let is_cli_path = is_cli_file_path(&file.path);
-        if is_cli_path || file.language == Language::Python || file.language == Language::Go || file.language == Language::Rust || file.language == Language::Java || file.language == Language::CSharp || file.language == Language::Php || file.language == Language::Ruby || file.language == Language::Kotlin {
+        if is_cli_path || file.language == Language::Python || file.language == Language::Go || file.language == Language::Rust || file.language == Language::Java || file.language == Language::CSharp || file.language == Language::Php || file.language == Language::Ruby || file.language == Language::Kotlin || file.language == Language::Swift {
             out.push(Entrypoint {
                 file: file.path.clone(),
                 symbol: "main".to_string(),
