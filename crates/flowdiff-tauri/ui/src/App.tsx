@@ -838,14 +838,29 @@ export default function App() {
   );
 
   /** Open the current file in an external editor. */
+  type EditorId = "vscode" | "cursor" | "zed" | "vim" | "terminal";
+  const [openWithDropdown, setOpenWithDropdown] = useState(false);
+  const [lastEditor, setLastEditor] = useState<EditorId>("vscode");
+  const openWithRef = useRef<HTMLDivElement>(null);
+
+  const editorOptions: { id: EditorId; label: string }[] = [
+    { id: "vscode", label: "VS Code" },
+    { id: "cursor", label: "Cursor" },
+    { id: "zed", label: "Zed" },
+    { id: "vim", label: "Vim" },
+    { id: "terminal", label: "Terminal" },
+  ];
+
   const openInEditor = useCallback(
-    async (editor: "vscode" | "cursor" | "terminal") => {
+    async (editor: EditorId) => {
       const file = selectedFile;
       if (!file) {
         showToast("No file selected");
         return;
       }
       const absPath = buildAbsolutePath(file);
+      setLastEditor(editor);
+      setOpenWithDropdown(false);
       if (!IS_TAURI) {
         showToast(`Would open ${absPath} in ${editor}`);
         return;
@@ -859,6 +874,18 @@ export default function App() {
     },
     [selectedFile, buildAbsolutePath, showToast],
   );
+
+  // Close "Open With" dropdown when clicking outside
+  useEffect(() => {
+    if (!openWithDropdown) return;
+    function handleClick(e: MouseEvent) {
+      if (openWithRef.current && !openWithRef.current.contains(e.target as Node)) {
+        setOpenWithDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [openWithDropdown]);
 
   /** Handle right-click context menu on a file item. */
   const handleFileContextMenu = useCallback(
@@ -1557,28 +1584,34 @@ export default function App() {
           <div className="panel-header">
             <span className="panel-header-title">{fileDiff ? fileDiff.path : "Diff Viewer"}</span>
             {fileDiff && (
-              <div className="editor-toolbar">
+              <div className="editor-toolbar" ref={openWithRef}>
                 <button
-                  className="editor-btn"
-                  onClick={() => openInEditor("vscode")}
-                  title="Open in VS Code"
+                  className="editor-btn open-with-btn"
+                  onClick={() => openInEditor(lastEditor)}
+                  title={`Open in ${editorOptions.find((e) => e.id === lastEditor)?.label ?? lastEditor}`}
                 >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M10.94 1.34l-4.19 3.82L3.13 2.34 1.5 3.16v9.68l1.63.82 3.62-2.82 4.19 3.82L14.5 13V3zm0 2.37v8.58l-3.07-2.8V6.51z"/></svg>
+                  Open With
                 </button>
                 <button
-                  className="editor-btn"
-                  onClick={() => openInEditor("cursor")}
-                  title="Open in Cursor"
+                  className="editor-btn open-with-arrow"
+                  onClick={() => setOpenWithDropdown(!openWithDropdown)}
+                  aria-label="Choose editor"
                 >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1L1 5v6l7 4 7-4V5L8 1zm0 1.5l5.2 3L8 8.5 2.8 5.5 8 2.5zM2 6.3l5.5 3.15V14L2 11V6.3zm7.5 7.7V9.45L15 6.3V11l-5.5 3z"/></svg>
+                  {openWithDropdown ? "\u25B2" : "\u25BC"}
                 </button>
-                <button
-                  className="editor-btn"
-                  onClick={() => openInEditor("terminal")}
-                  title="Open folder in Terminal"
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v10H2V3zm1 1v8h10V4H3zm1.5 1.5l3 2-3 2V5.5zm4 4.5v-1h4v1h-4z"/></svg>
-                </button>
+                {openWithDropdown && (
+                  <div className="open-with-dropdown">
+                    {editorOptions.map((opt) => (
+                      <button
+                        key={opt.id}
+                        className={`open-with-option ${opt.id === lastEditor ? "active" : ""}`}
+                        onClick={() => openInEditor(opt.id)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

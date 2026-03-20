@@ -235,23 +235,25 @@ body {
 .editor-toolbar {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   margin-left: auto;
   flex-shrink: 0;
+  position: relative;
 }
 
 .editor-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
   height: 24px;
   border: none;
   border-radius: 4px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  font-family: inherit;
 }
 
 .editor-btn:hover {
@@ -262,6 +264,56 @@ body {
 .editor-btn svg {
   width: 16px;
   height: 16px;
+}
+
+.open-with-btn {
+  border-radius: 4px 0 0 4px;
+  border: 1px solid var(--border);
+  border-right: none;
+}
+
+.open-with-arrow {
+  border-radius: 0 4px 4px 0;
+  border: 1px solid var(--border);
+  width: 20px;
+  padding: 0;
+  font-size: 8px;
+}
+
+.open-with-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  z-index: 100;
+  min-width: 120px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.open-with-option {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.open-with-option:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.open-with-option.active {
+  color: var(--accent);
 }
 
 /* ── Flow Groups (Left Panel) ── */

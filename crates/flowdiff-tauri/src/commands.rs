@@ -908,6 +908,22 @@ pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandEr
     let result = match editor.as_str() {
         "vscode" => std::process::Command::new("code").arg(&file_path).spawn(),
         "cursor" => std::process::Command::new("cursor").arg(&file_path).spawn(),
+        "zed" => std::process::Command::new("zed").arg(&file_path).spawn(),
+        "vim" => {
+            // Open vim in a new terminal window
+            #[cfg(target_os = "macos")]
+            {
+                std::process::Command::new("open")
+                    .args(["-a", "Terminal"])
+                    .arg(format!("vim {}", &file_path))
+                    .spawn()
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                // Fallback: try to open in a new terminal
+                std::process::Command::new("vim").arg(&file_path).spawn()
+            }
+        }
         "terminal" => {
             let dir = if path.is_dir() {
                 &file_path
@@ -940,6 +956,8 @@ pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandEr
             let bin = match editor.as_str() {
                 "vscode" => "code",
                 "cursor" => "cursor",
+                "zed" => "zed",
+                "vim" => "vim",
                 "terminal" => "terminal",
                 _ => &editor,
             };
