@@ -649,11 +649,11 @@ Add a way to mark flow groups as "reviewed / I'm happy with this" during a revie
 #### 9.6 Right-click file → copy absolute path
 Add a context menu on files in the left panel tree view.
 
-- [ ] Right-click on any file in the flow group tree → context menu appears
-- [ ] "Copy File Path" option copies the **absolute** file path to clipboard (e.g. `/Users/james/project/src/services/auth.ts`)
-- [ ] Use the repo path + relative file path to construct the absolute path
-- [ ] Toast/notification confirming "Path copied to clipboard"
-- [ ] Keyboard shortcut: `y` to copy the path of the currently selected file (vim-style yank)
+- [x] Right-click on any file in the flow group tree → context menu appears
+- [x] "Copy File Path" option copies the **absolute** file path to clipboard (e.g. `/Users/james/project/src/services/auth.ts`)
+- [x] Use the repo path + relative file path to construct the absolute path
+- [x] Toast/notification confirming "Path copied to clipboard"
+- [x] Keyboard shortcut: `y` to copy the path of the currently selected file (vim-style yank)
 
 #### 9.7 Open in external editors
 Add buttons in the center panel toolbar to open the current file in external editors.

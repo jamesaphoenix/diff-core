@@ -80,6 +80,13 @@ export default function App() {
   const [showRefined, setShowRefined] = useState(false);
   const [refining, setRefining] = useState(false);
 
+  // Context menu state (right-click on file items)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; filePath: string } | null>(null);
+
+  // Toast notification state (auto-dismiss)
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Demo mode: auto-load mock data on mount when not in Tauri
   const demoLoaded = useRef(false);
 
@@ -428,6 +435,8 @@ export default function App() {
       toggleGroupReviewed: (id: string) => toggleGroupReviewed(id),
       getReviewedGroupIds: () => Array.from(reviewedGroupIds),
       crashPanel: (name: string | null) => setCrashPanel(name),
+      copyFilePath: (path: string) => copyFilePath(path),
+      getToast: () => toast,
     };
     return () => { delete (window as any).__TEST_API__; };
   });
@@ -454,6 +463,23 @@ export default function App() {
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [settingsOpen]);
+
+  // Close context menu on click or Escape
+  useEffect(() => {
+    if (!contextMenu) return;
+    function handleClick() {
+      setContextMenu(null);
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setContextMenu(null);
+    }
+    window.addEventListener("click", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("click", handleClick);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [contextMenu]);
 
   /** Update a single LLM setting field and persist. */
   const updateSetting = useCallback(
@@ -535,6 +561,47 @@ export default function App() {
       return next;
     });
   }, []);
+
+  /** Show a toast notification that auto-dismisses. */
+  const showToast = useCallback((message: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(message);
+    toastTimer.current = setTimeout(() => setToast(null), 2000);
+  }, []);
+
+  /** Build the absolute file path from repo path + relative path. */
+  const buildAbsolutePath = useCallback(
+    (relativePath: string): string => {
+      if (!repoPath) return relativePath;
+      const base = repoPath.endsWith("/") ? repoPath.slice(0, -1) : repoPath;
+      return `${base}/${relativePath}`;
+    },
+    [repoPath],
+  );
+
+  /** Copy a file's absolute path to clipboard. */
+  const copyFilePath = useCallback(
+    async (relativePath: string) => {
+      const absPath = buildAbsolutePath(relativePath);
+      try {
+        await navigator.clipboard.writeText(absPath);
+        showToast("Path copied to clipboard");
+      } catch {
+        showToast("Failed to copy path");
+      }
+    },
+    [buildAbsolutePath, showToast],
+  );
+
+  /** Handle right-click context menu on a file item. */
+  const handleFileContextMenu = useCallback(
+    (e: React.MouseEvent, filePath: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setContextMenu({ x: e.clientX, y: e.clientY, filePath });
+    },
+    [],
+  );
 
   /** Enter flow replay mode for the currently selected group. */
   const enterReplay = useCallback(() => {
@@ -633,6 +700,13 @@ export default function App() {
         return;
       }
 
+      // y copies the absolute path of the currently selected file
+      if (e.key === "y" && file) {
+        e.preventDefault();
+        copyFilePath(file);
+        return;
+      }
+
       if (groups.length === 0 || !group) return;
 
       const groupIdx = groups.findIndex((g) => g.id === group.id);
@@ -669,7 +743,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleSelectFile, handleSelectGroup, enterReplay, exitReplay, goToReplayStep, toggleGroupReviewed]);
+  }, [handleSelectFile, handleSelectGroup, enterReplay, exitReplay, goToReplayStep, toggleGroupReviewed, copyFilePath]);
 
   const handleSelectBase = useCallback((branch: string) => {
     setBaseRef(branch);
@@ -1084,6 +1158,7 @@ export default function App() {
                               e.stopPropagation();
                               handleSelectFile(file.path);
                             }}
+                            onContextMenu={(e) => handleFileContextMenu(e, file.path)}
                           >
                             {replayActive && replayVisited.has(file.path) && (
                               <span className="replay-visited-check" title="Visited">&#10003;</span>
@@ -1424,10 +1499,35 @@ export default function App() {
               <span><kbd>J</kbd> next group</span>
               <span><kbd>K</kbd> prev group</span>
               <span><kbd>x</kbd> mark reviewed</span>
+              <span><kbd>y</kbd> copy path</span>
               <span><kbd>r</kbd> replay flow</span>
             </>
           )}
         </footer>
+      )}
+
+      {/* Context menu (right-click on file) */}
+      {contextMenu && (
+        <div
+          className="context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="context-menu-item"
+            onClick={() => {
+              copyFilePath(contextMenu.filePath);
+              setContextMenu(null);
+            }}
+          >
+            Copy File Path
+          </button>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="toast">{toast}</div>
       )}
     </div>
   );
