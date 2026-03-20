@@ -12,6 +12,8 @@ import type {
   LlmProvider,
   RefinementResult,
   RefinementResponse,
+  ReviewComment,
+  CommentInput,
 } from "./types";
 import { LLM_PROVIDERS, MODELS_BY_PROVIDER } from "./types";
 import DiffViewer from "./components/DiffViewer";
@@ -82,6 +84,12 @@ export default function App() {
 
   // Context menu state (right-click on file items)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; filePath: string } | null>(null);
+
+  // Review comments state
+  const [comments, setComments] = useState<ReviewComment[]>([]);
+  const [commentInput, setCommentInput] = useState<CommentInput | null>(null);
+  const [commentText, setCommentText] = useState("");
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Toast notification state (auto-dismiss)
   const [toast, setToast] = useState<string | null>(null);
@@ -233,6 +241,10 @@ export default function App() {
     setShowRefined(false);
     // Reset review tick-off state
     setReviewedGroupIds(new Set());
+    // Reset comments
+    setComments([]);
+    setCommentInput(null);
+    setCommentText("");
     try {
       let result: AnalysisOutput;
       if (IS_TAURI) {
@@ -428,7 +440,7 @@ export default function App() {
       setLlmSettings: (data: LlmSettings) => { setLlmSettings(data); setHasApiKey(data.has_api_key); },
       setAnalysis: (data: AnalysisOutput | null) => { setAnalysis(data); if (data && data.groups.length > 0) { const sorted = [...data.groups].sort((a, b) => a.review_order - b.review_order); handleSelectGroup(sorted[0]); } },
       setError: (msg: string | null) => setError(msg),
-      clearAnalysis: () => { setAnalysis(null); setSelectedGroup(null); setSelectedFile(null); setFileDiff(null); setOverview(null); setDeepAnalyses({}); setOriginalGroups(null); setRefinedGroups(null); setRefinementResponse(null); setShowRefined(false); setReviewedGroupIds(new Set()); },
+      clearAnalysis: () => { setAnalysis(null); setSelectedGroup(null); setSelectedFile(null); setFileDiff(null); setOverview(null); setDeepAnalyses({}); setOriginalGroups(null); setRefinedGroups(null); setRefinementResponse(null); setShowRefined(false); setReviewedGroupIds(new Set()); setComments([]); setCommentInput(null); setCommentText(""); },
       enterReplay: () => enterReplay(),
       exitReplay: () => exitReplay(),
       getReplayState: () => ({ active: replayActive, step: replayStep, visited: Array.from(replayVisited) }),
@@ -437,6 +449,14 @@ export default function App() {
       crashPanel: (name: string | null) => setCrashPanel(name),
       copyFilePath: (path: string) => copyFilePath(path),
       getToast: () => toast,
+      getComments: () => comments,
+      openCommentInput: (input?: CommentInput) => openCommentInput(input),
+      submitComment: () => submitComment(),
+      cancelComment: () => cancelComment(),
+      setCommentText: (text: string) => setCommentText(text),
+      deleteComment: (id: string) => deleteComment(id),
+      exportComments: () => exportComments(),
+      getCommentInput: () => commentInput,
     };
     return () => { delete (window as any).__TEST_API__; };
   });
@@ -609,6 +629,198 @@ export default function App() {
     [buildAbsolutePath, showToast],
   );
 
+  /** Compute a simple hash of the analysis for comment scoping. */
+  const analysisHash = analysis
+    ? `${analysis.diff_source.base_sha ?? ""}:${analysis.diff_source.head_sha ?? ""}:${analysis.summary.total_files_changed}`
+    : "";
+
+  /** Load comments from backend for the current analysis. */
+  const loadComments = useCallback(async () => {
+    if (!repoPath || !analysisHash) return;
+    try {
+      if (IS_TAURI) {
+        const result = await tauriInvoke<ReviewComment[]>("load_comments", {
+          repoPath,
+          analysisHash,
+        });
+        setComments(result);
+      }
+    } catch {
+      // Non-fatal: comments will just be empty
+    }
+  }, [repoPath, analysisHash]);
+
+  // Load comments when analysis changes
+  useEffect(() => {
+    if (analysisHash) {
+      loadComments();
+    }
+  }, [analysisHash, loadComments]);
+
+  /** Save a comment (persist to .flowdiff/comments.json). */
+  const saveComment = useCallback(
+    async (comment: ReviewComment) => {
+      setComments((prev) => [...prev, comment]);
+      if (IS_TAURI && repoPath && analysisHash) {
+        try {
+          await tauriInvoke("save_comment", {
+            repoPath,
+            analysisHash,
+            comment,
+          });
+        } catch {
+          // Already saved in state, persistence failure is non-fatal
+        }
+      }
+    },
+    [repoPath, analysisHash],
+  );
+
+  /** Delete a comment by ID. */
+  const deleteComment = useCallback(
+    async (commentId: string) => {
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
+      if (IS_TAURI && repoPath && analysisHash) {
+        try {
+          await tauriInvoke("delete_comment", {
+            repoPath,
+            analysisHash,
+            commentId,
+          });
+        } catch {
+          // Non-fatal
+        }
+      }
+    },
+    [repoPath, analysisHash],
+  );
+
+  /** Open the comment input — context-sensitive based on current selection. */
+  const openCommentInput = useCallback(
+    (overrideInput?: CommentInput) => {
+      const group = selectedGroupRef.current;
+      const file = selectedFileRef.current;
+      if (!group) return;
+
+      const input: CommentInput = overrideInput ?? (file
+        ? { type: "file", group_id: group.id, file_path: file }
+        : { type: "group", group_id: group.id });
+
+      setCommentInput(input);
+      setCommentText("");
+      // Focus the textarea after render
+      setTimeout(() => commentInputRef.current?.focus(), 50);
+    },
+    [],
+  );
+
+  /** Submit the current comment. */
+  const submitComment = useCallback(() => {
+    if (!commentInput || !commentText.trim()) return;
+
+    const comment: ReviewComment = {
+      id: `comment_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: commentInput.type,
+      group_id: commentInput.group_id,
+      file_path: commentInput.file_path ?? null,
+      start_line: commentInput.start_line ?? null,
+      end_line: commentInput.end_line ?? null,
+      selected_code: commentInput.selected_code ?? null,
+      text: commentText.trim(),
+      created_at: new Date().toISOString(),
+    };
+
+    saveComment(comment);
+    setCommentInput(null);
+    setCommentText("");
+    showToast("Comment saved");
+  }, [commentInput, commentText, saveComment, showToast]);
+
+  /** Cancel the current comment input. */
+  const cancelComment = useCallback(() => {
+    setCommentInput(null);
+    setCommentText("");
+  }, []);
+
+  /** Export all comments as formatted text, copy to clipboard. */
+  const exportComments = useCallback(async () => {
+    if (comments.length === 0) {
+      showToast("No comments to copy");
+      return;
+    }
+
+    // Build formatted output locally (works in both Tauri and demo mode)
+    const base = repoPath.endsWith("/") ? repoPath.slice(0, -1) : repoPath;
+    let output = "";
+
+    // Group comments by group_id, then sort by type for clean output
+    for (const comment of comments) {
+      switch (comment.type) {
+        case "code": {
+          if (comment.file_path) {
+            const absPath = `${base}/${comment.file_path}`;
+            if (comment.start_line != null && comment.end_line != null) {
+              output += `${absPath}:${comment.start_line}-${comment.end_line}\n`;
+            } else {
+              output += `${absPath}\n`;
+            }
+            if (comment.selected_code) {
+              output += "```\n";
+              output += comment.selected_code;
+              if (!comment.selected_code.endsWith("\n")) output += "\n";
+              output += "```\n";
+            }
+            output += `> ${comment.text}\n\n`;
+          }
+          break;
+        }
+        case "file": {
+          if (comment.file_path) {
+            const absPath = `${base}/${comment.file_path}`;
+            output += `${absPath}\n`;
+            output += `> ${comment.text}\n\n`;
+          }
+          break;
+        }
+        case "group": {
+          // Find the group name for better export
+          const group = analysis?.groups.find((g) => g.id === comment.group_id);
+          const label = group ? group.name : comment.group_id;
+          output += `Flow: "${label}"\n`;
+          output += `> ${comment.text}\n\n`;
+          break;
+        }
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(output);
+      showToast(`${comments.length} comment${comments.length === 1 ? "" : "s"} copied to clipboard`);
+    } catch {
+      showToast("Failed to copy comments");
+    }
+  }, [comments, repoPath, analysis, showToast]);
+
+  /** Get the count of comments for a specific group. */
+  const commentCountForGroup = useCallback(
+    (groupId: string): number => {
+      return comments.filter(
+        (c) => c.group_id === groupId,
+      ).length;
+    },
+    [comments],
+  );
+
+  /** Get comments for the currently selected file. */
+  const commentsForFile = useCallback(
+    (filePath: string): ReviewComment[] => {
+      return comments.filter(
+        (c) => c.file_path === filePath,
+      );
+    },
+    [comments],
+  );
+
   /** Open the current file in an external editor. */
   const openInEditor = useCallback(
     async (editor: "vscode" | "cursor" | "terminal") => {
@@ -753,6 +965,20 @@ export default function App() {
         return;
       }
 
+      // c opens context-sensitive comment input
+      if (e.key === "c" && !e.shiftKey && group) {
+        e.preventDefault();
+        openCommentInput();
+        return;
+      }
+
+      // C (shift+c) copies all comments
+      if (e.key === "C" && group) {
+        e.preventDefault();
+        exportComments();
+        return;
+      }
+
       if (groups.length === 0 || !group) return;
 
       const groupIdx = groups.findIndex((g) => g.id === group.id);
@@ -789,7 +1015,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleSelectFile, handleSelectGroup, enterReplay, exitReplay, goToReplayStep, toggleGroupReviewed, copyFilePath, copyFlowPaths]);
+  }, [handleSelectFile, handleSelectGroup, enterReplay, exitReplay, goToReplayStep, toggleGroupReviewed, copyFilePath, copyFlowPaths, openCommentInput, exportComments]);
 
   const handleSelectBase = useCallback((branch: string) => {
     setBaseRef(branch);
@@ -1106,6 +1332,15 @@ export default function App() {
         <aside className="panel panel-left">
           <div className="panel-header">
             <span>Flow Groups</span>
+            {comments.length > 0 && (
+              <button
+                className="btn btn-copy-comments"
+                onClick={exportComments}
+                title="Copy all comments to clipboard (C)"
+              >
+                &#128203; {comments.length}
+              </button>
+            )}
             {showRefined && refinementProvider && (
               <span className="refined-badge" title={`Refined by ${refinementProvider}/${refinementModel}`}>
                 Refined by {refinementModel}
@@ -1188,6 +1423,11 @@ export default function App() {
                     >
                       &#128203;
                     </button>
+                    {commentCountForGroup(group.id) > 0 && (
+                      <span className="comment-count-badge" title={`${commentCountForGroup(group.id)} comment${commentCountForGroup(group.id) === 1 ? "" : "s"}`}>
+                        {commentCountForGroup(group.id)}
+                      </span>
+                    )}
                     <span className="risk-badge" data-risk={riskLevel(group.risk_score)}>
                       {group.risk_score.toFixed(2)}
                     </span>
@@ -1224,6 +1464,11 @@ export default function App() {
                             <span className="file-changes">
                               +{file.changes.additions} -{file.changes.deletions}
                             </span>
+                            {commentsForFile(file.path).length > 0 && (
+                              <span className="file-comment-icon" title={`${commentsForFile(file.path).length} comment${commentsForFile(file.path).length === 1 ? "" : "s"}`}>
+                                &#128172;
+                              </span>
+                            )}
                             {fileMoved && (
                               <span className="file-moved-tag" title={fileMoved.reason}>
                                 moved from {fileMoved.from}
@@ -1346,7 +1591,26 @@ export default function App() {
           <div className="panel-body diff-viewer">
             <ErrorBoundary panelName="Diff Viewer">
               <CrashTest panel="Diff Viewer" />
-              <DiffViewer fileDiff={fileDiff} />
+              <DiffViewer
+                fileDiff={fileDiff}
+                onCommentRequest={(startLine, endLine, selectedCode) => {
+                  const group = selectedGroupRef.current;
+                  const file = selectedFileRef.current;
+                  if (group && file) {
+                    openCommentInput({
+                      type: "code",
+                      group_id: group.id,
+                      file_path: file,
+                      start_line: startLine,
+                      end_line: endLine,
+                      selected_code: selectedCode,
+                    });
+                  }
+                }}
+                codeComments={selectedFile ? comments.filter(
+                  (c) => c.type === "code" && c.file_path === selectedFile,
+                ) : []}
+              />
             </ErrorBoundary>
           </div>
         </main>
@@ -1516,6 +1780,39 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Review Comments for this group */}
+                {comments.filter((c) => c.group_id === selectedGroup.id).length > 0 && (
+                  <div className="annotation-section comment-section">
+                    <h3>Comments</h3>
+                    {comments
+                      .filter((c) => c.group_id === selectedGroup.id)
+                      .map((comment) => (
+                        <div key={comment.id} className={`comment-bubble comment-${comment.type}`}>
+                          <div className="comment-bubble-header">
+                            <span className="comment-scope-badge">{comment.type}</span>
+                            {comment.file_path && (
+                              <span className="comment-file-ref">{shortPath(comment.file_path)}</span>
+                            )}
+                            {comment.start_line != null && comment.end_line != null && (
+                              <span className="comment-line-ref">:{comment.start_line}-{comment.end_line}</span>
+                            )}
+                            <button
+                              className="comment-delete-btn"
+                              onClick={() => deleteComment(comment.id)}
+                              title="Delete comment"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                          {comment.selected_code && (
+                            <pre className="comment-code-snippet">{comment.selected_code}</pre>
+                          )}
+                          <p className="comment-text">{comment.text}</p>
+                        </div>
+                      ))}
+                  </div>
+                )}
+
                 {/* LLM action buttons */}
                 <div className="annotation-section annotation-actions">
                   {!overview && (
@@ -1582,10 +1879,61 @@ export default function App() {
               <span><kbd>x</kbd> mark reviewed</span>
               <span><kbd>y</kbd> copy path</span>
               <span><kbd>Y</kbd> copy flow</span>
+              <span><kbd>c</kbd> comment</span>
+              <span><kbd>C</kbd> copy comments</span>
               <span><kbd>r</kbd> replay flow</span>
             </>
           )}
         </footer>
+      )}
+
+      {/* Comment input overlay */}
+      {commentInput && (
+        <div className="comment-overlay" onClick={cancelComment}>
+          <div className="comment-input-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="comment-input-header">
+              <span className="comment-input-scope">
+                {commentInput.type === "code" && commentInput.file_path
+                  ? `${shortPath(commentInput.file_path)}:${commentInput.start_line}-${commentInput.end_line}`
+                  : commentInput.type === "file" && commentInput.file_path
+                    ? shortPath(commentInput.file_path)
+                    : "Group comment"}
+              </span>
+              <button className="btn-close" onClick={cancelComment}>&times;</button>
+            </div>
+            {commentInput.selected_code && (
+              <pre className="comment-input-code">{commentInput.selected_code}</pre>
+            )}
+            <textarea
+              ref={commentInputRef}
+              className="comment-textarea"
+              placeholder="Add a review comment..."
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submitComment();
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelComment();
+                }
+              }}
+              rows={3}
+            />
+            <div className="comment-input-footer">
+              <span className="comment-input-hint">Enter to save, Escape to cancel, Shift+Enter for newline</span>
+              <button
+                className="btn btn-comment-save"
+                onClick={submitComment}
+                disabled={!commentText.trim()}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Context menu (right-click on file) */}
@@ -1603,6 +1951,18 @@ export default function App() {
             }}
           >
             Copy File Path
+          </button>
+          <button
+            className="context-menu-item"
+            onClick={() => {
+              const group = selectedGroupRef.current;
+              if (group) {
+                openCommentInput({ type: "file", group_id: group.id, file_path: contextMenu.filePath });
+              }
+              setContextMenu(null);
+            }}
+          >
+            Add Comment
           </button>
         </div>
       )}

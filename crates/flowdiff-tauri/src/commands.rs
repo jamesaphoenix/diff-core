@@ -1118,6 +1118,199 @@ fn extract_diff(
     }
 }
 
+// ── Review Comments ──────────────────────────────────────────────────
+
+/// A single review comment — can be scoped to a group, file, or code range.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReviewComment {
+    /// Unique identifier for the comment.
+    pub id: String,
+    /// Comment scope: "code", "file", or "group".
+    #[serde(rename = "type")]
+    pub comment_type: String,
+    /// The flow group this comment belongs to.
+    pub group_id: String,
+    /// File path (null for group-level comments).
+    pub file_path: Option<String>,
+    /// Start line (null for file/group-level comments).
+    pub start_line: Option<u32>,
+    /// End line (null for file/group-level comments).
+    pub end_line: Option<u32>,
+    /// The selected code snippet (for code-level comments).
+    pub selected_code: Option<String>,
+    /// The comment text.
+    pub text: String,
+    /// ISO 8601 timestamp when the comment was created.
+    pub created_at: String,
+}
+
+/// Container for persisted comments, keyed by analysis hash.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CommentsFile {
+    /// Hash of the analysis run these comments belong to.
+    pub analysis_hash: String,
+    /// All comments for this analysis.
+    pub comments: Vec<ReviewComment>,
+}
+
+/// Get the `.flowdiff/comments.json` path for a repo.
+fn comments_file_path(repo_path: &str) -> Result<PathBuf, CommandError> {
+    let repo_path = PathBuf::from(repo_path);
+    let repo_path = std::fs::canonicalize(&repo_path)
+        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
+    let repo = git2::Repository::discover(&repo_path)
+        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| CommandError::Git("Bare repositories are not supported".to_string()))?;
+    Ok(workdir.join(".flowdiff").join("comments.json"))
+}
+
+/// Save a comment to `.flowdiff/comments.json`.
+///
+/// Creates the `.flowdiff/` directory if it doesn't exist. Appends to existing
+/// comments if the analysis hash matches, otherwise starts fresh.
+#[tauri::command]
+pub fn save_comment(
+    repo_path: String,
+    analysis_hash: String,
+    comment: ReviewComment,
+) -> Result<(), CommandError> {
+    let path = comments_file_path(&repo_path)?;
+
+    // Ensure .flowdiff directory exists
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| CommandError::Io(format!("Failed to create .flowdiff directory: {}", e)))?;
+    }
+
+    // Load existing comments or start fresh
+    let mut comments_file = load_comments_from_file(&path, &analysis_hash);
+    comments_file.comments.push(comment);
+
+    // Write back
+    let json = serde_json::to_string_pretty(&comments_file)
+        .map_err(|e| CommandError::Io(format!("Failed to serialize comments: {}", e)))?;
+    std::fs::write(&path, json)
+        .map_err(|e| CommandError::Io(format!("Failed to write comments file: {}", e)))?;
+
+    Ok(())
+}
+
+/// Delete a comment by ID from `.flowdiff/comments.json`.
+#[tauri::command]
+pub fn delete_comment(
+    repo_path: String,
+    analysis_hash: String,
+    comment_id: String,
+) -> Result<(), CommandError> {
+    let path = comments_file_path(&repo_path)?;
+    let mut comments_file = load_comments_from_file(&path, &analysis_hash);
+    comments_file.comments.retain(|c| c.id != comment_id);
+
+    let json = serde_json::to_string_pretty(&comments_file)
+        .map_err(|e| CommandError::Io(format!("Failed to serialize comments: {}", e)))?;
+    std::fs::write(&path, json)
+        .map_err(|e| CommandError::Io(format!("Failed to write comments file: {}", e)))?;
+
+    Ok(())
+}
+
+/// Load all comments for a given analysis hash from `.flowdiff/comments.json`.
+#[tauri::command]
+pub fn load_comments(
+    repo_path: String,
+    analysis_hash: String,
+) -> Result<Vec<ReviewComment>, CommandError> {
+    let path = comments_file_path(&repo_path)?;
+    let comments_file = load_comments_from_file(&path, &analysis_hash);
+    Ok(comments_file.comments)
+}
+
+/// Export all comments as a formatted string ready for pasting to an AI agent.
+///
+/// Includes absolute file paths, code snippets for code-level comments,
+/// and group context.
+#[tauri::command]
+pub fn export_comments(
+    repo_path: String,
+    analysis_hash: String,
+) -> Result<String, CommandError> {
+    let path = comments_file_path(&repo_path)?;
+    let comments_file = load_comments_from_file(&path, &analysis_hash);
+
+    let repo_path_buf = PathBuf::from(&repo_path);
+    let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
+        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
+    let repo = git2::Repository::discover(&repo_path_buf)
+        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| CommandError::Git("Bare repositories are not supported".to_string()))?
+        .to_string_lossy()
+        .to_string();
+    let workdir = if workdir.ends_with('/') {
+        workdir[..workdir.len() - 1].to_string()
+    } else {
+        workdir
+    };
+
+    let mut output = String::new();
+
+    for comment in &comments_file.comments {
+        match comment.comment_type.as_str() {
+            "code" => {
+                if let Some(ref fp) = comment.file_path {
+                    let abs_path = format!("{}/{}", workdir, fp);
+                    if let (Some(start), Some(end)) = (comment.start_line, comment.end_line) {
+                        output.push_str(&format!("{}:{}-{}\n", abs_path, start, end));
+                    } else {
+                        output.push_str(&format!("{}\n", abs_path));
+                    }
+                    if let Some(ref code) = comment.selected_code {
+                        output.push_str("```\n");
+                        output.push_str(code);
+                        if !code.ends_with('\n') {
+                            output.push('\n');
+                        }
+                        output.push_str("```\n");
+                    }
+                    output.push_str(&format!("> {}\n\n", comment.text));
+                }
+            }
+            "file" => {
+                if let Some(ref fp) = comment.file_path {
+                    let abs_path = format!("{}/{}", workdir, fp);
+                    output.push_str(&format!("{}\n", abs_path));
+                    output.push_str(&format!("> {}\n\n", comment.text));
+                }
+            }
+            "group" => {
+                output.push_str(&format!("Flow: \"{}\"\n", comment.group_id));
+                output.push_str(&format!("> {}\n\n", comment.text));
+            }
+            _ => {}
+        }
+    }
+
+    Ok(output)
+}
+
+/// Load comments from a file, returning empty if file doesn't exist or hash doesn't match.
+fn load_comments_from_file(path: &PathBuf, analysis_hash: &str) -> CommentsFile {
+    if let Ok(data) = std::fs::read_to_string(path) {
+        if let Ok(existing) = serde_json::from_str::<CommentsFile>(&data) {
+            if existing.analysis_hash == analysis_hash {
+                return existing;
+            }
+        }
+    }
+    CommentsFile {
+        analysis_hash: analysis_hash.to_string(),
+        comments: vec![],
+    }
+}
+
 fn detect_language(path: &str) -> String {
     match path.rsplit('.').next() {
         Some("ts" | "tsx") => "typescript".to_string(),
@@ -1583,5 +1776,186 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("Unknown editor"), "Expected unknown-editor error, got: {}", err);
+    }
+
+    // ── Review comment tests ────────────────────────────────────────
+
+    #[test]
+    fn test_review_comment_serde_roundtrip() {
+        let comment = ReviewComment {
+            id: "c1".to_string(),
+            comment_type: "code".to_string(),
+            group_id: "group_1".to_string(),
+            file_path: Some("src/auth.ts".to_string()),
+            start_line: Some(42),
+            end_line: Some(58),
+            selected_code: Some("function validate() {}".to_string()),
+            text: "Missing validation".to_string(),
+            created_at: "2026-03-20T14:30:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&comment).unwrap();
+        let back: ReviewComment = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, "c1");
+        assert_eq!(back.comment_type, "code");
+        assert_eq!(back.group_id, "group_1");
+        assert_eq!(back.file_path, Some("src/auth.ts".to_string()));
+        assert_eq!(back.start_line, Some(42));
+        assert_eq!(back.end_line, Some(58));
+        assert_eq!(back.selected_code, Some("function validate() {}".to_string()));
+        assert_eq!(back.text, "Missing validation");
+    }
+
+    #[test]
+    fn test_review_comment_file_level() {
+        let comment = ReviewComment {
+            id: "c2".to_string(),
+            comment_type: "file".to_string(),
+            group_id: "group_1".to_string(),
+            file_path: Some("src/auth.ts".to_string()),
+            start_line: None,
+            end_line: None,
+            selected_code: None,
+            text: "Should we add rate limiting?".to_string(),
+            created_at: "2026-03-20T14:30:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&comment).unwrap();
+        let back: ReviewComment = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.comment_type, "file");
+        assert!(back.start_line.is_none());
+        assert!(back.selected_code.is_none());
+    }
+
+    #[test]
+    fn test_review_comment_group_level() {
+        let comment = ReviewComment {
+            id: "c3".to_string(),
+            comment_type: "group".to_string(),
+            group_id: "group_1".to_string(),
+            file_path: None,
+            start_line: None,
+            end_line: None,
+            selected_code: None,
+            text: "Overall looks good".to_string(),
+            created_at: "2026-03-20T14:31:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&comment).unwrap();
+        let back: ReviewComment = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.comment_type, "group");
+        assert!(back.file_path.is_none());
+    }
+
+    #[test]
+    fn test_comments_file_serde_roundtrip() {
+        let comments_file = CommentsFile {
+            analysis_hash: "abc123".to_string(),
+            comments: vec![
+                ReviewComment {
+                    id: "c1".to_string(),
+                    comment_type: "code".to_string(),
+                    group_id: "group_1".to_string(),
+                    file_path: Some("src/auth.ts".to_string()),
+                    start_line: Some(42),
+                    end_line: Some(58),
+                    selected_code: Some("fn validate()".to_string()),
+                    text: "Missing validation".to_string(),
+                    created_at: "2026-03-20T14:30:00Z".to_string(),
+                },
+                ReviewComment {
+                    id: "c2".to_string(),
+                    comment_type: "group".to_string(),
+                    group_id: "group_1".to_string(),
+                    file_path: None,
+                    start_line: None,
+                    end_line: None,
+                    selected_code: None,
+                    text: "Needs review".to_string(),
+                    created_at: "2026-03-20T14:31:00Z".to_string(),
+                },
+            ],
+        };
+        let json = serde_json::to_string_pretty(&comments_file).unwrap();
+        let back: CommentsFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.analysis_hash, "abc123");
+        assert_eq!(back.comments.len(), 2);
+        assert_eq!(back.comments[0].comment_type, "code");
+        assert_eq!(back.comments[1].comment_type, "group");
+    }
+
+    #[test]
+    fn test_load_comments_from_file_missing() {
+        let path = std::env::temp_dir().join("flowdiff_test_no_such_file.json");
+        let result = load_comments_from_file(&path, "test_hash");
+        assert_eq!(result.analysis_hash, "test_hash");
+        assert!(result.comments.is_empty());
+    }
+
+    #[test]
+    fn test_load_comments_from_file_wrong_hash() {
+        let path = std::env::temp_dir().join("flowdiff_test_wrong_hash.json");
+        let data = CommentsFile {
+            analysis_hash: "old_hash".to_string(),
+            comments: vec![ReviewComment {
+                id: "c1".to_string(),
+                comment_type: "group".to_string(),
+                group_id: "g1".to_string(),
+                file_path: None,
+                start_line: None,
+                end_line: None,
+                selected_code: None,
+                text: "old comment".to_string(),
+                created_at: "2026-03-20T14:30:00Z".to_string(),
+            }],
+        };
+        std::fs::write(&path, serde_json::to_string(&data).unwrap()).unwrap();
+        let result = load_comments_from_file(&path, "new_hash");
+        assert_eq!(result.analysis_hash, "new_hash");
+        assert!(result.comments.is_empty());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_load_comments_from_file_matching_hash() {
+        let path = std::env::temp_dir().join("flowdiff_test_matching_hash.json");
+        let data = CommentsFile {
+            analysis_hash: "matching_hash".to_string(),
+            comments: vec![ReviewComment {
+                id: "c1".to_string(),
+                comment_type: "file".to_string(),
+                group_id: "g1".to_string(),
+                file_path: Some("test.ts".to_string()),
+                start_line: None,
+                end_line: None,
+                selected_code: None,
+                text: "test comment".to_string(),
+                created_at: "2026-03-20T14:30:00Z".to_string(),
+            }],
+        };
+        std::fs::write(&path, serde_json::to_string(&data).unwrap()).unwrap();
+        let result = load_comments_from_file(&path, "matching_hash");
+        assert_eq!(result.analysis_hash, "matching_hash");
+        assert_eq!(result.comments.len(), 1);
+        assert_eq!(result.comments[0].text, "test comment");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_review_comment_json_type_field() {
+        // Verify the "type" field is correctly renamed from comment_type
+        let comment = ReviewComment {
+            id: "c1".to_string(),
+            comment_type: "code".to_string(),
+            group_id: "g1".to_string(),
+            file_path: None,
+            start_line: None,
+            end_line: None,
+            selected_code: None,
+            text: "test".to_string(),
+            created_at: "2026-03-20T14:30:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&comment).unwrap();
+        assert!(json.contains("\"type\":\"code\""), "JSON should use 'type' not 'comment_type': {}", json);
+        // Verify deserialization from "type" field
+        let back: ReviewComment = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.comment_type, "code");
     }
 }

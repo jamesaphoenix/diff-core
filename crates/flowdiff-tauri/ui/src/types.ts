@@ -229,6 +229,46 @@ export interface RefinementReclassify {
   reason: string;
 }
 
+// ── Review Comment Types ──
+
+/** A single review comment — scoped to a group, file, or code range. */
+export interface ReviewComment {
+  /** Unique identifier. */
+  id: string;
+  /** Comment scope: "code", "file", or "group". */
+  type: "code" | "file" | "group";
+  /** The flow group this comment belongs to. */
+  group_id: string;
+  /** File path (null for group-level comments). */
+  file_path: string | null;
+  /** Start line (null for file/group-level). */
+  start_line: number | null;
+  /** End line (null for file/group-level). */
+  end_line: number | null;
+  /** Selected code snippet (for code-level comments). */
+  selected_code: string | null;
+  /** The comment text. */
+  text: string;
+  /** ISO 8601 timestamp. */
+  created_at: string;
+}
+
+/** Comment input state — tracks what the user is currently commenting on. */
+export interface CommentInput {
+  /** Comment scope. */
+  type: "code" | "file" | "group";
+  /** Group ID. */
+  group_id: string;
+  /** File path (for file/code-level). */
+  file_path?: string;
+  /** Start line (for code-level). */
+  start_line?: number;
+  /** End line (for code-level). */
+  end_line?: number;
+  /** Selected code text (for code-level). */
+  selected_code?: string;
+}
+
 /** Available LLM providers. */
 export const LLM_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];

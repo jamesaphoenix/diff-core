@@ -63,6 +63,10 @@ fn main() {
             commands::clear_api_key,
             commands::refine_groups,
             commands::open_in_editor,
+            commands::save_comment,
+            commands::delete_comment,
+            commands::load_comments,
+            commands::export_comments,
         ])
         .run(tauri::generate_context!())
     {

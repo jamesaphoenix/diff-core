@@ -687,30 +687,30 @@ One-click button on each flow group to copy all file paths in that flow.
 Add the ability to leave comments on flow groups, individual files, and specific code blocks during review. Three comment scopes: **group-level**, **file-level**, and **code-level** (line range selection). Comments are persisted to the `.flowdiff/` folder so they survive app restarts within the same review session.
 
 **Comment creation:**
-- [ ] `c` keyboard shortcut opens a comment input — context-sensitive:
+- [x] `c` keyboard shortcut opens a comment input — context-sensitive:
   - If a **code block is selected** (highlighted lines in Monaco): comment is attached to that line range
   - If a **file** is selected (no code highlight): comment is attached to that file
   - If a **group** is selected (no file): comment is attached to the group
-- [ ] **Code-level comments (drag to select):** click and drag in the Monaco diff viewer to select/highlight a range of lines → a "Comment" button appears inline (like GitHub PR review) → click to open comment input anchored to that line range
-- [ ] Inline text input appears:
+- [x] **Code-level comments (drag to select):** click and drag in the Monaco diff viewer to select/highlight a range of lines → a "Comment" button appears inline (like GitHub PR review) → click to open comment input anchored to that line range
+- [x] Inline text input appears:
   - For code-level: below the selected lines in the Monaco editor gutter area
   - For file/group-level: below the selected item in the left panel (or as a small modal)
-- [ ] Enter to save, Escape to cancel
-- [ ] Comments shown as small note icons on the file/group in the left panel tree
-- [ ] Code-level comments shown as gutter annotations in the Monaco diff viewer (colored marker in the gutter + expandable comment bubble)
-- [ ] Click the note icon or gutter marker to view/edit the comment
-- [ ] Right-click → "Delete Comment" to remove
+- [x] Enter to save, Escape to cancel
+- [x] Comments shown as small note icons on the file/group in the left panel tree
+- [x] Code-level comments shown as gutter annotations in the Monaco diff viewer (colored marker in the gutter + expandable comment bubble)
+- [x] Click the note icon or gutter marker to view/edit the comment
+- [x] Right-click → "Delete Comment" to remove
 
 **Comment display:**
-- [ ] Comments visible in the right panel annotations section when the commented file/group is selected
-- [ ] Code-level comments rendered inline in the Monaco diff viewer with highlighted line range background (subtle accent color) + comment bubble below the selection
-- [ ] Comment count badge on groups that have comments (on the group itself or its files)
-- [ ] Visual: Catppuccin-styled comment bubbles with subtle accent border
+- [x] Comments visible in the right panel annotations section when the commented file/group is selected
+- [x] Code-level comments rendered inline in the Monaco diff viewer with highlighted line range background (subtle accent color) + comment bubble below the selection
+- [x] Comment count badge on groups that have comments (on the group itself or its files)
+- [x] Visual: Catppuccin-styled comment bubbles with subtle accent border
 
 **Copy all comments:**
-- [ ] "Copy All Comments" button in the left panel header (or bottom toolbar)
-- [ ] Copies all comments as a formatted list with absolute file paths
-- [ ] **Code-level comments include the selected code snippet** in the export:
+- [x] "Copy All Comments" button in the left panel header (or bottom toolbar)
+- [x] Copies all comments as a formatted list with absolute file paths
+- [x] **Code-level comments include the selected code snippet** in the export:
   ```
   /Users/james/project/src/routes/auth.ts:42-58
   ```typescript
@@ -727,12 +727,12 @@ Add the ability to leave comments on flow groups, individual files, and specific
   Flow: "Auth & Session Management"
   > Overall looks good but needs error handling review
   ```
-- [ ] Format designed for pasting to an AI agent as review feedback — includes the actual code being commented on so the agent has full context
-- [ ] Keyboard shortcut: `C` (shift+c) to copy all comments
+- [x] Format designed for pasting to an AI agent as review feedback — includes the actual code being commented on so the agent has full context
+- [x] Keyboard shortcut: `C` (shift+c) to copy all comments
 
 **Persistence:**
-- [ ] Comments stored as JSON in `.flowdiff/comments.json` (alongside cache and other flowdiff state)
-- [ ] Keyed by analysis hash (so comments are scoped to a specific diff/analysis run)
+- [x] Comments stored as JSON in `.flowdiff/comments.json` (alongside cache and other flowdiff state)
+- [x] Keyed by analysis hash (so comments are scoped to a specific diff/analysis run)
 - [ ] Format:
   ```json
   {
@@ -771,8 +771,8 @@ Add the ability to leave comments on flow groups, individual files, and specific
     ]
   }
   ```
-- [ ] Loaded on app start if analysis hash matches
-- [ ] Tauri IPC commands: `save_comment`, `delete_comment`, `load_comments`, `export_comments`
+- [x] Loaded on app start if analysis hash matches
+- [x] Tauri IPC commands: `save_comment`, `delete_comment`, `load_comments`, `export_comments`
 
 #### 9.10 Flowchart node click → collapse graph + open file
 When a user clicks a node in the React Flow graph, it should collapse the graph section within the right panel and open that file in the diff viewer. This creates a smooth "explore graph → dive into file" workflow.
