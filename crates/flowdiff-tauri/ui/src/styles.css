@@ -281,6 +281,53 @@ body {
   color: var(--risk-low);
 }
 
+/* ── Review Tick-off ── */
+
+.group-review-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid var(--text-muted);
+  flex-shrink: 0;
+  margin-right: 8px;
+  font-size: 12px;
+  line-height: 1;
+  color: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.group-review-check:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.group-review-check.checked {
+  border-color: var(--risk-low);
+  background: #a6e3a120;
+  color: var(--risk-low);
+}
+
+.group-item.group-reviewed {
+  opacity: 0.6;
+}
+
+.group-item.group-reviewed.selected {
+  opacity: 0.8;
+}
+
+.group-item.group-reviewed .group-name {
+  color: var(--text-muted);
+}
+
+.reviewed-counter {
+  color: var(--risk-low);
+  font-weight: 500;
+}
+
 .file-list {
   list-style: none;
   padding: 0 0 4px 0;

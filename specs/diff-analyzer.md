@@ -639,12 +639,12 @@ Remove the risk heatmap (squarified treemap) from the right panel UI entirely. T
 #### 9.5 Flow tick-off (mark as reviewed)
 Add a way to mark flow groups as "reviewed / I'm happy with this" during a review session. Session-only state (not persisted).
 
-- [ ] Checkbox or checkmark icon on each flow group in the left panel
-- [ ] Click to toggle reviewed state — checked groups get a subtle visual treatment (e.g. muted opacity, green checkmark badge, or strikethrough on the group name)
-- [ ] Reviewed count shown in a summary (e.g. "3/7 flows reviewed" at the top or bottom of left panel)
-- [ ] Keyboard shortcut: `x` to toggle reviewed state on the currently selected group
-- [ ] Reviewed state is session-only — resets on page reload or new analysis
-- [ ] Reviewed groups stay in place (don't move to bottom) — the reviewer might want to revisit
+- [x] Checkbox or checkmark icon on each flow group in the left panel
+- [x] Click to toggle reviewed state — checked groups get a subtle visual treatment (e.g. muted opacity, green checkmark badge, or strikethrough on the group name)
+- [x] Reviewed count shown in a summary (e.g. "3/7 flows reviewed" at the top or bottom of left panel)
+- [x] Keyboard shortcut: `x` to toggle reviewed state on the currently selected group
+- [x] Reviewed state is session-only — resets on page reload or new analysis
+- [x] Reviewed groups stay in place (don't move to bottom) — the reviewer might want to revisit
 
 #### 9.6 Right-click file → copy absolute path
 Add a context menu on files in the left panel tree view.

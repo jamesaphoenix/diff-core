@@ -63,6 +63,9 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState("");
 
+  // Flow review tick-off state (session-only)
+  const [reviewedGroupIds, setReviewedGroupIds] = useState<Set<string>>(new Set());
+
   // Flow replay state
   const [replayActive, setReplayActive] = useState(false);
   const [replayStep, setReplayStep] = useState(0);
@@ -221,6 +224,8 @@ export default function App() {
     setRefinementProvider(null);
     setRefinementModel(null);
     setShowRefined(false);
+    // Reset review tick-off state
+    setReviewedGroupIds(new Set());
     try {
       let result: AnalysisOutput;
       if (IS_TAURI) {
@@ -416,10 +421,12 @@ export default function App() {
       setLlmSettings: (data: LlmSettings) => { setLlmSettings(data); setHasApiKey(data.has_api_key); },
       setAnalysis: (data: AnalysisOutput | null) => { setAnalysis(data); if (data && data.groups.length > 0) { const sorted = [...data.groups].sort((a, b) => a.review_order - b.review_order); handleSelectGroup(sorted[0]); } },
       setError: (msg: string | null) => setError(msg),
-      clearAnalysis: () => { setAnalysis(null); setSelectedGroup(null); setSelectedFile(null); setFileDiff(null); setOverview(null); setDeepAnalyses({}); setOriginalGroups(null); setRefinedGroups(null); setRefinementResponse(null); setShowRefined(false); },
+      clearAnalysis: () => { setAnalysis(null); setSelectedGroup(null); setSelectedFile(null); setFileDiff(null); setOverview(null); setDeepAnalyses({}); setOriginalGroups(null); setRefinedGroups(null); setRefinementResponse(null); setShowRefined(false); setReviewedGroupIds(new Set()); },
       enterReplay: () => enterReplay(),
       exitReplay: () => exitReplay(),
       getReplayState: () => ({ active: replayActive, step: replayStep, visited: Array.from(replayVisited) }),
+      toggleGroupReviewed: (id: string) => toggleGroupReviewed(id),
+      getReviewedGroupIds: () => Array.from(reviewedGroupIds),
       crashPanel: (name: string | null) => setCrashPanel(name),
     };
     return () => { delete (window as any).__TEST_API__; };
@@ -516,6 +523,19 @@ export default function App() {
     ? deepAnalyses[selectedGroup.id]
     : undefined;
 
+  /** Toggle reviewed state for a flow group. */
+  const toggleGroupReviewed = useCallback((groupId: string) => {
+    setReviewedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  }, []);
+
   /** Enter flow replay mode for the currently selected group. */
   const enterReplay = useCallback(() => {
     const group = selectedGroupRef.current;
@@ -606,6 +626,13 @@ export default function App() {
         return;
       }
 
+      // x toggles reviewed state on the currently selected group
+      if (e.key === "x" && group) {
+        e.preventDefault();
+        toggleGroupReviewed(group.id);
+        return;
+      }
+
       if (groups.length === 0 || !group) return;
 
       const groupIdx = groups.findIndex((g) => g.id === group.id);
@@ -642,7 +669,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleSelectFile, handleSelectGroup, enterReplay, exitReplay, goToReplayStep]);
+  }, [handleSelectFile, handleSelectGroup, enterReplay, exitReplay, goToReplayStep, toggleGroupReviewed]);
 
   const handleSelectBase = useCallback((branch: string) => {
     setBaseRef(branch);
@@ -753,6 +780,11 @@ export default function App() {
             <span className="summary">
               {analysis.summary.total_files_changed} files,{" "}
               {analysis.summary.total_groups} groups
+              {reviewedGroupIds.size > 0 && (
+                <span className="reviewed-counter">
+                  {" "}&middot; {reviewedGroupIds.size}/{analysis.summary.total_groups} reviewed
+                </span>
+              )}
             </span>
           )}
         </div>
@@ -1011,10 +1043,20 @@ export default function App() {
               return (
                 <div
                   key={group.id}
-                  className={`group-item ${selectedGroup?.id === group.id ? "selected" : ""} ${changeIndicator ? "refined-change" : ""}`}
+                  className={`group-item ${selectedGroup?.id === group.id ? "selected" : ""} ${changeIndicator ? "refined-change" : ""} ${reviewedGroupIds.has(group.id) ? "group-reviewed" : ""}`}
                   onClick={() => handleSelectGroup(group)}
                 >
                   <div className="group-header">
+                    <span
+                      className={`group-review-check ${reviewedGroupIds.has(group.id) ? "checked" : ""}`}
+                      title={reviewedGroupIds.has(group.id) ? "Mark as unreviewed" : "Mark as reviewed"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleGroupReviewed(group.id);
+                      }}
+                    >
+                      {reviewedGroupIds.has(group.id) ? "\u2713" : ""}
+                    </span>
                     <span className="group-name">{group.name}</span>
                     <span className="risk-badge" data-risk={riskLevel(group.risk_score)}>
                       {group.risk_score.toFixed(2)}
@@ -1381,6 +1423,7 @@ export default function App() {
               <span><kbd>k</kbd> prev file</span>
               <span><kbd>J</kbd> next group</span>
               <span><kbd>K</kbd> prev group</span>
+              <span><kbd>x</kbd> mark reviewed</span>
               <span><kbd>r</kbd> replay flow</span>
             </>
           )}
