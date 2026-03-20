@@ -81,7 +81,7 @@ struct AnalyzeArgs {
     #[arg(long)]
     refine: bool,
 
-    /// Model for refinement pass (e.g., "gpt-4o", "claude-sonnet-4-20250514")
+    /// Model for refinement pass (e.g., "gpt-4.1", "claude-sonnet-4-6")
     #[arg(long)]
     refine_model: Option<String>,
 
@@ -721,11 +721,11 @@ mod tests {
     #[test]
     fn test_parse_analyze_refine_model() {
         let cli = Cli::parse_from([
-            "flowdiff", "analyze", "--base", "main", "--refine", "--refine-model", "gpt-4o",
+            "flowdiff", "analyze", "--base", "main", "--refine", "--refine-model", "gpt-4.1",
         ]);
         if let Commands::Analyze(args) = cli.command {
             assert!(args.refine);
-            assert_eq!(args.refine_model, Some("gpt-4o".to_string()));
+            assert_eq!(args.refine_model, Some("gpt-4.1".to_string()));
         } else {
             panic!("expected Analyze command");
         }
@@ -734,10 +734,10 @@ mod tests {
     #[test]
     fn test_parse_analyze_refine_model_implies_refine() {
         let cli = Cli::parse_from([
-            "flowdiff", "analyze", "--base", "main", "--refine-model", "claude-sonnet-4-20250514",
+            "flowdiff", "analyze", "--base", "main", "--refine-model", "claude-sonnet-4-6",
         ]);
         if let Commands::Analyze(args) = cli.command {
-            assert_eq!(args.refine_model, Some("claude-sonnet-4-20250514".to_string()));
+            assert_eq!(args.refine_model, Some("claude-sonnet-4-6".to_string()));
         } else {
             panic!("expected Analyze command");
         }
@@ -767,7 +767,7 @@ mod tests {
     fn test_parse_analyze_all_flags() {
         let cli = Cli::parse_from([
             "flowdiff", "analyze", "--base", "main", "--head", "feature",
-            "--annotate", "--refine", "--refine-model", "gpt-4o",
+            "--annotate", "--refine", "--refine-model", "gpt-4.1",
             "-o", "out.json", "--repo", "/tmp/myrepo",
         ]);
         if let Commands::Analyze(args) = cli.command {
@@ -775,7 +775,7 @@ mod tests {
             assert_eq!(args.head, Some("feature".to_string()));
             assert!(args.annotate);
             assert!(args.refine);
-            assert_eq!(args.refine_model, Some("gpt-4o".to_string()));
+            assert_eq!(args.refine_model, Some("gpt-4.1".to_string()));
             assert_eq!(args.output, Some(PathBuf::from("out.json")));
             assert_eq!(args.repo, PathBuf::from("/tmp/myrepo"));
         } else {
@@ -816,7 +816,7 @@ mod tests {
         assert!(!config.llm.refinement.enabled);
 
         let refine = true;
-        let refine_model: Option<String> = Some("gpt-4o".to_string());
+        let refine_model: Option<String> = Some("gpt-4.1".to_string());
 
         if refine {
             config.llm.refinement.enabled = true;
@@ -827,7 +827,7 @@ mod tests {
         }
 
         assert!(config.llm.refinement.enabled);
-        assert_eq!(config.llm.refinement.model, Some("gpt-4o".to_string()));
+        assert_eq!(config.llm.refinement.model, Some("gpt-4.1".to_string()));
     }
 
     #[test]
@@ -835,7 +835,7 @@ mod tests {
         let mut config = FlowdiffConfig::default();
         assert!(!config.llm.refinement.enabled);
 
-        let refine_model: Option<String> = Some("claude-sonnet-4-20250514".to_string());
+        let refine_model: Option<String> = Some("claude-sonnet-4-6".to_string());
         if let Some(ref model) = refine_model {
             config.llm.refinement.enabled = true;
             config.llm.refinement.model = Some(model.clone());
@@ -844,7 +844,7 @@ mod tests {
         assert!(config.llm.refinement.enabled);
         assert_eq!(
             config.llm.refinement.model,
-            Some("claude-sonnet-4-20250514".to_string())
+            Some("claude-sonnet-4-6".to_string())
         );
     }
 
@@ -853,12 +853,12 @@ mod tests {
         let config = FlowdiffConfig {
             llm: flowdiff_core::config::LlmConfig {
                 provider: Some("anthropic".to_string()),
-                model: Some("claude-sonnet-4-20250514".to_string()),
+                model: Some("claude-sonnet-4-6".to_string()),
                 key_cmd: Some("echo main-key".to_string()),
                 refinement: flowdiff_core::config::RefinementConfig {
                     enabled: true,
                     provider: Some("openai".to_string()),
-                    model: Some("gpt-4o".to_string()),
+                    model: Some("gpt-4.1".to_string()),
                     key_cmd: Some("echo refinement-key".to_string()),
                     max_iterations: 2,
                 },
@@ -874,7 +874,7 @@ mod tests {
         };
 
         assert_eq!(refinement_llm_config.provider, Some("openai".to_string()));
-        assert_eq!(refinement_llm_config.model, Some("gpt-4o".to_string()));
+        assert_eq!(refinement_llm_config.model, Some("gpt-4.1".to_string()));
         assert_eq!(refinement_llm_config.key_cmd, Some("echo refinement-key".to_string()));
     }
 
@@ -883,7 +883,7 @@ mod tests {
         let config = FlowdiffConfig {
             llm: flowdiff_core::config::LlmConfig {
                 provider: Some("anthropic".to_string()),
-                model: Some("claude-sonnet-4-20250514".to_string()),
+                model: Some("claude-sonnet-4-6".to_string()),
                 key_cmd: Some("echo main-key".to_string()),
                 refinement: flowdiff_core::config::RefinementConfig {
                     enabled: true,
@@ -904,7 +904,7 @@ mod tests {
         };
 
         assert_eq!(refinement_llm_config.provider, Some("anthropic".to_string()));
-        assert_eq!(refinement_llm_config.model, Some("claude-sonnet-4-20250514".to_string()));
+        assert_eq!(refinement_llm_config.model, Some("claude-sonnet-4-6".to_string()));
         assert_eq!(refinement_llm_config.key_cmd, Some("echo main-key".to_string()));
     }
 

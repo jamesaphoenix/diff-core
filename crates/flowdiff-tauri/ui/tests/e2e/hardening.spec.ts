@@ -160,11 +160,11 @@ function generateNoApiKeySettings() {
     annotations_enabled: true,
     refinement_enabled: false,
     provider: "anthropic",
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6",
     api_key_source: "",
     has_api_key: false,
     refinement_provider: "anthropic",
-    refinement_model: "claude-sonnet-4-20250514",
+    refinement_model: "claude-sonnet-4-6",
     refinement_max_iterations: 1,
   };
 }
@@ -542,11 +542,11 @@ test.describe("Hardening — Refinement", () => {
       annotations_enabled: true,
       refinement_enabled: true,
       provider: "anthropic",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       api_key_source: "ANTHROPIC_API_KEY",
       has_api_key: true,
       refinement_provider: "anthropic",
-      refinement_model: "claude-sonnet-4-20250514",
+      refinement_model: "claude-sonnet-4-6",
       refinement_max_iterations: 1,
     });
     await page.waitForTimeout(300);
@@ -572,11 +572,11 @@ test.describe("Hardening — Refinement", () => {
       annotations_enabled: true,
       refinement_enabled: true,
       provider: "anthropic",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       api_key_source: "ANTHROPIC_API_KEY",
       has_api_key: true,
       refinement_provider: "anthropic",
-      refinement_model: "claude-sonnet-4-20250514",
+      refinement_model: "claude-sonnet-4-6",
       refinement_max_iterations: 1,
     });
     await page.waitForTimeout(300);
@@ -609,11 +609,11 @@ test.describe("Hardening — Refinement", () => {
       annotations_enabled: true,
       refinement_enabled: true,
       provider: "anthropic",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       api_key_source: "ANTHROPIC_API_KEY",
       has_api_key: true,
       refinement_provider: "anthropic",
-      refinement_model: "claude-sonnet-4-20250514",
+      refinement_model: "claude-sonnet-4-6",
       refinement_max_iterations: 1,
     });
     await page.waitForTimeout(300);
@@ -643,11 +643,11 @@ test.describe("Hardening — Refinement", () => {
       annotations_enabled: true,
       refinement_enabled: true,
       provider: "anthropic",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       api_key_source: "ANTHROPIC_API_KEY",
       has_api_key: true,
       refinement_provider: "anthropic",
-      refinement_model: "claude-sonnet-4-20250514",
+      refinement_model: "claude-sonnet-4-6",
       refinement_max_iterations: 1,
     });
     await page.waitForTimeout(300);

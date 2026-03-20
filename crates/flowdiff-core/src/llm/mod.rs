@@ -202,14 +202,14 @@ pub fn create_provider(config: &LlmConfig) -> Result<Box<dyn LlmProvider>, LlmEr
             let model = config
                 .model
                 .as_deref()
-                .unwrap_or("claude-sonnet-4-20250514");
+                .unwrap_or("claude-sonnet-4-6");
             Ok(Box::new(anthropic::AnthropicProvider::new(api_key, model.to_string())))
         }
         "openai" => {
             let model = config
                 .model
                 .as_deref()
-                .unwrap_or("gpt-4o");
+                .unwrap_or("gpt-4.1");
             Ok(Box::new(openai::OpenAIProvider::new(api_key, model.to_string())))
         }
         "gemini" => {
@@ -876,7 +876,7 @@ mod tests {
         };
         let provider = create_provider(&config).unwrap();
         assert_eq!(provider.name(), "anthropic");
-        assert_eq!(provider.model(), "claude-sonnet-4-20250514");
+        assert_eq!(provider.model(), "claude-sonnet-4-6");
     }
 
     #[test]
@@ -889,19 +889,19 @@ mod tests {
         };
         let provider = create_provider(&config).unwrap();
         assert_eq!(provider.name(), "openai");
-        assert_eq!(provider.model(), "gpt-4o");
+        assert_eq!(provider.model(), "gpt-4.1");
     }
 
     #[test]
     fn test_create_provider_custom_model() {
         let config = LlmConfig {
             provider: Some("anthropic".to_string()),
-            model: Some("claude-3-7-sonnet-20250219".to_string()),
+            model: Some("claude-opus-4-6".to_string()),
             key_cmd: Some("echo test-key".to_string()),
             ..Default::default()
         };
         let provider = create_provider(&config).unwrap();
-        assert_eq!(provider.model(), "claude-3-7-sonnet-20250219");
+        assert_eq!(provider.model(), "claude-opus-4-6");
     }
 
     #[test]

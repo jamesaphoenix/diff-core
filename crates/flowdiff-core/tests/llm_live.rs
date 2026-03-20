@@ -28,7 +28,7 @@ async fn test_live_anthropic_pass1() {
     load_env();
 
     let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
-    let provider = AnthropicProvider::new(api_key, "claude-sonnet-4-20250514".to_string());
+    let provider = AnthropicProvider::new(api_key, "claude-sonnet-4-6".to_string());
 
     let request = sample_pass1_request();
     let response = provider.annotate_overview(&request).await.unwrap();
@@ -77,7 +77,7 @@ async fn test_live_anthropic_pass2() {
     load_env();
 
     let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
-    let provider = AnthropicProvider::new(api_key, "claude-sonnet-4-20250514".to_string());
+    let provider = AnthropicProvider::new(api_key, "claude-sonnet-4-6".to_string());
 
     let request = sample_pass2_request();
     let response = provider.annotate_group(&request).await.unwrap();
@@ -125,7 +125,7 @@ async fn test_live_openai_pass1() {
     load_env();
 
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
-    let provider = OpenAIProvider::new(api_key, "gpt-4o".to_string());
+    let provider = OpenAIProvider::new(api_key, "gpt-4.1".to_string());
 
     let request = sample_pass1_request();
     let response = provider.annotate_overview(&request).await.unwrap();
@@ -158,7 +158,7 @@ async fn test_live_openai_pass2() {
     load_env();
 
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
-    let provider = OpenAIProvider::new(api_key, "gpt-4o".to_string());
+    let provider = OpenAIProvider::new(api_key, "gpt-4.1".to_string());
 
     let request = sample_pass2_request();
     let response = provider.annotate_group(&request).await.unwrap();
@@ -181,7 +181,7 @@ async fn test_live_structured_output_compliance_anthropic() {
     load_env();
 
     let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
-    let provider = AnthropicProvider::new(api_key, "claude-sonnet-4-20250514".to_string());
+    let provider = AnthropicProvider::new(api_key, "claude-sonnet-4-6".to_string());
 
     let request = sample_pass1_request();
     let response = provider.annotate_overview(&request).await.unwrap();
@@ -215,7 +215,7 @@ async fn test_live_structured_output_compliance_openai() {
     load_env();
 
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
-    let provider = OpenAIProvider::new(api_key, "gpt-4o".to_string());
+    let provider = OpenAIProvider::new(api_key, "gpt-4.1".to_string());
 
     let request = sample_pass1_request();
     let response = provider.annotate_overview(&request).await.unwrap();
@@ -249,7 +249,7 @@ async fn test_live_end_to_end_pipeline() {
     load_env();
 
     let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
-    let provider = AnthropicProvider::new(api_key, "claude-sonnet-4-20250514".to_string());
+    let provider = AnthropicProvider::new(api_key, "claude-sonnet-4-6".to_string());
 
     // Pass 1: Overview
     let pass1_request = sample_pass1_request();
@@ -295,7 +295,7 @@ async fn test_live_anthropic_invalid_key() {
 
     let provider = AnthropicProvider::new(
         "sk-ant-invalid-key".to_string(),
-        "claude-sonnet-4-20250514".to_string(),
+        "claude-sonnet-4-6".to_string(),
     );
     let request = sample_pass1_request();
     let result = provider.annotate_overview(&request).await;
@@ -321,7 +321,7 @@ async fn test_live_openai_invalid_key() {
         return;
     }
 
-    let provider = OpenAIProvider::new("sk-invalid-key".to_string(), "gpt-4o".to_string());
+    let provider = OpenAIProvider::new("sk-invalid-key".to_string(), "gpt-4.1".to_string());
     let request = sample_pass1_request();
     let result = provider.annotate_overview(&request).await;
 

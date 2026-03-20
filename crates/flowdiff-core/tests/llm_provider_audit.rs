@@ -93,7 +93,7 @@ fn valid_anthropic_pass1_tool_use() -> String {
                 "suggested_review_order": ["group_1"]
             }
         }],
-        "model": "claude-sonnet-4-20250514",
+        "model": "claude-sonnet-4-6",
         "stop_reason": "tool_use"
     }"#
     .to_string()
@@ -106,7 +106,7 @@ fn valid_openai_pass1() -> String {
             "message": {"role": "assistant", "content": "{\"groups\": [{\"id\": \"group_1\", \"name\": \"Auth flow\", \"summary\": \"Changes auth\", \"review_order_rationale\": \"Review first\", \"risk_flags\": [\"auth_change\"]}], \"overall_summary\": \"Auth changes\", \"suggested_review_order\": [\"group_1\"]}"},
             "finish_reason": "stop"
         }],
-        "model": "gpt-4o",
+        "model": "gpt-4.1",
         "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}
     }"#
     .to_string()
@@ -142,7 +142,7 @@ async fn test_anthropic_rate_limit_with_retry_after() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -163,7 +163,7 @@ async fn test_openai_rate_limit_with_retry_after() {
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -207,7 +207,7 @@ async fn test_rate_limit_without_retry_after_header() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -229,7 +229,7 @@ async fn test_rate_limit_with_non_numeric_retry_after() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -254,7 +254,7 @@ async fn test_anthropic_auth_error_401() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("bad-key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("bad-key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -273,7 +273,7 @@ async fn test_openai_auth_error_401() {
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("bad-key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("bad-key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -335,7 +335,7 @@ async fn test_anthropic_timeout_408() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -352,7 +352,7 @@ async fn test_openai_timeout_504() {
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -393,7 +393,7 @@ async fn test_anthropic_completely_invalid_json_body() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -414,7 +414,7 @@ async fn test_openai_completely_invalid_json_body() {
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -453,13 +453,13 @@ async fn test_anthropic_valid_wrapper_but_missing_content() {
     Mock::given(method("POST"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(r#"{"model": "claude-sonnet-4-20250514", "stop_reason": "end_turn"}"#),
+                .set_body_string(r#"{"model": "claude-sonnet-4-6", "stop_reason": "end_turn"}"#),
         )
         .mount(&server)
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     assert!(result.is_err(), "Should fail when content field is missing");
@@ -471,12 +471,12 @@ async fn test_openai_empty_choices_array() {
     Mock::given(method("POST"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(r#"{"choices": [], "model": "gpt-4o"}"#),
+                .set_body_string(r#"{"choices": [], "model": "gpt-4.1"}"#),
         )
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -494,12 +494,12 @@ async fn test_openai_empty_content_in_choice() {
     Mock::given(method("POST"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(r#"{"choices": [{"message": {"role": "assistant", "content": ""}, "finish_reason": "stop"}], "model": "gpt-4o"}"#),
+                .set_body_string(r#"{"choices": [{"message": {"role": "assistant", "content": ""}, "finish_reason": "stop"}], "model": "gpt-4.1"}"#),
         )
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -600,7 +600,7 @@ async fn test_anthropic_tool_use_with_wrong_schema() {
                         "name": "structured_output",
                         "input": {"wrong_field": true, "another": 42}
                     }],
-                    "model": "claude-sonnet-4-20250514",
+                    "model": "claude-sonnet-4-6",
                     "stop_reason": "tool_use"
                 }"#,
             ),
@@ -609,7 +609,7 @@ async fn test_anthropic_tool_use_with_wrong_schema() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     assert!(result.is_err(), "Should fail on schema violation");
@@ -626,13 +626,13 @@ async fn test_openai_json_response_with_missing_required_fields() {
     Mock::given(method("POST"))
         .respond_with(
             ResponseTemplate::new(200).set_body_string(
-                r#"{"choices": [{"message": {"role": "assistant", "content": "{\"overall_summary\": \"test\"}"}, "finish_reason": "stop"}], "model": "gpt-4o"}"#,
+                r#"{"choices": [{"message": {"role": "assistant", "content": "{\"overall_summary\": \"test\"}"}, "finish_reason": "stop"}], "model": "gpt-4.1"}"#,
             ),
         )
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     assert!(result.is_err(), "Should fail when required fields missing");
@@ -675,7 +675,7 @@ async fn test_anthropic_tool_use_with_null_input() {
                         "name": "structured_output",
                         "input": null
                     }],
-                    "model": "claude-sonnet-4-20250514",
+                    "model": "claude-sonnet-4-6",
                     "stop_reason": "tool_use"
                 }"#,
             ),
@@ -684,7 +684,7 @@ async fn test_anthropic_tool_use_with_null_input() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     assert!(result.is_err(), "Should fail on null tool input");
@@ -720,7 +720,7 @@ async fn test_anthropic_huge_diff_truncated_before_sending() {
     };
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
 
     // Should succeed — truncation happens before sending
     let result = provider.annotate_overview(&request).await;
@@ -744,7 +744,7 @@ async fn test_openai_huge_diff_truncated_before_sending() {
         graph_summary: String::new(),
     };
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&request).await;
     assert!(result.is_ok(), "Should succeed after truncating: {:?}", result.err());
 }
@@ -873,7 +873,7 @@ async fn test_anthropic_unicode_in_diff_summary() {
     };
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&request).await;
     assert!(result.is_ok(), "Should handle unicode in request: {:?}", result.err());
 }
@@ -900,7 +900,7 @@ async fn test_openai_emoji_in_file_paths() {
         graph_context: "🦀 → 🐍 → 💾".to_string(),
     };
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     // Pass2 also produces a ParseResponse error since the mock returns Pass1 schema
     // But we're testing that the request with unicode doesn't cause panics
     let _result = provider.annotate_group(&request).await;
@@ -954,7 +954,7 @@ async fn test_anthropic_500_with_html_error_body() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -978,7 +978,7 @@ async fn test_openai_500_with_json_error_body() {
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -1020,7 +1020,7 @@ async fn test_anthropic_empty_body_on_success() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     assert!(result.is_err(), "Empty body should fail");
@@ -1041,7 +1041,7 @@ async fn test_anthropic_concurrent_requests() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let provider = std::sync::Arc::new(provider);
 
     let mut set = tokio::task::JoinSet::new();
@@ -1067,7 +1067,7 @@ async fn test_openai_concurrent_requests() {
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let provider = std::sync::Arc::new(provider);
 
     let mut set = tokio::task::JoinSet::new();
@@ -1140,7 +1140,7 @@ async fn test_anthropic_valid_pass1_response() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     let response = result.unwrap();
@@ -1159,7 +1159,7 @@ async fn test_openai_valid_pass1_response() {
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     let response = result.unwrap();
@@ -1198,7 +1198,7 @@ async fn test_anthropic_pass2_rate_limit() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_group(&sample_pass2_request()).await;
 
     match result.unwrap_err() {
@@ -1217,7 +1217,7 @@ async fn test_openai_refinement_auth_error() {
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("bad-key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("bad-key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.refine_groups(&sample_refinement_request()).await;
 
     match result.unwrap_err() {
@@ -1262,7 +1262,7 @@ async fn test_anthropic_text_fallback_with_valid_json() {
             ResponseTemplate::new(200).set_body_string(
                 r#"{
                     "content": [{"type": "text", "text": "{\"groups\": [{\"id\": \"g1\", \"name\": \"Auth\", \"summary\": \"Auth changes\", \"review_order_rationale\": \"Review first\", \"risk_flags\": []}], \"overall_summary\": \"Summary\", \"suggested_review_order\": [\"g1\"]}"}],
-                    "model": "claude-sonnet-4-20250514",
+                    "model": "claude-sonnet-4-6",
                     "stop_reason": "end_turn"
                 }"#,
             ),
@@ -1271,7 +1271,7 @@ async fn test_anthropic_text_fallback_with_valid_json() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
     assert!(result.is_ok(), "Text fallback should work: {:?}", result.err());
 }
@@ -1284,7 +1284,7 @@ async fn test_anthropic_text_fallback_with_markdown_fenced_json() {
             ResponseTemplate::new(200).set_body_string(
                 r#"{
                     "content": [{"type": "text", "text": "```json\n{\"groups\": [{\"id\": \"g1\", \"name\": \"Auth\", \"summary\": \"Auth changes\", \"review_order_rationale\": \"Review first\", \"risk_flags\": []}], \"overall_summary\": \"Summary\", \"suggested_review_order\": [\"g1\"]}\n```"}],
-                    "model": "claude-sonnet-4-20250514",
+                    "model": "claude-sonnet-4-6",
                     "stop_reason": "end_turn"
                 }"#,
             ),
@@ -1293,7 +1293,7 @@ async fn test_anthropic_text_fallback_with_markdown_fenced_json() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
     assert!(result.is_ok(), "Markdown fence stripping should work: {:?}", result.err());
 }
@@ -1304,14 +1304,14 @@ async fn test_anthropic_no_content_blocks() {
     Mock::given(method("POST"))
         .respond_with(
             ResponseTemplate::new(200).set_body_string(
-                r#"{"content": [], "model": "claude-sonnet-4-20250514", "stop_reason": "end_turn"}"#,
+                r#"{"content": [], "model": "claude-sonnet-4-6", "stop_reason": "end_turn"}"#,
             ),
         )
         .mount(&server)
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -1330,7 +1330,7 @@ async fn test_anthropic_thinking_only_no_tool_use() {
             ResponseTemplate::new(200).set_body_string(
                 r#"{
                     "content": [{"type": "thinking", "thinking": "Let me analyze this..."}],
-                    "model": "claude-3-7-sonnet-20250219",
+                    "model": "claude-opus-4-6",
                     "stop_reason": "end_turn"
                 }"#,
             ),
@@ -1339,7 +1339,7 @@ async fn test_anthropic_thinking_only_no_tool_use() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-3-7-sonnet-20250219".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-opus-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     // Should fail — thinking block alone has no usable output
@@ -1387,7 +1387,7 @@ async fn test_anthropic_very_large_error_body() {
         .await;
 
     let provider =
-        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-20250514".into(), server.uri());
+        AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -1406,7 +1406,7 @@ async fn test_openai_very_large_200_response() {
     // Huge 200 response that is valid JSON wrapper but inner content is huge
     let huge_inner = "Z".repeat(50_000);
     let body = format!(
-        r#"{{"choices": [{{"message": {{"role": "assistant", "content": "{}"}}, "finish_reason": "stop"}}], "model": "gpt-4o"}}"#,
+        r#"{{"choices": [{{"message": {{"role": "assistant", "content": "{}"}}, "finish_reason": "stop"}}], "model": "gpt-4.1"}}"#,
         huge_inner
     );
     Mock::given(method("POST"))
@@ -1414,7 +1414,7 @@ async fn test_openai_very_large_200_response() {
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4o".into(), server.uri());
+    let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     // Should fail to parse the gibberish inner content
@@ -1459,8 +1459,8 @@ async fn test_gemini_multi_part_response_concatenation() {
 
 #[test]
 fn test_all_providers_have_reasonable_context_windows() {
-    let anthropic = AnthropicProvider::new("k".into(), "claude-sonnet-4-20250514".into());
-    let openai = OpenAIProvider::new("k".into(), "gpt-4o".into());
+    let anthropic = AnthropicProvider::new("k".into(), "claude-sonnet-4-6".into());
+    let openai = OpenAIProvider::new("k".into(), "gpt-4.1".into());
     let gemini = GeminiProvider::new("k".into(), "gemini-2.5-flash".into());
 
     // All providers should have at least 8K context
@@ -1470,7 +1470,7 @@ fn test_all_providers_have_reasonable_context_windows() {
 
     // Specific known values
     assert_eq!(anthropic.max_context_tokens(), 200_000);
-    assert_eq!(openai.max_context_tokens(), 128_000);
+    assert_eq!(openai.max_context_tokens(), 1_000_000);
     assert_eq!(gemini.max_context_tokens(), 1_048_576);
 }
 

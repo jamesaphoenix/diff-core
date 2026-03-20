@@ -180,11 +180,13 @@ impl AnthropicProvider {
 
 /// Return the max context tokens for known Anthropic models.
 fn anthropic_context_window(model: &str) -> usize {
-    if model.contains("claude-3-5-sonnet") || model.contains("claude-3-7-sonnet") {
+    if model.contains("claude-opus-4-6") || model.contains("claude-sonnet-4-6") {
+        200_000
+    } else if model.contains("claude-haiku-4-5") || model.contains("claude-haiku-4") || model.contains("claude-3-5-haiku") {
         200_000
     } else if model.contains("claude-sonnet-4") || model.contains("claude-opus-4") {
         200_000
-    } else if model.contains("claude-3-5-haiku") || model.contains("claude-haiku-4") {
+    } else if model.contains("claude-3-5-sonnet") || model.contains("claude-3-7-sonnet") {
         200_000
     } else if model.contains("claude-3-opus") {
         200_000
@@ -398,7 +400,7 @@ mod tests {
             }
         });
         let request = AnthropicRequest {
-            model: "claude-sonnet-4-20250514".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
             max_tokens: 4096,
             system: Some("You are a reviewer".to_string()),
             messages: vec![AnthropicMessage {
@@ -418,7 +420,7 @@ mod tests {
         let json = serde_json::to_string(&request).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(parsed["model"], "claude-sonnet-4-20250514");
+        assert_eq!(parsed["model"], "claude-sonnet-4-6");
         assert_eq!(parsed["max_tokens"], 4096);
         assert_eq!(parsed["system"], "You are a reviewer");
         assert_eq!(parsed["messages"][0]["role"], "user");
@@ -433,7 +435,7 @@ mod tests {
     #[test]
     fn test_anthropic_request_without_tools() {
         let request = AnthropicRequest {
-            model: "claude-sonnet-4-20250514".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
             max_tokens: 4096,
             system: None,
             messages: vec![AnthropicMessage {
@@ -473,7 +475,7 @@ mod tests {
                     }
                 }
             ],
-            "model": "claude-sonnet-4-20250514",
+            "model": "claude-sonnet-4-6",
             "stop_reason": "tool_use"
         }"#;
         let response: AnthropicResponse = serde_json::from_str(json).unwrap();
@@ -500,7 +502,7 @@ mod tests {
             "content": [
                 {"type": "text", "text": "Hello, world!"}
             ],
-            "model": "claude-sonnet-4-20250514",
+            "model": "claude-sonnet-4-6",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5}
         }"#;
@@ -647,19 +649,20 @@ mod tests {
 
     #[test]
     fn test_context_window_sonnet() {
-        assert_eq!(anthropic_context_window("claude-sonnet-4-20250514"), 200_000);
+        assert_eq!(anthropic_context_window("claude-sonnet-4-6"), 200_000);
         assert_eq!(anthropic_context_window("claude-3-5-sonnet-20240620"), 200_000);
         assert_eq!(anthropic_context_window("claude-3-7-sonnet-20250219"), 200_000);
     }
 
     #[test]
     fn test_context_window_opus() {
-        assert_eq!(anthropic_context_window("claude-opus-4-20250514"), 200_000);
+        assert_eq!(anthropic_context_window("claude-opus-4-6"), 200_000);
         assert_eq!(anthropic_context_window("claude-3-opus-20240229"), 200_000);
     }
 
     #[test]
     fn test_context_window_haiku() {
+        assert_eq!(anthropic_context_window("claude-haiku-4-5"), 200_000);
         assert_eq!(anthropic_context_window("claude-3-5-haiku-20241022"), 200_000);
         assert_eq!(anthropic_context_window("claude-haiku-4-20250514"), 200_000);
     }
@@ -673,9 +676,9 @@ mod tests {
 
     #[test]
     fn test_anthropic_provider_new() {
-        let provider = AnthropicProvider::new("key".to_string(), "claude-sonnet-4-20250514".to_string());
+        let provider = AnthropicProvider::new("key".to_string(), "claude-sonnet-4-6".to_string());
         assert_eq!(provider.name(), "anthropic");
-        assert_eq!(provider.model(), "claude-sonnet-4-20250514");
+        assert_eq!(provider.model(), "claude-sonnet-4-6");
         assert_eq!(provider.max_context_tokens(), 200_000);
     }
 
@@ -683,7 +686,7 @@ mod tests {
     fn test_anthropic_provider_with_base_url() {
         let provider = AnthropicProvider::with_base_url(
             "key".to_string(),
-            "claude-sonnet-4-20250514".to_string(),
+            "claude-sonnet-4-6".to_string(),
             "http://localhost:8080".to_string(),
         );
         assert_eq!(provider.base_url, "http://localhost:8080");

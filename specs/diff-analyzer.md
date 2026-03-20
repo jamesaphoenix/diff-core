@@ -306,7 +306,7 @@ paths = ["**/*.test.ts", "**/*.spec.ts", "migrations/**"]
 
 [llm]
 provider = "anthropic"  # "anthropic", "openai", or "gemini"
-model = "claude-sonnet-4-6"
+model = "claude-sonnet-4-6"     # claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5
 # API key via FLOWDIFF_API_KEY env var or:
 # key_cmd = "op read op://vault/flowdiff/api-key"
 
@@ -315,8 +315,8 @@ model = "claude-sonnet-4-6"
 # Deterministic analysis runs first (free, fast), then LLM refines the output.
 # Only applied if enabled and API key is available. Falls back to deterministic if LLM fails.
 enabled = false
-provider = "anthropic"       # can differ from annotation provider
-model = "claude-sonnet-4-6"  # user selects the model for refinement
+provider = "anthropic"           # can differ from annotation provider
+model = "claude-sonnet-4-6"     # user selects the model for refinement
 # key_cmd = "op read op://vault/flowdiff/refinement-key"
 # What the refinement pass can do:
 # - split groups that contain logically unrelated changes
@@ -610,13 +610,13 @@ The macOS dock icon shows a generic "exec" label on a dark square instead of the
 #### 9.2 Update LLM model lists
 Update the model selector dropdowns in the Tauri settings panel and the config documentation to reflect the latest available models (March 2026).
 
-- [ ] **Anthropic:** `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`
-- [ ] **OpenAI:** `gpt-5.4`, `gpt-5.4-mini`, `gpt-4.1`, `o4-mini`, `o3`
-- [ ] **Gemini:** `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash`
-- [ ] Update model dropdowns in settings panel (provider → model mapping)
-- [ ] Update context window sizes for new models in `llm/mod.rs`
-- [ ] Update default model in `.flowdiff.toml` config reference
-- [ ] Update reasoning model detection for new model IDs (o4-mini, gpt-5.4)
+- [x] **Anthropic:** `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`
+- [x] **OpenAI:** `gpt-5.4`, `gpt-5.4-mini`, `gpt-4.1`, `o4-mini`, `o3`
+- [x] **Gemini:** `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash`
+- [x] Update model dropdowns in settings panel (provider → model mapping)
+- [x] Update context window sizes for new models in `llm/mod.rs`
+- [x] Update default model in `.flowdiff.toml` config reference
+- [x] Update reasoning model detection for new model IDs (o4-mini, gpt-5.4)
 
 #### 9.3 API key input in frontend
 Currently API keys require env vars or `.flowdiff.toml` config. Add a text input field in the Tauri settings panel so users can paste their API key directly.

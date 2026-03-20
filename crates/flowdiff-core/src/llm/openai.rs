@@ -56,17 +56,22 @@ impl OpenAIProvider {
         }
     }
 
-    /// Check if this model is a reasoning model (o1, o3) that doesn't support system messages.
+    /// Check if this model is a reasoning model (o-series, gpt-5.4) that doesn't support system messages.
     fn is_reasoning_model(&self) -> bool {
-        self.model.starts_with("o1") || self.model.starts_with("o3")
+        self.model.starts_with("o1")
+            || self.model.starts_with("o3")
+            || self.model.starts_with("o4")
+            || self.model.starts_with("gpt-5")
     }
 
     /// Check if this model supports structured outputs via response_format.
-    /// GPT-4o (2024-08-06+) and o-series models support it.
     fn supports_structured_outputs(&self) -> bool {
-        self.model.starts_with("gpt-4o")
+        self.model.starts_with("gpt-5")
+            || self.model.starts_with("gpt-4.1")
+            || self.model.starts_with("gpt-4o")
             || self.model.starts_with("o1")
             || self.model.starts_with("o3")
+            || self.model.starts_with("o4")
     }
 
     /// Build and send a Chat Completions request with structured output support.
@@ -207,19 +212,25 @@ impl OpenAIProvider {
 
 /// Return the max context tokens for known OpenAI models.
 fn openai_context_window(model: &str) -> usize {
-    if model.starts_with("gpt-4o") {
-        128_000
-    } else if model.starts_with("o1") {
+    if model.starts_with("gpt-5") {
+        1_000_000
+    } else if model.starts_with("gpt-4.1") {
+        1_000_000
+    } else if model.starts_with("o4") {
         200_000
     } else if model.starts_with("o3") {
         200_000
+    } else if model.starts_with("o1") {
+        200_000
+    } else if model.starts_with("gpt-4o") {
+        128_000
     } else if model.starts_with("gpt-4-turbo") {
         128_000
     } else if model.starts_with("gpt-4") {
         8_192
     } else {
         // Conservative default
-        8_192
+        128_000
     }
 }
 
@@ -385,13 +396,13 @@ mod tests {
 
     #[test]
     fn test_openai_request_format_standard_with_schema() {
-        let provider = OpenAIProvider::new("key".to_string(), "gpt-4o".to_string());
+        let provider = OpenAIProvider::new("key".to_string(), "gpt-4.1".to_string());
         assert!(!provider.is_reasoning_model());
         assert!(provider.supports_structured_outputs());
 
         let schema = serde_json::json!({"type": "object", "properties": {}});
         let request = OpenAIRequest {
-            model: "gpt-4o".to_string(),
+            model: "gpt-4.1".to_string(),
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
@@ -417,7 +428,7 @@ mod tests {
         let json = serde_json::to_string(&request).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(parsed["model"], "gpt-4o");
+        assert_eq!(parsed["model"], "gpt-4.1");
         assert_eq!(parsed["temperature"], 0.0);
         assert_eq!(parsed["max_tokens"], 4096);
         // Verify response_format
@@ -545,7 +556,16 @@ mod tests {
         );
         assert!(OpenAIProvider::new("k".to_string(), "o3".to_string()).is_reasoning_model());
         assert!(
-            !OpenAIProvider::new("k".to_string(), "gpt-4o".to_string()).is_reasoning_model()
+            OpenAIProvider::new("k".to_string(), "o4-mini".to_string()).is_reasoning_model()
+        );
+        assert!(
+            OpenAIProvider::new("k".to_string(), "gpt-5.4".to_string()).is_reasoning_model()
+        );
+        assert!(
+            OpenAIProvider::new("k".to_string(), "gpt-5.4-mini".to_string()).is_reasoning_model()
+        );
+        assert!(
+            !OpenAIProvider::new("k".to_string(), "gpt-4.1".to_string()).is_reasoning_model()
         );
         assert!(
             !OpenAIProvider::new("k".to_string(), "gpt-4-turbo".to_string()).is_reasoning_model()
@@ -556,7 +576,7 @@ mod tests {
 
     #[test]
     fn test_supports_structured_outputs() {
-        assert!(OpenAIProvider::new("k".to_string(), "gpt-4o".to_string()).supports_structured_outputs());
+        assert!(OpenAIProvider::new("k".to_string(), "gpt-4.1".to_string()).supports_structured_outputs());
         assert!(OpenAIProvider::new("k".to_string(), "gpt-4o-2024-08-06".to_string()).supports_structured_outputs());
         assert!(OpenAIProvider::new("k".to_string(), "o1".to_string()).supports_structured_outputs());
         assert!(OpenAIProvider::new("k".to_string(), "o3-mini".to_string()).supports_structured_outputs());
@@ -570,6 +590,23 @@ mod tests {
     fn test_context_window_gpt4o() {
         assert_eq!(openai_context_window("gpt-4o"), 128_000);
         assert_eq!(openai_context_window("gpt-4o-2024-05-13"), 128_000);
+    }
+
+    #[test]
+    fn test_context_window_gpt41() {
+        assert_eq!(openai_context_window("gpt-4.1"), 1_000_000);
+        assert_eq!(openai_context_window("gpt-4.1-mini"), 1_000_000);
+    }
+
+    #[test]
+    fn test_context_window_gpt5() {
+        assert_eq!(openai_context_window("gpt-5.4"), 1_000_000);
+        assert_eq!(openai_context_window("gpt-5.4-mini"), 1_000_000);
+    }
+
+    #[test]
+    fn test_context_window_o4() {
+        assert_eq!(openai_context_window("o4-mini"), 200_000);
     }
 
     #[test]
@@ -593,24 +630,24 @@ mod tests {
 
     #[test]
     fn test_context_window_unknown() {
-        assert_eq!(openai_context_window("future-model"), 8_192);
+        assert_eq!(openai_context_window("future-model"), 128_000);
     }
 
     // ── Provider Construction Tests ──
 
     #[test]
     fn test_openai_provider_new() {
-        let provider = OpenAIProvider::new("key".to_string(), "gpt-4o".to_string());
+        let provider = OpenAIProvider::new("key".to_string(), "gpt-4.1".to_string());
         assert_eq!(provider.name(), "openai");
-        assert_eq!(provider.model(), "gpt-4o");
-        assert_eq!(provider.max_context_tokens(), 128_000);
+        assert_eq!(provider.model(), "gpt-4.1");
+        assert_eq!(provider.max_context_tokens(), 1_000_000);
     }
 
     #[test]
     fn test_openai_provider_with_base_url() {
         let provider = OpenAIProvider::with_base_url(
             "key".to_string(),
-            "gpt-4o".to_string(),
+            "gpt-4.1".to_string(),
             "http://localhost:8080".to_string(),
         );
         assert_eq!(provider.base_url, "http://localhost:8080");

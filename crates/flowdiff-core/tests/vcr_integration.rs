@@ -327,7 +327,7 @@ async fn test_live_vcr_record_replay_anthropic() {
     // Phase 1: Record
     let provider = flowdiff_core::llm::anthropic::AnthropicProvider::new(
         api_key.clone(),
-        "claude-sonnet-4-20250514".to_string(),
+        "claude-sonnet-4-6".to_string(),
     );
     let vcr_record = VcrProvider::new(
         Box::new(provider),
@@ -358,7 +358,7 @@ async fn test_live_vcr_record_replay_anthropic() {
             "anthropic"
         }
         fn model(&self) -> &str {
-            "claude-sonnet-4-20250514"
+            "claude-sonnet-4-6"
         }
         fn max_context_tokens(&self) -> usize {
             200_000
@@ -427,7 +427,7 @@ async fn test_live_vcr_record_replay_pass2_anthropic() {
     // Record Pass 2
     let provider = flowdiff_core::llm::anthropic::AnthropicProvider::new(
         api_key,
-        "claude-sonnet-4-20250514".to_string(),
+        "claude-sonnet-4-6".to_string(),
     );
     let vcr = VcrProvider::new(
         Box::new(provider),
@@ -451,7 +451,7 @@ async fn test_live_vcr_record_replay_pass2_anthropic() {
             "anthropic"
         }
         fn model(&self) -> &str {
-            "claude-sonnet-4-20250514"
+            "claude-sonnet-4-6"
         }
         fn max_context_tokens(&self) -> usize {
             200_000
@@ -509,7 +509,7 @@ async fn test_live_vcr_full_pipeline() {
     // Record both passes
     let provider = flowdiff_core::llm::anthropic::AnthropicProvider::new(
         api_key,
-        "claude-sonnet-4-20250514".to_string(),
+        "claude-sonnet-4-6".to_string(),
     );
     let vcr = VcrProvider::new(
         Box::new(provider),
@@ -535,7 +535,7 @@ async fn test_live_vcr_full_pipeline() {
             "anthropic"
         }
         fn model(&self) -> &str {
-            "claude-sonnet-4-20250514"
+            "claude-sonnet-4-6"
         }
         fn max_context_tokens(&self) -> usize {
             200_000

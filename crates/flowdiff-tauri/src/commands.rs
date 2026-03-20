@@ -859,10 +859,10 @@ fn load_config_from_path(repo_path: Option<&str>) -> (FlowdiffConfig, Option<Pat
 /// Get the default model for a provider.
 fn default_model_for_provider(provider: &str) -> &str {
     match provider {
-        "anthropic" => "claude-sonnet-4-20250514",
-        "openai" => "gpt-4o",
+        "anthropic" => "claude-sonnet-4-6",
+        "openai" => "gpt-4.1",
         "gemini" => "gemini-2.5-flash",
-        _ => "claude-sonnet-4-20250514",
+        _ => "claude-sonnet-4-6",
     }
 }
 
@@ -1225,22 +1225,22 @@ mod tests {
             annotations_enabled: true,
             refinement_enabled: false,
             provider: "anthropic".to_string(),
-            model: "claude-sonnet-4-20250514".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
             api_key_source: "ANTHROPIC_API_KEY".to_string(),
             has_api_key: true,
             refinement_provider: "openai".to_string(),
-            refinement_model: "gpt-4o".to_string(),
+            refinement_model: "gpt-4.1".to_string(),
             refinement_max_iterations: 2,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: LlmSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.provider, "anthropic");
-        assert_eq!(back.model, "claude-sonnet-4-20250514");
+        assert_eq!(back.model, "claude-sonnet-4-6");
         assert!(back.annotations_enabled);
         assert!(!back.refinement_enabled);
         assert!(back.has_api_key);
         assert_eq!(back.refinement_provider, "openai");
-        assert_eq!(back.refinement_model, "gpt-4o");
+        assert_eq!(back.refinement_model, "gpt-4.1");
         assert_eq!(back.refinement_max_iterations, 2);
     }
 
@@ -1254,11 +1254,11 @@ mod tests {
 
     #[test]
     fn test_default_model_for_provider() {
-        assert_eq!(default_model_for_provider("anthropic"), "claude-sonnet-4-20250514");
-        assert_eq!(default_model_for_provider("openai"), "gpt-4o");
+        assert_eq!(default_model_for_provider("anthropic"), "claude-sonnet-4-6");
+        assert_eq!(default_model_for_provider("openai"), "gpt-4.1");
         assert_eq!(default_model_for_provider("gemini"), "gemini-2.5-flash");
         // Unknown provider falls back to anthropic default
-        assert_eq!(default_model_for_provider("unknown"), "claude-sonnet-4-20250514");
+        assert_eq!(default_model_for_provider("unknown"), "claude-sonnet-4-6");
     }
 
     #[test]
@@ -1267,7 +1267,7 @@ mod tests {
         assert!(result.is_ok());
         let settings = result.unwrap();
         assert_eq!(settings.provider, "anthropic");
-        assert_eq!(settings.model, "claude-sonnet-4-20250514");
+        assert_eq!(settings.model, "claude-sonnet-4-6");
     }
 
     #[test]
@@ -1308,13 +1308,13 @@ mod tests {
                 reasoning: "No changes needed".to_string(),
             },
             provider: "anthropic".to_string(),
-            model: "claude-sonnet-4-20250514".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
             had_changes: false,
         };
         let json = serde_json::to_string(&result).unwrap();
         let back: RefinementResult = serde_json::from_str(&json).unwrap();
         assert_eq!(back.provider, "anthropic");
-        assert_eq!(back.model, "claude-sonnet-4-20250514");
+        assert_eq!(back.model, "claude-sonnet-4-6");
         assert!(!back.had_changes);
         assert!(back.refined_groups.is_empty());
         assert!(back.infrastructure_group.is_none());
@@ -1357,7 +1357,7 @@ mod tests {
                 reasoning: "Split for clarity".to_string(),
             },
             provider: "openai".to_string(),
-            model: "gpt-4o".to_string(),
+            model: "gpt-4.1".to_string(),
             had_changes: true,
         };
         let json = serde_json::to_string(&result).unwrap();

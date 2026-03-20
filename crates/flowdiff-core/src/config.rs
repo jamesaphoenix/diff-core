@@ -342,7 +342,7 @@ paths = ["**/*.test.ts", "**/*.spec.ts", "migrations/**"]
 
 [llm]
 provider = "anthropic"
-model = "claude-3-7-sonnet-20250219"
+model = "claude-sonnet-4-6"
 
 [ranking]
 risk = 0.4
@@ -368,7 +368,7 @@ uncertainty = 0.15
         assert_eq!(config.llm.provider, Some("anthropic".to_string()));
         assert_eq!(
             config.llm.model,
-            Some("claude-3-7-sonnet-20250219".to_string())
+            Some("claude-sonnet-4-6".to_string())
         );
         assert!((config.ranking.risk - 0.4).abs() < f64::EPSILON);
         assert!((config.ranking.centrality - 0.3).abs() < f64::EPSILON);
@@ -657,7 +657,7 @@ events = ["src/handlers/events/**/*.ts"]
             },
             llm: LlmConfig {
                 provider: Some("anthropic".to_string()),
-                model: Some("claude-3-7-sonnet-20250219".to_string()),
+                model: Some("claude-sonnet-4-6".to_string()),
                 key_cmd: None,
                 ..Default::default()
             },
@@ -710,13 +710,13 @@ provider = "anthropic"
 [llm.refinement]
 enabled = true
 provider = "openai"
-model = "gpt-4o"
+model = "gpt-4.1"
 max_iterations = 3
 "#;
         let config = FlowdiffConfig::from_str(toml_str).unwrap();
         assert!(config.llm.refinement.enabled);
         assert_eq!(config.llm.refinement.provider, Some("openai".to_string()));
-        assert_eq!(config.llm.refinement.model, Some("gpt-4o".to_string()));
+        assert_eq!(config.llm.refinement.model, Some("gpt-4.1".to_string()));
         assert_eq!(config.llm.refinement.max_iterations, 3);
     }
 
@@ -771,7 +771,7 @@ max_iterations = 0
         let toml_str = r#"
 [llm]
 provider = "anthropic"
-model = "claude-sonnet-4-20250514"
+model = "claude-sonnet-4-6"
 
 [llm.refinement]
 enabled = true

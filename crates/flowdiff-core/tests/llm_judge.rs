@@ -368,7 +368,7 @@ async fn test_live_anthropic_judge() {
     let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY not set");
     let provider = flowdiff_core::llm::anthropic::AnthropicProvider::new(
         api_key,
-        "claude-sonnet-4-20250514".to_string(),
+        "claude-sonnet-4-6".to_string(),
     );
 
     let (dir, output, diff_text) = build_express_fixture_and_analyze();
@@ -409,7 +409,7 @@ async fn test_live_anthropic_judge_with_vcr() {
     let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY not set");
     let inner = flowdiff_core::llm::anthropic::AnthropicProvider::new(
         api_key,
-        "claude-sonnet-4-20250514".to_string(),
+        "claude-sonnet-4-6".to_string(),
     );
 
     let cache_dir = TempDir::new().unwrap();

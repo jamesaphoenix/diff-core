@@ -185,7 +185,11 @@ impl GeminiProvider {
 
 /// Return the max context tokens for known Gemini models.
 fn gemini_context_window(model: &str) -> usize {
-    if model.contains("gemini-2.5-pro") {
+    if model.contains("gemini-3.1-pro") {
+        2_000_000
+    } else if model.contains("gemini-3-flash") {
+        1_048_576
+    } else if model.contains("gemini-2.5-pro") {
         1_048_576
     } else if model.contains("gemini-2.5-flash") {
         1_048_576
@@ -614,6 +618,16 @@ mod tests {
     fn test_context_window_gemini_15() {
         assert_eq!(gemini_context_window("gemini-1.5-pro"), 1_048_576);
         assert_eq!(gemini_context_window("gemini-1.5-flash"), 1_048_576);
+    }
+
+    #[test]
+    fn test_context_window_gemini_31_pro() {
+        assert_eq!(gemini_context_window("gemini-3.1-pro-preview"), 2_000_000);
+    }
+
+    #[test]
+    fn test_context_window_gemini_3_flash() {
+        assert_eq!(gemini_context_window("gemini-3-flash-preview"), 1_048_576);
     }
 
     #[test]
