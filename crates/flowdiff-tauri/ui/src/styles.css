@@ -2082,7 +2082,7 @@ body {
 }
 
 .btn-copy-comments {
-  font-size: 11px;
+  font-size: 10px;
   padding: 2px 8px;
   border-radius: 4px;
   background: transparent;
@@ -2090,11 +2090,53 @@ body {
   color: var(--text-secondary);
   cursor: pointer;
   margin-left: auto;
+  white-space: nowrap;
 }
 
 .btn-copy-comments:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+/* Sticky footer bar in left panel — always visible when comments exist */
+.panel-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.panel-footer-count {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.btn-copy-comments-footer {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: var(--accent);
+  border: none;
+  color: var(--bg-primary);
+  cursor: pointer;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.btn-copy-comments-footer:hover {
+  filter: brightness(1.15);
+}
+
+.panel-footer-hint {
+  font-size: 10px;
+  color: var(--text-muted, var(--text-secondary));
+  opacity: 0.6;
+  white-space: nowrap;
 }
 
 /* Comment overlay (modal backdrop) */

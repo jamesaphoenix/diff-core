@@ -806,10 +806,10 @@ Pressing `c` or `C` currently shows "Cannot edit in read-only editor" because th
 #### 10.3 Make "Copy All Comments" more visible
 The "Copy All Comments" button is hard to discover in the current UI.
 
-- [ ] Move or duplicate the button to a more prominent location (e.g. sticky footer bar in the left panel, or a toolbar button with clear label)
-- [ ] Add a visual badge showing comment count (e.g. "Copy All Comments (5)")
-- [ ] Consider a floating action button or persistent toolbar element that's always visible when comments exist
-- [ ] Keyboard hint tooltip showing `C` shortcut on hover
+- [x] Move or duplicate the button to a more prominent location (e.g. sticky footer bar in the left panel, or a toolbar button with clear label)
+- [x] Add a visual badge showing comment count (e.g. "Copy All Comments (5)")
+- [x] Consider a floating action button or persistent toolbar element that's always visible when comments exist
+- [x] Keyboard hint tooltip showing `C` shortcut on hover
 
 #### 10.4 Fix group/reviewed count after LLM refinement
 Bug: After LLM refinement changes the number of groups, the UI shows stale counts like "4/3 reviewed" where the denominator doesn't match the actual group count.

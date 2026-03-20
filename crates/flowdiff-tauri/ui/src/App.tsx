@@ -1366,9 +1366,9 @@ export default function App() {
               <button
                 className="btn btn-copy-comments"
                 onClick={exportComments}
-                title="Copy all comments to clipboard (C)"
+                title="Copy all comments to clipboard (Shift+C)"
               >
-                &#128203; {comments.length}
+                Copy Comments ({comments.length})
               </button>
             )}
             {showRefined && refinementProvider && (
@@ -1533,6 +1533,20 @@ export default function App() {
               </div>
             )}
           </div>
+          {/* Sticky footer bar — always visible when comments exist */}
+          {comments.length > 0 && (
+            <div className="panel-footer">
+              <span className="panel-footer-count">{comments.length} comment{comments.length === 1 ? "" : "s"}</span>
+              <button
+                className="btn btn-copy-comments-footer"
+                onClick={exportComments}
+                title="Copy all comments to clipboard (Shift+C)"
+              >
+                Copy All Comments
+              </button>
+              <span className="panel-footer-hint">Shift+C</span>
+            </div>
+          )}
         </aside>
 
         {/* Center panel: Monaco Diff Viewer */}
