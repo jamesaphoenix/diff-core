@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "identifier": "com.flowdiff.app",
   "build": {
-    "beforeDevCommand": "cd ui && npm run dev",
-    "beforeBuildCommand": "cd ui && npm run build",
+    "beforeDevCommand": { "script": "npm run dev", "cwd": "ui" },
+    "beforeBuildCommand": { "script": "npm run build", "cwd": "ui" },
     "devUrl": "http://localhost:5173",
     "frontendDist": "ui/dist"
   },
