@@ -658,16 +658,16 @@ Add a context menu on files in the left panel tree view.
 #### 9.7 Open in external editors
 Add buttons in the center panel toolbar to open the current file in external editors.
 
-- [ ] Toolbar row above the Monaco diff viewer with editor launch buttons
-- [ ] Supported editors with recognizable icons:
+- [x] Toolbar row above the Monaco diff viewer with editor launch buttons
+- [x] Supported editors with recognizable icons:
   - **VS Code** — `code` command, VS Code icon
   - **Cursor** — `cursor` command, Cursor icon
   - **Terminal** — open folder in default terminal, terminal icon
-- [ ] Each button opens the **specific file** currently displayed in the diff viewer
-- [ ] Uses Tauri `shell:allow-open` or IPC command to spawn the editor process
-- [ ] IPC command: `open_in_editor(editor: string, file_path: string)` — constructs and executes the appropriate CLI command (`code /path/to/file`, `cursor /path/to/file`, `open -a Terminal /path/to/folder`)
-- [ ] Graceful fallback if editor is not installed (e.g. `cursor` not found → show tooltip "Cursor not installed")
-- [ ] Editor icons styled to match Catppuccin theme (small, 20x20px, subtle)
+- [x] Each button opens the **specific file** currently displayed in the diff viewer
+- [x] Uses Tauri `shell:allow-open` or IPC command to spawn the editor process
+- [x] IPC command: `open_in_editor(editor: string, file_path: string)` — constructs and executes the appropriate CLI command (`code /path/to/file`, `cursor /path/to/file`, `open -a Terminal /path/to/folder`)
+- [x] Graceful fallback if editor is not installed (e.g. `cursor` not found → show tooltip "Cursor not installed")
+- [x] Editor icons styled to match Catppuccin theme (small, 20x20px, subtle)
 
 #### 9.8 Copy entire flow (all file paths)
 One-click button on each flow group to copy all file paths in that flow.

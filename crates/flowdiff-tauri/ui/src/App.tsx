@@ -593,6 +593,29 @@ export default function App() {
     [buildAbsolutePath, showToast],
   );
 
+  /** Open the current file in an external editor. */
+  const openInEditor = useCallback(
+    async (editor: "vscode" | "cursor" | "terminal") => {
+      const file = selectedFile;
+      if (!file) {
+        showToast("No file selected");
+        return;
+      }
+      const absPath = buildAbsolutePath(file);
+      if (!IS_TAURI) {
+        showToast(`Would open ${absPath} in ${editor}`);
+        return;
+      }
+      try {
+        await tauriInvoke("open_in_editor", { editor, filePath: absPath });
+      } catch (e: any) {
+        const msg = typeof e === "string" ? e : e?.message || String(e);
+        showToast(msg);
+      }
+    },
+    [selectedFile, buildAbsolutePath, showToast],
+  );
+
   /** Handle right-click context menu on a file item. */
   const handleFileContextMenu = useCallback(
     (e: React.MouseEvent, filePath: string) => {
@@ -1207,7 +1230,32 @@ export default function App() {
         {/* Center panel: Monaco Diff Viewer */}
         <main className="panel panel-center">
           <div className="panel-header">
-            {fileDiff ? fileDiff.path : "Diff Viewer"}
+            <span className="panel-header-title">{fileDiff ? fileDiff.path : "Diff Viewer"}</span>
+            {fileDiff && (
+              <div className="editor-toolbar">
+                <button
+                  className="editor-btn"
+                  onClick={() => openInEditor("vscode")}
+                  title="Open in VS Code"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M10.94 1.34l-4.19 3.82L3.13 2.34 1.5 3.16v9.68l1.63.82 3.62-2.82 4.19 3.82L14.5 13V3zm0 2.37v8.58l-3.07-2.8V6.51z"/></svg>
+                </button>
+                <button
+                  className="editor-btn"
+                  onClick={() => openInEditor("cursor")}
+                  title="Open in Cursor"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1L1 5v6l7 4 7-4V5L8 1zm0 1.5l5.2 3L8 8.5 2.8 5.5 8 2.5zM2 6.3l5.5 3.15V14L2 11V6.3zm7.5 7.7V9.45L15 6.3V11l-5.5 3z"/></svg>
+                </button>
+                <button
+                  className="editor-btn"
+                  onClick={() => openInEditor("terminal")}
+                  title="Open folder in Terminal"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v10H2V3zm1 1v8h10V4H3zm1.5 1.5l3 2-3 2V5.5zm4 4.5v-1h4v1h-4z"/></svg>
+                </button>
+              </div>
+            )}
           </div>
           {/* Replay bar — shown when replay mode is active */}
           {replayActive && selectedGroup && (

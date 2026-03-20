@@ -894,6 +894,64 @@ pub fn clear_api_key(repo_path: String) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// Open a file in an external editor.
+///
+/// Supported editors: "vscode" (`code`), "cursor" (`cursor`), "terminal" (opens folder).
+/// Returns an error if the editor binary is not found.
+#[tauri::command]
+pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandError> {
+    let path = PathBuf::from(&file_path);
+    if !path.exists() {
+        return Err(CommandError::Io(format!("File not found: {}", file_path)));
+    }
+
+    let result = match editor.as_str() {
+        "vscode" => std::process::Command::new("code").arg(&file_path).spawn(),
+        "cursor" => std::process::Command::new("cursor").arg(&file_path).spawn(),
+        "terminal" => {
+            let dir = if path.is_dir() {
+                &file_path
+            } else {
+                path.parent()
+                    .map(|p| p.to_str().unwrap_or(&file_path))
+                    .unwrap_or(&file_path)
+            };
+            #[cfg(target_os = "macos")]
+            {
+                std::process::Command::new("open").args(["-a", "Terminal", dir]).spawn()
+            }
+            #[cfg(target_os = "linux")]
+            {
+                std::process::Command::new("xdg-open").arg(dir).spawn()
+            }
+            #[cfg(target_os = "windows")]
+            {
+                std::process::Command::new("cmd").args(["/c", "start", "cmd", "/k", &format!("cd /d {}", dir)]).spawn()
+            }
+        }
+        other => {
+            return Err(CommandError::Io(format!("Unknown editor: {}", other)));
+        }
+    };
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let bin = match editor.as_str() {
+                "vscode" => "code",
+                "cursor" => "cursor",
+                "terminal" => "terminal",
+                _ => &editor,
+            };
+            Err(CommandError::Io(format!(
+                "'{}' not found — is {} installed and in your PATH?",
+                bin, editor
+            )))
+        }
+        Err(e) => Err(CommandError::Io(format!("Failed to launch {}: {}", editor, e))),
+    }
+}
+
 /// Load config from a repo path, returning both config and optional workdir.
 fn load_config_from_path(repo_path: Option<&str>) -> (FlowdiffConfig, Option<PathBuf>) {
     if let Some(path) = repo_path {
@@ -1505,5 +1563,25 @@ mod tests {
         // Unknown providers should get a reasonable default
         let model = default_model_for_provider("nonexistent");
         assert!(!model.is_empty());
+    }
+
+    #[test]
+    fn test_open_in_editor_nonexistent_file() {
+        let result = open_in_editor("vscode".to_string(), "/tmp/__nonexistent_file_12345__".to_string());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("File not found"), "Expected file-not-found error, got: {}", err);
+    }
+
+    #[test]
+    fn test_open_in_editor_unknown_editor() {
+        // Create a temporary file to pass the file-exists check
+        let tmp = std::env::temp_dir().join("flowdiff_test_open_editor");
+        std::fs::write(&tmp, "test").unwrap();
+        let result = open_in_editor("unknown_editor".to_string(), tmp.to_str().unwrap().to_string());
+        std::fs::remove_file(&tmp).ok();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Unknown editor"), "Expected unknown-editor error, got: {}", err);
     }
 }

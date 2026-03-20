@@ -62,6 +62,7 @@ fn main() {
             commands::save_api_key,
             commands::clear_api_key,
             commands::refine_groups,
+            commands::open_in_editor,
         ])
         .run(tauri::generate_context!())
     {
