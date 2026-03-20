@@ -28,17 +28,40 @@ use crate::query_engine::QueryEngine;
 ///
 /// This is the primary parsing entry point for the IR pipeline. It uses the
 /// declarative `.scm` query files instead of imperative tree-sitter code.
+///
+/// The tree-sitter parse is performed **once** and the resulting tree is shared
+/// between symbol extraction (`parse_file`) and data-flow extraction
+/// (`extract_data_flow`), avoiding the previous double-parse overhead.
 pub fn parse_to_ir(engine: &QueryEngine, path: &str, source: &str) -> Result<IrFile, PipelineError> {
-    let parsed = engine
-        .parse_file(path, source)
+    // Parse the tree-sitter tree once for this file.
+    let tree_and_lang = engine
+        .parse_tree_for_path(path, source)
         .map_err(|e| PipelineError::Parse(format!("{}: {}", path, e)))?;
+
+    let (parsed, data_flow_result) = match tree_and_lang {
+        Some((tree, language)) => {
+            let parsed = engine
+                .parse_file_with_tree(path, source, &tree, language)
+                .map_err(|e| PipelineError::Parse(format!("{}: {}", path, e)))?;
+            let df = engine.extract_data_flow_with_tree(path, source, &tree, language);
+            (parsed, df)
+        }
+        None => {
+            // Unknown language — produce empty ParsedFile, skip data flow.
+            let parsed = engine
+                .parse_file(path, source)
+                .map_err(|e| PipelineError::Parse(format!("{}: {}", path, e)))?;
+            (parsed, Ok(crate::ast::DataFlowInfo { assignments: vec![], calls_with_args: vec![] }))
+        }
+    };
 
     let mut ir = IrFile::from_parsed_file(&parsed);
 
     // Enrich with data flow info (assignments, call arguments).
     // Non-fatal: file may have syntax errors or unsupported language.
-    if let Err(e) = engine.extract_data_flow(path, source).map(|df| ir.enrich_with_data_flow(&df)) {
-        warn!("Data flow extraction failed for {}: {} (non-fatal, skipping enrichment)", path, e);
+    match data_flow_result {
+        Ok(df) => ir.enrich_with_data_flow(&df),
+        Err(e) => warn!("Data flow extraction failed for {}: {} (non-fatal, skipping enrichment)", path, e),
     }
 
     Ok(ir)

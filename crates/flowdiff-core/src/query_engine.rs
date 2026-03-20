@@ -775,7 +775,32 @@ impl QueryEngine {
     }
 
     // -----------------------------------------------------------------------
-    // Internal: parse tree
+    // Language query resolution
+    // -----------------------------------------------------------------------
+
+    /// Resolve a [`Language`] to its compiled query set. Returns `None` for
+    /// [`Language::Unknown`].
+    fn get_lang_queries(&self, language: Language) -> Option<&LanguageQueries> {
+        match language {
+            Language::TypeScript | Language::JavaScript => Some(&self.ts_queries),
+            Language::Python => Some(&self.py_queries),
+            Language::Go => Some(&self.go_queries),
+            Language::Rust => Some(&self.rust_queries),
+            Language::Java => Some(&self.java_queries),
+            Language::CSharp => Some(&self.csharp_queries),
+            Language::Php => Some(&self.php_queries),
+            Language::Ruby => Some(&self.ruby_queries),
+            Language::Kotlin => Some(&self.kotlin_queries),
+            Language::Swift => Some(&self.swift_queries),
+            Language::C => Some(&self.c_queries),
+            Language::Cpp => Some(&self.cpp_queries),
+            Language::Scala => Some(&self.scala_queries),
+            Language::Unknown => None,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tree parsing
     // -----------------------------------------------------------------------
 
     fn parse_tree(
@@ -792,6 +817,77 @@ impl QueryEngine {
             .ok_or_else(|| QueryEngineError::ParseError("tree-sitter failed to parse".into()))
     }
 
+    /// Parse source into a tree-sitter `Tree` for the given file path.
+    ///
+    /// Returns the tree and detected language. For unknown languages, returns
+    /// `Ok(None)` — callers should produce empty results.
+    pub fn parse_tree_for_path(
+        &self,
+        path: &str,
+        source: &str,
+    ) -> Result<Option<(tree_sitter::Tree, Language)>, QueryEngineError> {
+        let language = Language::from_path(path);
+        let Some(lq) = self.get_lang_queries(language) else {
+            return Ok(None);
+        };
+        let tree = self.parse_tree(source, &lq.language)?;
+        Ok(Some((tree, language)))
+    }
+
+    // -----------------------------------------------------------------------
+    // Parse with pre-parsed tree (avoids double parse)
+    // -----------------------------------------------------------------------
+
+    /// Like [`parse_file`](Self::parse_file) but reuses an already-parsed tree.
+    pub fn parse_file_with_tree(
+        &self,
+        path: &str,
+        source: &str,
+        tree: &tree_sitter::Tree,
+        language: Language,
+    ) -> Result<ParsedFile, QueryEngineError> {
+        let Some(lq) = self.get_lang_queries(language) else {
+            return Ok(ParsedFile {
+                path: path.to_string(),
+                language: Language::Unknown,
+                definitions: vec![],
+                imports: vec![],
+                exports: vec![],
+                call_sites: vec![],
+            });
+        };
+        self.parse_with_queries_from_tree(path, source, language, lq, tree)
+    }
+
+    /// Like [`extract_data_flow`](Self::extract_data_flow) but reuses an already-parsed tree.
+    pub fn extract_data_flow_with_tree(
+        &self,
+        path: &str,
+        source: &str,
+        tree: &tree_sitter::Tree,
+        language: Language,
+    ) -> Result<DataFlowInfo, QueryEngineError> {
+        let Some(lq) = self.get_lang_queries(language) else {
+            return Ok(DataFlowInfo {
+                assignments: vec![],
+                calls_with_args: vec![],
+            });
+        };
+
+        let root = tree.root_node();
+        let src = source.as_bytes();
+
+        let assignments =
+            self.extract_assignments(&root, src, &lq.assignments, language)?;
+        let calls_with_args =
+            self.extract_calls_with_args(&root, src, &lq.calls, language)?;
+
+        Ok(DataFlowInfo {
+            assignments,
+            calls_with_args,
+        })
+    }
+
     // -----------------------------------------------------------------------
     // Internal: generic parse
     // -----------------------------------------------------------------------
@@ -804,6 +900,18 @@ impl QueryEngine {
         lang_queries: &LanguageQueries,
     ) -> Result<ParsedFile, QueryEngineError> {
         let tree = self.parse_tree(source, &lang_queries.language)?;
+        self.parse_with_queries_from_tree(path, source, language, lang_queries, &tree)
+    }
+
+    /// Core extraction logic — shared by both fresh-parse and tree-reuse paths.
+    fn parse_with_queries_from_tree(
+        &self,
+        path: &str,
+        source: &str,
+        language: Language,
+        lang_queries: &LanguageQueries,
+        tree: &tree_sitter::Tree,
+    ) -> Result<ParsedFile, QueryEngineError> {
         let root = tree.root_node();
         let src = source.as_bytes();
 

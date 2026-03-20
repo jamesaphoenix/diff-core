@@ -970,8 +970,8 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 **Problem:** `parse_with_queries()` and `extract_data_flow()` both call `parse_tree()` independently, creating two `Parser` instances and two full tree-sitter parses for the same source.
 
-- [ ] Refactor `parse_to_ir()` in `pipeline.rs` to call `parse_tree()` once and pass the resulting `tree_sitter::Tree` to both `parse_with_queries()` and `extract_data_flow()`
-- [ ] Update method signatures to accept an optional pre-parsed tree
+- [x] Refactor `parse_to_ir()` in `pipeline.rs` to call `parse_tree()` once and pass the resulting `tree_sitter::Tree` to both `parse_with_queries()` and `extract_data_flow()`
+- [x] Update method signatures to accept an optional pre-parsed tree
 - [ ] Benchmark: expect ~2x speedup on per-file parse time
 
 ### 12.2 Content-addressed IrFile cache
