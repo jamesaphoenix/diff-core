@@ -621,13 +621,13 @@ Update the model selector dropdowns in the Tauri settings panel and the config d
 #### 9.3 API key input in frontend
 Currently API keys require env vars or `.flowdiff.toml` config. Add a text input field in the Tauri settings panel so users can paste their API key directly.
 
-- [ ] Add masked text input (password field) in the settings panel under the API key status section
-- [ ] "Save" button persists the key to `.flowdiff.toml` under `[llm] key = "..."` (or provider-specific section)
-- [ ] Key is masked after entry (show last 4 chars only, e.g. `sk-...abcd`)
-- [ ] "Clear" button to remove the stored key
-- [ ] Precedence maintained: `key_cmd` > pasted key in config > env var
-- [ ] Status indicator updates immediately after saving (green "Configured via config file")
-- [ ] Tauri IPC command: `save_api_key` — writes key to `.flowdiff.toml`, `clear_api_key` — removes it
+- [x] Add masked text input (password field) in the settings panel under the API key status section
+- [x] "Save" button persists the key to `.flowdiff.toml` under `[llm] key = "..."` (or provider-specific section)
+- [x] Key is masked after entry (show last 4 chars only, e.g. `sk-...abcd`)
+- [x] "Clear" button to remove the stored key
+- [x] Precedence maintained: `key_cmd` > pasted key in config > env var
+- [x] Status indicator updates immediately after saving (green "Configured via config file")
+- [x] Tauri IPC command: `save_api_key` — writes key to `.flowdiff.toml`, `clear_api_key` — removes it
 
 #### 9.4 Hide risk heatmap
 Remove the risk heatmap (squarified treemap) from the right panel UI entirely. The component and code remain in the codebase for future re-enablement, but are not rendered.

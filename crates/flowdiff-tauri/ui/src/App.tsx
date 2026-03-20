@@ -60,6 +60,7 @@ export default function App() {
   // LLM settings
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState("");
 
   // Flow replay state
   const [replayActive, setReplayActive] = useState(false);
@@ -467,6 +468,37 @@ export default function App() {
     [llmSettings, saveLlmSettings],
   );
 
+  /** Save an API key to .flowdiff.toml and refresh settings. */
+  const handleSaveApiKey = useCallback(async () => {
+    const key = apiKeyInput.trim();
+    if (!key || !repoPath) return;
+    try {
+      if (IS_TAURI) {
+        await tauriInvoke("save_api_key", { repoPath, apiKey: key });
+      }
+      setApiKeyInput("");
+      // Refresh settings to pick up the new key
+      await loadLlmSettings(repoPath);
+    } catch {
+      setError("Failed to save API key");
+    }
+  }, [apiKeyInput, repoPath, loadLlmSettings]);
+
+  /** Clear the stored API key from .flowdiff.toml and refresh settings. */
+  const handleClearApiKey = useCallback(async () => {
+    if (!repoPath) return;
+    try {
+      if (IS_TAURI) {
+        await tauriInvoke("clear_api_key", { repoPath });
+      }
+      setApiKeyInput("");
+      // Refresh settings to reflect removal
+      await loadLlmSettings(repoPath);
+    } catch {
+      setError("Failed to clear API key");
+    }
+  }, [repoPath, loadLlmSettings]);
+
   // Sort groups by review_order
   const sortedGroups = analysis
     ? [...analysis.groups].sort((a, b) => a.review_order - b.review_order)
@@ -747,9 +779,41 @@ export default function App() {
                       : "Not configured"}
                   </span>
                 </div>
+                {/* API Key Input */}
+                <div className="api-key-input-row">
+                  <input
+                    type="password"
+                    className="settings-input api-key-input"
+                    placeholder="Paste your API key"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && apiKeyInput.trim()) {
+                        handleSaveApiKey();
+                      }
+                    }}
+                  />
+                  <button
+                    className="btn btn-save-key"
+                    disabled={!apiKeyInput.trim()}
+                    onClick={handleSaveApiKey}
+                    title="Save API key to .flowdiff.toml"
+                  >
+                    Save
+                  </button>
+                  {llmSettings.api_key_source === "config file" && (
+                    <button
+                      className="btn btn-clear-key"
+                      onClick={handleClearApiKey}
+                      title="Remove stored API key"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
                 {!llmSettings.has_api_key && (
                   <p className="settings-hint">
-                    Set <code>FLOWDIFF_API_KEY</code>, a provider-specific env var
+                    Paste your key above, or set <code>FLOWDIFF_API_KEY</code>, a provider-specific env var
                     (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>GEMINI_API_KEY</code>),
                     or configure <code>key_cmd</code> in <code>.flowdiff.toml</code>.
                   </p>

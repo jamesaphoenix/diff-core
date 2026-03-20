@@ -59,6 +59,8 @@ fn main() {
             commands::check_api_key,
             commands::get_llm_settings,
             commands::save_llm_settings,
+            commands::save_api_key,
+            commands::clear_api_key,
             commands::refine_groups,
         ])
         .run(tauri::generate_context!())

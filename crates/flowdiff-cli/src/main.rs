@@ -855,6 +855,7 @@ mod tests {
                 provider: Some("anthropic".to_string()),
                 model: Some("claude-sonnet-4-6".to_string()),
                 key_cmd: Some("echo main-key".to_string()),
+                key: None,
                 refinement: flowdiff_core::config::RefinementConfig {
                     enabled: true,
                     provider: Some("openai".to_string()),
@@ -885,6 +886,7 @@ mod tests {
                 provider: Some("anthropic".to_string()),
                 model: Some("claude-sonnet-4-6".to_string()),
                 key_cmd: Some("echo main-key".to_string()),
+                key: None,
                 refinement: flowdiff_core::config::RefinementConfig {
                     enabled: true,
                     provider: None,

@@ -103,19 +103,26 @@ pub trait LlmProvider: Send + Sync {
 /// 2. `FLOWDIFF_API_KEY` environment variable
 /// 3. Provider-specific env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`)
 pub fn resolve_api_key(config: &LlmConfig, provider: &str) -> Result<String, LlmError> {
-    // 1. key_cmd from config
+    // 1. key_cmd from config (highest priority)
     if let Some(ref cmd) = config.key_cmd {
         return execute_key_cmd(cmd);
     }
 
-    // 2. FLOWDIFF_API_KEY env var
+    // 2. key from config file (pasted via settings panel)
+    if let Some(ref key) = config.key {
+        if !key.is_empty() {
+            return Ok(key.clone());
+        }
+    }
+
+    // 3. FLOWDIFF_API_KEY env var
     if let Ok(key) = std::env::var("FLOWDIFF_API_KEY") {
         if !key.is_empty() {
             return Ok(key);
         }
     }
 
-    // 3. Provider-specific env var
+    // 4. Provider-specific env var
     let env_var = match provider {
         "anthropic" => "ANTHROPIC_API_KEY",
         "openai" => "OPENAI_API_KEY",
@@ -529,6 +536,42 @@ mod tests {
         };
         let key = resolve_api_key(&config, "anthropic").unwrap();
         assert_eq!(key, "test-key-from-cmd");
+    }
+
+    #[test]
+    fn test_api_key_from_config_key_field() {
+        let config = LlmConfig {
+            provider: Some("anthropic".to_string()),
+            key: Some("sk-test-config-key-12345".to_string()),
+            ..Default::default()
+        };
+        let key = resolve_api_key(&config, "anthropic").unwrap();
+        assert_eq!(key, "sk-test-config-key-12345");
+    }
+
+    #[test]
+    fn test_api_key_cmd_takes_precedence_over_config_key() {
+        let config = LlmConfig {
+            provider: Some("anthropic".to_string()),
+            key_cmd: Some("echo cmd-key".to_string()),
+            key: Some("config-key".to_string()),
+            ..Default::default()
+        };
+        let key = resolve_api_key(&config, "anthropic").unwrap();
+        // key_cmd should take precedence over key
+        assert_eq!(key, "cmd-key");
+    }
+
+    #[test]
+    fn test_api_key_config_key_empty_string_ignored() {
+        // An empty config key should be treated as not set
+        let config = LlmConfig {
+            provider: Some("unknown".to_string()),
+            key: Some("".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_api_key(&config, "unknown");
+        assert!(result.is_err());
     }
 
     #[test]

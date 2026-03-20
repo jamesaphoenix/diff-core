@@ -549,6 +549,7 @@ pub async fn refine_groups(
         provider: config.llm.refinement.provider.clone().or(config.llm.provider.clone()),
         model: config.llm.refinement.model.clone().or(config.llm.model.clone()),
         key_cmd: config.llm.key_cmd.clone(),
+        key: config.llm.key.clone(),
         refinement: config.llm.refinement.clone(),
     };
 
@@ -759,6 +760,8 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
 
     let api_key_source = if config.llm.key_cmd.is_some() {
         "key_cmd".to_string()
+    } else if config.llm.key.as_ref().is_some_and(|k| !k.is_empty()) {
+        "config file".to_string()
     } else if std::env::var("FLOWDIFF_API_KEY").is_ok() {
         "FLOWDIFF_API_KEY".to_string()
     } else {
@@ -832,6 +835,57 @@ pub fn save_llm_settings(
     config.llm.refinement.provider = Some(settings.refinement_provider);
     config.llm.refinement.model = Some(settings.refinement_model);
     config.llm.refinement.max_iterations = settings.refinement_max_iterations;
+
+    config
+        .save_to_dir(workdir)
+        .map_err(|e| CommandError::Config(format!("Failed to save config: {}", e)))?;
+
+    Ok(())
+}
+
+/// Save an API key to `.flowdiff.toml` under `[llm] key = "..."`.
+///
+/// The key is stored directly in the config file. Precedence is maintained:
+/// `key_cmd` > `key` (config) > env vars.
+#[tauri::command]
+pub fn save_api_key(repo_path: String, api_key: String) -> Result<(), CommandError> {
+    let repo_path_buf = PathBuf::from(&repo_path);
+    let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
+        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
+    let repo = git2::Repository::discover(&repo_path_buf)
+        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| CommandError::Git("Bare repositories are not supported".to_string()))?;
+
+    let mut config = FlowdiffConfig::load_from_dir(workdir)
+        .map_err(|e| CommandError::Config(format!("{}", e)))?;
+
+    config.llm.key = Some(api_key);
+
+    config
+        .save_to_dir(workdir)
+        .map_err(|e| CommandError::Config(format!("Failed to save config: {}", e)))?;
+
+    Ok(())
+}
+
+/// Remove the stored API key from `.flowdiff.toml`.
+#[tauri::command]
+pub fn clear_api_key(repo_path: String) -> Result<(), CommandError> {
+    let repo_path_buf = PathBuf::from(&repo_path);
+    let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
+        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
+    let repo = git2::Repository::discover(&repo_path_buf)
+        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| CommandError::Git("Bare repositories are not supported".to_string()))?;
+
+    let mut config = FlowdiffConfig::load_from_dir(workdir)
+        .map_err(|e| CommandError::Config(format!("{}", e)))?;
+
+    config.llm.key = None;
 
     config
         .save_to_dir(workdir)

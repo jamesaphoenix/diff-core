@@ -1259,6 +1259,71 @@ body {
   background: var(--risk-high);
 }
 
+.api-key-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.api-key-input {
+  flex: 1;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+}
+
+.api-key-input:focus {
+  border-color: var(--accent);
+}
+
+.api-key-input::placeholder {
+  color: var(--text-muted);
+}
+
+.btn-save-key,
+.btn-clear-key {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-save-key {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+}
+
+.btn-save-key:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn-save-key:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-clear-key {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-clear-key:hover {
+  color: var(--risk-high);
+  border-color: var(--risk-high);
+}
+
 /* ── Settings Controls ── */
 
 .settings-toggle {

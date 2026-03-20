@@ -102,6 +102,10 @@ pub struct LlmConfig {
     /// Shell command to retrieve the API key (e.g. `op read op://vault/item/field`).
     #[serde(default)]
     pub key_cmd: Option<String>,
+    /// API key stored directly in the config file.
+    /// Precedence: key_cmd > key > env vars.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     /// Optional LLM refinement pass configuration.
     #[serde(default)]
     pub refinement: RefinementConfig,
@@ -155,6 +159,7 @@ impl Default for LlmConfig {
             provider: None,
             model: None,
             key_cmd: None,
+            key: None,
             refinement: RefinementConfig::default(),
         }
     }
@@ -620,6 +625,40 @@ key_cmd = "op read op://vault/flowdiff/api-key"
     }
 
     #[test]
+    fn test_config_key_parsed() {
+        let toml_str = r#"
+[llm]
+provider = "anthropic"
+key = "sk-ant-test-key-12345"
+"#;
+        let config = FlowdiffConfig::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.llm.key,
+            Some("sk-ant-test-key-12345".to_string())
+        );
+    }
+
+    #[test]
+    fn test_config_key_not_serialized_when_none() {
+        let config = FlowdiffConfig::default();
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        // key should not appear in output when None (skip_serializing_if)
+        assert!(!toml_str.contains("key ="));
+    }
+
+    #[test]
+    fn test_config_key_roundtrip_via_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = FlowdiffConfig::default();
+        config.llm.provider = Some("anthropic".to_string());
+        config.llm.key = Some("sk-roundtrip-test".to_string());
+        config.save_to_dir(dir.path()).unwrap();
+
+        let loaded = FlowdiffConfig::load_from_dir(dir.path()).unwrap();
+        assert_eq!(loaded.llm.key, Some("sk-roundtrip-test".to_string()));
+    }
+
+    #[test]
     fn test_multiple_entrypoint_types() {
         let toml_str = r#"
 [entrypoints]
@@ -659,6 +698,7 @@ events = ["src/handlers/events/**/*.ts"]
                 provider: Some("anthropic".to_string()),
                 model: Some("claude-sonnet-4-6".to_string()),
                 key_cmd: None,
+                key: None,
                 ..Default::default()
             },
             ranking: RankWeights {
