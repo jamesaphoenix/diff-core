@@ -1024,9 +1024,9 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 **Problem:** `parse_tree()` in `query_engine.rs` creates a new `tree_sitter::Parser` on every call. Across the test suite this means thousands of unnecessary allocations.
 
-- [ ] Store a `Parser` per language inside `QueryEngine` (e.g. `RefCell<Parser>` or `Cell<Parser>`)
-- [ ] Reuse across all `parse_tree()` calls for the same language — just call `parser.parse(source, None)` on the existing instance
-- [ ] Verify thread safety: `Parser` is `!Send`, so this works naturally with the single-threaded-per-file model; for rayon parallel parsing, use thread-local parsers
+- [x] Store a `Parser` per language using `thread_local!` with `RefCell<HashMap<Language, Parser>>` — each rayon thread gets its own set of parsers, avoiding contention
+- [x] Reuse across all `parse_tree()` calls for the same language — `parse_tree()` now takes a `Language` key, looks up the thread-local parser, creates one on first use
+- [x] Verify thread safety: `Parser` is `Send` but `!Sync`, so cannot be stored in `QueryEngine` (shared via `&` across rayon threads); thread-local storage gives each worker its own parsers with zero synchronization overhead. 6 new tests: same-language reuse, multi-language reuse, rayon parallel, parse_tree_for_path reuse, extract_data_flow reuse, fresh-vs-reused result identity
 
 ### 12.8 Parallelize graph building
 

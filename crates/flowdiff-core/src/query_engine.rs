@@ -14,9 +14,24 @@ use crate::ast::{
 };
 use crate::types::SymbolKind;
 use once_cell::sync::OnceCell;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use thiserror::Error;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
+
+// ---------------------------------------------------------------------------
+// Thread-local parser pool
+// ---------------------------------------------------------------------------
+//
+// `tree_sitter::Parser` is `Send` but `!Sync`, so we cannot store it inside
+// `QueryEngine` (which is shared via `&QueryEngine` across rayon threads).
+// Instead, each thread maintains its own set of parsers keyed by `Language`.
+// This avoids allocating a new `Parser` on every `parse_tree()` call while
+// remaining safe for rayon's work-stealing parallelism.
+
+thread_local! {
+    static THREAD_PARSERS: RefCell<HashMap<Language, Parser>> = RefCell::new(HashMap::new());
+}
 
 // ---------------------------------------------------------------------------
 // Embedded query files (compiled into the binary)
@@ -326,7 +341,7 @@ impl QueryEngine {
             });
         };
 
-        let tree = self.parse_tree(source, &lq.language)?;
+        let tree = self.parse_tree(source, language, &lq.language)?;
         let root = tree.root_node();
         let src = source.as_bytes();
 
@@ -545,15 +560,24 @@ impl QueryEngine {
     fn parse_tree(
         &self,
         source: &str,
-        lang: &tree_sitter::Language,
+        language: Language,
+        ts_lang: &tree_sitter::Language,
     ) -> Result<tree_sitter::Tree, QueryEngineError> {
-        let mut parser = Parser::new();
-        parser
-            .set_language(lang)
-            .map_err(|e| QueryEngineError::LanguageError(e.to_string()))?;
-        parser
-            .parse(source, None)
-            .ok_or_else(|| QueryEngineError::ParseError("tree-sitter failed to parse".into()))
+        THREAD_PARSERS.with(|parsers| {
+            let mut parsers = parsers.borrow_mut();
+            if !parsers.contains_key(&language) {
+                let mut p = Parser::new();
+                p.set_language(ts_lang)
+                    .map_err(|e| QueryEngineError::LanguageError(e.to_string()))?;
+                parsers.insert(language, p);
+            }
+            let parser = parsers.get_mut(&language).unwrap();
+            parser
+                .parse(source, None)
+                .ok_or_else(|| {
+                    QueryEngineError::ParseError("tree-sitter failed to parse".into())
+                })
+        })
     }
 
     /// Parse source into a tree-sitter `Tree` for the given file path.
@@ -569,7 +593,7 @@ impl QueryEngine {
         let Some(lq) = self.get_lang_queries(language)? else {
             return Ok(None);
         };
-        let tree = self.parse_tree(source, &lq.language)?;
+        let tree = self.parse_tree(source, language, &lq.language)?;
         Ok(Some((tree, language)))
     }
 
@@ -638,7 +662,7 @@ impl QueryEngine {
         language: Language,
         lang_queries: &LanguageQueries,
     ) -> Result<ParsedFile, QueryEngineError> {
-        let tree = self.parse_tree(source, &lang_queries.language)?;
+        let tree = self.parse_tree(source, language, &lang_queries.language)?;
         self.parse_with_queries_from_tree(path, source, language, lang_queries, &tree)
     }
 
@@ -4151,6 +4175,136 @@ mod lazy_init_tests {
         for (i1, i2) in r1.imports.iter().zip(r2.imports.iter()) {
             assert_eq!(i1.source, i2.source);
             assert_eq!(i1.names.len(), i2.names.len());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Thread-local parser reuse tests (Phase 12.7)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+mod thread_local_parser_tests {
+    use super::*;
+
+    #[test]
+    fn parser_reused_across_multiple_parses_same_language() {
+        let engine = QueryEngine::new().unwrap();
+        let src1 = "function foo() { return 1; }";
+        let src2 = "function bar() { return 2; }";
+
+        let r1 = engine.parse_file("a.ts", src1).unwrap();
+        let r2 = engine.parse_file("b.ts", src2).unwrap();
+
+        // Both parse successfully, demonstrating parser reuse works.
+        assert_eq!(r1.definitions.len(), 1);
+        assert_eq!(r2.definitions.len(), 1);
+        assert_eq!(r1.definitions[0].name, "foo");
+        assert_eq!(r2.definitions[0].name, "bar");
+    }
+
+    #[test]
+    fn parser_reused_across_different_languages() {
+        let engine = QueryEngine::new().unwrap();
+
+        let ts_result = engine
+            .parse_file("app.ts", "function hello() {}")
+            .unwrap();
+        let py_result = engine
+            .parse_file("main.py", "def hello():\n    pass")
+            .unwrap();
+
+        assert_eq!(ts_result.definitions.len(), 1);
+        assert_eq!(py_result.definitions.len(), 1);
+    }
+
+    #[test]
+    fn thread_local_parsers_work_with_rayon() {
+        use rayon::prelude::*;
+
+        let engine = QueryEngine::new().unwrap();
+        let files: Vec<(&str, &str)> = vec![
+            ("a.ts", "function a() { return 1; }"),
+            ("b.ts", "function b() { return 2; }"),
+            ("c.py", "def c():\n    pass"),
+            ("d.py", "def d():\n    return 1"),
+            ("e.ts", "const e = () => 42;"),
+            ("f.go", "package main\nfunc f() {}"),
+        ];
+
+        let results: Vec<ParsedFile> = files
+            .par_iter()
+            .map(|&(path, src)| engine.parse_file(path, src).unwrap())
+            .collect();
+
+        assert_eq!(results.len(), 6);
+        // All files parsed successfully in parallel with thread-local parsers.
+        for r in &results {
+            assert!(!r.definitions.is_empty() || r.language == Language::Unknown);
+        }
+    }
+
+    #[test]
+    fn parse_tree_for_path_reuses_parser() {
+        let engine = QueryEngine::new().unwrap();
+
+        // First call creates the parser for TypeScript.
+        let r1 = engine
+            .parse_tree_for_path("a.ts", "const x = 1;")
+            .unwrap();
+        assert!(r1.is_some());
+
+        // Second call reuses the same thread-local parser.
+        let r2 = engine
+            .parse_tree_for_path("b.ts", "const y = 2;")
+            .unwrap();
+        assert!(r2.is_some());
+    }
+
+    #[test]
+    fn extract_data_flow_reuses_parser() {
+        let engine = QueryEngine::new().unwrap();
+
+        let df1 = engine
+            .extract_data_flow("a.ts", "const x = foo(1);")
+            .unwrap();
+        let df2 = engine
+            .extract_data_flow("b.ts", "const y = bar(2);")
+            .unwrap();
+
+        // Both extractions succeed with parser reuse.
+        assert!(!df1.assignments.is_empty());
+        assert!(!df2.assignments.is_empty());
+    }
+
+    #[test]
+    fn results_identical_with_reused_vs_fresh_parser() {
+        // Parse with a fresh engine (parsers created fresh for first file).
+        let engine1 = QueryEngine::new().unwrap();
+        let src = "import { Foo } from './foo';\nfunction bar() { return Foo(); }";
+        let r_fresh = engine1.parse_file("test.ts", src).unwrap();
+
+        // Parse again on the same engine (parser reused from thread-local).
+        let r_reused = engine1.parse_file("test2.ts", src).unwrap();
+
+        // Results must be structurally identical.
+        assert_eq!(r_fresh.imports.len(), r_reused.imports.len());
+        assert_eq!(r_fresh.definitions.len(), r_reused.definitions.len());
+        assert_eq!(r_fresh.call_sites.len(), r_reused.call_sites.len());
+        assert_eq!(r_fresh.exports.len(), r_reused.exports.len());
+
+        for (a, b) in r_fresh.imports.iter().zip(r_reused.imports.iter()) {
+            assert_eq!(a.source, b.source);
+            assert_eq!(a.names.len(), b.names.len());
+        }
+        for (a, b) in r_fresh
+            .definitions
+            .iter()
+            .zip(r_reused.definitions.iter())
+        {
+            assert_eq!(a.name, b.name);
+            assert_eq!(a.kind, b.kind);
         }
     }
 }
