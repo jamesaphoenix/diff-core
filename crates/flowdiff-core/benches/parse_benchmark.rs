@@ -184,6 +184,45 @@ async def delete_user(
     db.commit()
 "#;
 
+fn bench_lazy_query_engine(c: &mut Criterion) {
+    let mut group = c.benchmark_group("query_engine_init");
+
+    // Benchmark: constructing QueryEngine (should be near-instant with lazy init)
+    group.bench_function("new_construction", |b| {
+        b.iter(|| {
+            black_box(QueryEngine::new().expect("failed to create QueryEngine"));
+        });
+    });
+
+    // Benchmark: first parse triggers lazy compilation for one language
+    group.bench_function("first_parse_typescript", |b| {
+        b.iter(|| {
+            let engine = QueryEngine::new().expect("failed to create QueryEngine");
+            let _ = black_box(engine.parse_file("src/controller.ts", TS_SOURCE));
+        });
+    });
+
+    // Benchmark: first parse Python (different language, separate compilation)
+    group.bench_function("first_parse_python", |b| {
+        b.iter(|| {
+            let engine = QueryEngine::new().expect("failed to create QueryEngine");
+            let _ = black_box(engine.parse_file("app/users.py", PY_SOURCE));
+        });
+    });
+
+    // Benchmark: second parse reuses cached queries (no recompilation)
+    group.bench_function("second_parse_typescript", |b| {
+        let engine = QueryEngine::new().expect("failed to create QueryEngine");
+        // Warm up: trigger lazy compilation
+        let _ = engine.parse_file("src/controller.ts", TS_SOURCE);
+        b.iter(|| {
+            let _ = black_box(engine.parse_file("src/controller.ts", TS_SOURCE));
+        });
+    });
+
+    group.finish();
+}
+
 fn bench_parse_dedup(c: &mut Criterion) {
     let engine = QueryEngine::new().expect("failed to create QueryEngine");
 
@@ -277,5 +316,5 @@ fn bench_parse_dedup(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_parse_dedup);
+criterion_group!(benches, bench_lazy_query_engine, bench_parse_dedup);
 criterion_main!(benches);

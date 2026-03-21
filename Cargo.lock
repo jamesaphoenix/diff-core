@@ -1130,6 +1130,7 @@ dependencies = [
  "glob",
  "hex",
  "log",
+ "once_cell",
  "petgraph",
  "proptest",
  "rayon",

@@ -990,9 +990,9 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 **Problem:** `QueryEngine::new()` compiles `.scm` queries for all 12+ languages upfront, even if the diff only contains TypeScript files.
 
-- [ ] Change query compilation from eager (all languages in constructor) to lazy (compile on first use per language)
-- [ ] Use `OnceCell<CompiledQuery>` or equivalent for each language's query set
-- [ ] Benchmark: measure `QueryEngine::new()` time before/after — expect significant reduction for single-language diffs
+- [x] Change query compilation from eager (all languages in constructor) to lazy (compile on first use per language)
+- [x] Use `OnceCell<CompiledQuery>` or equivalent for each language's query set — `once_cell::sync::OnceCell<LanguageQueries>` with `get_or_try_init()` in `get_lang_queries()`
+- [x] Benchmark: measure `QueryEngine::new()` time before/after — `new()` is now ~348 ns (near-instant), first parse compiles only the needed language (TS: ~13.4 ms, Python: ~5.3 ms), subsequent parses: ~569 µs
 
 ### 12.4 Disk-persistent IrFile cache (optional, for CLI)
 

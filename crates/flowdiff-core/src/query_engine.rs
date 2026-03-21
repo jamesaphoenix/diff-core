@@ -13,6 +13,7 @@ use crate::ast::{
     Language, ParsedFile, VarCallAssignment,
 };
 use crate::types::SymbolKind;
+use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use thiserror::Error;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
@@ -227,448 +228,67 @@ fn collect_matches<'tree>(
 
 /// Declarative tree-sitter query engine.
 ///
-/// Compiles `.scm` query files once at construction, then efficiently runs them
-/// against parsed source trees to produce [`ParsedFile`] and [`DataFlowInfo`].
+/// Query compilation is lazy: `.scm` query files are compiled on first use per
+/// language, not upfront. This means `QueryEngine::new()` is near-instant and
+/// only the languages actually encountered in a diff pay the compilation cost.
 pub struct QueryEngine {
-    ts_queries: LanguageQueries,
-    py_queries: LanguageQueries,
-    go_queries: LanguageQueries,
-    rust_queries: LanguageQueries,
-    java_queries: LanguageQueries,
-    csharp_queries: LanguageQueries,
-    php_queries: LanguageQueries,
-    ruby_queries: LanguageQueries,
-    kotlin_queries: LanguageQueries,
-    swift_queries: LanguageQueries,
-    c_queries: LanguageQueries,
-    cpp_queries: LanguageQueries,
-    scala_queries: LanguageQueries,
+    ts_queries: OnceCell<LanguageQueries>,
+    py_queries: OnceCell<LanguageQueries>,
+    go_queries: OnceCell<LanguageQueries>,
+    rust_queries: OnceCell<LanguageQueries>,
+    java_queries: OnceCell<LanguageQueries>,
+    csharp_queries: OnceCell<LanguageQueries>,
+    php_queries: OnceCell<LanguageQueries>,
+    ruby_queries: OnceCell<LanguageQueries>,
+    kotlin_queries: OnceCell<LanguageQueries>,
+    swift_queries: OnceCell<LanguageQueries>,
+    c_queries: OnceCell<LanguageQueries>,
+    cpp_queries: OnceCell<LanguageQueries>,
+    scala_queries: OnceCell<LanguageQueries>,
+}
+
+/// Compile all `.scm` queries for a single language into a [`LanguageQueries`].
+fn compile_queries(
+    ts_lang: tree_sitter::Language,
+    lang_name: &str,
+    imports_src: &str,
+    exports_src: Option<&str>,
+    definitions_src: &str,
+    calls_src: &str,
+    assignments_src: &str,
+) -> Result<LanguageQueries, QueryEngineError> {
+    Ok(LanguageQueries {
+        language: ts_lang.clone(),
+        imports: QueryWithCaptures::new(&ts_lang, imports_src, lang_name, "imports")?,
+        exports: exports_src
+            .map(|src| QueryWithCaptures::new(&ts_lang, src, lang_name, "exports"))
+            .transpose()?,
+        definitions: QueryWithCaptures::new(&ts_lang, definitions_src, lang_name, "definitions")?,
+        calls: QueryWithCaptures::new(&ts_lang, calls_src, lang_name, "calls")?,
+        assignments: QueryWithCaptures::new(&ts_lang, assignments_src, lang_name, "assignments")?,
+    })
 }
 
 impl QueryEngine {
-    /// Create a new query engine, compiling all embedded `.scm` query files.
+    /// Create a new query engine.
+    ///
+    /// Construction is near-instant: `.scm` query compilation is deferred to
+    /// first use per language via [`OnceCell`].
     pub fn new() -> Result<Self, QueryEngineError> {
-        let ts_lang: tree_sitter::Language = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
-        let py_lang: tree_sitter::Language = tree_sitter_python::LANGUAGE.into();
-
-        let ts_queries = LanguageQueries {
-            language: ts_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &ts_lang,
-                queries::typescript::IMPORTS,
-                "typescript",
-                "imports",
-            )?,
-            exports: Some(QueryWithCaptures::new(
-                &ts_lang,
-                queries::typescript::EXPORTS,
-                "typescript",
-                "exports",
-            )?),
-            definitions: QueryWithCaptures::new(
-                &ts_lang,
-                queries::typescript::DEFINITIONS,
-                "typescript",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &ts_lang,
-                queries::typescript::CALLS,
-                "typescript",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &ts_lang,
-                queries::typescript::ASSIGNMENTS,
-                "typescript",
-                "assignments",
-            )?,
-        };
-
-        let py_queries = LanguageQueries {
-            language: py_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &py_lang,
-                queries::python::IMPORTS,
-                "python",
-                "imports",
-            )?,
-            exports: None, // Python has no explicit export syntax
-            definitions: QueryWithCaptures::new(
-                &py_lang,
-                queries::python::DEFINITIONS,
-                "python",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &py_lang,
-                queries::python::CALLS,
-                "python",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &py_lang,
-                queries::python::ASSIGNMENTS,
-                "python",
-                "assignments",
-            )?,
-        };
-
-        let go_lang: tree_sitter::Language = tree_sitter_go::LANGUAGE.into();
-
-        let go_queries = LanguageQueries {
-            language: go_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &go_lang,
-                queries::go::IMPORTS,
-                "go",
-                "imports",
-            )?,
-            exports: None, // Go uses capitalization for exports, handled in Rust code
-            definitions: QueryWithCaptures::new(
-                &go_lang,
-                queries::go::DEFINITIONS,
-                "go",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &go_lang,
-                queries::go::CALLS,
-                "go",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &go_lang,
-                queries::go::ASSIGNMENTS,
-                "go",
-                "assignments",
-            )?,
-        };
-
-        let rust_lang: tree_sitter::Language = tree_sitter_rust::LANGUAGE.into();
-
-        let rust_queries = LanguageQueries {
-            language: rust_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &rust_lang,
-                queries::rust::IMPORTS,
-                "rust",
-                "imports",
-            )?,
-            exports: None, // Rust uses pub visibility, handled in Rust code
-            definitions: QueryWithCaptures::new(
-                &rust_lang,
-                queries::rust::DEFINITIONS,
-                "rust",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &rust_lang,
-                queries::rust::CALLS,
-                "rust",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &rust_lang,
-                queries::rust::ASSIGNMENTS,
-                "rust",
-                "assignments",
-            )?,
-        };
-
-        let java_lang: tree_sitter::Language = tree_sitter_java::LANGUAGE.into();
-
-        let java_queries = LanguageQueries {
-            language: java_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &java_lang,
-                queries::java::IMPORTS,
-                "java",
-                "imports",
-            )?,
-            exports: None, // Java uses public visibility, no explicit export syntax
-            definitions: QueryWithCaptures::new(
-                &java_lang,
-                queries::java::DEFINITIONS,
-                "java",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &java_lang,
-                queries::java::CALLS,
-                "java",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &java_lang,
-                queries::java::ASSIGNMENTS,
-                "java",
-                "assignments",
-            )?,
-        };
-
-        let csharp_lang: tree_sitter::Language = tree_sitter_c_sharp::LANGUAGE.into();
-
-        let csharp_queries = LanguageQueries {
-            language: csharp_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &csharp_lang,
-                queries::csharp::IMPORTS,
-                "csharp",
-                "imports",
-            )?,
-            exports: None, // C# uses public visibility, no explicit export syntax
-            definitions: QueryWithCaptures::new(
-                &csharp_lang,
-                queries::csharp::DEFINITIONS,
-                "csharp",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &csharp_lang,
-                queries::csharp::CALLS,
-                "csharp",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &csharp_lang,
-                queries::csharp::ASSIGNMENTS,
-                "csharp",
-                "assignments",
-            )?,
-        };
-
-        let php_lang: tree_sitter::Language = tree_sitter_php::LANGUAGE_PHP.into();
-
-        let php_queries = LanguageQueries {
-            language: php_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &php_lang,
-                queries::php::IMPORTS,
-                "php",
-                "imports",
-            )?,
-            exports: None, // PHP has no explicit export syntax
-            definitions: QueryWithCaptures::new(
-                &php_lang,
-                queries::php::DEFINITIONS,
-                "php",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &php_lang,
-                queries::php::CALLS,
-                "php",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &php_lang,
-                queries::php::ASSIGNMENTS,
-                "php",
-                "assignments",
-            )?,
-        };
-
-        let ruby_lang: tree_sitter::Language = tree_sitter_ruby::LANGUAGE.into();
-
-        let ruby_queries = LanguageQueries {
-            language: ruby_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &ruby_lang,
-                queries::ruby::IMPORTS,
-                "ruby",
-                "imports",
-            )?,
-            exports: None, // Ruby has no explicit export syntax
-            definitions: QueryWithCaptures::new(
-                &ruby_lang,
-                queries::ruby::DEFINITIONS,
-                "ruby",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &ruby_lang,
-                queries::ruby::CALLS,
-                "ruby",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &ruby_lang,
-                queries::ruby::ASSIGNMENTS,
-                "ruby",
-                "assignments",
-            )?,
-        };
-
-        let kotlin_lang: tree_sitter::Language = tree_sitter_kotlin_ng::LANGUAGE.into();
-
-        let kotlin_queries = LanguageQueries {
-            language: kotlin_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &kotlin_lang,
-                queries::kotlin::IMPORTS,
-                "kotlin",
-                "imports",
-            )?,
-            exports: None, // Kotlin uses visibility modifiers, no explicit export syntax
-            definitions: QueryWithCaptures::new(
-                &kotlin_lang,
-                queries::kotlin::DEFINITIONS,
-                "kotlin",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &kotlin_lang,
-                queries::kotlin::CALLS,
-                "kotlin",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &kotlin_lang,
-                queries::kotlin::ASSIGNMENTS,
-                "kotlin",
-                "assignments",
-            )?,
-        };
-
-        let swift_lang: tree_sitter::Language = tree_sitter_swift::LANGUAGE.into();
-
-        let swift_queries = LanguageQueries {
-            language: swift_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &swift_lang,
-                queries::swift::IMPORTS,
-                "swift",
-                "imports",
-            )?,
-            exports: None, // Swift uses access modifiers, no explicit export syntax
-            definitions: QueryWithCaptures::new(
-                &swift_lang,
-                queries::swift::DEFINITIONS,
-                "swift",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &swift_lang,
-                queries::swift::CALLS,
-                "swift",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &swift_lang,
-                queries::swift::ASSIGNMENTS,
-                "swift",
-                "assignments",
-            )?,
-        };
-
-        let c_lang: tree_sitter::Language = tree_sitter_c::LANGUAGE.into();
-
-        let c_queries = LanguageQueries {
-            language: c_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &c_lang,
-                queries::c::IMPORTS,
-                "c",
-                "imports",
-            )?,
-            exports: None, // C has no explicit export syntax
-            definitions: QueryWithCaptures::new(
-                &c_lang,
-                queries::c::DEFINITIONS,
-                "c",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &c_lang,
-                queries::c::CALLS,
-                "c",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &c_lang,
-                queries::c::ASSIGNMENTS,
-                "c",
-                "assignments",
-            )?,
-        };
-
-        let cpp_lang: tree_sitter::Language = tree_sitter_cpp::LANGUAGE.into();
-
-        let cpp_queries = LanguageQueries {
-            language: cpp_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &cpp_lang,
-                queries::cpp::IMPORTS,
-                "cpp",
-                "imports",
-            )?,
-            exports: None, // C++ has no explicit export syntax
-            definitions: QueryWithCaptures::new(
-                &cpp_lang,
-                queries::cpp::DEFINITIONS,
-                "cpp",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &cpp_lang,
-                queries::cpp::CALLS,
-                "cpp",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &cpp_lang,
-                queries::cpp::ASSIGNMENTS,
-                "cpp",
-                "assignments",
-            )?,
-        };
-
-        let scala_lang: tree_sitter::Language = tree_sitter_scala::LANGUAGE.into();
-
-        let scala_queries = LanguageQueries {
-            language: scala_lang.clone(),
-            imports: QueryWithCaptures::new(
-                &scala_lang,
-                queries::scala::IMPORTS,
-                "scala",
-                "imports",
-            )?,
-            exports: None, // Scala uses access modifiers, no explicit export syntax
-            definitions: QueryWithCaptures::new(
-                &scala_lang,
-                queries::scala::DEFINITIONS,
-                "scala",
-                "definitions",
-            )?,
-            calls: QueryWithCaptures::new(
-                &scala_lang,
-                queries::scala::CALLS,
-                "scala",
-                "calls",
-            )?,
-            assignments: QueryWithCaptures::new(
-                &scala_lang,
-                queries::scala::ASSIGNMENTS,
-                "scala",
-                "assignments",
-            )?,
-        };
-
         Ok(Self {
-            ts_queries,
-            py_queries,
-            go_queries,
-            rust_queries,
-            java_queries,
-            csharp_queries,
-            php_queries,
-            ruby_queries,
-            kotlin_queries,
-            swift_queries,
-            c_queries,
-            cpp_queries,
-            scala_queries,
+            ts_queries: OnceCell::new(),
+            py_queries: OnceCell::new(),
+            go_queries: OnceCell::new(),
+            rust_queries: OnceCell::new(),
+            java_queries: OnceCell::new(),
+            csharp_queries: OnceCell::new(),
+            php_queries: OnceCell::new(),
+            ruby_queries: OnceCell::new(),
+            kotlin_queries: OnceCell::new(),
+            swift_queries: OnceCell::new(),
+            c_queries: OnceCell::new(),
+            cpp_queries: OnceCell::new(),
+            scala_queries: OnceCell::new(),
         })
     }
 
@@ -677,55 +297,17 @@ impl QueryEngine {
     /// This is the declarative equivalent of [`crate::ast::parse_file`].
     pub fn parse_file(&self, path: &str, source: &str) -> Result<ParsedFile, QueryEngineError> {
         let language = Language::from_path(path);
-        match language {
-            Language::TypeScript | Language::JavaScript => {
-                self.parse_with_queries(path, source, language, &self.ts_queries)
-            }
-            Language::Python => {
-                self.parse_with_queries(path, source, language, &self.py_queries)
-            }
-            Language::Go => {
-                self.parse_with_queries(path, source, language, &self.go_queries)
-            }
-            Language::Rust => {
-                self.parse_with_queries(path, source, language, &self.rust_queries)
-            }
-            Language::Java => {
-                self.parse_with_queries(path, source, language, &self.java_queries)
-            }
-            Language::CSharp => {
-                self.parse_with_queries(path, source, language, &self.csharp_queries)
-            }
-            Language::Php => {
-                self.parse_with_queries(path, source, language, &self.php_queries)
-            }
-            Language::Ruby => {
-                self.parse_with_queries(path, source, language, &self.ruby_queries)
-            }
-            Language::Kotlin => {
-                self.parse_with_queries(path, source, language, &self.kotlin_queries)
-            }
-            Language::Swift => {
-                self.parse_with_queries(path, source, language, &self.swift_queries)
-            }
-            Language::C => {
-                self.parse_with_queries(path, source, language, &self.c_queries)
-            }
-            Language::Cpp => {
-                self.parse_with_queries(path, source, language, &self.cpp_queries)
-            }
-            Language::Scala => {
-                self.parse_with_queries(path, source, language, &self.scala_queries)
-            }
-            Language::Unknown => Ok(ParsedFile {
+        let Some(lq) = self.get_lang_queries(language)? else {
+            return Ok(ParsedFile {
                 path: path.to_string(),
                 language: Language::Unknown,
                 definitions: vec![],
                 imports: vec![],
                 exports: vec![],
                 call_sites: vec![],
-            }),
-        }
+            });
+        };
+        self.parse_with_queries(path, source, language, lq)
     }
 
     /// Extract data flow information (variable assignments from calls, calls with args).
@@ -737,36 +319,21 @@ impl QueryEngine {
         source: &str,
     ) -> Result<DataFlowInfo, QueryEngineError> {
         let language = Language::from_path(path);
-        let lang_queries = match language {
-            Language::TypeScript | Language::JavaScript => &self.ts_queries,
-            Language::Python => &self.py_queries,
-            Language::Go => &self.go_queries,
-            Language::Rust => &self.rust_queries,
-            Language::Java => &self.java_queries,
-            Language::CSharp => &self.csharp_queries,
-            Language::Php => &self.php_queries,
-            Language::Ruby => &self.ruby_queries,
-            Language::Kotlin => &self.kotlin_queries,
-            Language::Swift => &self.swift_queries,
-            Language::C => &self.c_queries,
-            Language::Cpp => &self.cpp_queries,
-            Language::Scala => &self.scala_queries,
-            Language::Unknown => {
-                return Ok(DataFlowInfo {
-                    assignments: vec![],
-                    calls_with_args: vec![],
-                })
-            }
+        let Some(lq) = self.get_lang_queries(language)? else {
+            return Ok(DataFlowInfo {
+                assignments: vec![],
+                calls_with_args: vec![],
+            });
         };
 
-        let tree = self.parse_tree(source, &lang_queries.language)?;
+        let tree = self.parse_tree(source, &lq.language)?;
         let root = tree.root_node();
         let src = source.as_bytes();
 
         let assignments =
-            self.extract_assignments(&root, src, &lang_queries.assignments, language)?;
+            self.extract_assignments(&root, src, &lq.assignments, language)?;
         let calls_with_args =
-            self.extract_calls_with_args(&root, src, &lang_queries.calls, language)?;
+            self.extract_calls_with_args(&root, src, &lq.calls, language)?;
 
         Ok(DataFlowInfo {
             assignments,
@@ -778,24 +345,196 @@ impl QueryEngine {
     // Language query resolution
     // -----------------------------------------------------------------------
 
-    /// Resolve a [`Language`] to its compiled query set. Returns `None` for
-    /// [`Language::Unknown`].
-    fn get_lang_queries(&self, language: Language) -> Option<&LanguageQueries> {
+    /// Resolve a [`Language`] to its compiled query set, compiling on first use.
+    /// Returns `Ok(None)` for [`Language::Unknown`].
+    fn get_lang_queries(
+        &self,
+        language: Language,
+    ) -> Result<Option<&LanguageQueries>, QueryEngineError> {
         match language {
-            Language::TypeScript | Language::JavaScript => Some(&self.ts_queries),
-            Language::Python => Some(&self.py_queries),
-            Language::Go => Some(&self.go_queries),
-            Language::Rust => Some(&self.rust_queries),
-            Language::Java => Some(&self.java_queries),
-            Language::CSharp => Some(&self.csharp_queries),
-            Language::Php => Some(&self.php_queries),
-            Language::Ruby => Some(&self.ruby_queries),
-            Language::Kotlin => Some(&self.kotlin_queries),
-            Language::Swift => Some(&self.swift_queries),
-            Language::C => Some(&self.c_queries),
-            Language::Cpp => Some(&self.cpp_queries),
-            Language::Scala => Some(&self.scala_queries),
-            Language::Unknown => None,
+            Language::TypeScript | Language::JavaScript => self
+                .ts_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+                        "typescript",
+                        queries::typescript::IMPORTS,
+                        Some(queries::typescript::EXPORTS),
+                        queries::typescript::DEFINITIONS,
+                        queries::typescript::CALLS,
+                        queries::typescript::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::Python => self
+                .py_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_python::LANGUAGE.into(),
+                        "python",
+                        queries::python::IMPORTS,
+                        None,
+                        queries::python::DEFINITIONS,
+                        queries::python::CALLS,
+                        queries::python::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::Go => self
+                .go_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_go::LANGUAGE.into(),
+                        "go",
+                        queries::go::IMPORTS,
+                        None,
+                        queries::go::DEFINITIONS,
+                        queries::go::CALLS,
+                        queries::go::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::Rust => self
+                .rust_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_rust::LANGUAGE.into(),
+                        "rust",
+                        queries::rust::IMPORTS,
+                        None,
+                        queries::rust::DEFINITIONS,
+                        queries::rust::CALLS,
+                        queries::rust::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::Java => self
+                .java_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_java::LANGUAGE.into(),
+                        "java",
+                        queries::java::IMPORTS,
+                        None,
+                        queries::java::DEFINITIONS,
+                        queries::java::CALLS,
+                        queries::java::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::CSharp => self
+                .csharp_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_c_sharp::LANGUAGE.into(),
+                        "csharp",
+                        queries::csharp::IMPORTS,
+                        None,
+                        queries::csharp::DEFINITIONS,
+                        queries::csharp::CALLS,
+                        queries::csharp::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::Php => self
+                .php_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_php::LANGUAGE_PHP.into(),
+                        "php",
+                        queries::php::IMPORTS,
+                        None,
+                        queries::php::DEFINITIONS,
+                        queries::php::CALLS,
+                        queries::php::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::Ruby => self
+                .ruby_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_ruby::LANGUAGE.into(),
+                        "ruby",
+                        queries::ruby::IMPORTS,
+                        None,
+                        queries::ruby::DEFINITIONS,
+                        queries::ruby::CALLS,
+                        queries::ruby::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::Kotlin => self
+                .kotlin_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_kotlin_ng::LANGUAGE.into(),
+                        "kotlin",
+                        queries::kotlin::IMPORTS,
+                        None,
+                        queries::kotlin::DEFINITIONS,
+                        queries::kotlin::CALLS,
+                        queries::kotlin::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::Swift => self
+                .swift_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_swift::LANGUAGE.into(),
+                        "swift",
+                        queries::swift::IMPORTS,
+                        None,
+                        queries::swift::DEFINITIONS,
+                        queries::swift::CALLS,
+                        queries::swift::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::C => self
+                .c_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_c::LANGUAGE.into(),
+                        "c",
+                        queries::c::IMPORTS,
+                        None,
+                        queries::c::DEFINITIONS,
+                        queries::c::CALLS,
+                        queries::c::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::Cpp => self
+                .cpp_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_cpp::LANGUAGE.into(),
+                        "cpp",
+                        queries::cpp::IMPORTS,
+                        None,
+                        queries::cpp::DEFINITIONS,
+                        queries::cpp::CALLS,
+                        queries::cpp::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::Scala => self
+                .scala_queries
+                .get_or_try_init(|| {
+                    compile_queries(
+                        tree_sitter_scala::LANGUAGE.into(),
+                        "scala",
+                        queries::scala::IMPORTS,
+                        None,
+                        queries::scala::DEFINITIONS,
+                        queries::scala::CALLS,
+                        queries::scala::ASSIGNMENTS,
+                    )
+                })
+                .map(Some),
+            Language::Unknown => Ok(None),
         }
     }
 
@@ -827,7 +566,7 @@ impl QueryEngine {
         source: &str,
     ) -> Result<Option<(tree_sitter::Tree, Language)>, QueryEngineError> {
         let language = Language::from_path(path);
-        let Some(lq) = self.get_lang_queries(language) else {
+        let Some(lq) = self.get_lang_queries(language)? else {
             return Ok(None);
         };
         let tree = self.parse_tree(source, &lq.language)?;
@@ -846,7 +585,7 @@ impl QueryEngine {
         tree: &tree_sitter::Tree,
         language: Language,
     ) -> Result<ParsedFile, QueryEngineError> {
-        let Some(lq) = self.get_lang_queries(language) else {
+        let Some(lq) = self.get_lang_queries(language)? else {
             return Ok(ParsedFile {
                 path: path.to_string(),
                 language: Language::Unknown,
@@ -867,7 +606,7 @@ impl QueryEngine {
         tree: &tree_sitter::Tree,
         language: Language,
     ) -> Result<DataFlowInfo, QueryEngineError> {
-        let Some(lq) = self.get_lang_queries(language) else {
+        let Some(lq) = self.get_lang_queries(language)? else {
             return Ok(DataFlowInfo {
                 assignments: vec![],
                 calls_with_args: vec![],
@@ -4272,6 +4011,134 @@ export function process(data: string) {
         let e = engine();
         let result = e.parse_file("app.ts", "import { from 'broken;");
         assert!(result.is_ok());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Lazy initialization tests (Phase 12.3)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+mod lazy_init_tests {
+    use super::*;
+
+    #[test]
+    fn new_is_instant_no_queries_compiled() {
+        // Construction should succeed without compiling any queries.
+        let engine = QueryEngine::new().unwrap();
+        // All OnceCells should be uninitialized.
+        assert!(engine.ts_queries.get().is_none());
+        assert!(engine.py_queries.get().is_none());
+        assert!(engine.go_queries.get().is_none());
+        assert!(engine.rust_queries.get().is_none());
+        assert!(engine.java_queries.get().is_none());
+        assert!(engine.csharp_queries.get().is_none());
+        assert!(engine.php_queries.get().is_none());
+        assert!(engine.ruby_queries.get().is_none());
+        assert!(engine.kotlin_queries.get().is_none());
+        assert!(engine.swift_queries.get().is_none());
+        assert!(engine.c_queries.get().is_none());
+        assert!(engine.cpp_queries.get().is_none());
+        assert!(engine.scala_queries.get().is_none());
+    }
+
+    #[test]
+    fn first_ts_parse_compiles_only_typescript() {
+        let engine = QueryEngine::new().unwrap();
+        let _ = engine.parse_file("app.ts", "import x from 'y';").unwrap();
+        // Only TypeScript queries should be compiled.
+        assert!(engine.ts_queries.get().is_some());
+        assert!(engine.py_queries.get().is_none());
+        assert!(engine.go_queries.get().is_none());
+        assert!(engine.rust_queries.get().is_none());
+    }
+
+    #[test]
+    fn first_py_parse_compiles_only_python() {
+        let engine = QueryEngine::new().unwrap();
+        let _ = engine.parse_file("app.py", "import os").unwrap();
+        assert!(engine.ts_queries.get().is_none());
+        assert!(engine.py_queries.get().is_some());
+        assert!(engine.go_queries.get().is_none());
+    }
+
+    #[test]
+    fn js_and_ts_share_same_queries() {
+        let engine = QueryEngine::new().unwrap();
+        // Parse a JS file — should compile the ts_queries (shared for TS/JS).
+        let _ = engine.parse_file("app.js", "import x from 'y';").unwrap();
+        assert!(engine.ts_queries.get().is_some());
+        // Parse a TS file — should not trigger a new compilation.
+        let _ = engine.parse_file("app.ts", "import x from 'y';").unwrap();
+        // Still the same compiled queries.
+        assert!(engine.ts_queries.get().is_some());
+    }
+
+    #[test]
+    fn multiple_languages_compile_independently() {
+        let engine = QueryEngine::new().unwrap();
+        let _ = engine.parse_file("a.ts", "const x = 1;").unwrap();
+        let _ = engine.parse_file("b.py", "x = 1").unwrap();
+        let _ = engine.parse_file("c.go", "package main").unwrap();
+        assert!(engine.ts_queries.get().is_some());
+        assert!(engine.py_queries.get().is_some());
+        assert!(engine.go_queries.get().is_some());
+        // Unused languages stay uncompiled.
+        assert!(engine.rust_queries.get().is_none());
+        assert!(engine.java_queries.get().is_none());
+        assert!(engine.scala_queries.get().is_none());
+    }
+
+    #[test]
+    fn unknown_language_does_not_compile_anything() {
+        let engine = QueryEngine::new().unwrap();
+        let result = engine.parse_file("readme.txt", "hello world").unwrap();
+        assert_eq!(result.language, Language::Unknown);
+        assert!(result.definitions.is_empty());
+        // No queries should be compiled.
+        assert!(engine.ts_queries.get().is_none());
+        assert!(engine.py_queries.get().is_none());
+    }
+
+    #[test]
+    fn extract_data_flow_triggers_lazy_init() {
+        let engine = QueryEngine::new().unwrap();
+        assert!(engine.py_queries.get().is_none());
+        let _ = engine
+            .extract_data_flow("main.py", "x = foo(1)")
+            .unwrap();
+        assert!(engine.py_queries.get().is_some());
+    }
+
+    #[test]
+    fn parse_tree_for_path_triggers_lazy_init() {
+        let engine = QueryEngine::new().unwrap();
+        assert!(engine.go_queries.get().is_none());
+        let _ = engine
+            .parse_tree_for_path("main.go", "package main")
+            .unwrap();
+        assert!(engine.go_queries.get().is_some());
+    }
+
+    #[test]
+    fn cached_results_identical_to_fresh_compilation() {
+        let engine = QueryEngine::new().unwrap();
+        let src = "import { Foo } from './foo';\nfunction bar() { return Foo(); }";
+
+        // First parse: triggers compilation.
+        let r1 = engine.parse_file("a.ts", src).unwrap();
+        // Second parse: uses cached queries.
+        let r2 = engine.parse_file("b.ts", src).unwrap();
+
+        // Results should be structurally identical (paths differ by design).
+        assert_eq!(r1.imports.len(), r2.imports.len());
+        assert_eq!(r1.definitions.len(), r2.definitions.len());
+        assert_eq!(r1.call_sites.len(), r2.call_sites.len());
+        for (i1, i2) in r1.imports.iter().zip(r2.imports.iter()) {
+            assert_eq!(i1.source, i2.source);
+            assert_eq!(i1.names.len(), i2.names.len());
+        }
     }
 }
 
