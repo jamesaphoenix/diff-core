@@ -1047,7 +1047,7 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 ### 12.10 Verification
 
-- [x] All existing tests still pass (1626 tests: 1414 unit + 212 integration)
+- [x] All existing tests still pass (1638 tests: 1426 unit + 212 integration)
 - [x] Add a benchmark test (criterion) for: graph_build_from_ir (20/50/100 files, parallel vs serial) and flow_analysis/heuristic_patterns (20/50/100 files with 37 mixed call sites each)
 - [x] Cache hit/miss logging behind `FLOWDIFF_CACHE_DEBUG=1` env var (per-operation HIT/MISS lines + summary stats to stderr)
 - [x] No behavior change: cached results are byte-identical to uncached results (verified by `ir_cache_cached_result_byte_identical` test)
@@ -1615,7 +1615,7 @@ Before each release, run through manually:
 - [ ] VS Code: click file in tree → native diff editor opens *(requires VS Code)*
 - [ ] VS Code: `flowdiff.nextFile` advances through flow *(requires VS Code)*
 - [x] Run on a Python project — verify tree-sitter + heuristics work — detected Python, FastAPI+Flask frameworks, found automate_tasks HttpRoute entrypoint
-- [ ] Run on a monorepo — verify cross-package edges resolve *(needs monorepo with cross-package deps)*
+- [x] Run on a monorepo — verify cross-package edges resolve — synthetic 3-package TS monorepo (@monorepo/shared-types, @monorepo/api-client, @monorepo/backend), workspace map built from package.json, 9 cross-package edges detected (import + call edges across packages), shared-types pulled into flow group via workspace resolution
 - [x] Run with no config file — auto-detection works — produces valid JSON output with 0 config
 - [x] Run with `.flowdiff.toml` — overrides apply correctly — config loads, validates (rejects invalid provider), ignore patterns filter parsing
 - [x] Run on empty diff — graceful "no changes" message — returns JSON with 0 files, 0 groups, no error

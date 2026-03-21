@@ -152,8 +152,11 @@ pub fn analyze(
         .collect();
     let parsed_files = pipeline::parse_files_parallel(&file_inputs);
 
+    // Build workspace map for monorepo cross-package import resolution
+    let workspace_map = flowdiff_core::graph::build_workspace_map(&workdir);
+
     // Build symbol graph
-    let mut graph = SymbolGraph::build(&parsed_files);
+    let mut graph = SymbolGraph::build_with_workspace(&parsed_files, &workspace_map);
 
     // Detect entrypoints
     let entrypoints = entrypoint::detect_entrypoints(&parsed_files);

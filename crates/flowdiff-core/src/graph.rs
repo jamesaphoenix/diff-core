@@ -65,6 +65,15 @@ pub struct SerializableEdge {
 impl SymbolGraph {
     /// Build a symbol graph from a collection of parsed files.
     pub fn build(files: &[ParsedFile]) -> Self {
+        Self::build_with_workspace(files, &WorkspaceMap::new())
+    }
+
+    /// Build a symbol graph with workspace package resolution for monorepos.
+    ///
+    /// The `workspace_map` maps package names (e.g. `@scope/pkg`) to their
+    /// entry file paths (e.g. `packages/pkg/src/index.ts`), enabling cross-package
+    /// import edges in monorepo workspaces.
+    pub fn build_with_workspace(files: &[ParsedFile], workspace_map: &WorkspaceMap) -> Self {
         let mut graph = DiGraph::new();
         let mut id_to_index: HashMap<String, NodeIndex> = HashMap::new();
 
@@ -120,8 +129,8 @@ impl SymbolGraph {
             .par_iter()
             .map(|file| {
                 let mut edges = Vec::new();
-                collect_import_edges(file, files, &file_exports, &file_defs, &id_to_index, &mut edges);
-                collect_call_edges(file, files, &file_exports, &file_defs, &id_to_index, &mut edges);
+                collect_import_edges(file, files, &file_exports, &file_defs, &id_to_index, workspace_map, &mut edges);
+                collect_call_edges(file, files, &file_exports, &file_defs, &id_to_index, workspace_map, &mut edges);
                 collect_extends_edges(file, files, &file_defs, &id_to_index, &mut edges);
                 edges
             })
@@ -146,6 +155,11 @@ impl SymbolGraph {
     /// It consumes `IrFile` types directly, enabling richer edge construction
     /// (e.g., class extends edges from `IrTypeDef.bases`).
     pub fn build_from_ir(files: &[IrFile]) -> Self {
+        Self::build_from_ir_with_workspace(files, &WorkspaceMap::new())
+    }
+
+    /// Build a symbol graph from IR files with workspace package resolution.
+    pub fn build_from_ir_with_workspace(files: &[IrFile], workspace_map: &WorkspaceMap) -> Self {
         let mut graph = DiGraph::new();
         let mut id_to_index: HashMap<String, NodeIndex> = HashMap::new();
 
@@ -240,6 +254,7 @@ impl SymbolGraph {
                     &file_def_names,
                     &id_to_index,
                     &known_paths,
+                    workspace_map,
                     &mut edges,
                 );
                 collect_ir_call_edges(
@@ -248,6 +263,7 @@ impl SymbolGraph {
                     &file_def_names,
                     &id_to_index,
                     &known_paths,
+                    workspace_map,
                     &mut edges,
                 );
                 collect_ir_extends_edges(
@@ -434,6 +450,164 @@ fn resolve_import_path(
     None
 }
 
+/// A map from workspace package name (e.g. `@monorepo/shared-types`) to its
+/// entry file path relative to the repo root (e.g. `packages/shared-types/src/index.ts`).
+pub type WorkspaceMap = HashMap<String, String>;
+
+/// Resolve a non-relative import through a workspace package map.
+///
+/// When `import_source` is a bare specifier (e.g. `@monorepo/shared-types` or
+/// `@monorepo/shared-types/utils`), look it up in the workspace map. If the
+/// exact name matches, return its entry file. If only a prefix matches (e.g.
+/// `@scope/pkg/sub`), try to resolve the sub-path relative to the package root.
+fn resolve_workspace_import(
+    import_source: &str,
+    known_files: &[&str],
+    workspace_map: &WorkspaceMap,
+) -> Option<String> {
+    // Skip relative imports (already handled by resolve_import_path).
+    if import_source.starts_with('.') {
+        return None;
+    }
+
+    // Try exact match first.
+    if let Some(entry) = workspace_map.get(import_source) {
+        if known_files.contains(&entry.as_str()) {
+            return Some(entry.clone());
+        }
+    }
+
+    // Try prefix match for deep imports like `@scope/pkg/sub/path`.
+    // Find the longest matching package name.
+    let mut best_match: Option<(&str, &str)> = None;
+    for (pkg_name, entry_file) in workspace_map {
+        if import_source.starts_with(pkg_name.as_str())
+            && import_source[pkg_name.len()..].starts_with('/')
+        {
+            if best_match.map_or(true, |(prev, _)| pkg_name.len() > prev.len()) {
+                best_match = Some((pkg_name.as_str(), entry_file.as_str()));
+            }
+        }
+    }
+
+    if let Some((pkg_name, entry_file)) = best_match {
+        // Get package root directory from entry file path.
+        let pkg_dir = parent_dir(parent_dir(entry_file).as_str());
+        let sub_path = &import_source[pkg_name.len() + 1..]; // skip the '/'
+        let resolved = format!("{}/{}", pkg_dir, sub_path);
+
+        // Try with common extensions.
+        let candidates = [
+            resolved.clone(),
+            format!("{}.ts", resolved),
+            format!("{}.tsx", resolved),
+            format!("{}.js", resolved),
+            format!("{}.jsx", resolved),
+            format!("{}/index.ts", resolved),
+            format!("{}/index.js", resolved),
+        ];
+
+        for candidate in &candidates {
+            if known_files.contains(&candidate.as_str()) {
+                return Some(candidate.clone());
+            }
+        }
+    }
+
+    None
+}
+
+/// Try to resolve an import path, falling back to workspace resolution.
+fn resolve_import_or_workspace(
+    import_source: &str,
+    importer_path: &str,
+    known_files: &[&str],
+    workspace_map: &WorkspaceMap,
+) -> Option<String> {
+    resolve_import_path(import_source, importer_path, known_files)
+        .or_else(|| resolve_workspace_import(import_source, known_files, workspace_map))
+}
+
+/// Build a workspace package map by scanning `package.json` files in a directory.
+///
+/// Reads the root `package.json` for `workspaces` globs, then reads each
+/// matched package's `package.json` for its `name` and `main` fields.
+/// Returns a map from package name → entry file path (relative to repo root).
+pub fn build_workspace_map(repo_root: &std::path::Path) -> WorkspaceMap {
+    let mut map = WorkspaceMap::new();
+
+    // Read root package.json for workspaces.
+    let root_pkg = repo_root.join("package.json");
+    let root_content = match std::fs::read_to_string(&root_pkg) {
+        Ok(c) => c,
+        Err(_) => return map,
+    };
+    let root_json: serde_json::Value = match serde_json::from_str(&root_content) {
+        Ok(v) => v,
+        Err(_) => return map,
+    };
+
+    // Extract workspace patterns.
+    let workspace_patterns: Vec<String> = match root_json.get("workspaces") {
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        // pnpm-style: { packages: [...] }
+        Some(serde_json::Value::Object(obj)) => obj
+            .get("packages")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => return map,
+    };
+
+    // Expand glob patterns to find package directories.
+    for pattern in &workspace_patterns {
+        let full_pattern = repo_root.join(pattern).join("package.json");
+        if let Some(pattern_str) = full_pattern.to_str() {
+            if let Ok(entries) = glob::glob(pattern_str) {
+                for entry in entries.flatten() {
+                    if let Ok(content) = std::fs::read_to_string(&entry) {
+                        if let Ok(pkg_json) = serde_json::from_str::<serde_json::Value>(&content) {
+                            let name = pkg_json.get("name").and_then(|v| v.as_str());
+                            let main_field = pkg_json.get("main").and_then(|v| v.as_str());
+
+                            if let Some(name) = name {
+                                // Determine entry file path relative to repo root.
+                                let pkg_dir = entry.parent().unwrap_or(repo_root.as_ref());
+                                let entry_file = if let Some(main_path) = main_field {
+                                    pkg_dir.join(main_path)
+                                } else {
+                                    // Default: try src/index.ts, then index.ts
+                                    let src_index = pkg_dir.join("src/index.ts");
+                                    if src_index.exists() {
+                                        src_index
+                                    } else {
+                                        pkg_dir.join("index.ts")
+                                    }
+                                };
+
+                                if let Ok(relative) = entry_file.strip_prefix(repo_root) {
+                                    if let Some(rel_str) = relative.to_str() {
+                                        map.insert(name.to_string(), rel_str.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    map
+}
+
 /// Get the parent directory of a file path.
 fn parent_dir(path: &str) -> String {
     match path.rfind('/') {
@@ -517,12 +691,13 @@ fn collect_import_edges(
     file_exports: &HashMap<String, Vec<ExportInfo>>,
     file_defs: &HashMap<String, Vec<Definition>>,
     id_to_index: &HashMap<String, NodeIndex>,
+    workspace_map: &WorkspaceMap,
     edges: &mut Vec<(String, String, EdgeType)>,
 ) {
     let known_paths: Vec<&str> = all_files.iter().map(|f| f.path.as_str()).collect();
 
     for import in &file.imports {
-        let resolved = match resolve_import_path(&import.source, &file.path, &known_paths) {
+        let resolved = match resolve_import_or_workspace(&import.source, &file.path, &known_paths, workspace_map) {
             Some(p) => p,
             None => continue,
         };
@@ -566,7 +741,7 @@ fn collect_import_edges(
                     if export.name == *target_name && export.is_reexport {
                         if let Some(ref reexport_source) = export.source {
                             if let Some(reexport_resolved) =
-                                resolve_import_path(reexport_source, &resolved, &known_paths)
+                                resolve_import_or_workspace(reexport_source, &resolved, &known_paths, workspace_map)
                             {
                                 let reexport_sym_id =
                                     format!("{}::{}", reexport_resolved, target_name);
@@ -599,6 +774,7 @@ fn collect_call_edges(
     file_exports: &HashMap<String, Vec<ExportInfo>>,
     file_defs: &HashMap<String, Vec<Definition>>,
     id_to_index: &HashMap<String, NodeIndex>,
+    workspace_map: &WorkspaceMap,
     edges: &mut Vec<(String, String, EdgeType)>,
 ) {
     let known_paths: Vec<&str> = all_files.iter().map(|f| f.path.as_str()).collect();
@@ -610,6 +786,7 @@ fn collect_call_edges(
         file_exports,
         file_defs,
         &known_paths,
+        workspace_map,
     );
 
     for call in &file.call_sites {
@@ -671,11 +848,12 @@ fn build_import_resolution_map(
     _file_exports: &HashMap<String, Vec<ExportInfo>>,
     _file_defs: &HashMap<String, Vec<Definition>>,
     known_paths: &[&str],
+    workspace_map: &WorkspaceMap,
 ) -> HashMap<String, String> {
     let mut map = HashMap::new();
 
     for import in &file.imports {
-        let resolved = match resolve_import_path(&import.source, &file.path, known_paths) {
+        let resolved = match resolve_import_or_workspace(&import.source, &file.path, known_paths, workspace_map) {
             Some(p) => p,
             None => continue,
         };
@@ -779,6 +957,7 @@ fn collect_ir_import_edges(
     file_defs: &HashMap<String, Vec<(String, SymbolKind)>>,
     id_to_index: &HashMap<String, NodeIndex>,
     known_paths: &[&str],
+    workspace_map: &WorkspaceMap,
     edges: &mut Vec<(String, String, EdgeType)>,
 ) {
     if !id_to_index.contains_key(&file.path) {
@@ -787,7 +966,7 @@ fn collect_ir_import_edges(
     let from_id = file.path.clone();
 
     for import in &file.imports {
-        let resolved = match resolve_import_path(&import.source, &file.path, known_paths) {
+        let resolved = match resolve_import_or_workspace(&import.source, &file.path, known_paths, workspace_map) {
             Some(p) => p,
             None => continue,
         };
@@ -821,7 +1000,7 @@ fn collect_ir_import_edges(
                             if export.name == *name && export.is_reexport {
                                 if let Some(ref reexport_source) = export.source {
                                     if let Some(reexport_resolved) =
-                                        resolve_import_path(reexport_source, &resolved, known_paths)
+                                        resolve_import_or_workspace(reexport_source, &resolved, known_paths, workspace_map)
                                     {
                                         let reexport_sym_id =
                                             format!("{}::{}", reexport_resolved, name);
@@ -863,11 +1042,12 @@ fn build_ir_import_resolution_map(
     all_files: &[IrFile],
     _file_defs: &HashMap<String, Vec<(String, SymbolKind)>>,
     known_paths: &[&str],
+    workspace_map: &WorkspaceMap,
 ) -> HashMap<String, String> {
     let mut map = HashMap::new();
 
     for import in &file.imports {
-        let resolved = match resolve_import_path(&import.source, &file.path, known_paths) {
+        let resolved = match resolve_import_or_workspace(&import.source, &file.path, known_paths, workspace_map) {
             Some(p) => p,
             None => continue,
         };
@@ -914,9 +1094,10 @@ fn collect_ir_call_edges(
     file_defs: &HashMap<String, Vec<(String, SymbolKind)>>,
     id_to_index: &HashMap<String, NodeIndex>,
     known_paths: &[&str],
+    workspace_map: &WorkspaceMap,
     edges: &mut Vec<(String, String, EdgeType)>,
 ) {
-    let import_map = build_ir_import_resolution_map(file, all_files, file_defs, known_paths);
+    let import_map = build_ir_import_resolution_map(file, all_files, file_defs, known_paths, workspace_map);
 
     for call in &file.call_expressions {
         let caller_id = match &call.containing_function {
@@ -986,6 +1167,7 @@ fn collect_ir_extends_edges(
         all_files,
         &HashMap::new(),
         known_paths,
+        &WorkspaceMap::new(),
     );
 
     for td in &file.type_defs {
@@ -2487,6 +2669,94 @@ function handlePost(req: any) { createUser(req.body); }
             let result = resolve_import_path("./utils", "src/main.ts", &known);
             assert_eq!(result, Some("src/utils".to_string()));
         }
+
+        // --- resolve_workspace_import ---
+
+        #[test]
+        fn test_workspace_exact_package_match() {
+            let known = vec!["packages/shared/src/index.ts"];
+            let mut ws = WorkspaceMap::new();
+            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            let result = resolve_workspace_import("@mono/shared", &known, &ws);
+            assert_eq!(result, Some("packages/shared/src/index.ts".to_string()));
+        }
+
+        #[test]
+        fn test_workspace_package_not_in_known_files() {
+            let known: Vec<&str> = vec!["src/app.ts"];
+            let mut ws = WorkspaceMap::new();
+            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            let result = resolve_workspace_import("@mono/shared", &known, &ws);
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn test_workspace_deep_import() {
+            // @mono/shared/utils → packages/shared/utils.ts
+            let known = vec!["packages/shared/utils.ts"];
+            let mut ws = WorkspaceMap::new();
+            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            let result = resolve_workspace_import("@mono/shared/utils", &known, &ws);
+            assert_eq!(result, Some("packages/shared/utils.ts".to_string()));
+        }
+
+        #[test]
+        fn test_workspace_deep_import_with_extension() {
+            let known = vec!["packages/shared/models/user.ts"];
+            let mut ws = WorkspaceMap::new();
+            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            let result = resolve_workspace_import("@mono/shared/models/user", &known, &ws);
+            assert_eq!(result, Some("packages/shared/models/user.ts".to_string()));
+        }
+
+        #[test]
+        fn test_workspace_relative_import_skipped() {
+            let known = vec!["packages/shared/src/index.ts"];
+            let mut ws = WorkspaceMap::new();
+            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            let result = resolve_workspace_import("./utils", &known, &ws);
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn test_workspace_no_match() {
+            let known = vec!["src/app.ts"];
+            let ws = WorkspaceMap::new();
+            let result = resolve_workspace_import("@mono/shared", &known, &ws);
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn test_workspace_longest_prefix_match() {
+            // @mono/shared/sub should match @mono/shared, not @mono
+            let known = vec!["packages/shared/sub.ts"];
+            let mut ws = WorkspaceMap::new();
+            ws.insert("@mono".to_string(), "packages/mono/src/index.ts".to_string());
+            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            let result = resolve_workspace_import("@mono/shared/sub", &known, &ws);
+            assert_eq!(result, Some("packages/shared/sub.ts".to_string()));
+        }
+
+        // --- resolve_import_or_workspace ---
+
+        #[test]
+        fn test_resolve_or_workspace_prefers_relative() {
+            // Relative import should still work, even with workspace map.
+            let known = vec!["src/utils.ts", "packages/utils/src/index.ts"];
+            let mut ws = WorkspaceMap::new();
+            ws.insert("utils".to_string(), "packages/utils/src/index.ts".to_string());
+            let result = resolve_import_or_workspace("./utils", "src/handler.ts", &known, &ws);
+            assert_eq!(result, Some("src/utils.ts".to_string()));
+        }
+
+        #[test]
+        fn test_resolve_or_workspace_falls_back_to_workspace() {
+            let known = vec!["packages/types/src/index.ts"];
+            let mut ws = WorkspaceMap::new();
+            ws.insert("@app/types".to_string(), "packages/types/src/index.ts".to_string());
+            let result = resolve_import_or_workspace("@app/types", "src/handler.ts", &known, &ws);
+            assert_eq!(result, Some("packages/types/src/index.ts".to_string()));
+        }
     }
 
     // =======================================================================
@@ -3677,6 +3947,146 @@ function doB() { log("b"); }
                 prop_assert!(result.is_none(),
                     "absolute import '{}' should not resolve", source);
             }
+        }
+    }
+
+    // =======================================================================
+    // Workspace graph integration tests
+    // =======================================================================
+
+    mod workspace_graph_tests {
+        use super::*;
+        use crate::ast;
+
+        #[test]
+        fn test_workspace_cross_package_import_edges() {
+            // Simulate a monorepo: shared-types exports User, backend imports it.
+            let files = vec![
+                (
+                    "packages/shared-types/src/index.ts",
+                    r#"
+export interface User { id: string; name: string; }
+export function validateUser(user: User): boolean { return true; }
+"#,
+                ),
+                (
+                    "packages/backend/src/routes/users.ts",
+                    r#"
+import { User, validateUser } from "@monorepo/shared-types";
+export function handleRequest(user: User) { return validateUser(user); }
+"#,
+                ),
+            ];
+
+            let parsed: Vec<ast::ParsedFile> = files
+                .iter()
+                .map(|(path, source)| ast::parse_file(path, source).unwrap())
+                .collect();
+
+            // Without workspace map: no cross-package edges.
+            let graph_no_ws = SymbolGraph::build(&parsed);
+            let edges_no_ws = graph_no_ws.edges();
+            let cross_pkg_edges: Vec<_> = edges_no_ws
+                .iter()
+                .filter(|(f, t, _)| {
+                    f.contains("backend") && t.contains("shared-types")
+                })
+                .collect();
+            assert!(
+                cross_pkg_edges.is_empty(),
+                "without workspace map, no cross-package edges should exist"
+            );
+
+            // With workspace map: cross-package edges appear.
+            let mut ws = WorkspaceMap::new();
+            ws.insert(
+                "@monorepo/shared-types".to_string(),
+                "packages/shared-types/src/index.ts".to_string(),
+            );
+            let graph_ws = SymbolGraph::build_with_workspace(&parsed, &ws);
+            let edges_ws = graph_ws.edges();
+            let cross_pkg_edges: Vec<_> = edges_ws
+                .iter()
+                .filter(|(f, t, _)| {
+                    f.contains("backend") && t.contains("shared-types")
+                })
+                .collect();
+            assert!(
+                cross_pkg_edges.len() >= 2,
+                "with workspace map, cross-package import edges should exist, got: {:?}",
+                cross_pkg_edges
+            );
+
+            // Verify specific edges.
+            assert!(
+                cross_pkg_edges.iter().any(|(_, t, et)| {
+                    t.contains("validateUser") && **et == EdgeType::Imports
+                }),
+                "should have import edge to validateUser"
+            );
+        }
+
+        #[test]
+        fn test_workspace_cross_package_call_edges() {
+            let files = vec![
+                (
+                    "packages/utils/src/index.ts",
+                    r#"
+export function formatName(name: string): string { return name.trim(); }
+"#,
+                ),
+                (
+                    "packages/app/src/handler.ts",
+                    r#"
+import { formatName } from "@my/utils";
+export function handle(name: string) { return formatName(name); }
+"#,
+                ),
+            ];
+
+            let parsed: Vec<ast::ParsedFile> = files
+                .iter()
+                .map(|(path, source)| ast::parse_file(path, source).unwrap())
+                .collect();
+
+            let mut ws = WorkspaceMap::new();
+            ws.insert(
+                "@my/utils".to_string(),
+                "packages/utils/src/index.ts".to_string(),
+            );
+            let graph = SymbolGraph::build_with_workspace(&parsed, &ws);
+            let edges = graph.edges();
+
+            // Should have both import and call edges.
+            let import_edge = edges.iter().any(|(f, t, et)| {
+                f.contains("handler") && t.contains("formatName") && **et == EdgeType::Imports
+            });
+            let call_edge = edges.iter().any(|(f, t, et)| {
+                f.contains("handler") && t.contains("formatName") && **et == EdgeType::Calls
+            });
+            assert!(import_edge, "should have import edge to formatName");
+            assert!(call_edge, "should have call edge to formatName");
+        }
+
+        #[test]
+        fn test_workspace_empty_map_same_as_build() {
+            let files = vec![(
+                "src/handler.ts",
+                r#"import { foo } from './utils'; foo();"#,
+            ), (
+                "src/utils.ts",
+                r#"export function foo() {}"#,
+            )];
+
+            let parsed: Vec<ast::ParsedFile> = files
+                .iter()
+                .map(|(path, source)| ast::parse_file(path, source).unwrap())
+                .collect();
+
+            let g1 = SymbolGraph::build(&parsed);
+            let g2 = SymbolGraph::build_with_workspace(&parsed, &WorkspaceMap::new());
+            assert_eq!(g1.node_count(), g2.node_count());
+            assert_eq!(g1.edge_count(), g2.edge_count());
         }
     }
 }
