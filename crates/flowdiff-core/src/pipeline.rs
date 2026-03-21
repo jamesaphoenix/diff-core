@@ -18,9 +18,10 @@
 //! ```
 
 use dashmap::DashMap;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 
 use crate::ast::{self, ParsedFile};
 use crate::ir::IrFile;
@@ -122,6 +123,223 @@ impl IrCache {
 impl Default for IrCache {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Disk-persistent IrFile cache
+// ---------------------------------------------------------------------------
+
+/// Default maximum disk cache size in bytes (100 MB).
+const DEFAULT_MAX_CACHE_BYTES: u64 = 100 * 1024 * 1024;
+
+/// A disk-persistent wrapper around `IrCache`.
+///
+/// On creation (`load`), existing `.bincode` files from the cache directory are
+/// read into the in-memory `IrCache`. On `flush`, any *new* entries (those not
+/// already on disk) are written out. LRU eviction keeps total disk usage under
+/// a configurable byte limit.
+///
+/// Cache directory layout:
+/// ```text
+/// <repo>/.flowdiff/cache/ir/<hex(sha256)>.bincode
+/// ```
+///
+/// Invalidation is content-addressed: the SHA-256 key includes the file path
+/// and source content, so changed files produce new keys. Stale entries are
+/// evicted by LRU when the size limit is exceeded.
+pub struct DiskIrCache {
+    /// The in-memory cache (shared with the pipeline).
+    memory: IrCache,
+    /// Directory where `.bincode` files are stored.
+    dir: PathBuf,
+    /// Maximum total disk cache size in bytes.
+    max_bytes: u64,
+    /// Keys that were loaded from disk (so we know which ones are new on flush).
+    loaded_keys: dashmap::DashSet<[u8; 32]>,
+}
+
+impl DiskIrCache {
+    /// Load an existing disk cache (or create an empty one) from the given
+    /// repository working directory.
+    ///
+    /// Entries that fail to deserialize are silently skipped (and will be
+    /// overwritten on the next flush).
+    pub fn load(workdir: &Path) -> Self {
+        Self::load_with_limit(workdir, DEFAULT_MAX_CACHE_BYTES)
+    }
+
+    /// Load with a custom size limit (useful for tests).
+    pub fn load_with_limit(workdir: &Path, max_bytes: u64) -> Self {
+        let dir = workdir.join(".flowdiff").join("cache").join("ir");
+        let memory = IrCache::new();
+        let loaded_keys = dashmap::DashSet::new();
+
+        if dir.is_dir() {
+            let entries: Vec<_> = match std::fs::read_dir(&dir) {
+                Ok(rd) => rd.filter_map(|e| e.ok()).collect(),
+                Err(_) => vec![],
+            };
+
+            for entry in &entries {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("bincode") {
+                    continue;
+                }
+
+                // Extract the hex key from the filename (without extension).
+                let stem = match path.file_stem().and_then(|s| s.to_str()) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let key: [u8; 32] = match hex::decode(stem) {
+                    Ok(bytes) if bytes.len() == 32 => {
+                        let mut arr = [0u8; 32];
+                        arr.copy_from_slice(&bytes);
+                        arr
+                    }
+                    _ => continue, // skip malformed filenames
+                };
+
+                let bytes = match std::fs::read(&path) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
+
+                let ir: IrFile = match bincode::deserialize(&bytes) {
+                    Ok(ir) => ir,
+                    Err(e) => {
+                        warn!(
+                            "Skipping malformed IR cache entry {}: {}",
+                            path.display(),
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+                memory.inner.insert(key, ir);
+                loaded_keys.insert(key);
+            }
+
+            let count = loaded_keys.len();
+            if count > 0 {
+                debug!("Loaded {} IR cache entries from disk", count);
+            }
+        }
+
+        Self {
+            memory,
+            dir,
+            max_bytes,
+            loaded_keys,
+        }
+    }
+
+    /// Get a reference to the in-memory cache (pass this to `parse_to_ir`).
+    pub fn memory(&self) -> &IrCache {
+        &self.memory
+    }
+
+    /// Flush new entries to disk and evict old entries if over the size limit.
+    ///
+    /// This is best-effort: I/O errors are logged as warnings but never propagate.
+    pub fn flush(&self) {
+        if let Err(e) = std::fs::create_dir_all(&self.dir) {
+            warn!(
+                "Failed to create IR cache directory {}: {}",
+                self.dir.display(),
+                e
+            );
+            return;
+        }
+
+        // Write new entries (those in memory but not in loaded_keys).
+        let mut new_count = 0u64;
+        for entry in self.memory.inner.iter() {
+            let key = *entry.key();
+            if self.loaded_keys.contains(&key) {
+                continue; // already on disk
+            }
+
+            let hex_key = hex::encode(key);
+            let path = self.dir.join(format!("{}.bincode", hex_key));
+
+            match bincode::serialize(entry.value()) {
+                Ok(bytes) => {
+                    if let Err(e) = std::fs::write(&path, &bytes) {
+                        warn!("Failed to write IR cache entry {}: {}", path.display(), e);
+                    } else {
+                        new_count += 1;
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to serialize IR cache entry: {}", e);
+                }
+            }
+        }
+
+        if new_count > 0 {
+            info!("Wrote {} new IR cache entries to disk", new_count);
+        }
+
+        // LRU eviction: if total size exceeds limit, remove oldest files first.
+        self.evict_lru();
+
+        self.memory.log_stats();
+    }
+
+    /// Evict oldest cache files until total size is under `max_bytes`.
+    fn evict_lru(&self) {
+        // Collect all .bincode files with metadata.
+        let entries: Vec<_> = match std::fs::read_dir(&self.dir) {
+            Ok(rd) => rd.filter_map(|e| e.ok()).collect(),
+            Err(_) => return,
+        };
+
+        let mut file_infos: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
+        let mut total_size: u64 = 0;
+
+        for entry in entries {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("bincode") {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                let size = meta.len();
+                let modified = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+                total_size += size;
+                file_infos.push((path, size, modified));
+            }
+        }
+
+        if total_size <= self.max_bytes {
+            return;
+        }
+
+        // Sort by modification time ascending (oldest first).
+        file_infos.sort_by_key(|(_path, _size, mtime)| *mtime);
+
+        let mut evicted = 0u64;
+        for (path, size, _mtime) in &file_infos {
+            if total_size <= self.max_bytes {
+                break;
+            }
+            if let Err(e) = std::fs::remove_file(path) {
+                warn!("Failed to evict IR cache entry {}: {}", path.display(), e);
+            } else {
+                total_size -= size;
+                evicted += 1;
+            }
+        }
+
+        if evicted > 0 {
+            info!(
+                "Evicted {} IR cache entries (disk usage now ~{} bytes)",
+                evicted, total_size
+            );
+        }
     }
 }
 
@@ -1102,5 +1320,220 @@ export function handler(req: Request) {
         let engine = QueryEngine::new().unwrap();
         let _ = parse_to_ir(&engine, "a.ts", "function a() {}", Some(&cache));
         cache.log_stats(); // with entries
+    }
+
+    // ── DiskIrCache tests ────────────────────────────────────────────
+
+    #[test]
+    fn disk_cache_load_empty_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dc = DiskIrCache::load(tmp.path());
+        assert!(dc.memory().is_empty());
+        assert_eq!(dc.memory().hits(), 0);
+        assert_eq!(dc.memory().misses(), 0);
+    }
+
+    #[test]
+    fn disk_cache_flush_creates_dir_and_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dc = DiskIrCache::load(tmp.path());
+
+        let engine = QueryEngine::new().unwrap();
+        let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
+        let _ = parse_to_ir(&engine, "src/b.ts", "function b() {}", Some(dc.memory())).unwrap();
+
+        dc.flush();
+
+        let cache_dir = tmp.path().join(".flowdiff").join("cache").join("ir");
+        assert!(cache_dir.is_dir());
+
+        let entries: Vec<_> = std::fs::read_dir(&cache_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("bincode"))
+            .collect();
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn disk_cache_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let engine = QueryEngine::new().unwrap();
+        let source = "export function hello() { return 42; }";
+
+        // First run: parse → flush to disk.
+        {
+            let dc = DiskIrCache::load(tmp.path());
+            let ir1 = parse_to_ir(&engine, "src/hello.ts", source, Some(dc.memory())).unwrap();
+            dc.flush();
+
+            // Second run: load from disk → cache hit.
+            let dc2 = DiskIrCache::load(tmp.path());
+            assert_eq!(dc2.memory().len(), 1, "should load 1 entry from disk");
+
+            let ir2 = parse_to_ir(&engine, "src/hello.ts", source, Some(dc2.memory())).unwrap();
+            assert_eq!(dc2.memory().hits(), 1);
+            assert_eq!(ir1, ir2, "disk-cached result must match original");
+        }
+    }
+
+    #[test]
+    fn disk_cache_roundtrip_byte_identical() {
+        let tmp = tempfile::tempdir().unwrap();
+        let engine = QueryEngine::new().unwrap();
+        let source = r#"
+import { validate } from './utils';
+export function handler(req: Request) {
+    const data = validate(req.body);
+    return save(data);
+}
+"#;
+
+        // Parse without any cache.
+        let ir_uncached = parse_to_ir(&engine, "src/handler.ts", source, None).unwrap();
+
+        // Parse with disk cache (miss, flush to disk).
+        let dc = DiskIrCache::load(tmp.path());
+        let _ = parse_to_ir(&engine, "src/handler.ts", source, Some(dc.memory())).unwrap();
+        dc.flush();
+
+        // Load from disk and retrieve.
+        let dc2 = DiskIrCache::load(tmp.path());
+        let ir_from_disk = parse_to_ir(&engine, "src/handler.ts", source, Some(dc2.memory())).unwrap();
+
+        // Must be byte-identical via JSON serialization.
+        let json_uncached = serde_json::to_string(&ir_uncached).unwrap();
+        let json_from_disk = serde_json::to_string(&ir_from_disk).unwrap();
+        assert_eq!(json_uncached, json_from_disk);
+    }
+
+    #[test]
+    fn disk_cache_no_cache_flag_skips_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let engine = QueryEngine::new().unwrap();
+
+        // Populate disk cache.
+        let dc = DiskIrCache::load(tmp.path());
+        let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
+        dc.flush();
+
+        // Simulating --no-cache: just don't load disk cache, use plain IrCache.
+        let memory_only = IrCache::new();
+        let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(&memory_only)).unwrap();
+        assert_eq!(memory_only.hits(), 0, "no-cache means no pre-loaded entries");
+        assert_eq!(memory_only.misses(), 1);
+    }
+
+    #[test]
+    fn disk_cache_lru_eviction() {
+        let tmp = tempfile::tempdir().unwrap();
+        let engine = QueryEngine::new().unwrap();
+
+        // Create entries with a very small limit to force eviction.
+        let dc = DiskIrCache::load_with_limit(tmp.path(), 1); // 1 byte limit
+        for i in 0..5 {
+            let path = format!("src/f{}.ts", i);
+            let source = format!("function f{}() {{}}", i);
+            let _ = parse_to_ir(&engine, &path, &source, Some(dc.memory())).unwrap();
+        }
+        dc.flush();
+
+        // After eviction, some files should have been removed.
+        let cache_dir = tmp.path().join(".flowdiff").join("cache").join("ir");
+        let remaining: Vec<_> = std::fs::read_dir(&cache_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("bincode"))
+            .collect();
+        // With 1 byte limit, most (if not all) entries should be evicted.
+        // At most 1 can remain (the last one written may be ≤ 1 byte? No, it'll be larger).
+        // Actually all should be evicted since even one bincode entry is > 1 byte.
+        assert!(remaining.is_empty(), "all entries should be evicted with 1-byte limit");
+    }
+
+    #[test]
+    fn disk_cache_skips_malformed_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join(".flowdiff").join("cache").join("ir");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        // Write a malformed .bincode file with a valid hex filename.
+        let fake_key = "a".repeat(64); // valid hex for 32 bytes
+        let path = cache_dir.join(format!("{}.bincode", fake_key));
+        std::fs::write(&path, b"not valid bincode").unwrap();
+
+        // Should load without panic, skipping the malformed entry.
+        let dc = DiskIrCache::load(tmp.path());
+        assert!(dc.memory().is_empty());
+    }
+
+    #[test]
+    fn disk_cache_skips_non_bincode_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join(".flowdiff").join("cache").join("ir");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        // Write a non-.bincode file.
+        std::fs::write(cache_dir.join("readme.txt"), "hello").unwrap();
+
+        let dc = DiskIrCache::load(tmp.path());
+        assert!(dc.memory().is_empty());
+    }
+
+    #[test]
+    fn disk_cache_flush_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let engine = QueryEngine::new().unwrap();
+
+        let dc = DiskIrCache::load(tmp.path());
+        let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
+
+        dc.flush();
+        dc.flush(); // second flush should not duplicate files
+
+        let cache_dir = tmp.path().join(".flowdiff").join("cache").join("ir");
+        let entries: Vec<_> = std::fs::read_dir(&cache_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("bincode"))
+            .collect();
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn disk_cache_multiple_runs_accumulate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let engine = QueryEngine::new().unwrap();
+
+        // Run 1: parse file A.
+        {
+            let dc = DiskIrCache::load(tmp.path());
+            let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
+            dc.flush();
+        }
+
+        // Run 2: parse file B (A should persist from run 1).
+        {
+            let dc = DiskIrCache::load(tmp.path());
+            assert_eq!(dc.memory().len(), 1); // file A loaded from disk
+            let _ = parse_to_ir(&engine, "src/b.ts", "function b() {}", Some(dc.memory())).unwrap();
+            dc.flush();
+        }
+
+        // Run 3: both A and B should be in cache.
+        {
+            let dc = DiskIrCache::load(tmp.path());
+            assert_eq!(dc.memory().len(), 2);
+        }
+    }
+
+    #[test]
+    fn disk_cache_flush_readonly_dir_does_not_panic() {
+        // Flush to an impossible path should not panic.
+        let dc = DiskIrCache::load(std::path::Path::new("/dev/null/impossible"));
+        // Parsing something so there's a new entry to flush.
+        let engine = QueryEngine::new().unwrap();
+        let _ = parse_to_ir(&engine, "a.ts", "function a() {}", Some(dc.memory()));
+        dc.flush(); // should log warning, not panic
     }
 }

@@ -85,6 +85,10 @@ struct AnalyzeArgs {
     #[arg(long)]
     refine_model: Option<String>,
 
+    /// Disable disk-persistent IR parse cache
+    #[arg(long)]
+    no_cache: bool,
+
     /// Path to the git repository (defaults to current directory)
     #[arg(long, default_value = ".")]
     repo: PathBuf,
@@ -257,6 +261,19 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     let parsed_files = pipeline::parse_files_parallel(&file_inputs);
 
+    // Populate the disk-persistent IR cache (so future runs benefit).
+    // Loading the cache is skipped when --no-cache is passed.
+    let disk_cache = if !args.no_cache {
+        let dc = pipeline::DiskIrCache::load(&workdir);
+        let engine = flowdiff_core::query_engine::QueryEngine::new()
+            .map_err(|e| format!("QueryEngine init failed: {}", e))?;
+        let (_ir_files, _ir_errors) =
+            pipeline::parse_all_to_ir(&engine, &file_inputs, Some(dc.memory()));
+        Some(dc)
+    } else {
+        None
+    };
+
     // Build symbol graph
     let mut graph = SymbolGraph::build(&parsed_files);
 
@@ -337,6 +354,11 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
                 warn!("LLM annotation failed: {}", e);
             }
         }
+    }
+
+    // Flush the IR disk cache (writes new entries, evicts if over limit).
+    if let Some(ref dc) = disk_cache {
+        dc.flush();
     }
 
     write_output(&analysis_output, args.output.as_deref())

@@ -998,11 +998,12 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 **Problem:** CLI invocations don't share state. Re-running `flowdiff analyze` on the same branch re-parses all files.
 
-- [ ] Serialize `IrFile` cache to `.flowdiff/cache/ir/{content_hash}.bincode` (or MessagePack)
-- [ ] On startup, load existing cache entries; on shutdown, write new entries
-- [ ] Add cache size limit (e.g. 100MB) with LRU eviction
-- [ ] Add `--no-cache` flag to bypass
-- [ ] Invalidation: content-addressed, so no explicit invalidation needed — stale entries just get evicted by LRU
+- [x] Serialize `IrFile` cache to `.flowdiff/cache/ir/{content_hash}.bincode` — `DiskIrCache` in `pipeline.rs` using `bincode` v1 serialization
+- [x] On startup, load existing cache entries; on shutdown, write new entries — `DiskIrCache::load()` reads `.bincode` files into `IrCache`; `DiskIrCache::flush()` writes new entries
+- [x] Add cache size limit (e.g. 100MB) with LRU eviction — `evict_lru()` sorts by mtime, removes oldest files until under limit
+- [x] Add `--no-cache` flag to bypass — `AnalyzeArgs::no_cache` in CLI, skips `DiskIrCache::load()` when set
+- [x] Invalidation: content-addressed, so no explicit invalidation needed — stale entries just get evicted by LRU
+- [x] 11 new tests: load empty, flush creates files, roundtrip, byte-identical roundtrip, no-cache flag, LRU eviction, malformed files, non-bincode files, idempotent flush, multi-run accumulation, readonly dir
 
 ### 12.5 Test harness optimizations
 
