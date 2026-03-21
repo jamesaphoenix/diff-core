@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use petgraph::graph::{DiGraph, NodeIndex};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::ast::{Definition, ExportInfo, Language, ParsedFile};
@@ -67,31 +68,44 @@ impl SymbolGraph {
         let mut graph = DiGraph::new();
         let mut id_to_index: HashMap<String, NodeIndex> = HashMap::new();
 
-        // Phase 1: Add all symbol nodes.
-        for file in files {
-            // Add a file-level module node.
-            let module_id = file.path.clone();
-            let module_node = SymbolNode {
-                id: module_id.clone(),
-                name: file_stem(&file.path),
-                file: file.path.clone(),
-                kind: SymbolKind::Module,
-            };
-            let idx = graph.add_node(module_node);
-            id_to_index.insert(module_id, idx);
-
-            // Add definition nodes.
-            for def in &file.definitions {
-                let sym_id = format!("{}::{}", file.path, def.name);
-                if id_to_index.contains_key(&sym_id) {
-                    continue; // skip duplicates (e.g. methods with same name)
+        // Phase 1: Collect node data per file in parallel, then merge single-threaded.
+        let node_batches: Vec<Vec<(String, SymbolNode)>> = files
+            .par_iter()
+            .map(|file| {
+                let mut nodes = Vec::new();
+                // Module node.
+                let module_id = file.path.clone();
+                nodes.push((
+                    module_id,
+                    SymbolNode {
+                        id: file.path.clone(),
+                        name: file_stem(&file.path),
+                        file: file.path.clone(),
+                        kind: SymbolKind::Module,
+                    },
+                ));
+                // Definition nodes.
+                for def in &file.definitions {
+                    let sym_id = format!("{}::{}", file.path, def.name);
+                    nodes.push((
+                        sym_id.clone(),
+                        SymbolNode {
+                            id: sym_id,
+                            name: def.name.clone(),
+                            file: file.path.clone(),
+                            kind: def.kind.clone(),
+                        },
+                    ));
                 }
-                let node = SymbolNode {
-                    id: sym_id.clone(),
-                    name: def.name.clone(),
-                    file: file.path.clone(),
-                    kind: def.kind.clone(),
-                };
+                nodes
+            })
+            .collect();
+
+        for batch in node_batches {
+            for (sym_id, node) in batch {
+                if id_to_index.contains_key(&sym_id) {
+                    continue; // skip duplicates
+                }
                 let idx = graph.add_node(node);
                 id_to_index.insert(sym_id, idx);
             }
@@ -101,11 +115,26 @@ impl SymbolGraph {
         let file_exports = build_export_map(files);
         let file_defs = build_definition_map(files);
 
-        // Phase 2: Add edges.
-        for file in files {
-            add_import_edges(file, files, &file_exports, &file_defs, &id_to_index, &mut graph);
-            add_call_edges(file, files, &file_exports, &file_defs, &id_to_index, &mut graph);
-            add_extends_edges(file, files, &file_defs, &id_to_index, &mut graph);
+        // Phase 2: Compute edges per file in parallel, then add single-threaded.
+        let edge_batches: Vec<Vec<(String, String, EdgeType)>> = files
+            .par_iter()
+            .map(|file| {
+                let mut edges = Vec::new();
+                collect_import_edges(file, files, &file_exports, &file_defs, &id_to_index, &mut edges);
+                collect_call_edges(file, files, &file_exports, &file_defs, &id_to_index, &mut edges);
+                collect_extends_edges(file, files, &file_defs, &id_to_index, &mut edges);
+                edges
+            })
+            .collect();
+
+        for batch in edge_batches {
+            for (from_id, to_id, edge_type) in batch {
+                if let (Some(&from_idx), Some(&to_idx)) =
+                    (id_to_index.get(&from_id), id_to_index.get(&to_id))
+                {
+                    graph.add_edge(from_idx, to_idx, GraphEdge { edge_type });
+                }
+            }
         }
 
         SymbolGraph { graph, id_to_index }
@@ -120,70 +149,76 @@ impl SymbolGraph {
         let mut graph = DiGraph::new();
         let mut id_to_index: HashMap<String, NodeIndex> = HashMap::new();
 
-        // Phase 1: Add all symbol nodes.
-        for file in files {
-            // Module node.
-            let module_id = file.path.clone();
-            let module_node = SymbolNode {
-                id: module_id.clone(),
-                name: file_stem(&file.path),
-                file: file.path.clone(),
-                kind: SymbolKind::Module,
-            };
-            let idx = graph.add_node(module_node);
-            id_to_index.insert(module_id, idx);
-
-            // Function nodes.
-            for f in &file.functions {
-                let sym_id = format!("{}::{}", file.path, f.name);
-                if id_to_index.contains_key(&sym_id) {
-                    continue;
+        // Phase 1: Collect node data per file in parallel, then merge single-threaded.
+        let node_batches: Vec<Vec<(String, SymbolNode)>> = files
+            .par_iter()
+            .map(|file| {
+                let mut nodes = Vec::new();
+                // Module node.
+                nodes.push((
+                    file.path.clone(),
+                    SymbolNode {
+                        id: file.path.clone(),
+                        name: file_stem(&file.path),
+                        file: file.path.clone(),
+                        kind: SymbolKind::Module,
+                    },
+                ));
+                // Function nodes.
+                for f in &file.functions {
+                    let sym_id = format!("{}::{}", file.path, f.name);
+                    nodes.push((
+                        sym_id.clone(),
+                        SymbolNode {
+                            id: sym_id,
+                            name: f.name.clone(),
+                            file: file.path.clone(),
+                            kind: SymbolKind::Function,
+                        },
+                    ));
                 }
-                let node = SymbolNode {
-                    id: sym_id.clone(),
-                    name: f.name.clone(),
-                    file: file.path.clone(),
-                    kind: SymbolKind::Function,
-                };
-                let idx = graph.add_node(node);
-                id_to_index.insert(sym_id, idx);
-            }
-
-            // Type definition nodes (class, struct, interface, type alias).
-            for t in &file.type_defs {
-                let sym_id = format!("{}::{}", file.path, t.name);
-                if id_to_index.contains_key(&sym_id) {
-                    continue;
+                // Type definition nodes.
+                for t in &file.type_defs {
+                    let sym_id = format!("{}::{}", file.path, t.name);
+                    let kind = match t.kind {
+                        TypeDefKind::Class => SymbolKind::Class,
+                        TypeDefKind::Struct => SymbolKind::Struct,
+                        TypeDefKind::Interface => SymbolKind::Interface,
+                        TypeDefKind::TypeAlias => SymbolKind::TypeAlias,
+                        TypeDefKind::Enum => SymbolKind::Class,
+                    };
+                    nodes.push((
+                        sym_id.clone(),
+                        SymbolNode {
+                            id: sym_id,
+                            name: t.name.clone(),
+                            file: file.path.clone(),
+                            kind,
+                        },
+                    ));
                 }
-                let kind = match t.kind {
-                    TypeDefKind::Class => SymbolKind::Class,
-                    TypeDefKind::Struct => SymbolKind::Struct,
-                    TypeDefKind::Interface => SymbolKind::Interface,
-                    TypeDefKind::TypeAlias => SymbolKind::TypeAlias,
-                    TypeDefKind::Enum => SymbolKind::Class,
-                };
-                let node = SymbolNode {
-                    id: sym_id.clone(),
-                    name: t.name.clone(),
-                    file: file.path.clone(),
-                    kind,
-                };
-                let idx = graph.add_node(node);
-                id_to_index.insert(sym_id, idx);
-            }
-
-            // Constant nodes.
-            for c in &file.constants {
-                let sym_id = format!("{}::{}", file.path, c.name);
-                if id_to_index.contains_key(&sym_id) {
-                    continue;
+                // Constant nodes.
+                for c in &file.constants {
+                    let sym_id = format!("{}::{}", file.path, c.name);
+                    nodes.push((
+                        sym_id.clone(),
+                        SymbolNode {
+                            id: sym_id,
+                            name: c.name.clone(),
+                            file: file.path.clone(),
+                            kind: SymbolKind::Constant,
+                        },
+                    ));
                 }
-                let node = SymbolNode {
-                    id: sym_id.clone(),
-                    name: c.name.clone(),
-                    file: file.path.clone(),
-                    kind: SymbolKind::Constant,
-                };
+                nodes
+            })
+            .collect();
+
+        for batch in node_batches {
+            for (sym_id, node) in batch {
+                if id_to_index.contains_key(&sym_id) {
+                    continue; // skip duplicates
+                }
                 let idx = graph.add_node(node);
                 id_to_index.insert(sym_id, idx);
             }
@@ -194,31 +229,46 @@ impl SymbolGraph {
         let file_def_names = build_ir_def_names_map(files);
         let known_paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
 
-        // Phase 2: Add edges.
-        for file in files {
-            add_ir_import_edges(
-                file,
-                &file_exports,
-                &file_def_names,
-                &id_to_index,
-                &known_paths,
-                &mut graph,
-            );
-            add_ir_call_edges(
-                file,
-                files,
-                &file_def_names,
-                &id_to_index,
-                &known_paths,
-                &mut graph,
-            );
-            add_ir_extends_edges(
-                file,
-                files,
-                &id_to_index,
-                &known_paths,
-                &mut graph,
-            );
+        // Phase 2: Compute edges per file in parallel, then add single-threaded.
+        let edge_batches: Vec<Vec<(String, String, EdgeType)>> = files
+            .par_iter()
+            .map(|file| {
+                let mut edges = Vec::new();
+                collect_ir_import_edges(
+                    file,
+                    &file_exports,
+                    &file_def_names,
+                    &id_to_index,
+                    &known_paths,
+                    &mut edges,
+                );
+                collect_ir_call_edges(
+                    file,
+                    files,
+                    &file_def_names,
+                    &id_to_index,
+                    &known_paths,
+                    &mut edges,
+                );
+                collect_ir_extends_edges(
+                    file,
+                    files,
+                    &id_to_index,
+                    &known_paths,
+                    &mut edges,
+                );
+                edges
+            })
+            .collect();
+
+        for batch in edge_batches {
+            for (from_id, to_id, edge_type) in batch {
+                if let (Some(&from_idx), Some(&to_idx)) =
+                    (id_to_index.get(&from_id), id_to_index.get(&to_id))
+                {
+                    graph.add_edge(from_idx, to_idx, GraphEdge { edge_type });
+                }
+            }
         }
 
         SymbolGraph { graph, id_to_index }
@@ -459,14 +509,15 @@ fn normalize_python_import(source: &str) -> String {
 // Edge construction
 // ---------------------------------------------------------------------------
 
-/// Add import edges: file A imports symbol from file B → edge from A's module to B's symbol.
-fn add_import_edges(
+/// Collect import edge descriptors: file A imports symbol from file B.
+/// Pushes `(from_id, to_id, EdgeType)` tuples for later insertion.
+fn collect_import_edges(
     file: &ParsedFile,
     all_files: &[ParsedFile],
     file_exports: &HashMap<String, Vec<ExportInfo>>,
     file_defs: &HashMap<String, Vec<Definition>>,
     id_to_index: &HashMap<String, NodeIndex>,
-    graph: &mut DiGraph<SymbolNode, GraphEdge>,
+    edges: &mut Vec<(String, String, EdgeType)>,
 ) {
     let known_paths: Vec<&str> = all_files.iter().map(|f| f.path.as_str()).collect();
 
@@ -477,22 +528,15 @@ fn add_import_edges(
         };
 
         let from_module_id = file.path.clone();
-        let from_idx = match id_to_index.get(&from_module_id) {
-            Some(idx) => *idx,
-            None => continue,
-        };
+        if !id_to_index.contains_key(&from_module_id) {
+            continue;
+        }
 
         // For each imported name, find matching export or definition in target file.
         if import.names.is_empty() {
             // Side-effect import: create module-to-module edge.
-            if let Some(&to_idx) = id_to_index.get(&resolved) {
-                graph.add_edge(
-                    from_idx,
-                    to_idx,
-                    GraphEdge {
-                        edge_type: EdgeType::Imports,
-                    },
-                );
+            if id_to_index.contains_key(&resolved) {
+                edges.push((from_module_id.clone(), resolved.clone(), EdgeType::Imports));
             }
             continue;
         }
@@ -502,28 +546,16 @@ fn add_import_edges(
 
             // Try to find the symbol in the target file's definitions.
             let target_sym_id = format!("{}::{}", resolved, target_name);
-            if let Some(&to_idx) = id_to_index.get(&target_sym_id) {
-                graph.add_edge(
-                    from_idx,
-                    to_idx,
-                    GraphEdge {
-                        edge_type: EdgeType::Imports,
-                    },
-                );
+            if id_to_index.contains_key(&target_sym_id) {
+                edges.push((from_module_id.clone(), target_sym_id, EdgeType::Imports));
                 continue;
             }
 
             // If importing a default, check if target has a matching export/def.
             if import.is_default || import.is_namespace {
                 // Link to the module node itself.
-                if let Some(&to_idx) = id_to_index.get(&resolved) {
-                    graph.add_edge(
-                        from_idx,
-                        to_idx,
-                        GraphEdge {
-                            edge_type: EdgeType::Imports,
-                        },
-                    );
+                if id_to_index.contains_key(&resolved) {
+                    edges.push((from_module_id.clone(), resolved.clone(), EdgeType::Imports));
                 }
                 continue;
             }
@@ -538,14 +570,8 @@ fn add_import_edges(
                             {
                                 let reexport_sym_id =
                                     format!("{}::{}", reexport_resolved, target_name);
-                                if let Some(&to_idx) = id_to_index.get(&reexport_sym_id) {
-                                    graph.add_edge(
-                                        from_idx,
-                                        to_idx,
-                                        GraphEdge {
-                                            edge_type: EdgeType::Imports,
-                                        },
-                                    );
+                                if id_to_index.contains_key(&reexport_sym_id) {
+                                    edges.push((from_module_id.clone(), reexport_sym_id, EdgeType::Imports));
                                 }
                             }
                         }
@@ -557,14 +583,8 @@ fn add_import_edges(
             if let Some(defs) = file_defs.get(&resolved) {
                 if defs.iter().any(|d| d.name == *target_name) {
                     let sym_id = format!("{}::{}", resolved, target_name);
-                    if let Some(&to_idx) = id_to_index.get(&sym_id) {
-                        graph.add_edge(
-                            from_idx,
-                            to_idx,
-                            GraphEdge {
-                                edge_type: EdgeType::Imports,
-                            },
-                        );
+                    if id_to_index.contains_key(&sym_id) {
+                        edges.push((from_module_id.clone(), sym_id, EdgeType::Imports));
                     }
                 }
             }
@@ -572,14 +592,14 @@ fn add_import_edges(
     }
 }
 
-/// Add call edges: function A calls function B → edge from A to B.
-fn add_call_edges(
+/// Collect call edge descriptors: function A calls function B.
+fn collect_call_edges(
     file: &ParsedFile,
     all_files: &[ParsedFile],
     file_exports: &HashMap<String, Vec<ExportInfo>>,
     file_defs: &HashMap<String, Vec<Definition>>,
     id_to_index: &HashMap<String, NodeIndex>,
-    graph: &mut DiGraph<SymbolNode, GraphEdge>,
+    edges: &mut Vec<(String, String, EdgeType)>,
 ) {
     let known_paths: Vec<&str> = all_files.iter().map(|f| f.path.as_str()).collect();
 
@@ -599,15 +619,13 @@ fn add_call_edges(
             None => file.path.clone(), // module-level call
         };
 
-        let caller_idx = match id_to_index.get(&caller_id) {
-            Some(idx) => *idx,
-            None => {
-                // If the containing function isn't found, try module node.
-                match id_to_index.get(&file.path) {
-                    Some(idx) => *idx,
-                    None => continue,
-                }
-            }
+        // Resolve caller: try exact id, then module node.
+        let resolved_caller_id = if id_to_index.contains_key(&caller_id) {
+            caller_id
+        } else if id_to_index.contains_key(&file.path) {
+            file.path.clone()
+        } else {
+            continue;
         };
 
         // Resolve the callee.
@@ -615,16 +633,8 @@ fn add_call_edges(
 
         // Simple name (e.g., `validateUser`) — look up in import map or local defs.
         if let Some(target_id) = import_map.get(callee_name.as_str()) {
-            if let Some(&to_idx) = id_to_index.get(target_id.as_str()) {
-                if caller_idx != to_idx {
-                    graph.add_edge(
-                        caller_idx,
-                        to_idx,
-                        GraphEdge {
-                            edge_type: EdgeType::Calls,
-                        },
-                    );
-                }
+            if id_to_index.contains_key(target_id.as_str()) && resolved_caller_id != *target_id {
+                edges.push((resolved_caller_id.clone(), target_id.clone(), EdgeType::Calls));
             }
             continue;
         }
@@ -633,33 +643,14 @@ fn add_call_edges(
         if let Some(dot_pos) = callee_name.find('.') {
             let receiver = &callee_name[..dot_pos];
             if let Some(target_module) = import_map.get(receiver) {
-                // The receiver resolves to a module/class — look for the method.
                 let method = &callee_name[dot_pos + 1..];
-                // Try file::method first.
                 let method_id = format!("{}::{}", target_module.trim_end_matches("::*"), method);
-                if let Some(&to_idx) = id_to_index.get(&method_id) {
-                    if caller_idx != to_idx {
-                        graph.add_edge(
-                            caller_idx,
-                            to_idx,
-                            GraphEdge {
-                                edge_type: EdgeType::Calls,
-                            },
-                        );
-                    }
+                if id_to_index.contains_key(&method_id) && resolved_caller_id != method_id {
+                    edges.push((resolved_caller_id.clone(), method_id, EdgeType::Calls));
                     continue;
                 }
-                // Try module node as fallback.
-                if let Some(&to_idx) = id_to_index.get(target_module.as_str()) {
-                    if caller_idx != to_idx {
-                        graph.add_edge(
-                            caller_idx,
-                            to_idx,
-                            GraphEdge {
-                                edge_type: EdgeType::Calls,
-                            },
-                        );
-                    }
+                if id_to_index.contains_key(target_module.as_str()) && resolved_caller_id != *target_module {
+                    edges.push((resolved_caller_id.clone(), target_module.clone(), EdgeType::Calls));
                     continue;
                 }
             }
@@ -667,16 +658,8 @@ fn add_call_edges(
 
         // Local function call — same file.
         let local_id = format!("{}::{}", file.path, callee_name);
-        if let Some(&to_idx) = id_to_index.get(&local_id) {
-            if caller_idx != to_idx {
-                graph.add_edge(
-                    caller_idx,
-                    to_idx,
-                    GraphEdge {
-                        edge_type: EdgeType::Calls,
-                    },
-                );
-            }
+        if id_to_index.contains_key(&local_id) && resolved_caller_id != local_id {
+            edges.push((resolved_caller_id.clone(), local_id, EdgeType::Calls));
         }
     }
 }
@@ -734,79 +717,20 @@ fn build_import_resolution_map(
     map
 }
 
-/// Add extends edges for class inheritance (Python).
-fn add_extends_edges(
+/// Collect extends edge descriptors for class inheritance (Python).
+/// Currently a stub — ParsedFile lacks class base info, so no edges are emitted.
+fn collect_extends_edges(
     file: &ParsedFile,
-    all_files: &[ParsedFile],
-    file_defs: &HashMap<String, Vec<Definition>>,
-    id_to_index: &HashMap<String, NodeIndex>,
-    graph: &mut DiGraph<SymbolNode, GraphEdge>,
+    _all_files: &[ParsedFile],
+    _file_defs: &HashMap<String, Vec<Definition>>,
+    _id_to_index: &HashMap<String, NodeIndex>,
+    _edges: &mut Vec<(String, String, EdgeType)>,
 ) {
     if file.language != Language::Python {
-        // For now, extends edges are only for Python (tree-sitter class bases).
-        // TS/JS class extends could be added via AST node child inspection.
         return;
     }
-
-    let known_paths: Vec<&str> = all_files.iter().map(|f| f.path.as_str()).collect();
-
-    // Build import resolution for this file.
-    let import_map = build_import_resolution_map(
-        file,
-        all_files,
-        &HashMap::new(),
-        file_defs,
-        &known_paths,
-    );
-
-    for def in &file.definitions {
-        if def.kind != SymbolKind::Class {
-            continue;
-        }
-
-        let child_id = format!("{}::{}", file.path, def.name);
-        let child_idx = match id_to_index.get(&child_id) {
-            Some(idx) => *idx,
-            None => continue,
-        };
-
-        // Get base classes from the original source.
-        // We need access to the source, but ParsedFile doesn't store it.
-        // Instead, look for definitions with the same name in imported files or locally.
-        // Check local file first.
-        if let Some(defs) = file_defs.get(&file.path) {
-            for base_def in defs {
-                if base_def.kind == SymbolKind::Class && base_def.name != def.name {
-                    // We can't directly know if this class extends the other from ParsedFile alone.
-                    // This would require re-parsing or storing base classes in Definition.
-                    // For now, we rely on import edges + call sites for cross-file relationships.
-                }
-            }
-        }
-
-        // Check if any imported class matches a known base class pattern.
-        // We use call sites that match `ClassName(...)` as constructor calls → Instantiates edges.
-        for call in &file.call_sites {
-            if call.callee == def.name {
-                continue; // Skip self-references.
-            }
-            // Check if this is a class instantiation (calling a known class name).
-            if let Some(target_id) = import_map.get(call.callee.as_str()) {
-                if let Some(&to_idx) = id_to_index.get(target_id.as_str()) {
-                    // Check if target is a class.
-                    if graph[to_idx].kind == SymbolKind::Class {
-                        // This is likely an instantiation, not extends.
-                        // We'll handle extends separately when we have class bases data.
-                    }
-                }
-            }
-        }
-
-        // For extends edges, we rely on the caller providing class base info.
-        // The `get_python_class_bases` function exists in ast.rs but requires source code.
-        // Graph construction from ParsedFile alone can detect extends via import patterns.
-        let _ = child_idx; // Used when base class info is available.
-    }
+    // ParsedFile doesn't store class base info, so no extends edges can be produced.
+    // The IR path (build_from_ir → collect_ir_extends_edges) handles this via IrTypeDef.bases.
 }
 
 // ---------------------------------------------------------------------------
@@ -848,19 +772,19 @@ fn build_ir_def_names_map(files: &[IrFile]) -> HashMap<String, Vec<(String, Symb
         .collect()
 }
 
-/// Add import edges from IR imports.
-fn add_ir_import_edges(
+/// Collect import edge descriptors from IR imports.
+fn collect_ir_import_edges(
     file: &IrFile,
     file_exports: &HashMap<String, Vec<IrExport>>,
     file_defs: &HashMap<String, Vec<(String, SymbolKind)>>,
     id_to_index: &HashMap<String, NodeIndex>,
     known_paths: &[&str],
-    graph: &mut DiGraph<SymbolNode, GraphEdge>,
+    edges: &mut Vec<(String, String, EdgeType)>,
 ) {
-    let from_idx = match id_to_index.get(&file.path) {
-        Some(idx) => *idx,
-        None => return,
-    };
+    if !id_to_index.contains_key(&file.path) {
+        return;
+    }
+    let from_id = file.path.clone();
 
     for import in &file.imports {
         let resolved = match resolve_import_path(&import.source, &file.path, known_paths) {
@@ -876,14 +800,8 @@ fn add_ir_import_edges(
                 .all(|s| matches!(s, IrImportSpecifier::SideEffect));
 
         if is_side_effect {
-            if let Some(&to_idx) = id_to_index.get(&resolved) {
-                graph.add_edge(
-                    from_idx,
-                    to_idx,
-                    GraphEdge {
-                        edge_type: EdgeType::Imports,
-                    },
-                );
+            if id_to_index.contains_key(&resolved) {
+                edges.push((from_id.clone(), resolved.clone(), EdgeType::Imports));
             }
             continue;
         }
@@ -891,16 +809,9 @@ fn add_ir_import_edges(
         for spec in &import.specifiers {
             match spec {
                 IrImportSpecifier::Named { name, .. } => {
-                    // Try to find the symbol by name in the target file.
                     let target_sym_id = format!("{}::{}", resolved, name);
-                    if let Some(&to_idx) = id_to_index.get(&target_sym_id) {
-                        graph.add_edge(
-                            from_idx,
-                            to_idx,
-                            GraphEdge {
-                                edge_type: EdgeType::Imports,
-                            },
-                        );
+                    if id_to_index.contains_key(&target_sym_id) {
+                        edges.push((from_id.clone(), target_sym_id, EdgeType::Imports));
                         continue;
                     }
 
@@ -914,16 +825,8 @@ fn add_ir_import_edges(
                                     {
                                         let reexport_sym_id =
                                             format!("{}::{}", reexport_resolved, name);
-                                        if let Some(&to_idx) =
-                                            id_to_index.get(&reexport_sym_id)
-                                        {
-                                            graph.add_edge(
-                                                from_idx,
-                                                to_idx,
-                                                GraphEdge {
-                                                    edge_type: EdgeType::Imports,
-                                                },
-                                            );
+                                        if id_to_index.contains_key(&reexport_sym_id) {
+                                            edges.push((from_id.clone(), reexport_sym_id, EdgeType::Imports));
                                         }
                                     }
                                 }
@@ -935,28 +838,15 @@ fn add_ir_import_edges(
                     if let Some(defs) = file_defs.get(&resolved) {
                         if defs.iter().any(|(n, _): &(String, SymbolKind)| n == name) {
                             let sym_id = format!("{}::{}", resolved, name);
-                            if let Some(&to_idx) = id_to_index.get(&sym_id) {
-                                graph.add_edge(
-                                    from_idx,
-                                    to_idx,
-                                    GraphEdge {
-                                        edge_type: EdgeType::Imports,
-                                    },
-                                );
+                            if id_to_index.contains_key(&sym_id) {
+                                edges.push((from_id.clone(), sym_id, EdgeType::Imports));
                             }
                         }
                     }
                 }
                 IrImportSpecifier::Default(_) | IrImportSpecifier::Namespace(_) => {
-                    // Link to the module node.
-                    if let Some(&to_idx) = id_to_index.get(&resolved) {
-                        graph.add_edge(
-                            from_idx,
-                            to_idx,
-                            GraphEdge {
-                                edge_type: EdgeType::Imports,
-                            },
-                        );
+                    if id_to_index.contains_key(&resolved) {
+                        edges.push((from_id.clone(), resolved.clone(), EdgeType::Imports));
                     }
                 }
                 IrImportSpecifier::SideEffect => {
@@ -1017,14 +907,14 @@ fn build_ir_import_resolution_map(
     map
 }
 
-/// Add call edges from IR call expressions.
-fn add_ir_call_edges(
+/// Collect call edge descriptors from IR call expressions.
+fn collect_ir_call_edges(
     file: &IrFile,
     all_files: &[IrFile],
     file_defs: &HashMap<String, Vec<(String, SymbolKind)>>,
     id_to_index: &HashMap<String, NodeIndex>,
     known_paths: &[&str],
-    graph: &mut DiGraph<SymbolNode, GraphEdge>,
+    edges: &mut Vec<(String, String, EdgeType)>,
 ) {
     let import_map = build_ir_import_resolution_map(file, all_files, file_defs, known_paths);
 
@@ -1034,28 +924,21 @@ fn add_ir_call_edges(
             None => file.path.clone(),
         };
 
-        let caller_idx = match id_to_index.get(&caller_id) {
-            Some(idx) => *idx,
-            None => match id_to_index.get(&file.path) {
-                Some(idx) => *idx,
-                None => continue,
-            },
+        // Resolve caller: try exact id, then module node.
+        let resolved_caller_id = if id_to_index.contains_key(&caller_id) {
+            caller_id
+        } else if id_to_index.contains_key(&file.path) {
+            file.path.clone()
+        } else {
+            continue;
         };
 
         let callee_name = &call.callee;
 
         // Simple name — look up in import map or local defs.
         if let Some(target_id) = import_map.get(callee_name.as_str()) {
-            if let Some(&to_idx) = id_to_index.get(target_id.as_str()) {
-                if caller_idx != to_idx {
-                    graph.add_edge(
-                        caller_idx,
-                        to_idx,
-                        GraphEdge {
-                            edge_type: EdgeType::Calls,
-                        },
-                    );
-                }
+            if id_to_index.contains_key(target_id.as_str()) && resolved_caller_id != *target_id {
+                edges.push((resolved_caller_id.clone(), target_id.clone(), EdgeType::Calls));
             }
             continue;
         }
@@ -1067,28 +950,12 @@ fn add_ir_call_edges(
                 let method = &callee_name[dot_pos + 1..];
                 let method_id =
                     format!("{}::{}", target_module.trim_end_matches("::*"), method);
-                if let Some(&to_idx) = id_to_index.get(&method_id) {
-                    if caller_idx != to_idx {
-                        graph.add_edge(
-                            caller_idx,
-                            to_idx,
-                            GraphEdge {
-                                edge_type: EdgeType::Calls,
-                            },
-                        );
-                    }
+                if id_to_index.contains_key(&method_id) && resolved_caller_id != method_id {
+                    edges.push((resolved_caller_id.clone(), method_id, EdgeType::Calls));
                     continue;
                 }
-                if let Some(&to_idx) = id_to_index.get(target_module.as_str()) {
-                    if caller_idx != to_idx {
-                        graph.add_edge(
-                            caller_idx,
-                            to_idx,
-                            GraphEdge {
-                                edge_type: EdgeType::Calls,
-                            },
-                        );
-                    }
+                if id_to_index.contains_key(target_module.as_str()) && resolved_caller_id != *target_module {
+                    edges.push((resolved_caller_id.clone(), target_module.clone(), EdgeType::Calls));
                     continue;
                 }
             }
@@ -1096,31 +963,23 @@ fn add_ir_call_edges(
 
         // Local function call.
         let local_id = format!("{}::{}", file.path, callee_name);
-        if let Some(&to_idx) = id_to_index.get(&local_id) {
-            if caller_idx != to_idx {
-                graph.add_edge(
-                    caller_idx,
-                    to_idx,
-                    GraphEdge {
-                        edge_type: EdgeType::Calls,
-                    },
-                );
-            }
+        if id_to_index.contains_key(&local_id) && resolved_caller_id != local_id {
+            edges.push((resolved_caller_id.clone(), local_id, EdgeType::Calls));
         }
     }
 }
 
-/// Add extends edges from IR type definitions with bases.
+/// Collect extends edge descriptors from IR type definitions with bases.
 ///
 /// Unlike the ParsedFile-based version which cannot determine class bases,
 /// the IR path has `IrTypeDef.bases` populated from the query engine, enabling
 /// real extends edge construction.
-fn add_ir_extends_edges(
+fn collect_ir_extends_edges(
     file: &IrFile,
     all_files: &[IrFile],
     id_to_index: &HashMap<String, NodeIndex>,
     known_paths: &[&str],
-    graph: &mut DiGraph<SymbolNode, GraphEdge>,
+    edges: &mut Vec<(String, String, EdgeType)>,
 ) {
     let import_map = build_ir_import_resolution_map(
         file,
@@ -1135,40 +994,23 @@ fn add_ir_extends_edges(
         }
 
         let child_id = format!("{}::{}", file.path, td.name);
-        let child_idx = match id_to_index.get(&child_id) {
-            Some(idx) => *idx,
-            None => continue,
-        };
+        if !id_to_index.contains_key(&child_id) {
+            continue;
+        }
 
         for base in &td.bases {
             // Try imported name first.
             if let Some(target_id) = import_map.get(base.as_str()) {
-                if let Some(&to_idx) = id_to_index.get(target_id.as_str()) {
-                    if child_idx != to_idx {
-                        graph.add_edge(
-                            child_idx,
-                            to_idx,
-                            GraphEdge {
-                                edge_type: EdgeType::Extends,
-                            },
-                        );
-                    }
+                if id_to_index.contains_key(target_id.as_str()) && child_id != *target_id {
+                    edges.push((child_id.clone(), target_id.clone(), EdgeType::Extends));
                     continue;
                 }
             }
 
             // Try local definition.
             let local_id = format!("{}::{}", file.path, base);
-            if let Some(&to_idx) = id_to_index.get(&local_id) {
-                if child_idx != to_idx {
-                    graph.add_edge(
-                        child_idx,
-                        to_idx,
-                        GraphEdge {
-                            edge_type: EdgeType::Extends,
-                        },
-                    );
-                }
+            if id_to_index.contains_key(&local_id) && child_id != local_id {
+                edges.push((child_id.clone(), local_id, EdgeType::Extends));
             }
         }
     }

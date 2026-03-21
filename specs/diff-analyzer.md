@@ -1032,8 +1032,8 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 **Problem:** `SymbolGraph::build()` and `build_from_ir()` in `graph.rs` run sequentially — Phase 1 (add nodes) and Phase 2 (add edges) iterate files one at a time with no parallelism.
 
-- [ ] Phase 1: use rayon to collect node data per file in parallel, then merge into graph single-threaded
-- [ ] Phase 2: use rayon to compute edges per file in parallel, then add to graph single-threaded
+- [x] Phase 1: use rayon to collect node data per file in parallel, then merge into graph single-threaded
+- [x] Phase 2: use rayon to compute edges per file in parallel, then add to graph single-threaded
 - [ ] Benchmark: expect 2-4x speedup for 20-100 file diffs
 
 ### 12.9 Efficient flow pattern matching
