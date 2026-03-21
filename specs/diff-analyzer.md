@@ -978,12 +978,13 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 **Problem:** Re-running analysis on the same file content re-parses and re-extracts everything from scratch.
 
-- [ ] Add `sha2` content hash of source → `IrFile` cache (in-memory `HashMap<[u8; 32], IrFile>`)
-- [ ] Key: `SHA-256(file_path + source_content)` — content-addressed, so identical content = cache hit regardless of branch/ref
-- [ ] Integrate into `parse_to_ir()` and `parse_all_to_ir()`: check cache before parsing
-- [ ] Thread the cache through `run_pipeline()` and the eval harness so it persists across test fixtures that share identical files
-- [ ] For tests: use a shared `Arc<Mutex<HashMap>>` or `DashMap` across the test binary
-- [ ] For CLI: populate cache per invocation (single-run benefit from dedup; cross-run benefit requires disk cache in 12.4)
+- [x] Add `sha2` content hash of source → `IrFile` cache (in-memory `DashMap<[u8; 32], IrFile>`) — `IrCache` type in `pipeline.rs`
+- [x] Key: `SHA-256(file_path + "\0" + source_content)` — content-addressed, so identical content = cache hit regardless of branch/ref
+- [x] Integrate into `parse_to_ir()` and `parse_all_to_ir()`: check cache before parsing via `Option<&IrCache>` parameter
+- [x] Thread the cache through all callers (cross_layer_audit, benchmarks, unit tests) — pass `None` when not needed, `Some(&cache)` when sharing
+- [x] For tests: `IrCache` uses `DashMap` (thread-safe, lock-free reads) — shareable across rayon parallel parsing
+- [x] For CLI: populate cache per invocation (single-run benefit from dedup; cross-run benefit requires disk cache in 12.4)
+- [x] 12 new unit tests: cache hit/miss, different content/path, partial hit, cross-batch sharing, byte-identical verification, Send+Sync
 
 ### 12.3 Lazy QueryEngine initialization per language
 

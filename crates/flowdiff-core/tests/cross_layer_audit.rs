@@ -128,7 +128,7 @@ fn run_ir_pipeline(rb: &RepoBuilder, base: &str, head: &str) -> AnalysisOutput {
         })
         .collect();
 
-    let (ir_files, _errors) = pipeline::parse_all_to_ir(&engine, &file_inputs);
+    let (ir_files, _errors) = pipeline::parse_all_to_ir(&engine, &file_inputs, None);
 
     // Build graph from IR
     let mut graph = SymbolGraph::build_from_ir(&ir_files);

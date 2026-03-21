@@ -269,6 +269,7 @@ fn bench_parse_dedup(c: &mut Criterion) {
                 &engine,
                 "src/controller.ts",
                 TS_SOURCE,
+                None,
             ));
         });
     });
