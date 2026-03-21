@@ -15,6 +15,9 @@
 //! Also detects frameworks from import patterns.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
+
+use aho_corasick::AhoCorasick;
 
 use crate::ast::{CallSite, ParsedFile};
 use crate::graph::{GraphEdge, SymbolGraph};
@@ -561,6 +564,166 @@ const FRAMEWORK_IMPORTS: &[(&str, &str)] = &[
 ];
 
 // ---------------------------------------------------------------------------
+// Pre-compiled pattern matchers (built once, reused across all files)
+// ---------------------------------------------------------------------------
+
+/// Suffix set for DB write methods (method name after last dot, e.g. "save").
+fn db_write_suffix_set() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&str>> = OnceLock::new();
+    SET.get_or_init(|| {
+        DB_WRITE_METHODS
+            .iter()
+            .map(|s| s.trim_start_matches('.'))
+            .collect()
+    })
+}
+
+/// Suffix set for DB read methods.
+fn db_read_suffix_set() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&str>> = OnceLock::new();
+    SET.get_or_init(|| {
+        DB_READ_METHODS
+            .iter()
+            .map(|s| s.trim_start_matches('.'))
+            .collect()
+    })
+}
+
+/// Suffix set for event emission methods.
+fn event_emit_suffix_set() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&str>> = OnceLock::new();
+    SET.get_or_init(|| {
+        EVENT_EMIT_METHODS
+            .iter()
+            .map(|s| s.trim_start_matches('.'))
+            .collect()
+    })
+}
+
+/// Suffix set for event handling methods.
+fn event_handle_suffix_set() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&str>> = OnceLock::new();
+    SET.get_or_init(|| {
+        EVENT_HANDLE_METHODS
+            .iter()
+            .map(|s| s.trim_start_matches('.'))
+            .collect()
+    })
+}
+
+/// Exact-match set for logging patterns.
+fn log_pattern_set() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&str>> = OnceLock::new();
+    SET.get_or_init(|| LOG_PATTERNS.iter().copied().collect())
+}
+
+/// Exact-match set for known non-DB callees.
+fn non_db_callee_set() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&str>> = OnceLock::new();
+    SET.get_or_init(|| {
+        [
+            "JSON.parse",
+            "JSON.stringify",
+            "Object.create",
+            "Object.assign",
+            "Array.from",
+            "Promise.resolve",
+            "Promise.reject",
+            "Date.now",
+            "Math.round",
+            "Math.floor",
+            "Math.ceil",
+            "Math.abs",
+            "Math.min",
+            "Math.max",
+        ]
+        .into_iter()
+        .collect()
+    })
+}
+
+/// Exact-match set for known non-DB receivers (lowercased).
+fn non_db_receiver_set() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&str>> = OnceLock::new();
+    SET.get_or_init(|| {
+        [
+            "array", "map", "set", "object", "string", "number", "promise", "json", "math",
+            "date", "regexp", "cache", "localstorage", "sessionstorage", "window", "document",
+            "navigator", "console", "process", "os", "path", "fs", "http", "https", "url",
+            "buffer", "stream", "crypto", "util", "events", "child_process", "cluster", "net",
+            "tls", "dns", "axios", "requests", "fetch", "httpx", "urllib", "list", "dict",
+            "tuple", "frozenset", "deque", "defaultdict", "items", "result", "results", "data",
+            "response", "request", "config", "env", "settings", "options", "args", "params",
+            "logger", "log", "logging", "console",
+        ]
+        .into_iter()
+        .collect()
+    })
+}
+
+/// Aho-Corasick automaton for DB-keyword substring matching in receivers.
+fn db_keyword_automaton() -> &'static AhoCorasick {
+    static AC: OnceLock<AhoCorasick> = OnceLock::new();
+    AC.get_or_init(|| {
+        AhoCorasick::new([
+            "db", "database", "repo", "repository", "model", "store", "dao", "collection",
+            "prisma", "sequelize", "typeorm", "mongoose", "drizzle", "session", "connection",
+            "pool", "client", "table", "entity", "schema", "migration", "knex", "query", "sql",
+        ])
+        .expect("valid patterns")
+    })
+}
+
+/// Aho-Corasick automaton for ORM-specific names in confidence scoring.
+fn orm_automaton() -> &'static AhoCorasick {
+    static AC: OnceLock<AhoCorasick> = OnceLock::new();
+    AC.get_or_init(|| {
+        AhoCorasick::new([
+            "prisma",
+            "sequelize",
+            "typeorm",
+            "mongoose",
+            "sqlalchemy",
+            "drizzle",
+        ])
+        .expect("valid patterns")
+    })
+}
+
+/// Aho-Corasick automaton for high-confidence receiver keywords in confidence scoring.
+fn confidence_receiver_automaton() -> &'static AhoCorasick {
+    static AC: OnceLock<AhoCorasick> = OnceLock::new();
+    AC.get_or_init(|| {
+        AhoCorasick::new(["db", "repo", "model", "store", "dao", "collection"])
+            .expect("valid patterns")
+    })
+}
+
+/// Aho-Corasick automaton for SQL write keywords (lowercased).
+fn sql_write_automaton() -> &'static AhoCorasick {
+    static AC: OnceLock<AhoCorasick> = OnceLock::new();
+    AC.get_or_init(|| {
+        let patterns: Vec<String> = SQL_WRITE_KEYWORDS
+            .iter()
+            .map(|k| k.to_lowercase())
+            .collect();
+        AhoCorasick::new(&patterns).expect("valid patterns")
+    })
+}
+
+/// Aho-Corasick automaton for SQL read keywords (lowercased).
+fn sql_read_automaton() -> &'static AhoCorasick {
+    static AC: OnceLock<AhoCorasick> = OnceLock::new();
+    AC.get_or_init(|| {
+        let patterns: Vec<String> = SQL_READ_KEYWORDS
+            .iter()
+            .map(|k| k.to_lowercase())
+            .collect();
+        AhoCorasick::new(&patterns).expect("valid patterns")
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -639,10 +802,10 @@ pub fn detect_frameworks(files: &[ParsedFile]) -> Vec<String> {
                 // Match exact, or prefixed by separator: slash (JS/TS),
                 // dot (Python), :: (Rust), or backslash (PHP namespaces)
                 if source == pattern
-                    || source.starts_with(&format!("{}/", pattern))
-                    || source.starts_with(&format!("{}.", pattern))
-                    || source.starts_with(&format!("{}::", pattern))
-                    || source.starts_with(&format!("{}\\", pattern))
+                    || source.starts_with(pattern)
+                        && source.as_bytes().get(pattern.len()).map_or(false, |&b| {
+                            b == b'/' || b == b'.' || b == b':' || b == b'\\'
+                        })
                 {
                     frameworks.insert(name.to_string());
                 }
@@ -779,16 +942,9 @@ fn is_collection_method(callee: &str) -> bool {
         }
     }
 
-    // Known non-DB full callee patterns
-    let non_db = [
-        "JSON.parse", "JSON.stringify", "Object.create", "Object.assign",
-        "Array.from", "Promise.resolve", "Promise.reject", "Date.now",
-        "Math.round", "Math.floor", "Math.ceil", "Math.abs", "Math.min", "Math.max",
-    ];
-    for &pattern in &non_db {
-        if callee == pattern {
-            return true;
-        }
+    // Known non-DB full callee patterns (HashSet lookup)
+    if non_db_callee_set().contains(callee) {
+        return true;
     }
 
     false
@@ -796,24 +952,16 @@ fn is_collection_method(callee: &str) -> bool {
 
 fn match_persistence(callee: &str) -> Option<FlowPattern> {
     // Must be a method call (has a dot) with a DB-like receiver
-    if !callee.contains('.') {
-        return None;
-    }
-
-    for &pattern in DB_WRITE_METHODS {
-        if callee.ends_with(pattern) {
-            if has_db_like_receiver(callee) {
-                return Some(FlowPattern::Persistence);
-            }
-        }
-    }
-
-    // SQL keywords in the callee string
-    let lower = callee.to_lowercase();
-    for &keyword in SQL_WRITE_KEYWORDS {
-        if lower.contains(&keyword.to_lowercase()) {
+    if let Some(method) = callee.rsplit('.').next() {
+        if callee.contains('.') && db_write_suffix_set().contains(method) && has_db_like_receiver(callee) {
             return Some(FlowPattern::Persistence);
         }
+    }
+
+    // SQL keywords in the callee string (single-pass Aho-Corasick)
+    let lower = callee.to_lowercase();
+    if sql_write_automaton().is_match(&lower) {
+        return Some(FlowPattern::Persistence);
     }
 
     None
@@ -821,24 +969,16 @@ fn match_persistence(callee: &str) -> Option<FlowPattern> {
 
 fn match_db_read(callee: &str) -> Option<FlowPattern> {
     // Must be a method call with a DB-like receiver
-    if !callee.contains('.') {
-        return None;
-    }
-
-    for &pattern in DB_READ_METHODS {
-        if callee.ends_with(pattern) {
-            if has_db_like_receiver(callee) {
-                return Some(FlowPattern::DatabaseRead);
-            }
-        }
-    }
-
-    // SQL keywords
-    let lower = callee.to_lowercase();
-    for &keyword in SQL_READ_KEYWORDS {
-        if lower.contains(&keyword.to_lowercase()) {
+    if let Some(method) = callee.rsplit('.').next() {
+        if callee.contains('.') && db_read_suffix_set().contains(method) && has_db_like_receiver(callee) {
             return Some(FlowPattern::DatabaseRead);
         }
+    }
+
+    // SQL keywords (single-pass Aho-Corasick)
+    let lower = callee.to_lowercase();
+    if sql_read_automaton().is_match(&lower) {
+        return Some(FlowPattern::DatabaseRead);
     }
 
     None
@@ -860,53 +1000,29 @@ fn has_db_like_receiver(callee: &str) -> bool {
         return false;
     }
 
-    // Skip known non-DB receivers
-    let non_db_receivers = [
-        "array", "map", "set", "object", "string", "number", "promise", "json",
-        "math", "date", "regexp", "cache", "localstorage", "sessionstorage",
-        "window", "document", "navigator", "console", "process", "os",
-        "path", "fs", "http", "https", "url", "buffer", "stream", "crypto",
-        "util", "events", "child_process", "cluster", "net", "tls", "dns",
-        "axios", "requests", "fetch", "httpx", "urllib",
-        "list", "dict", "tuple", "frozenset", "deque", "defaultdict",
-        "items", "result", "results", "data", "response", "request",
-        "config", "env", "settings", "options", "args", "params",
-        "logger", "log", "logging", "console",
-    ];
-    if non_db_receivers.contains(&lower.as_str()) {
+    // Skip known non-DB receivers (HashSet lookup)
+    if non_db_receiver_set().contains(lower.as_str()) {
         return false;
     }
 
-    // Positive signal: receiver contains DB-related keywords
-    let db_keywords = [
-        "db", "database", "repo", "repository", "model", "store", "dao",
-        "collection", "prisma", "sequelize", "typeorm", "mongoose", "drizzle",
-        "session", "connection", "pool", "client", "table", "entity",
-        "schema", "migration", "knex", "query", "sql",
-    ];
-    for keyword in &db_keywords {
-        if lower.contains(keyword) {
-            return true;
-        }
+    // Positive signal: receiver contains DB-related keywords (Aho-Corasick single-pass)
+    if db_keyword_automaton().is_match(&lower) {
+        return true;
     }
 
     // Also match if it looks like a specific ORM method chain (e.g., prisma.user)
     let first_part = callee.split('.').next().unwrap_or("");
     let first_lower = first_part.to_lowercase();
-    for keyword in &db_keywords {
-        if first_lower.contains(keyword) {
-            return true;
-        }
+    if db_keyword_automaton().is_match(&first_lower) {
+        return true;
     }
 
     // For multi-part receivers like "prisma.user", check the first part
     if receiver.contains('.') {
         let root = receiver.split('.').next().unwrap_or("");
         let root_lower = root.to_lowercase();
-        for keyword in &db_keywords {
-            if root_lower.contains(keyword) {
-                return true;
-            }
+        if db_keyword_automaton().is_match(&root_lower) {
+            return true;
         }
     }
 
@@ -914,8 +1030,8 @@ fn has_db_like_receiver(callee: &str) -> bool {
 }
 
 fn match_event_emission(callee: &str) -> Option<FlowPattern> {
-    for &pattern in EVENT_EMIT_METHODS {
-        if callee.ends_with(pattern) && callee.contains('.') {
+    if let Some(method) = callee.rsplit('.').next() {
+        if callee.contains('.') && event_emit_suffix_set().contains(method) {
             return Some(FlowPattern::EventEmission);
         }
     }
@@ -923,8 +1039,8 @@ fn match_event_emission(callee: &str) -> Option<FlowPattern> {
 }
 
 fn match_event_handling(callee: &str) -> Option<FlowPattern> {
-    for &pattern in EVENT_HANDLE_METHODS {
-        if callee.ends_with(pattern) && callee.contains('.') {
+    if let Some(method) = callee.rsplit('.').next() {
+        if callee.contains('.') && event_handle_suffix_set().contains(method) {
             return Some(FlowPattern::EventHandling);
         }
     }
@@ -932,19 +1048,18 @@ fn match_event_handling(callee: &str) -> Option<FlowPattern> {
 }
 
 fn match_config_read(callee: &str) -> Option<FlowPattern> {
+    // Fast check: process.env and os.environ are the most common config patterns
+    if callee.starts_with("process.env") || callee.starts_with("os.environ") {
+        return Some(FlowPattern::ConfigRead);
+    }
+
     for &pattern in CONFIG_PATTERNS {
         // Match exact, dot-prefix (member access), or bracket-prefix
         if callee == pattern
-            || callee.starts_with(&format!("{}.", pattern))
-            || callee.starts_with(&format!("{}[", pattern))
+            || callee.starts_with(pattern) && callee.as_bytes().get(pattern.len()).map_or(true, |&b| b == b'.' || b == b'[')
         {
             return Some(FlowPattern::ConfigRead);
         }
-    }
-
-    // Also match member access chains: `process.env.X` parses as callee `process.env.X`
-    if callee.starts_with("process.env") || callee.starts_with("os.environ") {
-        return Some(FlowPattern::ConfigRead);
     }
 
     None
@@ -952,7 +1067,9 @@ fn match_config_read(callee: &str) -> Option<FlowPattern> {
 
 fn match_http_call(callee: &str) -> Option<FlowPattern> {
     for &pattern in HTTP_CALL_PATTERNS {
-        if callee == pattern || callee.starts_with(&format!("{}.", pattern)) {
+        if callee == pattern
+            || callee.starts_with(pattern) && callee.as_bytes().get(pattern.len()) == Some(&b'.')
+        {
             return Some(FlowPattern::HttpCall);
         }
     }
@@ -960,52 +1077,32 @@ fn match_http_call(callee: &str) -> Option<FlowPattern> {
 }
 
 fn match_logging(callee: &str) -> Option<FlowPattern> {
-    for &pattern in LOG_PATTERNS {
-        if callee == pattern {
-            return Some(FlowPattern::Logging);
-        }
+    if log_pattern_set().contains(callee) {
+        Some(FlowPattern::Logging)
+    } else {
+        None
     }
-    None
 }
 
 /// Assign confidence based on how specific the DB pattern is.
 fn confidence_for_db_pattern(callee: &str) -> f64 {
     let lower = callee.to_lowercase();
 
-    // ORM-specific method chains are high confidence
-    if lower.contains("prisma")
-        || lower.contains("sequelize")
-        || lower.contains("typeorm")
-        || lower.contains("mongoose")
-        || lower.contains("sqlalchemy")
-        || lower.contains("drizzle")
-    {
+    // ORM-specific method chains are high confidence (Aho-Corasick single-pass)
+    if orm_automaton().is_match(&lower) {
         return 0.95;
     }
 
     // Methods with "db" or "repo" or "repository" in the receiver are high confidence
     let receiver = callee.split('.').next().unwrap_or("");
     let lower_receiver = receiver.to_lowercase();
-    if lower_receiver.contains("db")
-        || lower_receiver.contains("repo")
-        || lower_receiver.contains("model")
-        || lower_receiver.contains("store")
-        || lower_receiver.contains("dao")
-        || lower_receiver.contains("collection")
-    {
+    if confidence_receiver_automaton().is_match(&lower_receiver) {
         return 0.9;
     }
 
-    // SQL keywords are high confidence
-    for &keyword in SQL_WRITE_KEYWORDS {
-        if lower.contains(&keyword.to_lowercase()) {
-            return 0.95;
-        }
-    }
-    for &keyword in SQL_READ_KEYWORDS {
-        if lower.contains(&keyword.to_lowercase()) {
-            return 0.95;
-        }
+    // SQL keywords are high confidence (Aho-Corasick single-pass)
+    if sql_write_automaton().is_match(&lower) || sql_read_automaton().is_match(&lower) {
+        return 0.95;
     }
 
     // Generic methods like `.save()` on unknown receivers are medium confidence

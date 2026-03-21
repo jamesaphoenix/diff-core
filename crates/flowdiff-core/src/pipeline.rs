@@ -31,6 +31,14 @@ use crate::query_engine::QueryEngine;
 // Content-addressed IrFile cache
 // ---------------------------------------------------------------------------
 
+/// Returns true when `FLOWDIFF_CACHE_DEBUG=1` is set.
+/// Checked once per process via `OnceLock`.
+fn cache_debug_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("FLOWDIFF_CACHE_DEBUG").as_deref() == Ok("1"))
+}
+
 /// A thread-safe, content-addressed cache for parsed `IrFile` results.
 ///
 /// Key: `SHA-256(file_path + "\0" + source_content)` — identical content at the
@@ -68,11 +76,22 @@ impl IrCache {
     /// Look up a cached IrFile. Returns a clone if found.
     fn get(&self, path: &str, source: &str) -> Option<IrFile> {
         let key = Self::cache_key(path, source);
-        self.inner.get(&key).map(|entry| {
-            self.hits
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            entry.value().clone()
-        })
+        match self.inner.get(&key) {
+            Some(entry) => {
+                self.hits
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if cache_debug_enabled() {
+                    eprintln!("[IrCache] HIT  {}", path);
+                }
+                Some(entry.value().clone())
+            }
+            None => {
+                if cache_debug_enabled() {
+                    eprintln!("[IrCache] MISS {}", path);
+                }
+                None
+            }
+        }
     }
 
     /// Insert a parsed IrFile into the cache.
@@ -104,18 +123,23 @@ impl IrCache {
     }
 
     /// Log cache statistics at debug level.
+    /// Also prints to stderr when `FLOWDIFF_CACHE_DEBUG=1`.
     pub fn log_stats(&self) {
         let hits = self.hits();
         let misses = self.misses();
         let total = hits + misses;
         if total > 0 {
-            debug!(
+            let msg = format!(
                 "IrCache stats: {} hits, {} misses, {} entries ({:.0}% hit rate)",
                 hits,
                 misses,
                 self.len(),
                 (hits as f64 / total as f64) * 100.0
             );
+            debug!("{}", msg);
+            if cache_debug_enabled() {
+                eprintln!("[IrCache] {}", msg);
+            }
         }
     }
 }

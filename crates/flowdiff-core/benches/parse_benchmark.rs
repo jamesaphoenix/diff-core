@@ -7,6 +7,13 @@
 //! Expected result: single-parse is ~2x faster since tree-sitter parsing dominates.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use flowdiff_core::ast::{CallSite, ImportInfo, Language, ParsedFile};
+use flowdiff_core::flow::{analyze_data_flow, FlowConfig};
+use flowdiff_core::graph::SymbolGraph;
+use flowdiff_core::ir::{
+    FunctionKind, IrCallExpression, IrConstant, IrExport, IrFile, IrFunctionDef, IrImport,
+    IrImportSpecifier, Span,
+};
 use flowdiff_core::query_engine::QueryEngine;
 
 /// A realistic TypeScript source file with imports, classes, functions, and calls.
@@ -316,5 +323,242 @@ fn bench_parse_dedup(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_lazy_query_engine, bench_parse_dedup);
+/// Generate `n` synthetic IrFiles with cross-file imports and calls.
+///
+/// Each file has 3-5 functions, 1-2 type defs, 1-2 constants, imports from
+/// 2-3 other files, and call expressions referencing other files' functions.
+fn generate_ir_files(n: usize) -> Vec<IrFile> {
+    (0..n)
+        .map(|i| {
+            let path = format!("src/module_{}.ts", i);
+            let functions: Vec<IrFunctionDef> = (0..4)
+                .map(|f| IrFunctionDef {
+                    name: format!("func_{}_{}", i, f),
+                    kind: FunctionKind::Function,
+                    span: Span::new(f * 10 + 1, f * 10 + 8),
+                    parameters: vec![],
+                    is_async: f % 2 == 0,
+                    is_exported: f < 2,
+                    decorators: vec![],
+                })
+                .collect();
+
+            let type_defs = vec![flowdiff_core::ir::IrTypeDef {
+                name: format!("Type_{}", i),
+                kind: flowdiff_core::ir::TypeDefKind::Interface,
+                span: Span::new(50, 60),
+                bases: if i > 0 {
+                    vec![format!("Type_{}", i - 1)]
+                } else {
+                    vec![]
+                },
+                is_exported: true,
+                decorators: vec![],
+            }];
+
+            let constants = vec![IrConstant {
+                name: format!("CONST_{}", i),
+                span: Span::single(65),
+                is_exported: true,
+            }];
+
+            // Import from 2-3 neighboring files
+            let imports: Vec<IrImport> = (1..=2)
+                .filter_map(|offset| {
+                    let target = (i + offset) % n;
+                    if target == i {
+                        return None;
+                    }
+                    Some(IrImport {
+                        source: format!("./module_{}", target),
+                        specifiers: vec![
+                            IrImportSpecifier::Named {
+                                name: format!("func_{}_0", target),
+                                alias: None,
+                            },
+                            IrImportSpecifier::Named {
+                                name: format!("Type_{}", target),
+                                alias: None,
+                            },
+                        ],
+                        span: Span::single(1),
+                    })
+                })
+                .collect();
+
+            let exports: Vec<IrExport> = functions
+                .iter()
+                .filter(|f| f.is_exported)
+                .map(|f| IrExport {
+                    name: f.name.clone(),
+                    is_default: false,
+                    is_reexport: false,
+                    source: None,
+                    span: Span::single(1),
+                })
+                .collect();
+
+            // Call expressions referencing other files' functions
+            let call_expressions: Vec<IrCallExpression> = (1..=3)
+                .map(|offset| {
+                    let target = (i + offset) % n;
+                    IrCallExpression {
+                        callee: format!("func_{}_0", target),
+                        arguments: vec!["arg1".to_string()],
+                        span: Span::single(20 + offset),
+                        containing_function: Some(format!("func_{}_0", i)),
+                    }
+                })
+                .collect();
+
+            IrFile {
+                path,
+                language: flowdiff_core::ast::Language::TypeScript,
+                functions,
+                type_defs,
+                constants,
+                imports,
+                exports,
+                call_expressions,
+                assignments: vec![],
+            }
+        })
+        .collect()
+}
+
+fn bench_graph_building(c: &mut Criterion) {
+    let mut group = c.benchmark_group("graph_build_from_ir");
+
+    for &file_count in &[20, 50, 100] {
+        let files = generate_ir_files(file_count);
+
+        // Parallel (default — uses rayon global pool)
+        group.bench_with_input(
+            BenchmarkId::new("parallel", file_count),
+            &files,
+            |b, files| {
+                b.iter(|| black_box(SymbolGraph::build_from_ir(files)));
+            },
+        );
+
+        // Serial (single-threaded rayon pool)
+        group.bench_with_input(
+            BenchmarkId::new("serial", file_count),
+            &files,
+            |b, files| {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(1)
+                    .build()
+                    .unwrap();
+                b.iter(|| {
+                    pool.install(|| black_box(SymbolGraph::build_from_ir(files)));
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+/// Generate synthetic ParsedFiles with realistic call sites for flow analysis benchmarking.
+///
+/// Each file has mixed call sites: DB writes, DB reads, event emission, HTTP calls,
+/// logging, config reads, and benign calls (collection methods, stdlib).
+fn generate_parsed_files_for_flow(n: usize) -> Vec<ParsedFile> {
+    let callees = [
+        // DB writes
+        "db.save", "userRepo.insert", "model.create", "store.update", "repo.delete",
+        "prisma.user.upsert", "collection.bulkInsert",
+        // DB reads
+        "db.find", "userRepo.findOne", "model.findById", "store.query", "repo.findAll",
+        // Event emission
+        "eventBus.emit", "channel.publish", "socket.send", "dispatcher.dispatch",
+        // Event handling
+        "eventBus.on", "channel.subscribe", "socket.listen",
+        // HTTP calls
+        "fetch", "axios.get", "axios.post", "requests.get", "httpx.post",
+        // Logging
+        "console.log", "console.error", "logger.info", "logger.warn", "logging.debug",
+        // Config reads
+        "process.env.DATABASE_URL", "config.get", "os.environ",
+        // Benign (should not match)
+        "arr.push", "arr.map", "arr.filter", "JSON.parse", "JSON.stringify",
+        "Object.assign", "Promise.resolve", "Math.floor", "str.split", "list.append",
+    ];
+
+    (0..n)
+        .map(|i| {
+            let path = format!("src/module_{}.ts", i);
+            let call_sites: Vec<CallSite> = callees
+                .iter()
+                .enumerate()
+                .map(|(j, callee)| CallSite {
+                    callee: callee.to_string(),
+                    line: j + 1,
+                    containing_function: Some(format!("handler_{}", j % 4)),
+                })
+                .collect();
+
+            let imports = vec![
+                ImportInfo {
+                    source: "express".to_string(),
+                    names: vec![],
+                    is_default: false,
+                    is_namespace: false,
+                    line: 1,
+                },
+                ImportInfo {
+                    source: "@prisma/client".to_string(),
+                    names: vec![],
+                    is_default: false,
+                    is_namespace: false,
+                    line: 2,
+                },
+                ImportInfo {
+                    source: "react".to_string(),
+                    names: vec![],
+                    is_default: false,
+                    is_namespace: false,
+                    line: 3,
+                },
+            ];
+
+            ParsedFile {
+                path,
+                language: Language::TypeScript,
+                definitions: vec![],
+                imports,
+                exports: vec![],
+                call_sites,
+            }
+        })
+        .collect()
+}
+
+fn bench_flow_analysis(c: &mut Criterion) {
+    let mut group = c.benchmark_group("flow_analysis");
+
+    for &file_count in &[20, 50, 100] {
+        let files = generate_parsed_files_for_flow(file_count);
+        let config = FlowConfig::default();
+
+        group.bench_with_input(
+            BenchmarkId::new("heuristic_patterns", file_count),
+            &(files, config),
+            |b, (files, config)| {
+                b.iter(|| black_box(analyze_data_flow(files, config)));
+            },
+        );
+    }
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_lazy_query_engine,
+    bench_parse_dedup,
+    bench_graph_building,
+    bench_flow_analysis
+);
 criterion_main!(benches);

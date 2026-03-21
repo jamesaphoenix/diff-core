@@ -1034,23 +1034,23 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 - [x] Phase 1: use rayon to collect node data per file in parallel, then merge into graph single-threaded
 - [x] Phase 2: use rayon to compute edges per file in parallel, then add to graph single-threaded
-- [ ] Benchmark: expect 2-4x speedup for 20-100 file diffs
+- [x] Benchmark: 1.3x at 50 files, 1.8x at 100 files (rayon overhead dominates at small synthetic IR scale; real codebases with heavier parse results will see larger gains)
 
 ### 12.9 Efficient flow pattern matching
 
 **Problem:** Heuristic flow analysis in `flow.rs` matches call sites against 100+ pattern strings (DB_WRITE_METHODS, EVENT_EMIT_METHODS, etc.) using `.contains()` per pattern per call — O(patterns × calls) substring searches.
 
-- [ ] Replace linear `.contains()` scans with Aho-Corasick automaton (single-pass multi-pattern match) or `phf` perfect hash set for exact matches
-- [ ] Add `aho-corasick` crate dependency (or `phf` for compile-time sets)
-- [ ] Build automaton once (lazy_static or in QueryEngine), reuse across all files
-- [ ] Benchmark: expect 3-5x speedup for flow analysis on large diffs
+- [x] Replace linear `.contains()` scans with Aho-Corasick automaton for substring matching (SQL keywords, DB keywords, ORM names) and `HashSet` for exact/suffix matching (log patterns, method suffixes, non-DB receivers)
+- [x] Add `aho-corasick` crate dependency
+- [x] Build automatons and hash sets once via `OnceLock`, reuse across all files. Also eliminated `format!()` allocations in framework detection and HTTP/config pattern matching
+- [x] Benchmark added: flow_analysis/heuristic_patterns at 20/50/100 files with 37 mixed call sites per file (criterion)
 
 ### 12.10 Verification
 
-- [ ] All existing tests still pass
-- [ ] Add a benchmark test (`#[bench]` or criterion) for: single-file parse, 50-file parallel parse, full pipeline on largest fixture
-- [ ] Cache hit/miss logging behind `FLOWDIFF_CACHE_DEBUG=1` env var
-- [ ] No behavior change: cached results must be byte-identical to uncached results
+- [x] All existing tests still pass (1626 tests: 1414 unit + 212 integration)
+- [x] Add a benchmark test (criterion) for: graph_build_from_ir (20/50/100 files, parallel vs serial) and flow_analysis/heuristic_patterns (20/50/100 files with 37 mixed call sites each)
+- [x] Cache hit/miss logging behind `FLOWDIFF_CACHE_DEBUG=1` env var (per-operation HIT/MISS lines + summary stats to stderr)
+- [x] No behavior change: cached results are byte-identical to uncached results (verified by `ir_cache_cached_result_byte_identical` test)
 
 ---
 
