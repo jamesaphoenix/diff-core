@@ -625,7 +625,7 @@ impl QueryEngine {
     /// Like [`extract_data_flow`](Self::extract_data_flow) but reuses an already-parsed tree.
     pub fn extract_data_flow_with_tree(
         &self,
-        path: &str,
+        _path: &str,
         source: &str,
         tree: &tree_sitter::Tree,
         language: Language,
