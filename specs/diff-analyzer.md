@@ -972,7 +972,7 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 - [x] Refactor `parse_to_ir()` in `pipeline.rs` to call `parse_tree()` once and pass the resulting `tree_sitter::Tree` to both `parse_with_queries()` and `extract_data_flow()`
 - [x] Update method signatures to accept an optional pre-parsed tree
-- [ ] Benchmark: expect ~2x speedup on per-file parse time
+- [x] Benchmark: measured ~1.2-1.3x speedup (TS: 947→777µs, Py: 659→509µs) — parse is only part of per-file cost; query execution dominates
 
 ### 12.2 Content-addressed IrFile cache
 
