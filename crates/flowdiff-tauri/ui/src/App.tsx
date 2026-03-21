@@ -16,7 +16,7 @@ import type {
   CommentInput,
 } from "./types";
 import { LLM_PROVIDERS, MODELS_BY_PROVIDER } from "./types";
-import DiffViewer from "./components/DiffViewer";
+import DiffViewer, { type DiffViewerHandle } from "./components/DiffViewer";
 import FlowGraph from "./components/FlowGraph";
 // RiskHeatmap hidden (Phase 9.4) — component kept for future re-enablement
 // import RiskHeatmap from "./components/RiskHeatmap";
@@ -24,7 +24,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT } from "./mock";
 
 /** Detect if running inside Tauri (vs plain browser for demo/testing). */
-const IS_TAURI = typeof window !== "undefined" && "__TAURI__" in window;
+const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 /** Lazy-import Tauri invoke only when in Tauri context. */
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -90,9 +90,14 @@ export default function App() {
   const [commentInput, setCommentInput] = useState<CommentInput | null>(null);
   const [commentText, setCommentText] = useState("");
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
+  const diffViewerRef = useRef<DiffViewerHandle>(null);
+  const repoInputRef = useRef<HTMLInputElement>(null);
 
   // Flow graph collapse state (collapses when node is clicked in graph)
   const [graphCollapsed, setGraphCollapsed] = useState(false);
+  const [edgesCollapsed, setEdgesCollapsed] = useState(true);
+  const [commentsCollapsed, setCommentsCollapsed] = useState(false);
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
 
   // Toast notification state (auto-dismiss)
   const [toast, setToast] = useState<string | null>(null);
@@ -289,6 +294,9 @@ export default function App() {
       }
     } catch (e) {
       setError(String(e));
+      // Re-focus the repo input so user can fix the path
+      repoInputRef.current?.focus();
+      repoInputRef.current?.select();
     } finally {
       setLoading(false);
     }
@@ -473,6 +481,8 @@ export default function App() {
       deleteComment: (id: string) => deleteComment(id),
       exportComments: () => exportComments(),
       getCommentInput: () => commentInput,
+      getSelectedFile: () => selectedFile,
+      getSelectedGroup: () => selectedGroup,
     };
     return () => { delete (window as any).__TEST_API__; };
   });
@@ -602,7 +612,7 @@ export default function App() {
   const showToast = useCallback((message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(message);
-    toastTimer.current = setTimeout(() => setToast(null), 2000);
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
   /** Build the absolute file path from repo path + relative path. */
@@ -844,6 +854,14 @@ export default function App() {
   const [availableEditors, setAvailableEditors] = useState<Set<EditorId> | null>(null);
   const openWithRef = useRef<HTMLDivElement>(null);
 
+  const editorIcons: Record<EditorId, string> = {
+    vscode: `<svg width="16" height="16" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg"><mask id="a" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><path d="M70.9 99.3a6 6 0 0 0 4.2-.6l19.3-9.3a6.1 6.1 0 0 0 3.3-5.4V16a6.1 6.1 0 0 0-3.3-5.4L75.1 1.3a6 6 0 0 0-6.8 1.3L29 41.2 12 28.4a4 4 0 0 0-5.1.3L1.3 34a4.1 4.1 0 0 0 0 6l14.8 13-14.8 13a4.1 4.1 0 0 0 0 6l5.6 5.3a4 4 0 0 0 5.1.3L29 64.8l39.3 38.6a6 6 0 0 0 2.6 1.9zM75 27.2 45.1 50 75 72.8z" fill="#fff"/></mask><g mask="url(#a)"><path d="M94.4 10.6 75.1 1.3a6 6 0 0 0-6.8 1.3L1.3 60a4.1 4.1 0 0 0 0 6l5.6 5.3a4 4 0 0 0 5.1.3l78-60.1c3-2.3 7.7-.2 7.7 3.7V16a6.1 6.1 0 0 0-3.3-5.4z" fill="#0065A9"/><g filter="url(#b)"><path d="M94.4 89.4 75.1 98.7a6 6 0 0 1-6.8-1.3L1.3 40a4.1 4.1 0 0 1 0-6l5.6-5.3a4 4 0 0 1 5.1-.3l78 60.1c3 2.3 7.7.2 7.7-3.7V84a6.1 6.1 0 0 1-3.3 5.4z" fill="#007ACC"/></g><g filter="url(#c)"><path d="M75.1 98.7A6 6 0 0 1 68.3 97c4.6 4.6 12.4 1.3 12.4-5.2V8.2c0-6.5-7.8-9.8-12.4-5.2a6 6 0 0 1 6.8-1.7l19.3 9.3A6.1 6.1 0 0 1 97.7 16v68a6.1 6.1 0 0 1-3.3 5.4z" fill="#1F9CF0"/></g></g><defs><filter id="b" x="-8.4" y="15.1" width="114.2" height="92.9"><feFlood flood-opacity="0" result="A"/><feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"/><feOffset/><feGaussianBlur stdDeviation="4.2"/><feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .25 0"/><feBlend in2="A"/><feBlend in="SourceGraphic"/></filter><filter id="c" x="60.9" y="-8.4" width="45.2" height="116.8"><feFlood flood-opacity="0" result="A"/><feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"/><feOffset/><feGaussianBlur stdDeviation="4.2"/><feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .25 0"/><feBlend in2="A"/><feBlend in="SourceGraphic"/></filter></defs></svg>`,
+    cursor: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1l6.5 14L10 9l6-2.5z" stroke="#cdd6f4" stroke-width="1.5" stroke-linejoin="round" fill="none"/><path d="M10 9l4.5 4.5" stroke="#cdd6f4" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    zed: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 3h12L2 13h12" stroke="#cdd6f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    vim: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 2l4 12L8 6l2 8 4-12" stroke="#019833" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    terminal: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="2" width="14" height="12" rx="2" stroke="#cdd6f4" stroke-width="1.2"/><path d="M4 6l2.5 2L4 10" stroke="#a6e3a1" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 10H12" stroke="#6c7086" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+  };
+
   const allEditorOptions: { id: EditorId; label: string }[] = [
     { id: "vscode", label: "VS Code" },
     { id: "cursor", label: "Cursor" },
@@ -964,19 +982,20 @@ export default function App() {
   // Registered on capture phase so shortcuts work even when Monaco editor has focus.
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Skip if user is typing in an input field
+      // Skip if user is typing in an input field — but not Monaco's internal textarea
       const target = e.target as HTMLElement;
+      const isInMonaco = !!target.closest(".monaco-editor");
       if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT"
+        !isInMonaco &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
       ) {
         return;
       }
 
       // When Monaco has focus, only intercept known app shortcut keys.
       // Let other keys (arrows, Page Up/Down, etc.) pass through to Monaco for scrolling.
-      const isInMonaco = !!target.closest(".monaco-editor");
       if (isInMonaco) {
         const appKeys = new Set(["j", "k", "J", "K", "r", "x", "y", "Y", "c", "C"]);
         if (!appKeys.has(e.key)) {
@@ -1053,9 +1072,36 @@ export default function App() {
         return;
       }
 
-      // c opens context-sensitive comment input
+      // c opens context-sensitive comment input — if text is selected in Monaco, include it
       if (e.key === "c" && !e.shiftKey && group) {
         consume();
+        // Try to grab the current selection from Monaco's modified (right-side) editor
+        const monacoEditors = (window as any).monaco?.editor?.getEditors?.();
+        if (monacoEditors && file) {
+          for (const ed of monacoEditors) {
+            const sel = ed.getSelection?.();
+            if (sel && sel.startLineNumber !== sel.endLineNumber) {
+              const model = ed.getModel?.();
+              if (model) {
+                const startLine = Math.min(sel.startLineNumber, sel.endLineNumber);
+                const endLine = Math.max(sel.startLineNumber, sel.endLineNumber);
+                const lines: string[] = [];
+                for (let i = startLine; i <= endLine; i++) {
+                  lines.push(model.getLineContent(i));
+                }
+                openCommentInput({
+                  type: "code",
+                  group_id: group.id,
+                  file_path: file,
+                  start_line: startLine,
+                  end_line: endLine,
+                  selected_code: lines.join("\n"),
+                });
+                return;
+              }
+            }
+          }
+        }
         openCommentInput();
         return;
       }
@@ -1133,11 +1179,18 @@ export default function App() {
         </div>
         <div className="top-bar-center">
           <input
+            ref={repoInputRef}
             className="input repo-input"
             type="text"
             placeholder="Repository path..."
             value={repoPath}
             onChange={(e) => setRepoPath(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && repoPath && !loading) {
+                (e.target as HTMLInputElement).blur();
+                runAnalysis();
+              }
+            }}
           />
 
           {/* Base branch dropdown (replaces text input) */}
@@ -1553,9 +1606,18 @@ export default function App() {
                               +{file.changes.additions} -{file.changes.deletions}
                             </span>
                             {commentsForFile(file.path).length > 0 && (
-                              <span className="file-comment-icon" title={`${commentsForFile(file.path).length} comment${commentsForFile(file.path).length === 1 ? "" : "s"}`}>
-                                &#128172;
-                              </span>
+                              <button
+                                className="file-comment-btn"
+                                title={`${commentsForFile(file.path).length} comment${commentsForFile(file.path).length === 1 ? "" : "s"} — click to view`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectFile(file.path);
+                                  setCommentsCollapsed(false);
+                                }}
+                              >
+                                <span className="file-comment-icon">&#128172;</span>
+                                <span className="file-comment-count">{commentsForFile(file.path).length}</span>
+                              </button>
                             )}
                             {fileMoved && (
                               <span className="file-moved-tag" title={fileMoved.reason}>
@@ -1583,6 +1645,12 @@ export default function App() {
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+            {loading && (
+              <div className="empty-state loading-state">
+                <span className="spinner" />
+                Analyzing repository...
               </div>
             )}
             {!analysis && !loading && (
@@ -1635,6 +1703,10 @@ export default function App() {
                         className={`open-with-option ${opt.id === lastEditor ? "active" : ""}`}
                         onClick={() => openInEditor(opt.id)}
                       >
+                        <span
+                          className="editor-icon"
+                          dangerouslySetInnerHTML={{ __html: editorIcons[opt.id] }}
+                        />
                         {opt.label}
                       </button>
                     ))}
@@ -1700,8 +1772,9 @@ export default function App() {
             <ErrorBoundary panelName="Diff Viewer">
               <CrashTest panel="Diff Viewer" />
               <DiffViewer
+                ref={diffViewerRef}
                 fileDiff={fileDiff}
-                onCommentRequest={(startLine, endLine, selectedCode) => {
+                onCommentRequest={(startLine: number, endLine: number, selectedCode: string) => {
                   const group = selectedGroupRef.current;
                   const file = selectedFileRef.current;
                   if (group && file) {
@@ -1718,9 +1791,109 @@ export default function App() {
                 codeComments={selectedFile ? comments.filter(
                   (c) => c.type === "code" && c.file_path === selectedFile,
                 ) : []}
+                onGlyphClick={(commentId) => {
+                  setActiveCommentId(commentId);
+                  setCommentsCollapsed(false);
+                  // Scroll the comment card into view in the strip
+                  setTimeout(() => {
+                    const el = document.querySelector(`.comment-strip-item[data-comment-id="${commentId}"]`);
+                    el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                  }, 100);
+                }}
               />
             </ErrorBoundary>
           </div>
+          {/* Comment strip below the diff — header + left nav + detail view */}
+          {selectedFile && (() => {
+            const fileComments = comments.filter(
+              (c) => c.file_path === selectedFile && selectedGroup && c.group_id === selectedGroup.id,
+            );
+            if (fileComments.length === 0) return null;
+            return (
+              <div className={`comment-strip ${commentsCollapsed ? "comment-strip-collapsed" : ""}`}>
+                {/* Header bar with "Comments" label and collapse toggle */}
+                <div className="comment-strip-header">
+                  <button
+                    className="comment-strip-toggle"
+                    onClick={() => setCommentsCollapsed(!commentsCollapsed)}
+                    aria-expanded={!commentsCollapsed}
+                  >
+                    <span className="section-toggle-icon">{commentsCollapsed ? "\u25B6" : "\u25BC"}</span>
+                    <span>Comments</span>
+                    <span className="comment-strip-count">{fileComments.length}</span>
+                  </button>
+                </div>
+                {/* Collapsible body */}
+                <div className="comment-strip-body">
+                  {/* Left nav — compact pill list for quick toggling */}
+                  <div className="comment-strip-nav">
+                    {fileComments.map((comment, i) => (
+                      <button
+                        key={comment.id}
+                        className={`comment-strip-nav-item comment-strip-nav-${comment.type} ${activeCommentId === comment.id ? "comment-strip-nav-active" : ""}`}
+                        onClick={() => {
+                          setActiveCommentId(comment.id);
+                          if (comment.start_line != null) {
+                            diffViewerRef.current?.scrollToLine(comment.start_line, comment.end_line ?? undefined);
+                          }
+                          // Scroll corresponding card into view
+                          setTimeout(() => {
+                            const el = document.querySelector(`.comment-strip-item[data-comment-id="${comment.id}"]`);
+                            el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                          }, 50);
+                        }}
+                        title={comment.text.slice(0, 60) + (comment.text.length > 60 ? "..." : "")}
+                      >
+                        <span className="comment-strip-nav-num">{i + 1}</span>
+                        {comment.start_line != null && (
+                          <span className="comment-strip-nav-line">L{comment.start_line}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Right detail — scrollable comment cards */}
+                  <div className="comment-strip-detail">
+                    {fileComments.map((comment) => (
+                      <div
+                        key={comment.id}
+                        data-comment-id={comment.id}
+                        className={`comment-strip-item ${activeCommentId === comment.id ? "comment-strip-item-active" : ""}`}
+                        onClick={() => {
+                          setActiveCommentId(comment.id);
+                          if (comment.start_line != null) {
+                            diffViewerRef.current?.scrollToLine(comment.start_line, comment.end_line ?? undefined);
+                          }
+                        }}
+                        role={comment.start_line != null ? "button" : undefined}
+                        tabIndex={comment.start_line != null ? 0 : undefined}
+                      >
+                        <div className="comment-strip-meta">
+                          <span className={`comment-strip-badge comment-strip-badge-${comment.type}`}>{comment.type}</span>
+                          {comment.file_path && (
+                            <span className="comment-strip-filepath">{shortPath(comment.file_path)}</span>
+                          )}
+                          {comment.start_line != null && comment.end_line != null && (
+                            <span className="comment-strip-lines">:{comment.start_line}-{comment.end_line}</span>
+                          )}
+                          <button
+                            className="comment-strip-delete"
+                            onClick={(e) => { e.stopPropagation(); deleteComment(comment.id); }}
+                            title="Delete comment"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                        {comment.selected_code && (
+                          <pre className="comment-strip-code">{comment.selected_code}</pre>
+                        )}
+                        <p className="comment-strip-text">{comment.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </main>
 
         {/* Right panel: Annotations & Graph */}
@@ -1855,84 +2028,75 @@ export default function App() {
                   </>
                 )}
 
-                {/* Flow graph (React Flow) — collapses when a node is clicked */}
+                {/* Flow graph (React Flow) — smooth collapse */}
                 {selectedGroup.edges.length > 0 && (
                   <div className={`annotation-section flow-graph-section ${graphCollapsed ? "flow-graph-collapsed" : ""}`}>
                     <button
-                      className="flow-graph-toggle"
+                      className="section-toggle"
                       onClick={() => setGraphCollapsed(!graphCollapsed)}
                       aria-expanded={!graphCollapsed}
                     >
-                      <span className="flow-graph-toggle-icon">{graphCollapsed ? "\u25B6" : "\u25BC"}</span>
-                      <h3>Flow Graph</h3>
+                      <span className="section-toggle-icon">{graphCollapsed ? "\u25B6" : "\u25BC"}</span>
+                      <span className="section-toggle-label">Flow Graph</span>
                     </button>
-                    {!graphCollapsed && (
-                    <ErrorBoundary panelName="Flow Graph">
-                      <CrashTest panel="Flow Graph" />
-                      <FlowGraph
-                        edges={selectedGroup.edges}
-                        files={selectedGroup.files}
-                        onNodeClick={handleGraphNodeClick}
-                        replayNodeId={replayActive && selectedGroup.files[replayStep] ? selectedGroup.files[replayStep].path : null}
-                      />
-                    </ErrorBoundary>
-                    )}
+                    <div className="collapsible-body collapsible-graph">
+                      <ErrorBoundary panelName="Flow Graph">
+                        <CrashTest panel="Flow Graph" />
+                        <FlowGraph
+                          edges={selectedGroup.edges}
+                          files={selectedGroup.files}
+                          onNodeClick={handleGraphNodeClick}
+                          replayNodeId={replayActive && selectedGroup.files[replayStep] ? selectedGroup.files[replayStep].path : null}
+                        />
+                      </ErrorBoundary>
+                    </div>
                   </div>
                 )}
 
-                {/* Edge list */}
+                {/* Edge list — smooth collapse, collapsed by default */}
                 {selectedGroup.edges.length > 0 && (
-                  <div className="annotation-section">
-                    <h3>Edges</h3>
-                    <ul className="edge-list">
-                      {selectedGroup.edges.map((edge, i) => (
-                        <li key={i} className="edge-item">
-                          <span className="edge-type">{edge.edge_type}</span>
-                          <span className="edge-from">{shortSymbol(edge.from)}</span>
-                          <span className="edge-arrow">&rarr;</span>
-                          <span className="edge-to">{shortSymbol(edge.to)}</span>
-                        </li>
-                      ))}
-                    </ul>
+                  <div className={`annotation-section edges-section ${edgesCollapsed ? "edges-collapsed" : ""}`}>
+                    <button
+                      className="section-toggle"
+                      onClick={() => setEdgesCollapsed(!edgesCollapsed)}
+                      aria-expanded={!edgesCollapsed}
+                    >
+                      <span className="section-toggle-icon">{edgesCollapsed ? "\u25B6" : "\u25BC"}</span>
+                      <span className="section-toggle-label">Edges</span>
+                      <span className="section-toggle-count">{selectedGroup.edges.length}</span>
+                    </button>
+                    <div className="collapsible-body collapsible-edges">
+                      <ul className="edge-list">
+                        {selectedGroup.edges.map((edge, i) => (
+                          <li key={i} className="edge-item">
+                            <span className="edge-type">{edge.edge_type}</span>
+                            <span className="edge-from">{shortSymbol(edge.from)}</span>
+                            <span className="edge-arrow">&rarr;</span>
+                            <span className="edge-to">{shortSymbol(edge.to)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   </div>
                 )}
 
-                {/* Review Comments for this group */}
-                {comments.filter((c) => c.group_id === selectedGroup.id).length > 0 && (
-                  <div className="annotation-section comment-section">
-                    <h3>Comments</h3>
-                    {comments
-                      .filter((c) => c.group_id === selectedGroup.id)
-                      .map((comment) => (
-                        <div key={comment.id} className={`comment-bubble comment-${comment.type}`}>
-                          <div className="comment-bubble-header">
-                            <span className="comment-scope-badge">{comment.type}</span>
-                            {comment.file_path && (
-                              <span className="comment-file-ref">{shortPath(comment.file_path)}</span>
-                            )}
-                            {comment.start_line != null && comment.end_line != null && (
-                              <span className="comment-line-ref">:{comment.start_line}-{comment.end_line}</span>
-                            )}
-                            <button
-                              className="comment-delete-btn"
-                              onClick={() => deleteComment(comment.id)}
-                              title="Delete comment"
-                            >
-                              &times;
-                            </button>
-                          </div>
-                          {comment.selected_code && (
-                            <pre className="comment-code-snippet">{comment.selected_code}</pre>
-                          )}
-                          <p className="comment-text">{comment.text}</p>
-                        </div>
-                      ))}
+                {/* Comments now shown in the comment strip below the diff viewer */}
+
+                {/* LLM loading indicators */}
+                {annotating && (
+                  <div className="annotation-section llm-loading">
+                    <span className="spinner" /> Generating overview...
+                  </div>
+                )}
+                {deepAnalyzing && (
+                  <div className="annotation-section llm-loading">
+                    <span className="spinner" /> Analyzing flow group...
                   </div>
                 )}
 
                 {/* LLM action buttons */}
                 <div className="annotation-section annotation-actions">
-                  {!overview && (
+                  {!overview && !annotating && (
                     <button
                       className={`btn btn-summarize ${!hasApiKey ? "no-api-key" : ""}`}
                       onClick={runAnnotateOverview}
@@ -1943,10 +2107,10 @@ export default function App() {
                           : "Requires API key — click the gear icon to configure LLM settings"
                       }
                     >
-                      {annotating ? "Summarizing..." : hasApiKey ? "Summarize PR" : "Summarize PR (Requires API key)"}
+                      {hasApiKey ? "Summarize PR" : "Summarize PR (API key required)"}
                     </button>
                   )}
-                  {!groupDeepAnalysis && (
+                  {!groupDeepAnalysis && !deepAnalyzing && (
                     <button
                       className={`btn btn-analyze-flow ${!hasApiKey ? "no-api-key" : ""}`}
                       onClick={runDeepAnalysis}
@@ -1957,7 +2121,7 @@ export default function App() {
                           : "Requires API key — click the gear icon to configure LLM settings"
                       }
                     >
-                      {deepAnalyzing ? "Analyzing..." : hasApiKey ? "Analyze This Flow" : "Analyze This Flow (Requires API key)"}
+                      {hasApiKey ? "Analyze This Flow" : "Analyze Flow (API key required)"}
                     </button>
                   )}
                   {/* Provider/model indicator */}
@@ -2086,7 +2250,10 @@ export default function App() {
 
       {/* Toast notification */}
       {toast && (
-        <div className="toast">{toast}</div>
+        <div className="toast">
+          <span>{toast}</span>
+          <button className="toast-close" onClick={() => setToast(null)} aria-label="Dismiss">&times;</button>
+        </div>
       )}
     </div>
   );

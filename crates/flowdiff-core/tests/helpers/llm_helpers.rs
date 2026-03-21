@@ -20,9 +20,16 @@ pub fn should_run_live() -> bool {
 /// Only sets variables that are not already in the environment
 /// (does not override explicit env vars).
 pub fn load_env() {
-    let env_path =
-        "/Users/jamesaphoenix/Desktop/projects/brightpool/udemy-prompt-engineering-course/.env";
-    if let Ok(contents) = std::fs::read_to_string(env_path) {
+    // Load from FLOWDIFF_ENV_FILE or fall back to .env in the repo root
+    let env_path = std::env::var("FLOWDIFF_ENV_FILE")
+        .unwrap_or_else(|_| {
+            let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            p.pop(); // crates/flowdiff-core -> crates
+            p.pop(); // crates -> repo root
+            p.push(".env");
+            p.to_string_lossy().to_string()
+        });
+    if let Ok(contents) = std::fs::read_to_string(&env_path) {
         for line in contents.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {

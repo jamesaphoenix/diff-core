@@ -15,7 +15,6 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "@dagrejs/dagre";
-import { toPng, toSvg } from "html-to-image";
 import type { FlowEdge, FileChange, EdgeType } from "../types";
 
 interface FlowGraphProps {
@@ -391,36 +390,6 @@ function Legend() {
   );
 }
 
-/** (9) Export graph as PNG/SVG buttons. */
-function ExportButtons({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
-  const handleExport = useCallback(async (format: "png" | "svg") => {
-    const el = containerRef.current;
-    if (!el) return;
-    try {
-      const dataUrl = format === "png"
-        ? await toPng(el, { backgroundColor: "#181825", pixelRatio: 2 })
-        : await toSvg(el, { backgroundColor: "#181825" });
-      const link = document.createElement("a");
-      link.download = `flowdiff-graph.${format}`;
-      link.href = dataUrl;
-      link.click();
-    } catch {
-      // Export is best-effort; silently fail
-    }
-  }, [containerRef]);
-
-  return (
-    <div className="flow-export-buttons">
-      <button className="flow-export-btn" onClick={() => handleExport("png")} title="Export as PNG">
-        PNG
-      </button>
-      <button className="flow-export-btn" onClick={() => handleExport("svg")} title="Export as SVG">
-        SVG
-      </button>
-    </div>
-  );
-}
-
 export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: FlowGraphProps) {
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
     () => buildGraph(edges, files),
@@ -463,26 +432,30 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
     (_event, node) => {
       const filePath = node.data.filePath as string;
       setSelectedNodeId(node.id);
+      // In fullscreen, close it first so the user sees the file in the diff viewer
+      if (fullscreen) {
+        setFullscreen(false);
+      }
       if (filePath && onNodeClick) {
         onNodeClick(filePath);
       }
     },
-    [onNodeClick],
+    [onNodeClick, fullscreen],
   );
 
   const handlePaneClick = useCallback(() => {
     setSelectedNodeId(null);
   }, []);
 
-  // Auto-fit view when the node set changes (group switch or section expand).
-  // Small delay lets dagre layout settle before fitting.
+  // Auto-fit view when the node set changes or fullscreen is toggled.
+  // Small delay lets dagre layout / container resize settle before fitting.
   useEffect(() => {
     if (!reactFlowInstance.current) return;
     const timer = setTimeout(() => {
       reactFlowInstance.current?.fitView({ padding: 0.3, duration: 400 });
     }, 50);
     return () => clearTimeout(timer);
-  }, [initialNodes]);
+  }, [initialNodes, fullscreen]);
 
   // (4) Fullscreen: Escape key exits
   useEffect(() => {
@@ -522,9 +495,6 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
         {fullscreen ? "\u2935" : "\u2922"}
       </button>
 
-      {/* (9) Export buttons */}
-      <ExportButtons containerRef={containerRef} />
-
       <ReactFlow
         nodes={processedNodes}
         edges={processedEdges}
@@ -546,11 +516,11 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
         colorMode="dark"
       >
         <Background color="#45475a" gap={16} size={1} />
-        {initialNodes.length >= 6 && (
+        {initialNodes.length >= 15 && (
           <MiniMap
             nodeColor={(n) => ROLE_COLORS[(n.data as Record<string, unknown>).role as string] || "#6c7086"}
             maskColor="rgba(30, 30, 46, 0.7)"
-            style={{ background: "#181825", border: "1px solid #45475a" }}
+            style={{ background: "#181825", border: "1px solid #45475a", width: 120, height: 80 }}
           />
         )}
         <Controls showInteractive={false} />

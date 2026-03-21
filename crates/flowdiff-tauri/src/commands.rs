@@ -897,10 +897,37 @@ pub fn clear_api_key(repo_path: String) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// macOS app bundle name for each editor.
+#[cfg(target_os = "macos")]
+fn macos_app_name(editor: &str) -> Option<&'static str> {
+    match editor {
+        "vscode" => Some("Visual Studio Code"),
+        "cursor" => Some("Cursor"),
+        "zed" => Some("Zed"),
+        _ => None,
+    }
+}
+
+/// Check if a macOS .app bundle exists in /Applications or ~/Applications.
+#[cfg(target_os = "macos")]
+fn macos_app_exists(app_name: &str) -> bool {
+    let global = format!("/Applications/{}.app", app_name);
+    if PathBuf::from(&global).exists() {
+        return true;
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let user = format!("{}/Applications/{}.app", home, app_name);
+        if PathBuf::from(&user).exists() {
+            return true;
+        }
+    }
+    false
+}
+
 /// Open a file in an external editor.
 ///
-/// Supported editors: "vscode" (`code`), "cursor" (`cursor`), "terminal" (opens folder).
-/// Returns an error if the editor binary is not found.
+/// On macOS, uses `open -a "App Name"` for GUI editors (works without PATH).
+/// Falls back to CLI binary for non-macOS or terminal-based editors.
 #[tauri::command]
 pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandError> {
     let path = PathBuf::from(&file_path);
@@ -909,39 +936,91 @@ pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandEr
     }
 
     let result = match editor.as_str() {
-        "vscode" => std::process::Command::new("code").arg(&file_path).spawn(),
-        "cursor" => std::process::Command::new("cursor").arg(&file_path).spawn(),
-        "zed" => std::process::Command::new("zed").arg(&file_path).spawn(),
-        "vim" => {
-            // Open vim in a new terminal window
+        "vscode" | "cursor" | "zed" => {
             #[cfg(target_os = "macos")]
             {
-                std::process::Command::new("open")
-                    .args(["-a", "Terminal"])
-                    .arg(format!("vim {}", &file_path))
+                // Use the CLI binary via the app bundle's bin/ path for proper workspace trust.
+                // `open -a` opens files as untrusted; the CLI opens in the existing workspace.
+                let cli_path = match editor.as_str() {
+                    "vscode" => "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+                    "cursor" => "/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
+                    "zed" => "/Applications/Zed.app/Contents/MacOS/cli",
+                    _ => unreachable!(),
+                };
+                if std::path::Path::new(cli_path).exists() {
+                    std::process::Command::new(cli_path)
+                        .args(["--reuse-window", "--goto", &file_path])
+                        .spawn()
+                } else {
+                    // Fallback to `open -a` if CLI path not found
+                    let app_name = macos_app_name(&editor).unwrap();
+                    std::process::Command::new("open")
+                        .args(["-a", app_name, &file_path])
+                        .spawn()
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let bin = match editor.as_str() {
+                    "vscode" => "code",
+                    "cursor" => "cursor",
+                    "zed" => "zed",
+                    _ => unreachable!(),
+                };
+                std::process::Command::new(bin).args(["--reuse-window", "--goto", &file_path]).spawn()
+            }
+        }
+        "vim" => {
+            #[cfg(target_os = "macos")]
+            {
+                // Open vim in a NEW Terminal window via AppleScript
+                let escaped = file_path.replace('\\', "\\\\").replace('"', "\\\"");
+                std::process::Command::new("osascript")
+                    .args([
+                        "-e",
+                        &format!(
+                            "tell application \"Terminal\"\n\
+                                activate\n\
+                                do script \"vim \\\"{}\\\"\" \n\
+                            end tell",
+                            escaped
+                        ),
+                    ])
                     .spawn()
             }
             #[cfg(not(target_os = "macos"))]
             {
-                // Fallback: try to open in a new terminal
                 std::process::Command::new("vim").arg(&file_path).spawn()
             }
         }
         "terminal" => {
             let dir = if path.is_dir() {
-                &file_path
+                file_path.clone()
             } else {
                 path.parent()
-                    .map(|p| p.to_str().unwrap_or(&file_path))
-                    .unwrap_or(&file_path)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| file_path.clone())
             };
             #[cfg(target_os = "macos")]
             {
-                std::process::Command::new("open").args(["-a", "Terminal", dir]).spawn()
+                // Use AppleScript to open Terminal and cd to the directory
+                let escaped = dir.replace('\\', "\\\\").replace('"', "\\\"");
+                std::process::Command::new("osascript")
+                    .args([
+                        "-e",
+                        &format!(
+                            "tell application \"Terminal\"\n\
+                                activate\n\
+                                do script \"cd \\\"{}\\\"\" \n\
+                            end tell",
+                            escaped
+                        ),
+                    ])
+                    .spawn()
             }
             #[cfg(target_os = "linux")]
             {
-                std::process::Command::new("xdg-open").arg(dir).spawn()
+                std::process::Command::new("xdg-open").arg(&dir).spawn()
             }
             #[cfg(target_os = "windows")]
             {
@@ -955,43 +1034,48 @@ pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandEr
 
     match result {
         Ok(_) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            let bin = match editor.as_str() {
-                "vscode" => "code",
-                "cursor" => "cursor",
-                "zed" => "zed",
-                "vim" => "vim",
-                "terminal" => "terminal",
+        Err(e) => {
+            let label = match editor.as_str() {
+                "vscode" => "VS Code",
+                "cursor" => "Cursor",
+                "zed" => "Zed",
+                "vim" => "Vim",
+                "terminal" => "Terminal",
                 _ => &editor,
             };
             Err(CommandError::Io(format!(
-                "'{}' not found — is {} installed and in your PATH?",
-                bin, editor
+                "Failed to open {} — is it installed? ({})",
+                label, e
             )))
         }
-        Err(e) => Err(CommandError::Io(format!("Failed to launch {}: {}", editor, e))),
     }
 }
 
 /// Check which editors are available on the system.
 ///
-/// Returns a map of editor id → available (true/false).
+/// On macOS, checks for .app bundles in /Applications (works without PATH).
+/// On other platforms, uses `which`/`where` to find CLI binaries.
 #[tauri::command]
 pub fn check_editors_available() -> std::collections::HashMap<String, bool> {
-    let editors = [
-        ("vscode", "code"),
-        ("cursor", "cursor"),
-        ("zed", "zed"),
-        ("vim", "vim"),
-        ("terminal", "true"), // terminal is always available
-    ];
+    let mut result = std::collections::HashMap::new();
 
-    editors
-        .iter()
-        .map(|(id, bin)| {
-            let available = if *id == "terminal" {
-                true
-            } else {
+    // GUI editors
+    for id in &["vscode", "cursor", "zed"] {
+        let available = {
+            #[cfg(target_os = "macos")]
+            {
+                macos_app_name(id)
+                    .map(|name| macos_app_exists(name))
+                    .unwrap_or(false)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let bin = match *id {
+                    "vscode" => "code",
+                    "cursor" => "cursor",
+                    "zed" => "zed",
+                    _ => id,
+                };
                 #[cfg(unix)]
                 {
                     std::process::Command::new("which")
@@ -1012,10 +1096,40 @@ pub fn check_editors_available() -> std::collections::HashMap<String, bool> {
                         .map(|s| s.success())
                         .unwrap_or(false)
                 }
-            };
-            (id.to_string(), available)
-        })
-        .collect()
+            }
+        };
+        result.insert(id.to_string(), available);
+    }
+
+    // vim — check binary in PATH (available on most systems)
+    let vim_available = {
+        #[cfg(unix)]
+        {
+            std::process::Command::new("which")
+                .arg("vim")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        }
+        #[cfg(windows)]
+        {
+            std::process::Command::new("where")
+                .arg("vim")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        }
+    };
+    result.insert("vim".to_string(), vim_available);
+
+    // Terminal is always available
+    result.insert("terminal".to_string(), true);
+
+    result
 }
 
 /// Load config from a repo path, returning both config and optional workdir.
@@ -2023,5 +2137,61 @@ mod tests {
         // Verify deserialization from "type" field
         let back: ReviewComment = serde_json::from_str(&json).unwrap();
         assert_eq!(back.comment_type, "code");
+    }
+
+    // ── Open-in-editor / editor detection tests ─────────────────────
+
+    #[test]
+    fn test_check_editors_available_returns_all_editor_ids() {
+        let result = check_editors_available();
+        // Should always contain all 5 editor IDs
+        for id in &["vscode", "cursor", "zed", "vim", "terminal"] {
+            assert!(result.contains_key(*id), "Missing editor id: {}", id);
+        }
+        // Terminal should always be available
+        assert_eq!(result["terminal"], true);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_macos_app_name_mapping() {
+        assert_eq!(macos_app_name("vscode"), Some("Visual Studio Code"));
+        assert_eq!(macos_app_name("cursor"), Some("Cursor"));
+        assert_eq!(macos_app_name("zed"), Some("Zed"));
+        assert_eq!(macos_app_name("vim"), None);
+        assert_eq!(macos_app_name("terminal"), None);
+        assert_eq!(macos_app_name("unknown"), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_macos_app_exists_nonexistent() {
+        // An app that definitely doesn't exist
+        assert!(!macos_app_exists("Flowdiff Nonexistent App 12345"));
+    }
+
+    #[test]
+    fn test_open_in_editor_all_known_editors_accept_temp_file() {
+        // All known editor IDs should not return "Unknown editor" for a valid file
+        let tmp = std::env::temp_dir().join("flowdiff_test_known_editors");
+        std::fs::write(&tmp, "test").unwrap();
+        let path = tmp.to_str().unwrap().to_string();
+
+        for editor in &["vscode", "cursor", "zed", "vim", "terminal"] {
+            let result = open_in_editor(editor.to_string(), path.clone());
+            // Result may be Ok (if editor is installed) or Err (not installed),
+            // but should never be "Unknown editor"
+            if let Err(e) = &result {
+                let msg = e.to_string();
+                assert!(
+                    !msg.contains("Unknown editor"),
+                    "Editor '{}' treated as unknown: {}",
+                    editor,
+                    msg
+                );
+            }
+        }
+
+        std::fs::remove_file(&tmp).ok();
     }
 }

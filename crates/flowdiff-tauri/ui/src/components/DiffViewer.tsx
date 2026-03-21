@@ -1,6 +1,11 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useImperativeHandle, forwardRef, useEffect } from "react";
 import { DiffEditor } from "@monaco-editor/react";
 import type { FileDiffContent, ReviewComment } from "../types";
+
+export interface DiffViewerHandle {
+  /** Scroll the modified editor to a line range, select it, and briefly highlight it. */
+  scrollToLine: (startLine: number, endLine?: number) => void;
+}
 
 interface DiffViewerProps {
   fileDiff: FileDiffContent | null;
@@ -8,14 +13,18 @@ interface DiffViewerProps {
   onCommentRequest?: (startLine: number, endLine: number, selectedCode: string) => void;
   /** Comments for the current file (code-level only). */
   codeComments?: ReviewComment[];
+  /** Called when user clicks a glyph icon in the gutter — passes the comment ID. */
+  onGlyphClick?: (commentId: string) => void;
 }
 
 /** Monaco-based side-by-side diff viewer for the center panel. */
-export default function DiffViewer({ fileDiff, onCommentRequest, codeComments }: DiffViewerProps) {
+const DiffViewer = forwardRef<DiffViewerHandle, DiffViewerProps>(function DiffViewer({ fileDiff, onCommentRequest, codeComments, onGlyphClick }, ref) {
   const [selectionRange, setSelectionRange] = useState<{ startLine: number; endLine: number } | null>(null);
   const [commentBtnPos, setCommentBtnPos] = useState<{ top: number; left: number } | null>(null);
   const editorRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const decorationsRef = useRef<any>(null);
 
   const handleEditorMount = useCallback(
     (editor: any) => {
@@ -23,7 +32,14 @@ export default function DiffViewer({ fileDiff, onCommentRequest, codeComments }:
 
       // Get the modified editor (right side of the diff)
       const modifiedEditor = editor.getModifiedEditor();
+      const originalEditor = editor.getOriginalEditor();
       if (!modifiedEditor) return;
+
+      // Enable glyph margin on both sub-editors (DiffEditor options don't propagate)
+      modifiedEditor.updateOptions({ glyphMargin: true });
+      if (originalEditor) {
+        originalEditor.updateOptions({ glyphMargin: true });
+      }
 
       // Listen for selection changes
       modifiedEditor.onDidChangeCursorSelection((e: any) => {
@@ -56,13 +72,27 @@ export default function DiffViewer({ fileDiff, onCommentRequest, codeComments }:
         }
       });
 
-      // Apply gutter decorations for existing code comments
+      // Apply initial decorations
       if (codeComments && codeComments.length > 0) {
-        applyCommentDecorations(modifiedEditor, codeComments);
+        decorationsRef.current = applyCommentDecorations(modifiedEditor, codeComments, onGlyphClick);
       }
     },
-    [codeComments],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   );
+
+  // Re-apply decorations when codeComments changes (e.g., after adding/deleting a comment)
+  useEffect(() => {
+    const editor = editorRef.current?.getModifiedEditor?.();
+    if (!editor) return;
+    // Clear old decorations
+    if (decorationsRef.current) {
+      decorationsRef.current.clear();
+    }
+    if (codeComments && codeComments.length > 0) {
+      decorationsRef.current = applyCommentDecorations(editor, codeComments, onGlyphClick);
+    }
+  }, [codeComments, onGlyphClick]);
 
   const handleCommentClick = useCallback(() => {
     if (!selectionRange || !editorRef.current || !onCommentRequest) return;
@@ -86,6 +116,30 @@ export default function DiffViewer({ fileDiff, onCommentRequest, codeComments }:
     setCommentBtnPos(null);
   }, [selectionRange, onCommentRequest]);
 
+  // Expose scrollToLine to parent via ref
+  useImperativeHandle(ref, () => ({
+    scrollToLine(startLine: number, endLine?: number) {
+      const editor = editorRef.current?.getModifiedEditor?.();
+      if (!editor) return;
+      const end = endLine ?? startLine;
+      // Scroll to the range center
+      editor.revealLineInCenter(startLine);
+      // Select the entire range so the code block is visually obvious
+      editor.setSelection({
+        startLineNumber: startLine,
+        startColumn: 1,
+        endLineNumber: end,
+        endColumn: editor.getModel()?.getLineMaxColumn(end) ?? 1,
+      });
+      // Add a temporary highlight decoration on top
+      const decs = editor.createDecorationsCollection([{
+        range: { startLineNumber: startLine, startColumn: 1, endLineNumber: end, endColumn: 1 },
+        options: { isWholeLine: true, className: "comment-scroll-highlight" },
+      }]);
+      setTimeout(() => decs.clear(), 2500);
+    },
+  }), []);
+
   if (!fileDiff) {
     return (
       <div className="empty-state">Select a file to view its diff.</div>
@@ -104,6 +158,7 @@ export default function DiffViewer({ fileDiff, onCommentRequest, codeComments }:
         theme="flowdiff-dark"
         options={{
           readOnly: true,
+          readOnlyMessage: { value: "" },
           renderSideBySide: true,
           enableSplitViewResizing: true,
           automaticLayout: true,
@@ -163,30 +218,71 @@ export default function DiffViewer({ fileDiff, onCommentRequest, codeComments }:
       )}
     </div>
   );
-}
+});
 
-/** Apply gutter decorations for code-level comments. */
-function applyCommentDecorations(editor: any, comments: ReviewComment[]) {
-  const decorations = comments
-    .filter((c) => c.start_line != null && c.end_line != null)
-    .map((c) => ({
+export default DiffViewer;
+
+/** Apply gutter decorations for code-level comments. Returns the collection for cleanup. */
+function applyCommentDecorations(
+  editor: any,
+  comments: ReviewComment[],
+  onGlyphClick?: (commentId: string) => void,
+): any {
+  const decorations: any[] = [];
+
+  for (const c of comments) {
+    if (c.start_line == null || c.end_line == null) continue;
+
+    // Glyph icon on the FIRST line only
+    decorations.push({
       range: {
-        startLineNumber: c.start_line!,
+        startLineNumber: c.start_line,
         startColumn: 1,
-        endLineNumber: c.end_line!,
+        endLineNumber: c.start_line,
+        endColumn: 1,
+      },
+      options: {
+        glyphMarginClassName: `comment-glyph-icon comment-glyph-${c.id}`,
+        glyphMarginHoverMessage: { value: `**Comment:** ${c.text}` },
+      },
+    });
+
+    // Line highlight on the full range
+    decorations.push({
+      range: {
+        startLineNumber: c.start_line,
+        startColumn: 1,
+        endLineNumber: c.end_line,
         endColumn: 1,
       },
       options: {
         isWholeLine: true,
-        linesDecorationsClassName: "comment-gutter-marker",
         className: "comment-line-highlight",
-        hoverMessage: { value: c.text },
       },
-    }));
-
-  if (decorations.length > 0) {
-    editor.createDecorationsCollection(decorations);
+    });
   }
+
+  if (decorations.length === 0) return null;
+
+  const collection = editor.createDecorationsCollection(decorations);
+
+  // Set up click handler on glyph margin to select the comment
+  if (onGlyphClick) {
+    editor.onMouseDown?.((e: any) => {
+      if (e.target?.type === 2 /* GLYPH_MARGIN */ && e.target?.element?.classList?.contains("comment-glyph-icon")) {
+        // Find which comment this glyph belongs to by matching the line number
+        const line = e.target.position?.lineNumber;
+        if (line != null) {
+          const comment = comments.find((c) => c.start_line === line);
+          if (comment) {
+            onGlyphClick(comment.id);
+          }
+        }
+      }
+    });
+  }
+
+  return collection;
 }
 
 function mapLanguage(lang: string): string {

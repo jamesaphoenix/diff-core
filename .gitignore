@@ -4,3 +4,24 @@ node_modules/
 dist/
 test-results/
 playwright-report/
+
+# IDE / editor
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# flowdiff cache
+.flowdiff/
+
+# VS Code extension build artifacts
+*.vsix
+out/
+
+# Property test regressions
+proptest-regressions/
+
+# Temporary files
+*.tmp
+loop.sh
