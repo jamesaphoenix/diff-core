@@ -114,7 +114,11 @@ fn run_ir_pipeline(rb: &RepoBuilder, base: &str, head: &str) -> AnalysisOutput {
     let repo = git2::Repository::open(rb.path()).expect("failed to open repo");
     let diff_result = git::diff_refs(&repo, base, head).expect("diff_refs failed");
 
-    let engine = flowdiff_core::query_engine::QueryEngine::new().unwrap();
+    use std::sync::OnceLock;
+    static ENGINE: OnceLock<flowdiff_core::query_engine::QueryEngine> = OnceLock::new();
+    let engine = ENGINE.get_or_init(|| {
+        flowdiff_core::query_engine::QueryEngine::new().expect("shared QueryEngine init")
+    });
 
     let file_inputs: Vec<(&str, &str)> = diff_result
         .files

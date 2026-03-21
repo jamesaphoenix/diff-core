@@ -3343,6 +3343,19 @@ fn hash_str(s: &str) -> usize {
 }
 
 // ---------------------------------------------------------------------------
+// Shared test QueryEngine (file-level, reused by all test modules)
+// ---------------------------------------------------------------------------
+
+/// Single shared `QueryEngine` across all test modules in this file.
+/// Lazy query compilation per language happens once and is reused by every test.
+#[cfg(test)]
+fn shared_test_engine() -> &'static QueryEngine {
+    use std::sync::OnceLock;
+    static ENGINE: OnceLock<QueryEngine> = OnceLock::new();
+    ENGINE.get_or_init(|| QueryEngine::new().expect("shared test QueryEngine init"))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -3351,8 +3364,8 @@ fn hash_str(s: &str) -> usize {
 mod tests {
     use super::*;
 
-    fn engine() -> QueryEngine {
-        QueryEngine::new().expect("query engine should compile")
+    fn engine() -> &'static QueryEngine {
+        shared_test_engine()
     }
 
     // === Construction ===
@@ -4152,8 +4165,8 @@ mod prop_tests {
     use super::*;
     use proptest::prelude::*;
 
-    fn engine() -> QueryEngine {
-        QueryEngine::new().unwrap()
+    fn engine() -> &'static QueryEngine {
+        shared_test_engine()
     }
 
     fn ts_import_strategy() -> impl Strategy<Value = String> {
@@ -4297,8 +4310,8 @@ mod prop_tests {
 mod audit_tests {
     use super::*;
 
-    fn engine() -> QueryEngine {
-        QueryEngine::new().expect("query engine should compile")
+    fn engine() -> &'static QueryEngine {
+        shared_test_engine()
     }
 
     #[test]
@@ -4599,8 +4612,8 @@ function handler(req: any) {
 mod scm_audit_tests {
     use super::*;
 
-    fn engine() -> QueryEngine {
-        QueryEngine::new().expect("query engine should compile")
+    fn engine() -> &'static QueryEngine {
+        shared_test_engine()
     }
 
     // === TS enum declarations ===
@@ -7320,8 +7333,8 @@ typealias UserID = UUID
 mod c_tests {
     use super::*;
 
-    fn engine() -> QueryEngine {
-        QueryEngine::new().expect("query engine should compile")
+    fn engine() -> &'static QueryEngine {
+        shared_test_engine()
     }
 
     // === C imports (#include) ===
@@ -7534,8 +7547,8 @@ int main() {
 mod cpp_tests {
     use super::*;
 
-    fn engine() -> QueryEngine {
-        QueryEngine::new().expect("query engine should compile")
+    fn engine() -> &'static QueryEngine {
+        shared_test_engine()
     }
 
     // === C++ imports (#include) ===

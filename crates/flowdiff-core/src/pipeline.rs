@@ -488,9 +488,26 @@ pub enum PipelineError {
 mod tests {
     use super::*;
 
+    /// Shared `QueryEngine` instance across all tests in this module.
+    /// Lazy query compilation per language happens once and is reused.
+    fn shared_engine() -> &'static QueryEngine {
+        use std::sync::OnceLock;
+        static ENGINE: OnceLock<QueryEngine> = OnceLock::new();
+        ENGINE.get_or_init(|| QueryEngine::new().expect("shared QueryEngine init"))
+    }
+
+    /// Shared `IrCache` instance across all tests in this module.
+    /// Content-addressed, so no cross-test pollution.
+    #[allow(dead_code)]
+    fn shared_cache() -> &'static IrCache {
+        use std::sync::OnceLock;
+        static CACHE: OnceLock<IrCache> = OnceLock::new();
+        CACHE.get_or_init(IrCache::new)
+    }
+
     #[test]
     fn test_parse_to_ir_typescript() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let source = r#"
 import { validate } from './utils';
 export function handler(req: Request) {
@@ -501,7 +518,7 @@ function save(data: any) {
     return db.insert(data);
 }
 "#;
-        let ir = parse_to_ir(&engine, "src/handler.ts", source, None).unwrap();
+        let ir = parse_to_ir(engine, "src/handler.ts", source, None).unwrap();
 
         assert_eq!(ir.path, "src/handler.ts");
         assert!(!ir.functions.is_empty(), "should have function definitions");
@@ -515,7 +532,7 @@ function save(data: any) {
 
     #[test]
     fn test_parse_to_ir_python() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let source = r#"
 from flask import Flask
 app = Flask(__name__)
@@ -525,7 +542,7 @@ def list_users():
     users = db.query('SELECT * FROM users')
     return users
 "#;
-        let ir = parse_to_ir(&engine, "app/views.py", source, None).unwrap();
+        let ir = parse_to_ir(engine, "app/views.py", source, None).unwrap();
 
         assert_eq!(ir.path, "app/views.py");
         assert!(!ir.functions.is_empty());
@@ -534,20 +551,20 @@ def list_users():
 
     #[test]
     fn test_parse_to_ir_unknown_language() {
-        let engine = QueryEngine::new().unwrap();
-        let ir = parse_to_ir(&engine, "data.csv", "a,b,c\n1,2,3", None).unwrap();
+        let engine = shared_engine();
+        let ir = parse_to_ir(engine, "data.csv", "a,b,c\n1,2,3", None).unwrap();
         assert_eq!(ir.path, "data.csv");
         assert!(ir.functions.is_empty());
     }
 
     #[test]
     fn test_parse_all_to_ir() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let files = vec![
             ("src/a.ts", "export function a() {}"),
             ("src/b.ts", "import { a } from './a'; function b() { a(); }"),
         ];
-        let (ir_files, errors) = parse_all_to_ir(&engine, &files, None);
+        let (ir_files, errors) = parse_all_to_ir(engine, &files, None);
 
         assert_eq!(ir_files.len(), 2);
         assert!(errors.is_empty());
@@ -559,14 +576,14 @@ def list_users():
 
     #[test]
     fn test_parse_to_ir_enriches_data_flow() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let source = r#"
 function process() {
     const result = fetchData();
     transform(result);
 }
 "#;
-        let ir = parse_to_ir(&engine, "src/process.ts", source, None).unwrap();
+        let ir = parse_to_ir(engine, "src/process.ts", source, None).unwrap();
 
         // Should have assignments from data flow enrichment.
         // The exact content depends on query engine extraction, but the pipeline
@@ -577,7 +594,7 @@ function process() {
 
     #[test]
     fn test_full_ir_pipeline() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let files = vec![
             (
                 "src/utils.ts",
@@ -599,7 +616,7 @@ export function handle(req: any) {
             ),
         ];
 
-        let (ir_files, errors) = parse_all_to_ir(&engine, &files, None);
+        let (ir_files, errors) = parse_all_to_ir(engine, &files, None);
         assert!(errors.is_empty());
         assert_eq!(ir_files.len(), 2);
 
@@ -628,8 +645,8 @@ export function handle(req: any) {
 
     #[test]
     fn parse_to_ir_empty_source() {
-        let engine = QueryEngine::new().unwrap();
-        let ir = parse_to_ir(&engine, "src/empty.ts", "", None).unwrap();
+        let engine = shared_engine();
+        let ir = parse_to_ir(engine, "src/empty.ts", "", None).unwrap();
         assert_eq!(ir.path, "src/empty.ts");
         assert!(ir.functions.is_empty());
         assert!(ir.imports.is_empty());
@@ -639,33 +656,33 @@ export function handle(req: any) {
 
     #[test]
     fn parse_to_ir_whitespace_only_source() {
-        let engine = QueryEngine::new().unwrap();
-        let ir = parse_to_ir(&engine, "src/blank.ts", "   \n\n  \t  \n", None).unwrap();
+        let engine = shared_engine();
+        let ir = parse_to_ir(engine, "src/blank.ts", "   \n\n  \t  \n", None).unwrap();
         assert_eq!(ir.path, "src/blank.ts");
         assert!(ir.functions.is_empty());
     }
 
     #[test]
     fn parse_to_ir_comments_only() {
-        let engine = QueryEngine::new().unwrap();
-        let ir = parse_to_ir(&engine, "src/comments.ts", "// just a comment\n/* block */\n", None).unwrap();
+        let engine = shared_engine();
+        let ir = parse_to_ir(engine, "src/comments.ts", "// just a comment\n/* block */\n", None).unwrap();
         assert_eq!(ir.path, "src/comments.ts");
         assert!(ir.functions.is_empty());
     }
 
     #[test]
     fn parse_all_to_ir_empty_list() {
-        let engine = QueryEngine::new().unwrap();
-        let (ir_files, errors) = parse_all_to_ir(&engine, &[], None);
+        let engine = shared_engine();
+        let (ir_files, errors) = parse_all_to_ir(engine, &[], None);
         assert!(ir_files.is_empty());
         assert!(errors.is_empty());
     }
 
     #[test]
     fn parse_all_to_ir_single_file() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let files = vec![("src/one.ts", "function one() {}")];
-        let (ir_files, errors) = parse_all_to_ir(&engine, &files, None);
+        let (ir_files, errors) = parse_all_to_ir(engine, &files, None);
         assert_eq!(ir_files.len(), 1);
         assert!(errors.is_empty());
         assert_eq!(ir_files[0].path, "src/one.ts");
@@ -673,13 +690,13 @@ export function handle(req: any) {
 
     #[test]
     fn parse_all_to_ir_sorted_by_path() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let files = vec![
             ("c.ts", "function c() {}"),
             ("a.ts", "function a() {}"),
             ("b.ts", "function b() {}"),
         ];
-        let (ir_files, errors) = parse_all_to_ir(&engine, &files, None);
+        let (ir_files, errors) = parse_all_to_ir(engine, &files, None);
         assert!(errors.is_empty());
         // Parallel output is sorted by path for determinism
         assert_eq!(ir_files[0].path, "a.ts");
@@ -689,13 +706,13 @@ export function handle(req: any) {
 
     #[test]
     fn parse_all_to_ir_mixed_languages() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let files = vec![
             ("handler.ts", "export function handler() {}"),
             ("views.py", "def handler(): pass"),
             ("data.json", r#"{"key": "value"}"#),
         ];
-        let (ir_files, errors) = parse_all_to_ir(&engine, &files, None);
+        let (ir_files, errors) = parse_all_to_ir(engine, &files, None);
         assert!(errors.is_empty());
         assert_eq!(ir_files.len(), 3);
         // Check by path (sorted: data.json, handler.ts, views.py)
@@ -711,18 +728,18 @@ export function handle(req: any) {
 
     #[test]
     fn parse_to_ir_tolerates_ts_syntax_errors() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let source = "function broken( { return; }\nfunction ok() { return 1; }";
         // Should not error — tree-sitter is error-tolerant
-        let ir = parse_to_ir(&engine, "src/broken.ts", source, None).unwrap();
+        let ir = parse_to_ir(engine, "src/broken.ts", source, None).unwrap();
         assert_eq!(ir.path, "src/broken.ts");
     }
 
     #[test]
     fn parse_to_ir_tolerates_python_syntax_errors() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let source = "def broken(\n    pass\ndef ok():\n    return 1";
-        let ir = parse_to_ir(&engine, "broken.py", source, None).unwrap();
+        let ir = parse_to_ir(engine, "broken.py", source, None).unwrap();
         assert_eq!(ir.path, "broken.py");
     }
 
@@ -730,9 +747,9 @@ export function handle(req: any) {
 
     #[test]
     fn parse_to_ir_deeply_nested_path() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let ir = parse_to_ir(
-            &engine,
+            engine,
             "packages/core/src/modules/auth/handlers/login.ts",
             "export function login() {}",
             None,
@@ -746,9 +763,9 @@ export function handle(req: any) {
 
     #[test]
     fn parse_to_ir_nextjs_dynamic_route_path() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let ir = parse_to_ir(
-            &engine,
+            engine,
             "src/app/[slug]/page.tsx",
             "export default function Page() { return null; }",
             None,
@@ -759,8 +776,8 @@ export function handle(req: any) {
 
     #[test]
     fn parse_to_ir_dotfile_path() {
-        let engine = QueryEngine::new().unwrap();
-        let ir = parse_to_ir(&engine, ".eslintrc.js", "module.exports = {};", None).unwrap();
+        let engine = shared_engine();
+        let ir = parse_to_ir(engine, ".eslintrc.js", "module.exports = {};", None).unwrap();
         assert_eq!(ir.path, ".eslintrc.js");
     }
 
@@ -768,7 +785,7 @@ export function handle(req: any) {
 
     #[test]
     fn parse_to_ir_enriches_ts_variable_assignments() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let source = r#"
 function processOrder() {
     const user = getUser();
@@ -777,7 +794,7 @@ function processOrder() {
     return receipt;
 }
 "#;
-        let ir = parse_to_ir(&engine, "src/order.ts", source, None).unwrap();
+        let ir = parse_to_ir(engine, "src/order.ts", source, None).unwrap();
         assert!(!ir.functions.is_empty());
         // Data flow enrichment should populate assignments
         assert!(
@@ -788,14 +805,14 @@ function processOrder() {
 
     #[test]
     fn parse_to_ir_enriches_python_assignments() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let source = r#"
 def process():
     data = fetch_data()
     result = transform(data)
     return result
 "#;
-        let ir = parse_to_ir(&engine, "src/process.py", source, None).unwrap();
+        let ir = parse_to_ir(engine, "src/process.py", source, None).unwrap();
         assert!(!ir.functions.is_empty());
         assert!(
             !ir.assignments.is_empty(),
@@ -833,7 +850,7 @@ def process():
 
     #[test]
     fn parse_to_ir_deterministic() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let source = r#"
 import { a } from './a';
 import { b } from './b';
@@ -842,8 +859,8 @@ export function handler() {
     b();
 }
 "#;
-        let ir1 = parse_to_ir(&engine, "src/h.ts", source, None).unwrap();
-        let ir2 = parse_to_ir(&engine, "src/h.ts", source, None).unwrap();
+        let ir1 = parse_to_ir(engine, "src/h.ts", source, None).unwrap();
+        let ir2 = parse_to_ir(engine, "src/h.ts", source, None).unwrap();
         assert_eq!(ir1.path, ir2.path);
         assert_eq!(ir1.functions.len(), ir2.functions.len());
         assert_eq!(ir1.imports.len(), ir2.imports.len());
@@ -853,14 +870,14 @@ export function handler() {
 
     #[test]
     fn parse_all_to_ir_deterministic() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let files = vec![
             ("a.ts", "export function a() {}"),
             ("b.ts", "import { a } from './a'; export function b() { a(); }"),
             ("c.py", "def c(): pass"),
         ];
-        let (ir1, err1) = parse_all_to_ir(&engine, &files, None);
-        let (ir2, err2) = parse_all_to_ir(&engine, &files, None);
+        let (ir1, err1) = parse_all_to_ir(engine, &files, None);
+        let (ir2, err2) = parse_all_to_ir(engine, &files, None);
         assert_eq!(ir1.len(), ir2.len());
         assert_eq!(err1.len(), err2.len());
         for (a, b) in ir1.iter().zip(ir2.iter()) {
@@ -987,17 +1004,17 @@ export function handler() {
         proptest! {
             #[test]
             fn prop_parse_to_ir_never_panics(source in ".*") {
-                let engine = QueryEngine::new().unwrap();
+                let engine = shared_engine();
                 // Should never panic, even on garbage input
-                let _ = parse_to_ir(&engine, "test.ts", &source, None);
+                let _ = parse_to_ir(engine, "test.ts", &source, None);
             }
 
             #[test]
             fn prop_parse_to_ir_path_preserved(
                 path in "[a-z/]{1,30}\\.(ts|py|js|tsx|jsx)"
             ) {
-                let engine = QueryEngine::new().unwrap();
-                let ir = parse_to_ir(&engine, &path, "function f() {}", None).unwrap();
+                let engine = shared_engine();
+                let ir = parse_to_ir(engine, &path, "function f() {}", None).unwrap();
                 prop_assert_eq!(&ir.path, &path);
             }
 
@@ -1005,12 +1022,12 @@ export function handler() {
             fn prop_parse_all_to_ir_file_count(
                 files in proptest::collection::vec(arb_ts_file(), 0..10)
             ) {
-                let engine = QueryEngine::new().unwrap();
+                let engine = shared_engine();
                 let file_refs: Vec<(&str, &str)> = files
                     .iter()
                     .map(|(p, s)| (p.as_str(), s.as_str()))
                     .collect();
-                let (ir_files, errors) = parse_all_to_ir(&engine, &file_refs, None);
+                let (ir_files, errors) = parse_all_to_ir(engine, &file_refs, None);
                 // Total IR files + errors should equal input count
                 prop_assert_eq!(ir_files.len() + errors.len(), files.len());
             }
@@ -1019,9 +1036,9 @@ export function handler() {
             fn prop_parse_to_ir_deterministic(
                 (path, source) in arb_ts_file()
             ) {
-                let engine = QueryEngine::new().unwrap();
-                let ir1 = parse_to_ir(&engine, &path, &source, None).unwrap();
-                let ir2 = parse_to_ir(&engine, &path, &source, None).unwrap();
+                let engine = shared_engine();
+                let ir1 = parse_to_ir(engine, &path, &source, None).unwrap();
+                let ir2 = parse_to_ir(engine, &path, &source, None).unwrap();
                 prop_assert_eq!(ir1.path, ir2.path);
                 prop_assert_eq!(ir1.functions.len(), ir2.functions.len());
                 prop_assert_eq!(ir1.imports.len(), ir2.imports.len());
@@ -1031,8 +1048,8 @@ export function handler() {
             fn prop_parse_to_ir_empty_source_has_no_definitions(
                 path in "[a-z]{1,10}\\.(ts|py|js)"
             ) {
-                let engine = QueryEngine::new().unwrap();
-                let ir = parse_to_ir(&engine, &path, "", None).unwrap();
+                let engine = shared_engine();
+                let ir = parse_to_ir(engine, &path, "", None).unwrap();
                 prop_assert!(ir.functions.is_empty());
                 prop_assert!(ir.imports.is_empty());
                 prop_assert!(ir.exports.is_empty());
@@ -1091,51 +1108,51 @@ export function handler() {
 
     #[test]
     fn parse_all_to_ir_collects_errors_separately() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         // Mix of valid and invalid files
         let files = vec![
             ("valid.ts", "export function valid() {}"),
             ("also_valid.py", "def also_valid(): pass"),
         ];
-        let (ir_files, errors) = parse_all_to_ir(&engine, &files, None);
+        let (ir_files, errors) = parse_all_to_ir(engine, &files, None);
         // Both should succeed (tree-sitter is error-tolerant)
         assert_eq!(ir_files.len() + errors.len(), files.len());
     }
 
     #[test]
     fn parse_to_ir_with_very_large_source() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         // Generate a large file with many functions
         let mut source = String::new();
         for i in 0..500 {
             source.push_str(&format!("function fn_{}() {{ return {}; }}\n", i, i));
         }
-        let ir = parse_to_ir(&engine, "src/large.ts", &source, None).unwrap();
+        let ir = parse_to_ir(engine, "src/large.ts", &source, None).unwrap();
         assert_eq!(ir.path, "src/large.ts");
         assert!(ir.functions.len() >= 100); // Should parse many (if not all) functions
     }
 
     #[test]
     fn parse_to_ir_with_null_bytes_in_source() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         // Source with embedded null bytes (could come from binary files that
         // slipped through the binary filter)
         let source = "function a() {}\0\0\0function b() {}";
         // Should not panic
-        let result = parse_to_ir(&engine, "src/nulls.ts", source, None);
+        let result = parse_to_ir(engine, "src/nulls.ts", source, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn parse_to_ir_with_unicode_content() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let source = r#"
 function greet(name: string) {
     return `Hello, ${name}! 🎉`;
 }
 const message = "日本語テスト";
 "#;
-        let ir = parse_to_ir(&engine, "src/unicode.ts", source, None).unwrap();
+        let ir = parse_to_ir(engine, "src/unicode.ts", source, None).unwrap();
         assert_eq!(ir.path, "src/unicode.ts");
         assert!(!ir.functions.is_empty());
     }
@@ -1177,18 +1194,18 @@ const message = "日本語テスト";
 
     #[test]
     fn ir_cache_hit_on_same_content() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let cache = IrCache::new();
         let source = "export function hello() {}";
 
         // First call: cache miss, parses the file.
-        let ir1 = parse_to_ir(&engine, "src/a.ts", source, Some(&cache)).unwrap();
+        let ir1 = parse_to_ir(engine, "src/a.ts", source, Some(&cache)).unwrap();
         assert_eq!(cache.len(), 1);
         assert_eq!(cache.misses(), 1);
         assert_eq!(cache.hits(), 0);
 
         // Second call: cache hit, returns clone without parsing.
-        let ir2 = parse_to_ir(&engine, "src/a.ts", source, Some(&cache)).unwrap();
+        let ir2 = parse_to_ir(engine, "src/a.ts", source, Some(&cache)).unwrap();
         assert_eq!(cache.len(), 1);
         assert_eq!(cache.misses(), 1);
         assert_eq!(cache.hits(), 1);
@@ -1199,11 +1216,11 @@ const message = "日本語テスト";
 
     #[test]
     fn ir_cache_miss_on_different_content() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let cache = IrCache::new();
 
-        let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(&cache)).unwrap();
-        let _ = parse_to_ir(&engine, "src/a.ts", "function b() {}", Some(&cache)).unwrap();
+        let _ = parse_to_ir(engine, "src/a.ts", "function a() {}", Some(&cache)).unwrap();
+        let _ = parse_to_ir(engine, "src/a.ts", "function b() {}", Some(&cache)).unwrap();
 
         // Same path, different content → two separate entries.
         assert_eq!(cache.len(), 2);
@@ -1213,12 +1230,12 @@ const message = "日本語テスト";
 
     #[test]
     fn ir_cache_miss_on_different_path() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let cache = IrCache::new();
         let source = "function f() {}";
 
-        let _ = parse_to_ir(&engine, "src/a.ts", source, Some(&cache)).unwrap();
-        let _ = parse_to_ir(&engine, "src/b.ts", source, Some(&cache)).unwrap();
+        let _ = parse_to_ir(engine, "src/a.ts", source, Some(&cache)).unwrap();
+        let _ = parse_to_ir(engine, "src/b.ts", source, Some(&cache)).unwrap();
 
         // Same content, different path → two separate entries (path is part of key).
         assert_eq!(cache.len(), 2);
@@ -1227,7 +1244,7 @@ const message = "日本語テスト";
 
     #[test]
     fn ir_cache_shared_across_parse_all_to_ir() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let cache = IrCache::new();
         let files = vec![
             ("src/a.ts", "export function a() {}"),
@@ -1235,7 +1252,7 @@ const message = "日本語テスト";
         ];
 
         // First batch: all misses.
-        let (ir1, err1) = parse_all_to_ir(&engine, &files, Some(&cache));
+        let (ir1, err1) = parse_all_to_ir(engine, &files, Some(&cache));
         assert!(err1.is_empty());
         assert_eq!(ir1.len(), 2);
         assert_eq!(cache.len(), 2);
@@ -1243,7 +1260,7 @@ const message = "日本語テスト";
         assert_eq!(cache.hits(), 0);
 
         // Second batch with same files: all hits.
-        let (ir2, err2) = parse_all_to_ir(&engine, &files, Some(&cache));
+        let (ir2, err2) = parse_all_to_ir(engine, &files, Some(&cache));
         assert!(err2.is_empty());
         assert_eq!(ir2.len(), 2);
         assert_eq!(cache.hits(), 2);
@@ -1256,11 +1273,11 @@ const message = "日本語テスト";
 
     #[test]
     fn ir_cache_partial_hit() {
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let cache = IrCache::new();
 
         // Pre-populate cache with one file.
-        let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(&cache)).unwrap();
+        let _ = parse_to_ir(engine, "src/a.ts", "function a() {}", Some(&cache)).unwrap();
         assert_eq!(cache.misses(), 1);
 
         // Parse batch with one cached and one new file.
@@ -1268,7 +1285,7 @@ const message = "日本語テスト";
             ("src/a.ts", "function a() {}"),  // hit
             ("src/c.ts", "function c() {}"),  // miss
         ];
-        let (ir_files, errors) = parse_all_to_ir(&engine, &files, Some(&cache));
+        let (ir_files, errors) = parse_all_to_ir(engine, &files, Some(&cache));
         assert!(errors.is_empty());
         assert_eq!(ir_files.len(), 2);
         assert_eq!(cache.hits(), 1);
@@ -1278,7 +1295,7 @@ const message = "日本語テスト";
     #[test]
     fn ir_cache_cached_result_byte_identical() {
         // Verify the spec requirement: "cached results must be byte-identical to uncached results"
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let cache = IrCache::new();
         let source = r#"
 import { validate } from './utils';
@@ -1289,13 +1306,13 @@ export function handler(req: Request) {
 "#;
 
         // Parse without cache.
-        let ir_uncached = parse_to_ir(&engine, "src/handler.ts", source, None).unwrap();
+        let ir_uncached = parse_to_ir(engine, "src/handler.ts", source, None).unwrap();
 
         // Parse with cache (miss, populates cache).
-        let ir_cached_miss = parse_to_ir(&engine, "src/handler.ts", source, Some(&cache)).unwrap();
+        let ir_cached_miss = parse_to_ir(engine, "src/handler.ts", source, Some(&cache)).unwrap();
 
         // Parse with cache (hit, from cache).
-        let ir_cached_hit = parse_to_ir(&engine, "src/handler.ts", source, Some(&cache)).unwrap();
+        let ir_cached_hit = parse_to_ir(engine, "src/handler.ts", source, Some(&cache)).unwrap();
 
         // All three must be identical.
         assert_eq!(ir_uncached, ir_cached_miss);
@@ -1317,8 +1334,8 @@ export function handler(req: Request) {
     fn ir_cache_log_stats_does_not_panic() {
         let cache = IrCache::new();
         cache.log_stats(); // empty cache
-        let engine = QueryEngine::new().unwrap();
-        let _ = parse_to_ir(&engine, "a.ts", "function a() {}", Some(&cache));
+        let engine = shared_engine();
+        let _ = parse_to_ir(engine, "a.ts", "function a() {}", Some(&cache));
         cache.log_stats(); // with entries
     }
 
@@ -1338,9 +1355,9 @@ export function handler(req: Request) {
         let tmp = tempfile::tempdir().unwrap();
         let dc = DiskIrCache::load(tmp.path());
 
-        let engine = QueryEngine::new().unwrap();
-        let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
-        let _ = parse_to_ir(&engine, "src/b.ts", "function b() {}", Some(dc.memory())).unwrap();
+        let engine = shared_engine();
+        let _ = parse_to_ir(engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
+        let _ = parse_to_ir(engine, "src/b.ts", "function b() {}", Some(dc.memory())).unwrap();
 
         dc.flush();
 
@@ -1358,20 +1375,20 @@ export function handler(req: Request) {
     #[test]
     fn disk_cache_roundtrip() {
         let tmp = tempfile::tempdir().unwrap();
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let source = "export function hello() { return 42; }";
 
         // First run: parse → flush to disk.
         {
             let dc = DiskIrCache::load(tmp.path());
-            let ir1 = parse_to_ir(&engine, "src/hello.ts", source, Some(dc.memory())).unwrap();
+            let ir1 = parse_to_ir(engine, "src/hello.ts", source, Some(dc.memory())).unwrap();
             dc.flush();
 
             // Second run: load from disk → cache hit.
             let dc2 = DiskIrCache::load(tmp.path());
             assert_eq!(dc2.memory().len(), 1, "should load 1 entry from disk");
 
-            let ir2 = parse_to_ir(&engine, "src/hello.ts", source, Some(dc2.memory())).unwrap();
+            let ir2 = parse_to_ir(engine, "src/hello.ts", source, Some(dc2.memory())).unwrap();
             assert_eq!(dc2.memory().hits(), 1);
             assert_eq!(ir1, ir2, "disk-cached result must match original");
         }
@@ -1380,7 +1397,7 @@ export function handler(req: Request) {
     #[test]
     fn disk_cache_roundtrip_byte_identical() {
         let tmp = tempfile::tempdir().unwrap();
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
         let source = r#"
 import { validate } from './utils';
 export function handler(req: Request) {
@@ -1390,16 +1407,16 @@ export function handler(req: Request) {
 "#;
 
         // Parse without any cache.
-        let ir_uncached = parse_to_ir(&engine, "src/handler.ts", source, None).unwrap();
+        let ir_uncached = parse_to_ir(engine, "src/handler.ts", source, None).unwrap();
 
         // Parse with disk cache (miss, flush to disk).
         let dc = DiskIrCache::load(tmp.path());
-        let _ = parse_to_ir(&engine, "src/handler.ts", source, Some(dc.memory())).unwrap();
+        let _ = parse_to_ir(engine, "src/handler.ts", source, Some(dc.memory())).unwrap();
         dc.flush();
 
         // Load from disk and retrieve.
         let dc2 = DiskIrCache::load(tmp.path());
-        let ir_from_disk = parse_to_ir(&engine, "src/handler.ts", source, Some(dc2.memory())).unwrap();
+        let ir_from_disk = parse_to_ir(engine, "src/handler.ts", source, Some(dc2.memory())).unwrap();
 
         // Must be byte-identical via JSON serialization.
         let json_uncached = serde_json::to_string(&ir_uncached).unwrap();
@@ -1410,16 +1427,16 @@ export function handler(req: Request) {
     #[test]
     fn disk_cache_no_cache_flag_skips_disk() {
         let tmp = tempfile::tempdir().unwrap();
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
 
         // Populate disk cache.
         let dc = DiskIrCache::load(tmp.path());
-        let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
+        let _ = parse_to_ir(engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
         dc.flush();
 
         // Simulating --no-cache: just don't load disk cache, use plain IrCache.
         let memory_only = IrCache::new();
-        let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(&memory_only)).unwrap();
+        let _ = parse_to_ir(engine, "src/a.ts", "function a() {}", Some(&memory_only)).unwrap();
         assert_eq!(memory_only.hits(), 0, "no-cache means no pre-loaded entries");
         assert_eq!(memory_only.misses(), 1);
     }
@@ -1427,14 +1444,14 @@ export function handler(req: Request) {
     #[test]
     fn disk_cache_lru_eviction() {
         let tmp = tempfile::tempdir().unwrap();
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
 
         // Create entries with a very small limit to force eviction.
         let dc = DiskIrCache::load_with_limit(tmp.path(), 1); // 1 byte limit
         for i in 0..5 {
             let path = format!("src/f{}.ts", i);
             let source = format!("function f{}() {{}}", i);
-            let _ = parse_to_ir(&engine, &path, &source, Some(dc.memory())).unwrap();
+            let _ = parse_to_ir(engine, &path, &source, Some(dc.memory())).unwrap();
         }
         dc.flush();
 
@@ -1483,10 +1500,10 @@ export function handler(req: Request) {
     #[test]
     fn disk_cache_flush_is_idempotent() {
         let tmp = tempfile::tempdir().unwrap();
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
 
         let dc = DiskIrCache::load(tmp.path());
-        let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
+        let _ = parse_to_ir(engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
 
         dc.flush();
         dc.flush(); // second flush should not duplicate files
@@ -1503,12 +1520,12 @@ export function handler(req: Request) {
     #[test]
     fn disk_cache_multiple_runs_accumulate() {
         let tmp = tempfile::tempdir().unwrap();
-        let engine = QueryEngine::new().unwrap();
+        let engine = shared_engine();
 
         // Run 1: parse file A.
         {
             let dc = DiskIrCache::load(tmp.path());
-            let _ = parse_to_ir(&engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
+            let _ = parse_to_ir(engine, "src/a.ts", "function a() {}", Some(dc.memory())).unwrap();
             dc.flush();
         }
 
@@ -1516,7 +1533,7 @@ export function handler(req: Request) {
         {
             let dc = DiskIrCache::load(tmp.path());
             assert_eq!(dc.memory().len(), 1); // file A loaded from disk
-            let _ = parse_to_ir(&engine, "src/b.ts", "function b() {}", Some(dc.memory())).unwrap();
+            let _ = parse_to_ir(engine, "src/b.ts", "function b() {}", Some(dc.memory())).unwrap();
             dc.flush();
         }
 
@@ -1532,8 +1549,8 @@ export function handler(req: Request) {
         // Flush to an impossible path should not panic.
         let dc = DiskIrCache::load(std::path::Path::new("/dev/null/impossible"));
         // Parsing something so there's a new entry to flush.
-        let engine = QueryEngine::new().unwrap();
-        let _ = parse_to_ir(&engine, "a.ts", "function a() {}", Some(dc.memory()));
+        let engine = shared_engine();
+        let _ = parse_to_ir(engine, "a.ts", "function a() {}", Some(dc.memory()));
         dc.flush(); // should log warning, not panic
     }
 }

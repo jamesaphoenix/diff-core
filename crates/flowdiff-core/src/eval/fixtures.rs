@@ -160,8 +160,12 @@ pub fn run_pipeline(repo_path: &Path, base_ref: &str, head_ref: &str) -> Analysi
     let repo = Repository::open(repo_path).expect("failed to open repo");
     let diff_result = crate::git::diff_refs(&repo, base_ref, head_ref).expect("diff_refs failed");
 
-    // Use QueryEngine for parsing — supports all languages including Rust
-    let engine = crate::query_engine::QueryEngine::new().expect("failed to create query engine");
+    // Use shared QueryEngine for parsing — supports all languages including Rust
+    use std::sync::OnceLock;
+    static ENGINE: OnceLock<crate::query_engine::QueryEngine> = OnceLock::new();
+    let engine = ENGINE.get_or_init(|| {
+        crate::query_engine::QueryEngine::new().expect("failed to create query engine")
+    });
     let mut parsed_files = Vec::new();
     for file_diff in &diff_result.files {
         if let Some(ref content) = file_diff.new_content {

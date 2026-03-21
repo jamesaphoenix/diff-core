@@ -1009,9 +1009,9 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 **Problem:** E2E tests create fresh `QueryEngine` instances per test and re-parse identical fixture files.
 
-- [ ] Create a `lazy_static` or `OnceLock<QueryEngine>` shared across the test binary (thread-safe since `QueryEngine` is read-only after init)
-- [ ] Share the IrFile cache (from 12.2) across tests via `lazy_static` `DashMap`
-- [ ] Measure: run full `cargo test --package flowdiff-core` before/after, report wall-clock time reduction
+- [x] Create `OnceLock<QueryEngine>` shared across test binaries — file-level `shared_test_engine()` in `query_engine.rs`, module-level `shared_engine()` in `pipeline.rs` tests, `shared_engine()` in `tests/helpers/mod.rs`, `OnceLock` in `eval/fixtures.rs` and `cross_layer_audit.rs`
+- [x] Share the IrFile cache via `OnceLock<IrCache>` — `shared_cache()` in `pipeline.rs` tests and `tests/helpers/mod.rs` (content-addressed, no cross-test pollution)
+- [x] Measure: **4x wall-clock speedup** (30.4s → 7.6s), **19x user time reduction** (259.5s → 13.7s) for `cargo test --package flowdiff-core`
 
 ### 12.6 Test profile optimization
 
