@@ -1017,8 +1017,8 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 **Problem:** Tests compile and run with default `[profile.dev]` settings — no optimizations at all.
 
-- [ ] Add `[profile.test] opt-level = 1` to root `Cargo.toml` — trades slightly longer compile for 10-30% faster runtime
-- [ ] Document recommended test invocation: `cargo test -- --test-threads=$(nproc)` (tests are isolated via TempDirs, safe to parallelize)
+- [x] Add `[profile.test] opt-level = 1` to root `Cargo.toml` — trades slightly longer compile for 10-30% faster runtime
+- [x] Document recommended test invocation: `cargo test -- --test-threads=$(nproc)` (tests are isolated via TempDirs, safe to parallelize)
 
 ### 12.7 Reuse Parser instances per language
 

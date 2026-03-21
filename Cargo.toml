@@ -11,3 +11,10 @@ license = "MIT"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
+
+# Optimize test builds: trades slightly longer compile for faster test runtime.
+# tree-sitter parsing and query execution benefit significantly from opt-level 1.
+# Recommended invocation: cargo test -- --test-threads=$(nproc)
+# Tests are isolated via TempDirs, safe to fully parallelize.
+[profile.test]
+opt-level = 1
