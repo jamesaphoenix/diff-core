@@ -10,22 +10,12 @@ permissions:
 
 jobs:
   build-macos:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            runner: macos-latest
-          - target: x86_64-apple-darwin
-            runner: macos-13
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -39,14 +29,14 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
 
-      - name: Build Tauri app
-        run: cargo tauri build --target ${{ matrix.target }} --bundles dmg
+      - name: Build Tauri app (Apple Silicon)
+        run: cargo tauri build --target aarch64-apple-darwin --bundles dmg
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: flowdiff-${{ matrix.target }}-dmg
-          path: target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          name: flowdiff-aarch64-apple-darwin-dmg
+          path: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
 
   build-linux:
     runs-on: ubuntu-22.04
