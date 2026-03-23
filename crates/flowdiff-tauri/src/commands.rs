@@ -26,12 +26,22 @@ use flowdiff_core::types::{AnalysisOutput, GroupRankInput};
 pub struct AppState {
     /// The most recent analysis result, available for subsequent queries.
     pub last_analysis: Mutex<Option<AnalysisOutput>>,
+    /// Cached diff result from the most recent analysis, for instant file diff lookups.
+    pub last_diff: Mutex<Option<CachedDiff>>,
+}
+
+/// Cached diff result with the parameters that produced it, for cache invalidation.
+pub struct CachedDiff {
+    pub repo_path: PathBuf,
+    pub base: Option<String>,
+    pub diff_result: git::DiffResult,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
             last_analysis: Mutex::new(None),
+            last_diff: Mutex::new(None),
         }
     }
 }
@@ -95,13 +105,25 @@ pub fn analyze(
     // Extract diff
     let (diff_result, diff_source) = extract_diff(
         &repo,
-        base,
+        base.clone(),
         head,
         range,
         staged,
         unstaged,
         pr_preview.unwrap_or(false),
     )?;
+
+    // Cache the diff result for subsequent get_file_diff() calls
+    match state.last_diff.lock() {
+        Ok(mut cached) => {
+            *cached = Some(CachedDiff {
+                repo_path: repo_path.clone(),
+                base: base,
+                diff_result: diff_result.clone(),
+            });
+        }
+        Err(e) => warn!("Failed to update last_diff state (lock poisoned): {}", e),
+    }
 
     if diff_result.files.is_empty() {
         let empty_output = AnalysisOutput {
@@ -261,8 +283,54 @@ pub fn get_mermaid(
 
 /// Get the diff content (old + new) for a specific file.
 /// Returns the raw old and new content for the Monaco diff viewer.
+/// Uses the cached DiffResult from the last `analyze()` call when parameters match,
+/// avoiding redundant git diff extraction for every file navigation.
 #[tauri::command]
 pub fn get_file_diff(
+    repo_path: String,
+    file_path: String,
+    base: Option<String>,
+    head: Option<String>,
+    range: Option<String>,
+    staged: bool,
+    unstaged: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<FileDiffContent, CommandError> {
+    // Try to use cached diff from the last analyze() call
+    let cached_file = {
+        let repo_path_buf = PathBuf::from(&repo_path);
+        let repo_path_buf = std::fs::canonicalize(&repo_path_buf).ok();
+        let cached = state.last_diff.lock().ok();
+        cached.and_then(|guard| {
+            let c = guard.as_ref()?;
+            let rp = repo_path_buf.as_ref()?;
+            if &c.repo_path == rp && c.base == base {
+                c.diff_result
+                    .files
+                    .iter()
+                    .find(|f| f.path() == file_path)
+                    .map(|f| FileDiffContent {
+                        path: file_path.clone(),
+                        old_content: f.old_content.clone().unwrap_or_default(),
+                        new_content: f.new_content.clone().unwrap_or_default(),
+                        language: detect_language(&f.path()),
+                    })
+            } else {
+                None
+            }
+        })
+    };
+
+    if let Some(content) = cached_file {
+        return Ok(content);
+    }
+
+    // Cache miss — fall back to extracting from git
+    get_file_diff_uncached(repo_path, file_path, base, head, range, staged, unstaged)
+}
+
+/// Core file diff logic without caching — also callable from integration tests.
+pub fn get_file_diff_uncached(
     repo_path: String,
     file_path: String,
     base: Option<String>,
@@ -285,11 +353,11 @@ pub fn get_file_diff(
         )));
     }
 
-    let repo_path = PathBuf::from(&repo_path);
-    let repo_path = std::fs::canonicalize(&repo_path)
+    let repo_path_buf = PathBuf::from(&repo_path);
+    let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
         .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
 
-    let repo = git2::Repository::discover(&repo_path)
+    let repo = git2::Repository::discover(&repo_path_buf)
         .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
 
     let (diff_result, _) = extract_diff(&repo, base, head, range, staged, unstaged, false)?;
@@ -889,6 +957,40 @@ pub fn clear_api_key(repo_path: String) -> Result<(), CommandError> {
         .map_err(|e| CommandError::Config(format!("{}", e)))?;
 
     config.llm.key = None;
+
+    config
+        .save_to_dir(workdir)
+        .map_err(|e| CommandError::Config(format!("Failed to save config: {}", e)))?;
+
+    Ok(())
+}
+
+/// Get the current ignore paths from `.flowdiff.toml`.
+#[tauri::command]
+pub fn get_ignore_paths(repo_path: Option<String>) -> Result<Vec<String>, CommandError> {
+    let (config, _workdir) = load_config_from_path(repo_path.as_deref());
+    Ok(config.ignore.paths)
+}
+
+/// Save ignore paths to `.flowdiff.toml`.
+///
+/// Loads the existing config (preserving other sections), updates the ignore
+/// paths, and writes back.
+#[tauri::command]
+pub fn save_ignore_paths(repo_path: String, paths: Vec<String>) -> Result<(), CommandError> {
+    let repo_path_buf = PathBuf::from(&repo_path);
+    let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
+        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
+    let repo = git2::Repository::discover(&repo_path_buf)
+        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| CommandError::Git("Bare repositories are not supported".to_string()))?;
+
+    let mut config = FlowdiffConfig::load_from_dir(workdir)
+        .map_err(|e| CommandError::Config(format!("{}", e)))?;
+
+    config.ignore.paths = paths;
 
     config
         .save_to_dir(workdir)
@@ -2170,8 +2272,14 @@ mod tests {
         assert!(!macos_app_exists("Flowdiff Nonexistent App 12345"));
     }
 
+    /// Gated behind `FLOWDIFF_RUN_EDITOR_TESTS=1` because it actually spawns editor processes.
     #[test]
     fn test_open_in_editor_all_known_editors_accept_temp_file() {
+        if std::env::var("FLOWDIFF_RUN_EDITOR_TESTS").is_err() {
+            eprintln!("Skipped: set FLOWDIFF_RUN_EDITOR_TESTS=1 to run (launches real editors)");
+            return;
+        }
+
         // All known editor IDs should not return "Unknown editor" for a valid file
         let tmp = std::env::temp_dir().join("flowdiff_test_known_editors");
         std::fs::write(&tmp, "test").unwrap();

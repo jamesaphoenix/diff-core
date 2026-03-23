@@ -68,6 +68,8 @@ fn main() {
             commands::delete_comment,
             commands::load_comments,
             commands::export_comments,
+            commands::get_ignore_paths,
+            commands::save_ignore_paths,
         ])
         .run(tauri::generate_context!())
     {

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::schema::{
     JudgeResponse, Pass1Response, Pass2Response, RefinementResponse,
     pass1_json_schema, pass2_json_schema, judge_json_schema, refinement_json_schema,
+    flatten_json_schema,
 };
 use super::{
     judge_system_prompt, judge_user_prompt, pass1_system_prompt, pass1_user_prompt,
@@ -72,6 +73,9 @@ impl GeminiProvider {
         user_prompt: &str,
         schema: serde_json::Value,
     ) -> Result<String, LlmError> {
+        // Flatten schema for Gemini: inline $ref, remove $schema/definitions, add additionalProperties: false
+        let schema = flatten_json_schema(schema);
+
         let max_input = self.max_context_tokens().saturating_sub(8192); // Reserve tokens for output
         let truncated_user = truncate_to_token_budget(user_prompt, max_input);
 

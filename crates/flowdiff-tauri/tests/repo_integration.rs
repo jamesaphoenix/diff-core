@@ -7,7 +7,7 @@
 //! Run with:
 //!   cargo test --test repo_integration
 
-use flowdiff_tauri::commands::{get_repo_info, list_branches, list_worktrees, get_branch_status, get_file_diff};
+use flowdiff_tauri::commands::{get_repo_info, list_branches, list_worktrees, get_branch_status, get_file_diff_uncached};
 use git2::{Repository, Signature};
 
 /// Create a temporary git repo with TypeScript files and two branches.
@@ -215,7 +215,7 @@ fn branch_status_works_for_local_only_branch() {
 fn file_diff_returns_content_for_changed_file() {
     let (_tmp, repo_path) = create_test_repo_with_branch();
 
-    let diff = get_file_diff(
+    let diff = get_file_diff_uncached(
         repo_path,
         "src/main.ts".to_string(),
         Some("main".to_string()),  // base
@@ -242,7 +242,7 @@ fn file_diff_returns_content_for_changed_file() {
 fn file_diff_rejects_path_traversal() {
     let (_tmp, repo_path) = create_test_repo_with_branch();
 
-    let result = get_file_diff(
+    let result = get_file_diff_uncached(
         repo_path,
         "../../../etc/passwd".to_string(),
         Some("main".to_string()),
@@ -265,7 +265,7 @@ fn file_diff_rejects_path_traversal() {
 fn file_diff_rejects_absolute_path() {
     let (_tmp, repo_path) = create_test_repo_with_branch();
 
-    let result = get_file_diff(
+    let result = get_file_diff_uncached(
         repo_path,
         "/etc/passwd".to_string(),
         Some("main".to_string()),
@@ -288,7 +288,7 @@ fn file_diff_rejects_absolute_path() {
 fn file_diff_errors_on_nonexistent_file() {
     let (_tmp, repo_path) = create_test_repo_with_branch();
 
-    let result = get_file_diff(
+    let result = get_file_diff_uncached(
         repo_path,
         "nonexistent/file.ts".to_string(),
         Some("main".to_string()),
@@ -305,7 +305,7 @@ fn file_diff_errors_on_nonexistent_file() {
 fn file_diff_detects_language_correctly() {
     let (_tmp, repo_path) = create_test_repo_with_branch();
 
-    let diff = get_file_diff(
+    let diff = get_file_diff_uncached(
         repo_path,
         "src/main.ts".to_string(),
         Some("main".to_string()),

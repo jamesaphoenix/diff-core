@@ -136,8 +136,20 @@ fn open_in_editor_rejects_unknown_editor() {
     );
 }
 
+/// Helper to skip tests that launch real editor/terminal processes.
+/// Set `FLOWDIFF_RUN_EDITOR_TESTS=1` to run them.
+fn require_editor_tests() -> bool {
+    if std::env::var("FLOWDIFF_RUN_EDITOR_TESTS").is_err() {
+        eprintln!("Skipped: set FLOWDIFF_RUN_EDITOR_TESTS=1 to run (launches real editors)");
+        return false;
+    }
+    true
+}
+
 #[test]
 fn open_in_editor_accepts_all_known_editors_with_valid_file() {
+    if !require_editor_tests() { return; }
+
     let tmp = std::env::temp_dir().join("flowdiff_inttest_known_editors");
     std::fs::write(&tmp, "test content").unwrap();
     let path = tmp.to_str().unwrap().to_string();
@@ -162,6 +174,8 @@ fn open_in_editor_accepts_all_known_editors_with_valid_file() {
 
 #[test]
 fn open_in_editor_with_directory_path_for_terminal() {
+    if !require_editor_tests() { return; }
+
     // Terminal editor should accept directory paths (opens terminal in that dir)
     let dir = std::env::temp_dir();
     let result = open_in_editor(
@@ -174,6 +188,8 @@ fn open_in_editor_with_directory_path_for_terminal() {
 
 #[test]
 fn open_in_editor_with_spaces_in_path() {
+    if !require_editor_tests() { return; }
+
     let dir = std::env::temp_dir().join("flowdiff inttest dir with spaces");
     std::fs::create_dir_all(&dir).ok();
     let file = dir.join("test file.txt");
@@ -197,6 +213,8 @@ fn open_in_editor_with_spaces_in_path() {
 
 #[test]
 fn open_in_editor_with_unicode_filename() {
+    if !require_editor_tests() { return; }
+
     let tmp = std::env::temp_dir().join("flowdiff_inttest_ünîcödé.txt");
     std::fs::write(&tmp, "unicode content").unwrap();
 

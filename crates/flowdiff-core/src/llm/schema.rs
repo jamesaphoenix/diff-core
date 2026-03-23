@@ -400,6 +400,93 @@ pub fn refinement_json_schema() -> serde_json::Value {
     serde_json::to_value(schemars::schema_for!(RefinementResponse)).unwrap_or_default()
 }
 
+/// Flatten a schemars-generated JSON Schema for providers that don't support
+/// `$ref`, `definitions`, or `$schema` (OpenAI strict mode, Gemini).
+///
+/// This function:
+/// 1. Removes the `$schema` key
+/// 2. Inlines all `$ref: "#/definitions/X"` by replacing with the actual definition
+/// 3. Removes the `definitions` section
+/// 4. Adds `"additionalProperties": false` to every object type (required by OpenAI strict mode)
+pub fn flatten_json_schema(schema: serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+
+    // Extract definitions for ref resolution
+    let definitions = schema
+        .as_object()
+        .and_then(|obj| obj.get("definitions"))
+        .cloned()
+        .unwrap_or(Value::Object(serde_json::Map::new()));
+
+    let mut result = inline_refs(schema, &definitions);
+
+    // Remove top-level $schema and definitions
+    if let Some(obj) = result.as_object_mut() {
+        obj.remove("$schema");
+        obj.remove("definitions");
+    }
+
+    // Add additionalProperties: false to all object types
+    add_additional_properties_false(&mut result);
+
+    result
+}
+
+/// Recursively replace `$ref: "#/definitions/X"` with the inlined definition.
+fn inline_refs(value: serde_json::Value, definitions: &serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+
+    match value {
+        Value::Object(map) => {
+            // If this object is a $ref, resolve it
+            if let Some(Value::String(ref_str)) = map.get("$ref") {
+                if let Some(def_name) = ref_str.strip_prefix("#/definitions/") {
+                    if let Some(def) = definitions.get(def_name) {
+                        // Recursively inline refs within the definition too
+                        return inline_refs(def.clone(), definitions);
+                    }
+                }
+            }
+
+            // Otherwise recurse into all values
+            let new_map: serde_json::Map<String, Value> = map
+                .into_iter()
+                .filter(|(k, _)| k != "$ref")
+                .map(|(k, v)| (k, inline_refs(v, definitions)))
+                .collect();
+            Value::Object(new_map)
+        }
+        Value::Array(arr) => {
+            Value::Array(arr.into_iter().map(|v| inline_refs(v, definitions)).collect())
+        }
+        other => other,
+    }
+}
+
+/// Recursively add `"additionalProperties": false` to every `"type": "object"` node.
+fn add_additional_properties_false(value: &mut serde_json::Value) {
+    use serde_json::Value;
+
+    if let Some(obj) = value.as_object_mut() {
+        // If this is an object type, add additionalProperties: false
+        if obj.get("type").and_then(|t| t.as_str()) == Some("object") {
+            obj.insert(
+                "additionalProperties".to_string(),
+                Value::Bool(false),
+            );
+        }
+
+        // Recurse into all values
+        for v in obj.values_mut() {
+            add_additional_properties_false(v);
+        }
+    } else if let Some(arr) = value.as_array_mut() {
+        for v in arr.iter_mut() {
+            add_additional_properties_false(v);
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
 mod tests {
@@ -986,6 +1073,134 @@ mod tests {
         assert_eq!(pass2_json_schema(), pass2_json_schema());
         assert_eq!(judge_json_schema(), judge_json_schema());
         assert_eq!(refinement_json_schema(), refinement_json_schema());
+    }
+
+    // ── Schema Flattening Tests (OpenAI + Gemini compatibility) ──
+
+    /// Recursively check that no `$ref`, `$schema`, or `definitions` keys exist.
+    fn assert_no_refs(value: &serde_json::Value, path: &str) {
+        match value {
+            serde_json::Value::Object(map) => {
+                assert!(!map.contains_key("$ref"), "Found $ref at {}", path);
+                assert!(!map.contains_key("$schema"), "Found $schema at {}", path);
+                assert!(
+                    !map.contains_key("definitions"),
+                    "Found definitions at {}",
+                    path
+                );
+                for (k, v) in map {
+                    assert_no_refs(v, &format!("{}.{}", path, k));
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for (i, v) in arr.iter().enumerate() {
+                    assert_no_refs(v, &format!("{}[{}]", path, i));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Recursively check that every `"type": "object"` has `"additionalProperties": false`.
+    fn assert_additional_properties_false(value: &serde_json::Value, path: &str) {
+        if let Some(obj) = value.as_object() {
+            if obj.get("type").and_then(|t| t.as_str()) == Some("object") {
+                assert_eq!(
+                    obj.get("additionalProperties"),
+                    Some(&serde_json::Value::Bool(false)),
+                    "Missing additionalProperties: false at {}",
+                    path
+                );
+            }
+            for (k, v) in obj {
+                assert_additional_properties_false(v, &format!("{}.{}", path, k));
+            }
+        } else if let Some(arr) = value.as_array() {
+            for (i, v) in arr.iter().enumerate() {
+                assert_additional_properties_false(v, &format!("{}[{}]", path, i));
+            }
+        }
+    }
+
+    #[test]
+    fn test_flatten_pass1_schema() {
+        let schema = flatten_json_schema(pass1_json_schema());
+        assert_no_refs(&schema, "pass1");
+        assert_additional_properties_false(&schema, "pass1");
+        // Should still have top-level structure
+        let obj = schema.as_object().unwrap();
+        assert_eq!(obj.get("type").and_then(|t| t.as_str()), Some("object"));
+        assert!(obj.contains_key("properties"));
+        let props = obj["properties"].as_object().unwrap();
+        assert!(props.contains_key("groups"));
+        assert!(props.contains_key("overall_summary"));
+        assert!(props.contains_key("suggested_review_order"));
+    }
+
+    #[test]
+    fn test_flatten_pass2_schema() {
+        let schema = flatten_json_schema(pass2_json_schema());
+        assert_no_refs(&schema, "pass2");
+        assert_additional_properties_false(&schema, "pass2");
+        let props = schema["properties"].as_object().unwrap();
+        assert!(props.contains_key("group_id"));
+        assert!(props.contains_key("flow_narrative"));
+        assert!(props.contains_key("file_annotations"));
+    }
+
+    #[test]
+    fn test_flatten_judge_schema() {
+        let schema = flatten_json_schema(judge_json_schema());
+        assert_no_refs(&schema, "judge");
+        assert_additional_properties_false(&schema, "judge");
+        let props = schema["properties"].as_object().unwrap();
+        assert!(props.contains_key("criteria"));
+        assert!(props.contains_key("overall_score"));
+    }
+
+    #[test]
+    fn test_flatten_refinement_schema() {
+        let schema = flatten_json_schema(refinement_json_schema());
+        assert_no_refs(&schema, "refinement");
+        assert_additional_properties_false(&schema, "refinement");
+        let props = schema["properties"].as_object().unwrap();
+        assert!(props.contains_key("splits"));
+        assert!(props.contains_key("merges"));
+        assert!(props.contains_key("re_ranks"));
+        assert!(props.contains_key("reclassifications"));
+        assert!(props.contains_key("reasoning"));
+    }
+
+    #[test]
+    fn test_flatten_inlines_nested_refs() {
+        // RefinementResponse has nested types (RefinementSplit -> RefinementNewGroup)
+        // Verify the nested objects are fully inlined
+        let schema = flatten_json_schema(refinement_json_schema());
+        let splits_items = &schema["properties"]["splits"]["items"];
+        // Should be an inlined object, not a $ref
+        assert_eq!(
+            splits_items.get("type").and_then(|t| t.as_str()),
+            Some("object"),
+            "splits.items should be an inlined object, not a $ref"
+        );
+        // new_groups inside splits should also be inlined
+        let new_groups_items =
+            &splits_items["properties"]["new_groups"]["items"];
+        assert_eq!(
+            new_groups_items.get("type").and_then(|t| t.as_str()),
+            Some("object"),
+            "splits.items.new_groups.items should be an inlined object"
+        );
+    }
+
+    #[test]
+    fn test_flatten_preserves_required_fields() {
+        let schema = flatten_json_schema(pass1_json_schema());
+        let required = schema["required"].as_array().unwrap();
+        let required_strs: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required_strs.contains(&"groups"));
+        assert!(required_strs.contains(&"overall_summary"));
+        assert!(required_strs.contains(&"suggested_review_order"));
     }
 
     #[test]

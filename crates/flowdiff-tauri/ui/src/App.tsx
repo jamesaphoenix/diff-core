@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import type {
   AnalysisOutput,
   FlowGroup,
@@ -65,6 +65,10 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState("");
 
+  // Ignore paths state
+  const [ignorePaths, setIgnorePaths] = useState<string[]>([]);
+  const [ignorePathInput, setIgnorePathInput] = useState("");
+
   // Flow review tick-off state (session-only)
   const [reviewedGroupIds, setReviewedGroupIds] = useState<Set<string>>(new Set());
 
@@ -117,6 +121,11 @@ export default function App() {
   replayActiveRef.current = replayActive;
   replayStepRef.current = replayStep;
 
+  // Debounce refs for keyboard file navigation
+  const pendingFileNav = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Staleness guard: incremented on each file selection, stale responses are discarded
+  const fileDiffGeneration = useRef(0);
+
   /** Load LLM settings from backend. */
   const loadLlmSettings = useCallback(async (path: string | null) => {
     try {
@@ -157,6 +166,17 @@ export default function App() {
     }
   }, [repoPath]);
 
+  /** Load ignore paths from .flowdiff.toml. */
+  const loadIgnorePaths = useCallback(async (path: string | null) => {
+    if (!IS_TAURI || !path) return;
+    try {
+      const paths = await tauriInvoke<string[]>("get_ignore_paths", { repoPath: path });
+      setIgnorePaths(paths);
+    } catch {
+      // Non-fatal: ignore paths just won't be shown
+    }
+  }, []);
+
   /** Fetch repository info (branches, worktrees, status). */
   const loadRepoInfo = useCallback(async (path: string) => {
     if (!path) return;
@@ -177,7 +197,9 @@ export default function App() {
     }
     // Load LLM settings (includes API key check)
     loadLlmSettings(path);
-  }, [loadLlmSettings]);
+    // Load ignore paths
+    loadIgnorePaths(path);
+  }, [loadLlmSettings, loadIgnorePaths]);
 
   // Load repo info when repo path changes
   useEffect(() => {
@@ -191,6 +213,8 @@ export default function App() {
   const handleSelectFile = useCallback(
     async (path: string) => {
       setSelectedFile(path);
+      // Increment generation to mark any in-flight request as stale
+      const generation = ++fileDiffGeneration.current;
       if (IS_TAURI) {
         if (!repoPath) return;
         try {
@@ -203,16 +227,38 @@ export default function App() {
             staged: false,
             unstaged: false,
           });
-          setFileDiff(diff);
+          // Only apply if this is still the latest request
+          if (generation === fileDiffGeneration.current) {
+            setFileDiff(diff);
+          }
         } catch (e) {
-          setFileDiff(null);
-          setError(`Failed to load diff for ${path}: ${String(e)}`);
+          if (generation === fileDiffGeneration.current) {
+            setFileDiff(null);
+            setError(`Failed to load diff for ${path}: ${String(e)}`);
+          }
         }
       } else {
-        setFileDiff(MOCK_DIFFS[path] || null);
+        if (generation === fileDiffGeneration.current) {
+          setFileDiff(MOCK_DIFFS[path] || null);
+        }
       }
     },
     [repoPath, baseRef],
+  );
+
+  /** Debounced file selection for keyboard navigation — updates highlight immediately,
+   *  delays the expensive diff fetch by 150ms so rapid j/k presses only fetch the final file. */
+  const handleSelectFileDebounced = useCallback(
+    (path: string) => {
+      // Immediately update highlight for visual feedback
+      setSelectedFile(path);
+      // Debounce the expensive diff fetch
+      if (pendingFileNav.current) clearTimeout(pendingFileNav.current);
+      pendingFileNav.current = setTimeout(() => {
+        handleSelectFile(path);
+      }, 150);
+    },
+    [handleSelectFile],
   );
 
   /** Called when a node in the React Flow graph is clicked — opens the file without collapsing the graph. */
@@ -225,6 +271,8 @@ export default function App() {
 
   const handleSelectGroup = useCallback(
     async (group: FlowGroup) => {
+      // Cancel any pending debounced file nav from the previous group
+      if (pendingFileNav.current) clearTimeout(pendingFileNav.current);
       setSelectedGroup(group);
       // Exit replay mode when switching groups
       setReplayActive(false);
@@ -579,10 +627,47 @@ export default function App() {
     }
   }, [repoPath, loadLlmSettings]);
 
-  // Sort groups by review_order
-  const sortedGroups = analysis
-    ? [...analysis.groups].sort((a, b) => a.review_order - b.review_order)
-    : [];
+  /** Add an ignore path pattern and persist to .flowdiff.toml. */
+  const handleAddIgnorePath = useCallback(async () => {
+    const pattern = ignorePathInput.trim();
+    if (!pattern || !repoPath) return;
+    if (ignorePaths.includes(pattern)) {
+      setIgnorePathInput("");
+      return;
+    }
+    const updated = [...ignorePaths, pattern];
+    setIgnorePaths(updated);
+    setIgnorePathInput("");
+    if (IS_TAURI) {
+      try {
+        await tauriInvoke("save_ignore_paths", { repoPath, paths: updated });
+      } catch {
+        setError("Failed to save ignore paths");
+      }
+    }
+  }, [ignorePathInput, repoPath, ignorePaths]);
+
+  /** Remove an ignore path pattern and persist to .flowdiff.toml. */
+  const handleRemoveIgnorePath = useCallback(async (pattern: string) => {
+    if (!repoPath) return;
+    const updated = ignorePaths.filter((p) => p !== pattern);
+    setIgnorePaths(updated);
+    if (IS_TAURI) {
+      try {
+        await tauriInvoke("save_ignore_paths", { repoPath, paths: updated });
+      } catch {
+        setError("Failed to save ignore paths");
+      }
+    }
+  }, [repoPath, ignorePaths]);
+
+  // Sort groups by review_order (memoized to avoid re-sorting on every render)
+  const sortedGroups = useMemo(
+    () => analysis
+      ? [...analysis.groups].sort((a, b) => a.review_order - b.review_order)
+      : [],
+    [analysis],
+  );
   sortedGroupsRef.current = sortedGroups;
 
   // Get the Pass 1 annotation for the currently selected group
@@ -827,24 +912,46 @@ export default function App() {
     }
   }, [comments, repoPath, analysis, showToast]);
 
+  /** Pre-indexed comment counts by group for O(1) lookup. */
+  const commentsByGroupMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of comments) {
+      map.set(c.group_id, (map.get(c.group_id) ?? 0) + 1);
+    }
+    return map;
+  }, [comments]);
+
+  /** Pre-indexed comments by file path for O(1) lookup. */
+  const commentsByFileMap = useMemo(() => {
+    const map = new Map<string, ReviewComment[]>();
+    for (const c of comments) {
+      if (c.file_path) {
+        const arr = map.get(c.file_path);
+        if (arr) arr.push(c);
+        else map.set(c.file_path, [c]);
+      }
+    }
+    return map;
+  }, [comments]);
+
   /** Get the count of comments for a specific group. */
   const commentCountForGroup = useCallback(
-    (groupId: string): number => {
-      return comments.filter(
-        (c) => c.group_id === groupId,
-      ).length;
-    },
-    [comments],
+    (groupId: string): number => commentsByGroupMap.get(groupId) ?? 0,
+    [commentsByGroupMap],
   );
 
   /** Get comments for the currently selected file. */
   const commentsForFile = useCallback(
-    (filePath: string): ReviewComment[] => {
-      return comments.filter(
-        (c) => c.file_path === filePath,
-      );
-    },
-    [comments],
+    (filePath: string): ReviewComment[] => commentsByFileMap.get(filePath) ?? [],
+    [commentsByFileMap],
+  );
+
+  /** Code-level comments for the selected file, passed to DiffViewer. */
+  const codeCommentsForSelectedFile = useMemo(
+    () => selectedFile
+      ? comments.filter((c) => c.type === "code" && c.file_path === selectedFile)
+      : [],
+    [comments, selectedFile],
   );
 
   /** Open the current file in an external editor. */
@@ -1119,18 +1226,18 @@ export default function App() {
       if (groupIdx === -1) return;
 
       if (e.key === "j") {
-        // Next file in current group
+        // Next file in current group (debounced to avoid IPC storms)
         consume();
         const fileIdx = group.files.findIndex((f) => f.path === file);
         if (fileIdx < group.files.length - 1) {
-          handleSelectFile(group.files[fileIdx + 1].path);
+          handleSelectFileDebounced(group.files[fileIdx + 1].path);
         }
       } else if (e.key === "k") {
-        // Previous file in current group
+        // Previous file in current group (debounced)
         consume();
         const fileIdx = group.files.findIndex((f) => f.path === file);
         if (fileIdx > 0) {
-          handleSelectFile(group.files[fileIdx - 1].path);
+          handleSelectFileDebounced(group.files[fileIdx - 1].path);
         }
       } else if (e.key === "J") {
         // Next group
@@ -1149,7 +1256,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [handleSelectFile, handleSelectGroup, enterReplay, exitReplay, goToReplayStep, toggleGroupReviewed, copyFilePath, copyFlowPaths, openCommentInput, exportComments]);
+  }, [handleSelectFile, handleSelectFileDebounced, handleSelectGroup, enterReplay, exitReplay, goToReplayStep, toggleGroupReviewed, copyFilePath, copyFlowPaths, openCommentInput, exportComments]);
 
   const handleSelectBase = useCallback((branch: string) => {
     setBaseRef(branch);
@@ -1237,7 +1344,7 @@ export default function App() {
           <button
             className="btn btn-settings"
             onClick={() => setSettingsOpen(!settingsOpen)}
-            title="LLM Settings"
+            title="Settings"
           >
             &#9881;
           </button>
@@ -1282,7 +1389,7 @@ export default function App() {
         <div className="settings-overlay" onClick={() => setSettingsOpen(false)}>
           <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
             <div className="settings-header">
-              <h2>LLM Settings</h2>
+              <h2>Settings</h2>
               <button className="btn-close" onClick={() => setSettingsOpen(false)}>
                 &times;
               </button>
@@ -1452,6 +1559,51 @@ export default function App() {
                   </>
                 )}
               </div>
+
+              {/* Exclude Paths Section */}
+              <div className="settings-section">
+                <h3>Exclude Paths</h3>
+                <p className="settings-hint" style={{ marginTop: 0, marginBottom: 8 }}>
+                  Glob patterns for files/folders to exclude from analysis. Matched against repo-relative paths.
+                </p>
+                {ignorePaths.length > 0 && (
+                  <div className="ignore-paths-list">
+                    {ignorePaths.map((pattern) => (
+                      <span key={pattern} className="ignore-path-tag">
+                        <code>{pattern}</code>
+                        <button
+                          className="ignore-path-remove"
+                          onClick={() => handleRemoveIgnorePath(pattern)}
+                          title={`Remove ${pattern}`}
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="ignore-path-input-row">
+                  <input
+                    type="text"
+                    className="settings-input ignore-path-input"
+                    placeholder="e.g. dist/**, **/*.generated.ts"
+                    value={ignorePathInput}
+                    onChange={(e) => setIgnorePathInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && ignorePathInput.trim()) {
+                        handleAddIgnorePath();
+                      }
+                    }}
+                  />
+                  <button
+                    className="btn btn-save-key"
+                    disabled={!ignorePathInput.trim()}
+                    onClick={handleAddIgnorePath}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1586,6 +1738,7 @@ export default function App() {
                         const fileMoved = showRefined
                           ? getFileMovedIndicator(file.path, refinementResponse)
                           : null;
+                        const fileCommentCount = commentsForFile(file.path).length;
 
                         return (
                           <li
@@ -1605,10 +1758,10 @@ export default function App() {
                             <span className="file-changes">
                               +{file.changes.additions} -{file.changes.deletions}
                             </span>
-                            {commentsForFile(file.path).length > 0 && (
+                            {fileCommentCount > 0 && (
                               <button
                                 className="file-comment-btn"
-                                title={`${commentsForFile(file.path).length} comment${commentsForFile(file.path).length === 1 ? "" : "s"} — click to view`}
+                                title={`${fileCommentCount} comment${fileCommentCount === 1 ? "" : "s"} — click to view`}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleSelectFile(file.path);
@@ -1616,7 +1769,7 @@ export default function App() {
                                 }}
                               >
                                 <span className="file-comment-icon">&#128172;</span>
-                                <span className="file-comment-count">{commentsForFile(file.path).length}</span>
+                                <span className="file-comment-count">{fileCommentCount}</span>
                               </button>
                             )}
                             {fileMoved && (
@@ -1788,9 +1941,7 @@ export default function App() {
                     });
                   }
                 }}
-                codeComments={selectedFile ? comments.filter(
-                  (c) => c.type === "code" && c.file_path === selectedFile,
-                ) : []}
+                codeComments={codeCommentsForSelectedFile}
                 onGlyphClick={(commentId) => {
                   setActiveCommentId(commentId);
                   setCommentsCollapsed(false);
