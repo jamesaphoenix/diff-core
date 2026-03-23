@@ -103,6 +103,10 @@ export default function App() {
   const [commentsCollapsed, setCommentsCollapsed] = useState(false);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
 
+  // Infrastructure group collapse state
+  const [infraExpanded, setInfraExpanded] = useState(false);
+  const [infraShowAll, setInfraShowAll] = useState(false);
+
   // Toast notification state (auto-dismiss)
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -307,6 +311,9 @@ export default function App() {
     setShowRefined(false);
     // Reset review tick-off state
     setReviewedGroupIds(new Set());
+    // Reset infrastructure group state
+    setInfraExpanded(false);
+    setInfraShowAll(false);
     // Reset comments
     setComments([]);
     setCommentInput(null);
@@ -1785,19 +1792,45 @@ export default function App() {
                 </div>
               );
             })}
-            {/* Infrastructure group */}
-            {analysis?.infrastructure_group && (
+            {/* Infrastructure group — collapsed by default, shows count */}
+            {analysis?.infrastructure_group && analysis.infrastructure_group.files.length > 0 && (
               <div className="group-item infra-group">
-                <div className="group-header">
-                  <span className="group-name">Infrastructure</span>
+                <div
+                  className="group-header"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setInfraExpanded((prev) => !prev)}
+                >
+                  <span className="group-name">
+                    Infrastructure
+                  </span>
+                  <span className="risk-badge" data-risk="low">
+                    {analysis.infrastructure_group.files.length} files
+                  </span>
+                  <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.6 }}>
+                    {infraExpanded ? "\u25B2" : "\u25BC"}
+                  </span>
                 </div>
-                <ul className="file-list">
-                  {analysis.infrastructure_group.files.map((f) => (
-                    <li key={f} className="file-item">
-                      <span className="file-path">{shortPath(f)}</span>
-                    </li>
-                  ))}
-                </ul>
+                {infraExpanded && (
+                  <ul className="file-list">
+                    {(infraShowAll
+                      ? analysis.infrastructure_group.files
+                      : analysis.infrastructure_group.files.slice(0, 50)
+                    ).map((f) => (
+                      <li key={f} className="file-item">
+                        <span className="file-path">{shortPath(f)}</span>
+                      </li>
+                    ))}
+                    {!infraShowAll && analysis.infrastructure_group.files.length > 50 && (
+                      <li
+                        className="file-item"
+                        style={{ opacity: 0.7, cursor: "pointer", textAlign: "center" }}
+                        onClick={(e) => { e.stopPropagation(); setInfraShowAll(true); }}
+                      >
+                        Show all {analysis.infrastructure_group.files.length} files...
+                      </li>
+                    )}
+                  </ul>
+                )}
               </div>
             )}
             {loading && (
