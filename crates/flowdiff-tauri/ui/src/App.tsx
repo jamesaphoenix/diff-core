@@ -14,6 +14,7 @@ import type {
   RefinementResponse,
   ReviewComment,
   CommentInput,
+  InfraSubGroup,
 } from "./types";
 import { LLM_PROVIDERS, MODELS_BY_PROVIDER } from "./types";
 import DiffViewer, { type DiffViewerHandle } from "./components/DiffViewer";
@@ -106,6 +107,7 @@ export default function App() {
   // Infrastructure group collapse state
   const [infraExpanded, setInfraExpanded] = useState(false);
   const [infraShowAll, setInfraShowAll] = useState(false);
+  const [infraSubGroupsExpanded, setInfraSubGroupsExpanded] = useState<Set<string>>(new Set());
 
   // Toast notification state (auto-dismiss)
   const [toast, setToast] = useState<string | null>(null);
@@ -1792,7 +1794,7 @@ export default function App() {
                 </div>
               );
             })}
-            {/* Infrastructure group — collapsed by default, shows count */}
+            {/* Infrastructure group — collapsed by default, shows count, with sub-groups */}
             {analysis?.infrastructure_group && analysis.infrastructure_group.files.length > 0 && (
               <div className="group-item infra-group">
                 <div
@@ -1801,7 +1803,7 @@ export default function App() {
                   onClick={() => setInfraExpanded((prev) => !prev)}
                 >
                   <span className="group-name">
-                    Infrastructure
+                    Ungrouped
                   </span>
                   <span className="risk-badge" data-risk="low">
                     {analysis.infrastructure_group.files.length} files
@@ -1811,25 +1813,83 @@ export default function App() {
                   </span>
                 </div>
                 {infraExpanded && (
-                  <ul className="file-list">
-                    {(infraShowAll
-                      ? analysis.infrastructure_group.files
-                      : analysis.infrastructure_group.files.slice(0, 50)
-                    ).map((f) => (
-                      <li key={f} className="file-item">
-                        <span className="file-path">{shortPath(f)}</span>
-                      </li>
-                    ))}
-                    {!infraShowAll && analysis.infrastructure_group.files.length > 50 && (
-                      <li
-                        className="file-item"
-                        style={{ opacity: 0.7, cursor: "pointer", textAlign: "center" }}
-                        onClick={(e) => { e.stopPropagation(); setInfraShowAll(true); }}
-                      >
-                        Show all {analysis.infrastructure_group.files.length} files...
-                      </li>
+                  <>
+                    {analysis.infrastructure_group.sub_groups && analysis.infrastructure_group.sub_groups.length > 0 ? (
+                      analysis.infrastructure_group.sub_groups.map((sg: InfraSubGroup) => {
+                        const isSubExpanded = infraSubGroupsExpanded.has(sg.name);
+                        return (
+                          <div key={sg.name} className="infra-sub-group">
+                            <div
+                              className="infra-sub-group-header"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setInfraSubGroupsExpanded((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(sg.name)) {
+                                    next.delete(sg.name);
+                                  } else {
+                                    next.add(sg.name);
+                                  }
+                                  return next;
+                                });
+                              }}
+                            >
+                              <span style={{ fontSize: 10, opacity: 0.6, marginRight: 4 }}>
+                                {isSubExpanded ? "\u25BC" : "\u25B6"}
+                              </span>
+                              <span className="infra-sub-group-name">{sg.name}</span>
+                              <span className="infra-sub-group-count">
+                                {sg.files.length} file{sg.files.length === 1 ? "" : "s"}
+                              </span>
+                            </div>
+                            {isSubExpanded && (
+                              <ul className="file-list">
+                                {sg.files.map((f) => (
+                                  <li
+                                    key={f}
+                                    className={`file-item ${selectedFile === f ? "selected" : ""}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleSelectFile(f);
+                                    }}
+                                  >
+                                    <span className="file-path">{shortPath(f)}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <ul className="file-list">
+                        {(infraShowAll
+                          ? analysis.infrastructure_group.files
+                          : analysis.infrastructure_group.files.slice(0, 50)
+                        ).map((f) => (
+                          <li
+                            key={f}
+                            className={`file-item ${selectedFile === f ? "selected" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectFile(f);
+                            }}
+                          >
+                            <span className="file-path">{shortPath(f)}</span>
+                          </li>
+                        ))}
+                        {!infraShowAll && analysis.infrastructure_group.files.length > 50 && (
+                          <li
+                            className="file-item"
+                            style={{ opacity: 0.7, cursor: "pointer", textAlign: "center" }}
+                            onClick={(e) => { e.stopPropagation(); setInfraShowAll(true); }}
+                          >
+                            Show all {analysis.infrastructure_group.files.length} files...
+                          </li>
+                        )}
+                      </ul>
                     )}
-                  </ul>
+                  </>
                 )}
               </div>
             )}

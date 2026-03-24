@@ -568,6 +568,35 @@ body {
   font-style: italic;
 }
 
+.infra-sub-group {
+  margin-left: 8px;
+}
+
+.infra-sub-group-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.infra-sub-group-header:hover {
+  background: var(--bg-hover);
+}
+
+.infra-sub-group-name {
+  font-weight: 500;
+  flex: 1;
+}
+
+.infra-sub-group-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
 /* ── Diff Viewer (Center Panel) ── */
 
 .diff-viewer {

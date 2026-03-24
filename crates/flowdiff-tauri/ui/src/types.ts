@@ -51,8 +51,28 @@ export interface FlowGroup {
   review_order: number;
 }
 
+export type InfraCategory =
+  | "Infrastructure"
+  | "Schema"
+  | "Script"
+  | "Migration"
+  | "Deployment"
+  | "Documentation"
+  | "Lint"
+  | "TestUtil"
+  | "Generated"
+  | "DirectoryGroup"
+  | "Unclassified";
+
+export interface InfraSubGroup {
+  name: string;
+  category: InfraCategory;
+  files: string[];
+}
+
 export interface InfrastructureGroup {
   files: string[];
+  sub_groups?: InfraSubGroup[];
   reason: string;
 }
 

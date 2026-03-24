@@ -543,10 +543,10 @@ Each `InfraSubGroupView` renders a collapsible section with clickable files.
 4. ~~Add tests~~ (10 acceptance + 7 property-based: preserves-all, no-duplicates, classify-deterministic, sub-cluster-deterministic, files-sorted, convention-categories-match, realistic-paths-preserved)
 5. ~~Fix sub-group ordering determinism~~ (sort sub_groups by name before returning)
 
-### Phase 5: Consumer Updates
+### Phase 5: Consumer Updates — DONE
 1. CLI output — no changes needed (JSON structure is backward compatible via `files` field)
-2. Tauri UI — make infrastructure files clickable (load diff on click, selected state, keyboard nav)
-3. Tauri UI — render sub-groups with collapsible headers instead of flat list
+2. ~~Tauri UI — make infrastructure files clickable~~ (onClick handler + selected class on all infra file items, backward-compat flat list fallback when no sub_groups. 4 E2E tests: click-selects, selectedFile-state, highlight-follows-clicks, backward-compat-flat-list)
+3. ~~Tauri UI — render sub-groups with collapsible headers~~ (InfraSubGroup/InfraCategory types in types.ts, collapsible sub-group headers with file counts, independent expand/collapse per sub-group, header renamed "Ungrouped". 7 E2E tests: headers-rendered, file-counts, collapsed-by-default, expand-shows-files, collapse-hides-files, ungrouped-label, multiple-expanded-simultaneously)
 4. ~~LLM refinement — update `from_group_id: "infrastructure"` to work with sub-groups~~ (remove from sub-group on reclassify-out, classify into correct sub-group on reclassify-in, empty sub-group cleanup. 5 unit tests + 3 property-based: categorized-correctly, removes-from-all-sub-groups, sub-groups-consistent-after-reclassify)
 5. LLM judge — no changes needed
 

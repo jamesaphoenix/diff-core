@@ -140,6 +140,18 @@ export const MOCK_ANALYSIS: AnalysisOutput = {
   ],
   infrastructure_group: {
     files: ["tsconfig.json", "package.json", ".eslintrc.json"],
+    sub_groups: [
+      {
+        name: "Infrastructure",
+        category: "Infrastructure" as const,
+        files: ["tsconfig.json", "package.json"],
+      },
+      {
+        name: "Lint",
+        category: "Lint" as const,
+        files: [".eslintrc.json"],
+      },
+    ],
     reason: "Not reachable from any detected entrypoint",
   },
   annotations: null,
@@ -732,6 +744,18 @@ export const MOCK_REFINEMENT: RefinementResult = {
   ],
   infrastructure_group: {
     files: ["tsconfig.json", "package.json", ".eslintrc.json"],
+    sub_groups: [
+      {
+        name: "Infrastructure",
+        category: "Infrastructure" as const,
+        files: ["tsconfig.json", "package.json"],
+      },
+      {
+        name: "Lint",
+        category: "Lint" as const,
+        files: [".eslintrc.json"],
+      },
+    ],
     reason: "Not reachable from any detected entrypoint",
   },
   refinement_response: {
