@@ -14,7 +14,7 @@ use petgraph::Direction;
 use crate::graph::SymbolGraph;
 use crate::types::{
     ChangeStats, Entrypoint, EntrypointType, FileChange, FileRole, FlowEdge, FlowGroup,
-    InfrastructureGroup,
+    InfraCategory, InfraSubGroup, InfrastructureGroup,
 };
 
 /// Result of semantic clustering.
@@ -55,6 +55,7 @@ pub fn cluster_files(
             groups: vec![],
             infrastructure: Some(InfrastructureGroup {
                 files: changed_set,
+                sub_groups: vec![],
                 reason: "Not reachable from any detected entrypoint".to_string(),
             }),
         };
@@ -158,8 +159,10 @@ pub fn cluster_files(
     let infrastructure = if infra_files.is_empty() {
         None
     } else {
+        let sub_groups = sub_cluster_infra_files(&infra_files, graph);
         Some(InfrastructureGroup {
             files: infra_files,
+            sub_groups,
             reason: "Not reachable from any detected entrypoint".to_string(),
         })
     };
@@ -170,11 +173,37 @@ pub fn cluster_files(
     }
 }
 
-/// BFS forward from an entrypoint, returning file_path → minimum graph distance.
+/// BFS from an entrypoint using bidirectional traversal, returning file_path → minimum graph distance.
+///
+/// Pass 1 (forward): follows outgoing edges with cost=1 per hop — the natural data flow direction.
+/// Pass 2 (reverse): follows incoming edges with cost=2 per hop — files that depend on the group.
+/// The higher reverse cost ensures forward-reachable files always win when both paths exist.
 fn compute_file_reachability(
     graph: &SymbolGraph,
     entry_file: &str,
     entry_symbol: &str,
+) -> HashMap<String, usize> {
+    let forward = bfs_pass(graph, entry_file, entry_symbol, Direction::Outgoing, 1);
+    let reverse = bfs_pass(graph, entry_file, entry_symbol, Direction::Incoming, 2);
+
+    // Merge: keep minimum distance for each file
+    let mut merged = forward;
+    for (file, rev_dist) in reverse {
+        let entry = merged.entry(file).or_insert(rev_dist);
+        if rev_dist < *entry {
+            *entry = rev_dist;
+        }
+    }
+    merged
+}
+
+/// Single-direction BFS pass from an entrypoint, with configurable cost per hop.
+fn bfs_pass(
+    graph: &SymbolGraph,
+    entry_file: &str,
+    entry_symbol: &str,
+    direction: Direction,
+    cost_per_hop: usize,
 ) -> HashMap<String, usize> {
     let mut file_distances: HashMap<String, usize> = HashMap::new();
     let mut visited: HashSet<petgraph::graph::NodeIndex> = HashSet::new();
@@ -201,14 +230,430 @@ fn compute_file_reachability(
             *entry = dist;
         }
 
-        for neighbor in graph.graph.neighbors_directed(node, Direction::Outgoing) {
+        for neighbor in graph.graph.neighbors_directed(node, direction) {
             if visited.insert(neighbor) {
-                queue.push_back((neighbor, dist + 1));
+                queue.push_back((neighbor, dist + cost_per_hop));
             }
         }
     }
 
     file_distances
+}
+
+// ---------------------------------------------------------------------------
+// Infrastructure sub-clustering
+// ---------------------------------------------------------------------------
+
+/// Classify a file path into an infrastructure category by convention.
+pub fn classify_by_convention(path: &str) -> InfraCategory {
+    if is_true_infrastructure(path) {
+        return InfraCategory::Infrastructure;
+    }
+
+    let lower = path.to_lowercase();
+    let filename = lower.rsplit('/').next().unwrap_or(&lower);
+    let ext = filename.rsplit('.').next().unwrap_or("");
+
+    // Schemas/Types
+    if lower.contains("/schemas/")
+        || lower.starts_with("schemas/")
+        || lower.contains("/schema/")
+        || lower.starts_with("schema/")
+        || filename.contains(".schema.")
+        || filename.contains(".dto.")
+        || lower.contains("/types/")
+        || lower.starts_with("types/")
+    {
+        return InfraCategory::Schema;
+    }
+
+    // Migrations
+    if lower.contains("/migrations/")
+        || lower.starts_with("migrations/")
+        || lower.contains("/migrate/")
+        || lower.starts_with("migrate/")
+        || filename.contains(".migration.")
+        || lower.contains("/seeds/")
+        || lower.starts_with("seeds/")
+        || lower.contains("/fixtures/")
+        || lower.starts_with("fixtures/")
+    {
+        return InfraCategory::Migration;
+    }
+
+    // Scripts
+    if matches!(ext, "sh" | "bash" | "zsh" | "ps1")
+        || lower.contains("/scripts/")
+        || lower.starts_with("scripts/")
+    {
+        return InfraCategory::Script;
+    }
+
+    // Deployment
+    if (lower.contains("/deploy/")
+        || lower.starts_with("deploy/")
+        || lower.contains("/deployment/")
+        || lower.starts_with("deployment/"))
+        && !is_true_infrastructure(path)
+    {
+        return InfraCategory::Deployment;
+    }
+
+    // Documentation
+    if matches!(ext, "md" | "mdx" | "rst" | "txt")
+        || lower.contains("/docs/")
+        || lower.starts_with("docs/")
+        || lower.contains("/documentation/")
+        || lower.starts_with("documentation/")
+    {
+        return InfraCategory::Documentation;
+    }
+
+    // Lint configs
+    if filename.starts_with(".eslint")
+        || filename.starts_with(".prettier")
+        || filename.starts_with(".stylelint")
+        || filename == ".editorconfig"
+        || filename == ".clang-format"
+        || filename == "rustfmt.toml"
+        || filename == ".rubocop.yml"
+        || filename == ".flake8"
+        || filename == "mypy.ini"
+        || filename == ".golangci.yml"
+    {
+        return InfraCategory::Lint;
+    }
+
+    // Test utilities
+    if lower.contains("/test-utils/")
+        || lower.contains("/test-helpers/")
+        || lower.contains("/__fixtures__/")
+        || lower.contains("/test/fixtures/")
+        || lower.contains("/testutils/")
+    {
+        return InfraCategory::TestUtil;
+    }
+
+    // Generated code
+    if lower.contains("/generated/")
+        || lower.contains("/__generated__/")
+        || filename.contains(".generated.")
+        || filename.ends_with(".g.dart")
+        || filename.ends_with(".pb.go")
+    {
+        return InfraCategory::Generated;
+    }
+
+    InfraCategory::Unclassified
+}
+
+/// Check if a file is true infrastructure (Docker, CI/CD, env configs, build configs, etc.).
+fn is_true_infrastructure(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    let filename = lower.rsplit('/').next().unwrap_or(&lower);
+
+    // Environment/Secrets
+    if filename.starts_with(".env") || filename.ends_with(".env") {
+        return true;
+    }
+
+    // Docker
+    if filename.starts_with("dockerfile") || filename.starts_with("docker-compose") || filename == ".dockerignore" {
+        return true;
+    }
+
+    // CI/CD
+    if lower.contains(".github/workflows/")
+        || filename == ".gitlab-ci.yml"
+        || filename == "jenkinsfile"
+        || lower.contains(".circleci/")
+        || filename == ".travis.yml"
+        || filename == "azure-pipelines.yml"
+        || filename == "bitbucket-pipelines.yml"
+    {
+        return true;
+    }
+
+    // Container orchestration
+    if lower.contains("k8s/")
+        || lower.contains("kubernetes/")
+        || lower.contains("helm/")
+        || filename.contains(".helmrelease.")
+    {
+        return true;
+    }
+
+    // Terraform/IaC
+    if lower.contains("terraform/")
+        || filename.ends_with(".tf")
+        || filename.ends_with(".tfvars")
+        || lower.contains("pulumi/")
+        || filename.starts_with("pulumi.")
+        || lower.contains("cdk/")
+        || lower.contains("cloudformation/")
+    {
+        return true;
+    }
+
+    // Package manager configs
+    if matches!(
+        filename,
+        "package.json"
+            | "cargo.toml"
+            | "go.mod"
+            | "go.sum"
+            | "requirements.txt"
+            | "pipfile"
+            | "pyproject.toml"
+            | "gemfile"
+            | "pom.xml"
+            | "package.swift"
+            | "build.sbt"
+            | "composer.json"
+    ) || filename.starts_with("build.gradle")
+        || filename.ends_with(".csproj")
+    {
+        return true;
+    }
+
+    // Lock files
+    if matches!(
+        filename,
+        "package-lock.json"
+            | "yarn.lock"
+            | "pnpm-lock.yaml"
+            | "cargo.lock"
+            | "gemfile.lock"
+            | "poetry.lock"
+            | "composer.lock"
+    ) {
+        return true;
+    }
+
+    // Build tool configs
+    if filename.starts_with("tsconfig")
+        || filename.starts_with("webpack.")
+        || filename.starts_with("vite.")
+        || filename.starts_with("rollup.")
+        || filename.starts_with("esbuild.")
+        || filename.starts_with("babel.")
+        || filename == "makefile"
+        || filename == "cmakelists.txt"
+        || filename.ends_with(".mk")
+        || filename == "build.rs"
+    {
+        return true;
+    }
+
+    // IDE/editor configs
+    if lower.contains(".vscode/") || lower.contains(".idea/") || lower.contains(".eclipse/") {
+        return true;
+    }
+
+    // MCP/tool configs
+    if filename == ".mcp.json"
+        || lower.contains(".mcp/")
+        || filename == ".tool-versions"
+        || filename == ".nvmrc"
+        || filename == ".node-version"
+        || filename == ".python-version"
+        || filename == ".ruby-version"
+    {
+        return true;
+    }
+
+    // Git configs
+    if matches!(filename, ".gitignore" | ".gitattributes" | ".gitmodules") {
+        return true;
+    }
+
+    false
+}
+
+/// Sub-cluster infrastructure files into semantically organized sub-groups.
+pub fn sub_cluster_infra_files(files: &[String], graph: &SymbolGraph) -> Vec<InfraSubGroup> {
+    let mut remaining: HashSet<String> = files.iter().cloned().collect();
+    let mut category_files: BTreeMap<String, (InfraCategory, Vec<String>)> = BTreeMap::new();
+
+    // Phase 1: Convention-based classification
+    for file in files {
+        let category = classify_by_convention(file);
+        if category != InfraCategory::Unclassified {
+            let name = category_display_name(&category);
+            category_files
+                .entry(name.clone())
+                .or_insert_with(|| (category.clone(), Vec::new()))
+                .1
+                .push(file.clone());
+            remaining.remove(file);
+        }
+    }
+
+    let mut sub_groups: Vec<InfraSubGroup> = category_files
+        .into_iter()
+        .map(|(name, (category, mut files))| {
+            files.sort();
+            InfraSubGroup {
+                name,
+                category,
+                files,
+            }
+        })
+        .collect();
+
+    // Phase 2: Import-edge clustering (for remaining files)
+    if !remaining.is_empty() {
+        let components = find_connected_components(&remaining, graph);
+        for component in components {
+            if component.len() > 1 {
+                let name = common_directory_prefix(&component);
+                for f in &component {
+                    remaining.remove(f);
+                }
+                let mut files: Vec<String> = component;
+                files.sort();
+                sub_groups.push(InfraSubGroup {
+                    name,
+                    category: InfraCategory::DirectoryGroup,
+                    files,
+                });
+            }
+        }
+    }
+
+    // Phase 3: Directory proximity (for remaining files)
+    if !remaining.is_empty() {
+        let dir_groups = group_by_directory(&remaining);
+        for (dir, mut files) in dir_groups {
+            if files.len() >= 2 {
+                for f in &files {
+                    remaining.remove(f);
+                }
+                files.sort();
+                sub_groups.push(InfraSubGroup {
+                    name: dir,
+                    category: InfraCategory::DirectoryGroup,
+                    files,
+                });
+            }
+        }
+    }
+
+    // Phase 4: Remaining → Unclassified
+    if !remaining.is_empty() {
+        let mut files: Vec<String> = remaining.into_iter().collect();
+        files.sort();
+        sub_groups.push(InfraSubGroup {
+            name: "Unclassified".to_string(),
+            category: InfraCategory::Unclassified,
+            files,
+        });
+    }
+
+    sub_groups
+}
+
+fn category_display_name(cat: &InfraCategory) -> String {
+    match cat {
+        InfraCategory::Infrastructure => "Infrastructure".to_string(),
+        InfraCategory::Schema => "Schemas".to_string(),
+        InfraCategory::Script => "Scripts".to_string(),
+        InfraCategory::Migration => "Migrations".to_string(),
+        InfraCategory::Deployment => "Deployment".to_string(),
+        InfraCategory::Documentation => "Documentation".to_string(),
+        InfraCategory::Lint => "Lint".to_string(),
+        InfraCategory::TestUtil => "Test utilities".to_string(),
+        InfraCategory::Generated => "Generated".to_string(),
+        InfraCategory::DirectoryGroup => "Directory group".to_string(),
+        InfraCategory::Unclassified => "Unclassified".to_string(),
+    }
+}
+
+/// Find connected components among a set of files using graph edges.
+fn find_connected_components(files: &HashSet<String>, graph: &SymbolGraph) -> Vec<Vec<String>> {
+    // Build adjacency among the remaining files using graph edges.
+    let mut adj: HashMap<String, HashSet<String>> = HashMap::new();
+    for (from_id, to_id, _) in graph.edges() {
+        let from_file = graph.get_symbol(from_id).map(|s| s.file.clone());
+        let to_file = graph.get_symbol(to_id).map(|s| s.file.clone());
+        if let (Some(ff), Some(tf)) = (from_file, to_file) {
+            if files.contains(&ff) && files.contains(&tf) && ff != tf {
+                adj.entry(ff.clone()).or_default().insert(tf.clone());
+                adj.entry(tf).or_default().insert(ff);
+            }
+        }
+    }
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut components = Vec::new();
+
+    for file in files {
+        if visited.contains(file) {
+            continue;
+        }
+        let mut component = Vec::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(file.clone());
+        visited.insert(file.clone());
+
+        while let Some(f) = queue.pop_front() {
+            component.push(f.clone());
+            if let Some(neighbors) = adj.get(&f) {
+                for n in neighbors {
+                    if visited.insert(n.clone()) {
+                        queue.push_back(n.clone());
+                    }
+                }
+            }
+        }
+        components.push(component);
+    }
+    components
+}
+
+/// Group files by their parent directory.
+fn group_by_directory(files: &HashSet<String>) -> Vec<(String, Vec<String>)> {
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for file in files {
+        let dir = file
+            .rfind('/')
+            .map(|i| &file[..=i])
+            .unwrap_or("")
+            .to_string();
+        groups.entry(dir).or_default().push(file.clone());
+    }
+    groups.into_iter().collect()
+}
+
+/// Find the common directory prefix for a set of files.
+fn common_directory_prefix(files: &[String]) -> String {
+    if files.is_empty() {
+        return "Unknown".to_string();
+    }
+    if files.len() == 1 {
+        return files[0]
+            .rfind('/')
+            .map(|i| files[0][..=i].to_string())
+            .unwrap_or_else(|| files[0].clone());
+    }
+
+    let first = &files[0];
+    let mut prefix_len = 0;
+    for (i, c) in first.char_indices() {
+        if files[1..].iter().all(|f| f.get(..=i).map_or(false, |s| s.ends_with(c) && s == &first[..=i])) {
+            if c == '/' {
+                prefix_len = i + 1;
+            }
+        } else {
+            break;
+        }
+    }
+
+    if prefix_len > 0 {
+        first[..prefix_len].to_string()
+    } else {
+        "Mixed".to_string()
+    }
 }
 
 /// Collect all graph edges where both endpoints belong to files in the group.
@@ -1264,5 +1709,480 @@ mod tests {
         let result = cluster_files(&graph, &entrypoints, &files);
         let ids: Vec<&str> = result.groups.iter().map(|g| g.id.as_str()).collect();
         assert_eq!(ids, vec!["group_1", "group_2"]);
+    }
+
+    // ===================================================================
+    // Phase 2: Bidirectional Reachability tests (spec §2.4)
+    // ===================================================================
+
+    #[test]
+    fn test_reverse_reachable_not_infra() {
+        // File A has an edge TO the entrypoint file (reverse direction).
+        // A should end up in the entrypoint's group, not infrastructure.
+        let graph = make_graph(
+            &[
+                ("src/route.ts", "src/route.ts", SymbolKind::Module),
+                ("src/route.ts::handle", "src/route.ts", SymbolKind::Function),
+                ("src/caller.ts", "src/caller.ts", SymbolKind::Module),
+                ("src/caller.ts::invoke", "src/caller.ts", SymbolKind::Function),
+            ],
+            &[
+                // caller.ts imports from route.ts (reverse edge from entrypoint's perspective)
+                ("src/caller.ts", "src/route.ts::handle", EdgeType::Imports),
+                ("src/caller.ts::invoke", "src/route.ts::handle", EdgeType::Calls),
+            ],
+        );
+
+        let entrypoints = vec![ep("src/route.ts", "handle", EntrypointType::HttpRoute)];
+        let files = changed(&["src/route.ts", "src/caller.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+
+        assert_eq!(result.groups.len(), 1);
+        let group_files: Vec<&str> = result.groups[0]
+            .files
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert!(
+            group_files.contains(&"src/caller.ts"),
+            "reverse-reachable file should be in entrypoint's group, not infrastructure"
+        );
+        assert!(result.infrastructure.is_none(), "no infrastructure files");
+    }
+
+    #[test]
+    fn test_forward_preferred_over_reverse() {
+        // File X is reachable forward (dist 1) and reverse (dist 2).
+        // Should use forward distance (1).
+        let graph = make_graph(
+            &[
+                ("src/entry.ts", "src/entry.ts", SymbolKind::Module),
+                ("src/entry.ts::start", "src/entry.ts", SymbolKind::Function),
+                ("src/target.ts", "src/target.ts", SymbolKind::Module),
+                ("src/target.ts::process", "src/target.ts", SymbolKind::Function),
+            ],
+            &[
+                // Forward: entry → target
+                ("src/entry.ts::start", "src/target.ts::process", EdgeType::Calls),
+                // Reverse: target → entry (target imports from entry)
+                ("src/target.ts", "src/entry.ts::start", EdgeType::Imports),
+            ],
+        );
+
+        let entrypoints = vec![ep("src/entry.ts", "start", EntrypointType::HttpRoute)];
+        let files = changed(&["src/entry.ts", "src/target.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+
+        assert_eq!(result.groups.len(), 1);
+        // target.ts should be at flow_position 1 (forward distance), not 2 (reverse)
+        let target = result.groups[0]
+            .files
+            .iter()
+            .find(|f| f.path == "src/target.ts")
+            .expect("target.ts should be in group");
+        assert_eq!(target.flow_position, 1, "should use forward distance");
+    }
+
+    #[test]
+    fn test_reverse_only_grouped() {
+        // File Z is ONLY reachable via reverse edges. It should still be grouped.
+        let graph = make_graph(
+            &[
+                ("src/entry.ts", "src/entry.ts", SymbolKind::Module),
+                ("src/entry.ts::start", "src/entry.ts", SymbolKind::Function),
+                ("src/dep.ts", "src/dep.ts", SymbolKind::Module),
+                ("src/dep.ts::use_entry", "src/dep.ts", SymbolKind::Function),
+            ],
+            &[
+                // Only reverse: dep.ts depends on entry (dep imports entry)
+                ("src/dep.ts::use_entry", "src/entry.ts::start", EdgeType::Calls),
+            ],
+        );
+
+        let entrypoints = vec![ep("src/entry.ts", "start", EntrypointType::HttpRoute)];
+        let files = changed(&["src/entry.ts", "src/dep.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+
+        assert_eq!(result.groups.len(), 1);
+        let group_files: Vec<&str> = result.groups[0]
+            .files
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert!(
+            group_files.contains(&"src/dep.ts"),
+            "reverse-only reachable file should be grouped"
+        );
+        assert!(result.infrastructure.is_none());
+    }
+
+    #[test]
+    fn test_mixed_multi_hop_bidirectional() {
+        // Complex graph: entry → A → B (forward), C → entry (reverse)
+        // C depends on entry, so it should be grouped via reverse BFS
+        let graph = make_graph(
+            &[
+                ("src/entry.ts", "src/entry.ts", SymbolKind::Module),
+                ("src/entry.ts::start", "src/entry.ts", SymbolKind::Function),
+                ("src/a.ts", "src/a.ts", SymbolKind::Module),
+                ("src/a.ts::func_a", "src/a.ts", SymbolKind::Function),
+                ("src/b.ts", "src/b.ts", SymbolKind::Module),
+                ("src/b.ts::func_b", "src/b.ts", SymbolKind::Function),
+                ("src/c.ts", "src/c.ts", SymbolKind::Module),
+                ("src/c.ts::func_c", "src/c.ts", SymbolKind::Function),
+            ],
+            &[
+                // Forward: entry → A → B
+                ("src/entry.ts::start", "src/a.ts::func_a", EdgeType::Calls),
+                ("src/a.ts::func_a", "src/b.ts::func_b", EdgeType::Calls),
+                // Reverse: C depends on entry (C imports entry)
+                ("src/c.ts::func_c", "src/entry.ts::start", EdgeType::Calls),
+            ],
+        );
+
+        let entrypoints = vec![ep("src/entry.ts", "start", EntrypointType::HttpRoute)];
+        let files = changed(&["src/entry.ts", "src/a.ts", "src/b.ts", "src/c.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+
+        assert_eq!(result.groups.len(), 1);
+        let group_files: Vec<&str> = result.groups[0]
+            .files
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert!(group_files.contains(&"src/c.ts"), "C should be grouped via reverse edge to entry");
+        assert!(result.infrastructure.is_none());
+    }
+
+    #[test]
+    fn test_existing_forward_tests_unchanged() {
+        // Verify that the existing forward-only test still passes identically.
+        // (test_single_entrypoint_group already covers this — this is a sanity check
+        // that forward behavior is preserved.)
+        let graph = make_graph(
+            &[
+                ("src/route.ts", "src/route.ts", SymbolKind::Module),
+                ("src/route.ts::handlePost", "src/route.ts", SymbolKind::Function),
+                ("src/service.ts", "src/service.ts", SymbolKind::Module),
+                ("src/service.ts::createUser", "src/service.ts", SymbolKind::Function),
+            ],
+            &[
+                ("src/route.ts", "src/service.ts::createUser", EdgeType::Imports),
+                ("src/route.ts::handlePost", "src/service.ts::createUser", EdgeType::Calls),
+            ],
+        );
+
+        let entrypoints = vec![ep("src/route.ts", "handlePost", EntrypointType::HttpRoute)];
+        let files = changed(&["src/route.ts", "src/service.ts"]);
+
+        let result = cluster_files(&graph, &entrypoints, &files);
+        assert_eq!(result.groups.len(), 1);
+        assert!(result.infrastructure.is_none());
+        let paths: Vec<&str> = result.groups[0].files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths[0], "src/route.ts");
+        assert_eq!(paths[1], "src/service.ts");
+    }
+
+    // ===================================================================
+    // Phase 4: Infrastructure Sub-Clustering tests (spec §3.9)
+    // ===================================================================
+
+    #[test]
+    fn test_classify_only_true_infra() {
+        assert_eq!(classify_by_convention("Dockerfile"), InfraCategory::Infrastructure);
+        assert_eq!(classify_by_convention(".env.dev"), InfraCategory::Infrastructure);
+        assert_eq!(classify_by_convention("tsconfig.json"), InfraCategory::Infrastructure);
+        assert_eq!(classify_by_convention("package.json"), InfraCategory::Infrastructure);
+        assert_eq!(classify_by_convention(".github/workflows/ci.yml"), InfraCategory::Infrastructure);
+        assert_eq!(classify_by_convention("Cargo.toml"), InfraCategory::Infrastructure);
+        assert_eq!(classify_by_convention("Cargo.lock"), InfraCategory::Infrastructure);
+    }
+
+    #[test]
+    fn test_classify_schemas() {
+        assert_eq!(classify_by_convention("schemas/user.ts"), InfraCategory::Schema);
+        assert_eq!(classify_by_convention("src/schema/billing.ts"), InfraCategory::Schema);
+        assert_eq!(classify_by_convention("src/user.schema.ts"), InfraCategory::Schema);
+        assert_eq!(classify_by_convention("src/user.dto.ts"), InfraCategory::Schema);
+        assert_eq!(classify_by_convention("src/types/index.ts"), InfraCategory::Schema);
+    }
+
+    #[test]
+    fn test_classify_scripts() {
+        assert_eq!(classify_by_convention("scripts/deploy.sh"), InfraCategory::Script);
+        assert_eq!(classify_by_convention("scripts/setup.sh"), InfraCategory::Script);
+        assert_eq!(classify_by_convention("init.bash"), InfraCategory::Script);
+        assert_eq!(classify_by_convention("clean.zsh"), InfraCategory::Script);
+    }
+
+    #[test]
+    fn test_classify_migrations() {
+        assert_eq!(classify_by_convention("migrations/001.sql"), InfraCategory::Migration);
+        assert_eq!(classify_by_convention("db/migrations/002.ts"), InfraCategory::Migration);
+        assert_eq!(classify_by_convention("seeds/users.ts"), InfraCategory::Migration);
+    }
+
+    #[test]
+    fn test_classify_docs() {
+        assert_eq!(classify_by_convention("docs/README.md"), InfraCategory::Documentation);
+        assert_eq!(classify_by_convention("docs/setup.md"), InfraCategory::Documentation);
+        assert_eq!(classify_by_convention("CHANGELOG.md"), InfraCategory::Documentation);
+    }
+
+    #[test]
+    fn test_classify_lint() {
+        assert_eq!(classify_by_convention(".eslintrc.json"), InfraCategory::Lint);
+        assert_eq!(classify_by_convention(".prettierrc"), InfraCategory::Lint);
+        assert_eq!(classify_by_convention("rustfmt.toml"), InfraCategory::Lint);
+    }
+
+    #[test]
+    fn test_classify_test_utils() {
+        assert_eq!(classify_by_convention("src/test-utils/helpers.ts"), InfraCategory::TestUtil);
+        assert_eq!(classify_by_convention("test/__fixtures__/data.json"), InfraCategory::TestUtil);
+    }
+
+    #[test]
+    fn test_classify_generated() {
+        assert_eq!(classify_by_convention("src/generated/types.ts"), InfraCategory::Generated);
+        assert_eq!(classify_by_convention("src/__generated__/schema.ts"), InfraCategory::Generated);
+        assert_eq!(classify_by_convention("src/api.generated.ts"), InfraCategory::Generated);
+    }
+
+    #[test]
+    fn test_classify_unclassified() {
+        assert_eq!(classify_by_convention("src/random-file.ts"), InfraCategory::Unclassified);
+        assert_eq!(classify_by_convention("src/utils/helpers.ts"), InfraCategory::Unclassified);
+    }
+
+    #[test]
+    fn test_sub_cluster_only_true_infra() {
+        let graph = make_graph(&[], &[]);
+        let files = vec![
+            "Dockerfile".to_string(),
+            ".env.dev".to_string(),
+            "tsconfig.json".to_string(),
+        ];
+        let sub_groups = sub_cluster_infra_files(&files, &graph);
+        assert_eq!(sub_groups.len(), 1);
+        assert_eq!(sub_groups[0].category, InfraCategory::Infrastructure);
+        assert_eq!(sub_groups[0].files.len(), 3);
+    }
+
+    #[test]
+    fn test_sub_cluster_schemas_separated() {
+        let graph = make_graph(&[], &[]);
+        let files = vec![
+            "schemas/user.ts".to_string(),
+            "schemas/billing.ts".to_string(),
+            "Dockerfile".to_string(),
+        ];
+        let sub_groups = sub_cluster_infra_files(&files, &graph);
+        assert!(sub_groups.iter().any(|g| g.category == InfraCategory::Infrastructure));
+        assert!(sub_groups.iter().any(|g| g.category == InfraCategory::Schema));
+    }
+
+    #[test]
+    fn test_sub_cluster_scripts_grouped() {
+        let graph = make_graph(&[], &[]);
+        let files = vec![
+            "scripts/deploy.sh".to_string(),
+            "scripts/setup.sh".to_string(),
+        ];
+        let sub_groups = sub_cluster_infra_files(&files, &graph);
+        assert_eq!(sub_groups.len(), 1);
+        assert_eq!(sub_groups[0].category, InfraCategory::Script);
+        assert_eq!(sub_groups[0].files.len(), 2);
+    }
+
+    #[test]
+    fn test_sub_cluster_dir_proximity() {
+        let graph = make_graph(&[], &[]);
+        let files = vec![
+            "mcp/langfuse.ts".to_string(),
+            "mcp/spotlight.ts".to_string(),
+        ];
+        let sub_groups = sub_cluster_infra_files(&files, &graph);
+        // Two unclassified files in same dir → DirectoryGroup
+        assert!(sub_groups.iter().any(|g| g.category == InfraCategory::DirectoryGroup));
+    }
+
+    #[test]
+    fn test_sub_cluster_mixed_all_categories() {
+        let graph = make_graph(&[], &[]);
+        let files = vec![
+            "Dockerfile".to_string(),
+            "schemas/user.ts".to_string(),
+            "scripts/deploy.sh".to_string(),
+            "docs/setup.md".to_string(),
+            "src/random-file.ts".to_string(),
+        ];
+        let sub_groups = sub_cluster_infra_files(&files, &graph);
+        let categories: Vec<&InfraCategory> = sub_groups.iter().map(|g| &g.category).collect();
+        assert!(categories.contains(&&InfraCategory::Infrastructure));
+        assert!(categories.contains(&&InfraCategory::Schema));
+        assert!(categories.contains(&&InfraCategory::Script));
+        assert!(categories.contains(&&InfraCategory::Documentation));
+        assert!(categories.contains(&&InfraCategory::Unclassified));
+    }
+
+    #[test]
+    fn test_sub_cluster_import_edge_clustering() {
+        // Two ungrouped code files that import each other
+        let graph = make_graph(
+            &[
+                ("src/foo.ts", "src/foo.ts", SymbolKind::Module),
+                ("src/foo.ts::doFoo", "src/foo.ts", SymbolKind::Function),
+                ("src/bar.ts", "src/bar.ts", SymbolKind::Module),
+                ("src/bar.ts::doBar", "src/bar.ts", SymbolKind::Function),
+            ],
+            &[("src/foo.ts", "src/bar.ts::doBar", EdgeType::Imports)],
+        );
+        let files = vec!["src/foo.ts".to_string(), "src/bar.ts".to_string()];
+        let sub_groups = sub_cluster_infra_files(&files, &graph);
+        assert_eq!(sub_groups.len(), 1);
+        assert_eq!(sub_groups[0].category, InfraCategory::DirectoryGroup);
+        assert_eq!(sub_groups[0].files.len(), 2);
+    }
+
+    #[test]
+    fn test_sub_cluster_single_unclassified() {
+        let graph = make_graph(&[], &[]);
+        let files = vec!["src/random-file.ts".to_string()];
+        let sub_groups = sub_cluster_infra_files(&files, &graph);
+        assert_eq!(sub_groups.len(), 1);
+        assert_eq!(sub_groups[0].category, InfraCategory::Unclassified);
+    }
+
+    #[test]
+    fn test_sub_cluster_empty_input() {
+        let graph = make_graph(&[], &[]);
+        let files: Vec<String> = vec![];
+        let sub_groups = sub_cluster_infra_files(&files, &graph);
+        assert!(sub_groups.is_empty());
+    }
+
+    #[test]
+    fn test_sub_cluster_docs_grouped() {
+        let graph = make_graph(&[], &[]);
+        let files = vec![
+            "docs/README.md".to_string(),
+            "docs/setup.md".to_string(),
+        ];
+        let sub_groups = sub_cluster_infra_files(&files, &graph);
+        assert_eq!(sub_groups.len(), 1);
+        assert_eq!(sub_groups[0].category, InfraCategory::Documentation);
+    }
+
+    #[test]
+    fn test_sub_cluster_migrations_grouped() {
+        let graph = make_graph(&[], &[]);
+        let files = vec![
+            "migrations/001.sql".to_string(),
+            "migrations/002.sql".to_string(),
+        ];
+        let sub_groups = sub_cluster_infra_files(&files, &graph);
+        assert_eq!(sub_groups.len(), 1);
+        assert_eq!(sub_groups[0].category, InfraCategory::Migration);
+    }
+
+    // ===================================================================
+    // Property-based tests for bidirectional BFS and sub-clustering
+    // ===================================================================
+
+    mod proptests_bidir {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Bidirectional BFS: every file still ends up in exactly one group or infrastructure.
+            #[test]
+            fn prop_bidir_every_file_placed(
+                n_files in 1usize..8,
+            ) {
+                let files: Vec<String> = (0..n_files)
+                    .map(|i| format!("src/f{}.ts", i))
+                    .collect();
+
+                // Create a simple chain: f0 → f1 → f2 → ...
+                let mut nodes: Vec<(&str, &str, SymbolKind)> = Vec::new();
+                let mut edges: Vec<(&str, &str, EdgeType)> = Vec::new();
+
+                // We can't easily create &str refs in proptest, so use a simpler approach.
+                let graph = make_graph(&[], &[]);
+                let ep_file = &files[0];
+                let entrypoints = vec![ep(ep_file, "main", EntrypointType::CliCommand)];
+
+                let result = cluster_files(&graph, &entrypoints, &files);
+
+                let mut all: Vec<String> = Vec::new();
+                for g in &result.groups {
+                    for f in &g.files {
+                        all.push(f.path.clone());
+                    }
+                }
+                if let Some(ref infra) = result.infrastructure {
+                    all.extend(infra.files.clone());
+                }
+                all.sort();
+                let mut expected = files.clone();
+                expected.sort();
+                expected.dedup();
+                prop_assert_eq!(all, expected);
+            }
+
+            /// Sub-clustering never loses files.
+            #[test]
+            fn prop_sub_cluster_preserves_all_files(
+                n_files in 0usize..10,
+            ) {
+                let files: Vec<String> = (0..n_files)
+                    .map(|i| format!("src/f{}.ts", i))
+                    .collect();
+                let graph = make_graph(&[], &[]);
+
+                let sub_groups = sub_cluster_infra_files(&files, &graph);
+
+                let mut all_sub: Vec<String> = sub_groups
+                    .iter()
+                    .flat_map(|g| g.files.clone())
+                    .collect();
+                all_sub.sort();
+                let mut expected = files.clone();
+                expected.sort();
+                expected.dedup();
+                prop_assert_eq!(all_sub, expected);
+            }
+
+            /// Sub-clustering: no file appears in two sub-groups.
+            #[test]
+            fn prop_sub_cluster_no_duplicates(
+                n_files in 0usize..10,
+            ) {
+                let files: Vec<String> = (0..n_files)
+                    .map(|i| format!("src/f{}.ts", i))
+                    .collect();
+                let graph = make_graph(&[], &[]);
+                let sub_groups = sub_cluster_infra_files(&files, &graph);
+
+                let all: Vec<&String> = sub_groups.iter().flat_map(|g| &g.files).collect();
+                let unique: std::collections::HashSet<&String> = all.iter().cloned().collect();
+                prop_assert_eq!(all.len(), unique.len(), "no file should appear in two sub-groups");
+            }
+
+            /// classify_by_convention is pure (same input → same output).
+            #[test]
+            fn prop_classify_deterministic(
+                path in "[a-z/.]{1,40}",
+            ) {
+                let c1 = classify_by_convention(&path);
+                let c2 = classify_by_convention(&path);
+                prop_assert_eq!(c1, c2);
+            }
+        }
     }
 }

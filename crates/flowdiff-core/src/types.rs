@@ -184,10 +184,53 @@ pub struct AnalysisSummary {
     pub frameworks_detected: Vec<String>,
 }
 
+/// Category for infrastructure sub-groups.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum InfraCategory {
+    /// True infrastructure: Docker, CI/CD, env configs, build configs, package manager
+    Infrastructure,
+    /// Schema/type/DTO files
+    Schema,
+    /// Shell scripts and dev tooling scripts
+    Script,
+    /// Database migrations and seed files
+    Migration,
+    /// Deployment scripts and configs
+    Deployment,
+    /// Documentation files
+    Documentation,
+    /// Linter/formatter configs
+    Lint,
+    /// Test utilities, fixtures, helpers
+    TestUtil,
+    /// Generated code
+    Generated,
+    /// Files grouped by shared directory prefix
+    DirectoryGroup,
+    /// Files with no category match
+    Unclassified,
+}
+
+/// A sub-group within the ungrouped files.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct InfraSubGroup {
+    /// Human-readable name: "Schemas", "scripts/", "Configuration", etc.
+    pub name: String,
+    /// Classification category
+    pub category: InfraCategory,
+    /// Files in this sub-group
+    pub files: Vec<String>,
+}
+
 /// Infrastructure group for files not reachable from any entrypoint.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InfrastructureGroup {
+    /// Flat file list for backward compatibility with JSON consumers
     pub files: Vec<String>,
+    /// Semantically organized sub-groups
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sub_groups: Vec<InfraSubGroup>,
+    /// Reason these files weren't assigned to flow groups
     pub reason: String,
 }
 
@@ -285,6 +328,7 @@ mod tests {
             groups: vec![sample_flow_group()],
             infrastructure_group: Some(InfrastructureGroup {
                 files: vec!["tsconfig.json".into(), "package.json".into()],
+                sub_groups: vec![],
                 reason: "Not reachable from any detected entrypoint".into(),
             }),
             annotations: None,
@@ -970,6 +1014,139 @@ mod tests {
                 let total = cs.additions as u64 + cs.deletions as u64;
                 prop_assert!(total < 20000);
             }
+
+            #[test]
+            fn prop_infra_category_serde_roundtrip(cat in arb_infra_category()) {
+                let json = serde_json::to_string(&cat).unwrap();
+                let back: InfraCategory = serde_json::from_str(&json).unwrap();
+                prop_assert_eq!(&cat, &back);
+            }
+
+            #[test]
+            fn prop_infra_sub_group_serde_roundtrip(
+                name in "[a-zA-Z ]{1,20}",
+                cat in arb_infra_category(),
+                files in prop::collection::vec("[a-z/]{1,30}\\.[a-z]{1,4}", 0..5)
+            ) {
+                let sg = InfraSubGroup { name, category: cat, files };
+                let json = serde_json::to_string(&sg).unwrap();
+                let back: InfraSubGroup = serde_json::from_str(&json).unwrap();
+                prop_assert_eq!(&sg, &back);
+            }
         }
+
+        fn arb_infra_category() -> impl Strategy<Value = InfraCategory> {
+            prop_oneof![
+                Just(InfraCategory::Infrastructure),
+                Just(InfraCategory::Schema),
+                Just(InfraCategory::Script),
+                Just(InfraCategory::Migration),
+                Just(InfraCategory::Deployment),
+                Just(InfraCategory::Documentation),
+                Just(InfraCategory::Lint),
+                Just(InfraCategory::TestUtil),
+                Just(InfraCategory::Generated),
+                Just(InfraCategory::DirectoryGroup),
+                Just(InfraCategory::Unclassified),
+            ]
+        }
+    }
+
+    // ── InfraCategory / InfraSubGroup tests ─────────────────────────
+
+    #[test]
+    fn serde_roundtrip_all_infra_categories() {
+        let categories = [
+            InfraCategory::Infrastructure,
+            InfraCategory::Schema,
+            InfraCategory::Script,
+            InfraCategory::Migration,
+            InfraCategory::Deployment,
+            InfraCategory::Documentation,
+            InfraCategory::Lint,
+            InfraCategory::TestUtil,
+            InfraCategory::Generated,
+            InfraCategory::DirectoryGroup,
+            InfraCategory::Unclassified,
+        ];
+        for cat in &categories {
+            let json = serde_json::to_string(&cat).unwrap();
+            let back: InfraCategory = serde_json::from_str(&json).unwrap();
+            assert_eq!(cat, &back, "roundtrip failed for {:?}", cat);
+        }
+    }
+
+    #[test]
+    fn infra_category_hash_distinct_variants() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(InfraCategory::Infrastructure);
+        set.insert(InfraCategory::Schema);
+        set.insert(InfraCategory::Script);
+        set.insert(InfraCategory::Migration);
+        set.insert(InfraCategory::Deployment);
+        set.insert(InfraCategory::Documentation);
+        set.insert(InfraCategory::Lint);
+        set.insert(InfraCategory::TestUtil);
+        set.insert(InfraCategory::Generated);
+        set.insert(InfraCategory::DirectoryGroup);
+        set.insert(InfraCategory::Unclassified);
+        assert_eq!(set.len(), 11, "all 11 InfraCategory variants should be distinct");
+    }
+
+    #[test]
+    fn serde_roundtrip_infra_sub_group() {
+        let sg = InfraSubGroup {
+            name: "Schemas".into(),
+            category: InfraCategory::Schema,
+            files: vec!["schemas/user.ts".into(), "schemas/billing.ts".into()],
+        };
+        let json = serde_json::to_string(&sg).unwrap();
+        let back: InfraSubGroup = serde_json::from_str(&json).unwrap();
+        assert_eq!(sg, back);
+    }
+
+    #[test]
+    fn serde_roundtrip_infrastructure_group_with_sub_groups() {
+        let ig = InfrastructureGroup {
+            files: vec!["Dockerfile".into(), "schemas/user.ts".into()],
+            sub_groups: vec![
+                InfraSubGroup {
+                    name: "Infrastructure".into(),
+                    category: InfraCategory::Infrastructure,
+                    files: vec!["Dockerfile".into()],
+                },
+                InfraSubGroup {
+                    name: "Schemas".into(),
+                    category: InfraCategory::Schema,
+                    files: vec!["schemas/user.ts".into()],
+                },
+            ],
+            reason: "test".into(),
+        };
+        let json = serde_json::to_string(&ig).unwrap();
+        let back: InfrastructureGroup = serde_json::from_str(&json).unwrap();
+        assert_eq!(ig, back);
+    }
+
+    #[test]
+    fn serde_infrastructure_group_backward_compat_no_sub_groups() {
+        // Old JSON without sub_groups should still deserialize (default = [])
+        let json = r#"{"files":["tsconfig.json"],"reason":"test"}"#;
+        let ig: InfrastructureGroup = serde_json::from_str(json).unwrap();
+        assert_eq!(ig.files, vec!["tsconfig.json"]);
+        assert!(ig.sub_groups.is_empty());
+    }
+
+    #[test]
+    fn serde_infrastructure_group_empty_sub_groups_not_serialized() {
+        let ig = InfrastructureGroup {
+            files: vec!["tsconfig.json".into()],
+            sub_groups: vec![],
+            reason: "test".into(),
+        };
+        let json = serde_json::to_string(&ig).unwrap();
+        // sub_groups should be skipped when empty
+        assert!(!json.contains("sub_groups"), "empty sub_groups should not be serialized");
     }
 }

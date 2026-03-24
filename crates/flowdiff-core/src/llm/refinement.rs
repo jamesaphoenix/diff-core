@@ -368,6 +368,7 @@ fn add_file_to_group_or_infra(
             None => {
                 *infra = Some(InfrastructureGroup {
                     files: vec![file_change.path],
+                    sub_groups: vec![],
                     reason: "Moved to infrastructure by LLM refinement".to_string(),
                 });
             }
@@ -658,6 +659,7 @@ mod tests {
         let groups = vec![make_group("g1", "Group 1", vec![make_file("a.ts", 0)])];
         let infra = InfrastructureGroup {
             files: vec!["config.ts".to_string()],
+            sub_groups: vec![],
             reason: "test".to_string(),
         };
         let response = RefinementResponse {
@@ -811,6 +813,7 @@ mod tests {
         let groups = vec![make_group("g1", "Auth", vec![make_file("auth.ts", 0)])];
         let infra = InfrastructureGroup {
             files: vec!["token.ts".to_string()],
+            sub_groups: vec![],
             reason: "test".to_string(),
         };
         let response = RefinementResponse {

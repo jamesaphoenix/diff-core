@@ -375,6 +375,7 @@ mod scoring_properties {
                         files: (0..extra_files)
                             .map(|i| format!("infra_{}.ts", i))
                             .collect(),
+                        sub_groups: vec![],
                         reason: "Not reachable".to_string(),
                     })
                 } else {

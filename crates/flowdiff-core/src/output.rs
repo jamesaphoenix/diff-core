@@ -413,6 +413,7 @@ mod tests {
             ],
             infrastructure: Some(InfrastructureGroup {
                 files: vec!["tsconfig.json".to_string(), "package.json".to_string()],
+                sub_groups: vec![],
                 reason: "Not reachable from any detected entrypoint".to_string(),
             }),
         }

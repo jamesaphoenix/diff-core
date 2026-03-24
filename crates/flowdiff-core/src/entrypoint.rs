@@ -32,7 +32,9 @@ pub fn detect_entrypoints_ir(files: &[IrFile]) -> Vec<Entrypoint> {
 fn detect_file_entrypoints(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     detect_test_file(file, out);
     detect_http_routes(file, out);
+    detect_path_based_http_routes(file, out);
     detect_cli_commands(file, out);
+    detect_path_based_cli_commands(file, out);
     detect_queue_consumers(file, out);
     detect_cron_jobs(file, out);
     detect_react_pages(file, out);
@@ -1091,7 +1093,87 @@ fn detect_http_routes_scala(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Shared path-based entrypoint detection helpers (all languages)
+// ---------------------------------------------------------------------------
+
+/// Tier 1: Path suggests route/handler AND needs framework import confirmation.
+fn is_route_handler_path(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    // Directory patterns
+    lower.contains("/routes/")
+        || lower.contains("/route/")
+        || lower.contains("/handlers/")
+        || lower.contains("/handler/")
+        || lower.contains("/controllers/")
+        || lower.contains("/controller/")
+        || lower.contains("/endpoints/")
+        || lower.contains("/endpoint/")
+        // File name patterns
+        || has_filename_pattern(&lower, "routes")
+        || has_filename_pattern(&lower, "route")
+        || has_filename_pattern(&lower, "handler")
+        || has_filename_pattern(&lower, "handlers")
+        || has_filename_pattern(&lower, "controller")
+        || has_filename_pattern(&lower, "controllers")
+        || has_filename_pattern(&lower, "endpoint")
+        || has_filename_pattern(&lower, "endpoints")
+}
+
+/// Tier 2: Very strong path signal — no import check needed.
+fn is_strong_route_handler_path(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    // Strong directory patterns (not just /api/ — too generic)
+    lower.contains("/routes/")
+        || lower.contains("/handlers/")
+        || lower.contains("/controllers/")
+        || lower.contains("/endpoints/")
+        // File name patterns with strong signal
+        || has_filename_pattern(&lower, "controller")
+        || has_filename_pattern(&lower, "controllers")
+        // Files with "entrypoint" in name
+        || lower.contains("entrypoint")
+}
+
+/// Check if a file path contains a `.{pattern}.` segment in its filename.
+/// e.g., `has_filename_pattern("src/billing.controller.ts", "controller")` → true
+fn has_filename_pattern(lower_path: &str, pattern: &str) -> bool {
+    if let Some(filename) = lower_path.rsplit('/').next() {
+        let dot_pattern = format!(".{}.", pattern);
+        filename.contains(&dot_pattern)
+    } else {
+        false
+    }
+}
+
+/// Check if the path is in a CLI-related directory.
+fn is_cli_command_path(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    lower.contains("/commands/")
+        || lower.contains("/command/")
+        || lower.contains("/cmd/")
+        || lower.contains("/cli/")
+        || has_filename_pattern(&lower, "command")
+        || has_filename_pattern(&lower, "commands")
+        || has_filename_pattern(&lower, "cli")
+}
+
+/// Check if a path is in a /views/ directory (Python/Ruby/PHP only).
+fn is_views_path(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    lower.contains("/views/")
+}
+
+// ---------------------------------------------------------------------------
+// Per-language web framework import helpers
+// ---------------------------------------------------------------------------
+
+/// Python web framework imports.
 fn is_web_framework_import(imp: &ImportInfo) -> bool {
+    is_python_web_framework_import(imp)
+}
+
+fn is_python_web_framework_import(imp: &ImportInfo) -> bool {
     let src = &imp.source;
     src == "flask"
         || src == "fastapi"
@@ -1102,6 +1184,235 @@ fn is_web_framework_import(imp: &ImportInfo) -> bool {
         || src == "sanic"
         || src == "aiohttp"
         || src.starts_with("aiohttp.")
+        || src == "tornado"
+        || src.starts_with("tornado.")
+        || src == "bottle"
+        || src == "falcon"
+        || src == "pyramid"
+        || src.starts_with("pyramid.")
+}
+
+fn is_js_web_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src == "express"
+        || src == "fastify"
+        || src == "@hapi/hapi"
+        || src == "koa"
+        || src == "@trpc/server"
+        || src == "hono"
+        || src == "@nestjs/common"
+        || src == "@nestjs/core"
+        || src == "next"
+        || src == "nuxt"
+        || src.starts_with("@remix-run/")
+        || src == "sveltekit"
+        || src == "restify"
+        || src == "polka"
+        || src == "@effect/platform"
+}
+
+fn is_go_web_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src == "net/http"
+        || src == "github.com/gin-gonic/gin"
+        || src.starts_with("github.com/labstack/echo")
+        || src.starts_with("github.com/go-chi/chi")
+        || src.starts_with("github.com/gofiber/fiber")
+        || src.starts_with("github.com/gorilla/mux")
+}
+
+fn is_rust_web_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src == "actix_web"
+        || src == "actix-web"
+        || src.starts_with("actix_web::")
+        || src.starts_with("actix-web::")
+        || src == "axum"
+        || src.starts_with("axum::")
+        || src == "rocket"
+        || src.starts_with("rocket::")
+        || src == "warp"
+        || src.starts_with("warp::")
+        || src == "hyper"
+        || src.starts_with("hyper::")
+        || src == "tower"
+        || src.starts_with("tower::")
+}
+
+fn is_java_web_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src.starts_with("org.springframework.web")
+        || src.starts_with("javax.ws.rs")
+        || src.starts_with("jakarta.ws.rs")
+        || src.starts_with("io.javalin")
+        || src.starts_with("io.micronaut.http")
+        || src.starts_with("io.quarkus")
+}
+
+fn is_csharp_web_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src.starts_with("Microsoft.AspNetCore")
+        || src.starts_with("System.Web.Http")
+        || src.starts_with("Carter")
+        || src.starts_with("ServiceStack")
+}
+
+fn is_php_web_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src.starts_with("Illuminate\\Routing")
+        || src.starts_with("Symfony\\Component\\Routing")
+        || src.starts_with("Slim\\App")
+}
+
+fn is_ruby_web_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src == "sinatra"
+        || src == "rails"
+        || src == "grape"
+        || src == "hanami"
+        || src == "roda"
+}
+
+fn is_kotlin_web_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src.starts_with("org.springframework.web")
+        || src.starts_with("io.ktor")
+        || src.starts_with("io.javalin")
+        || src.starts_with("io.micronaut.http")
+}
+
+fn is_swift_web_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src == "Vapor" || src == "Kitura" || src == "Hummingbird"
+}
+
+fn is_scala_web_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src.starts_with("akka.http")
+        || src.starts_with("http4s")
+        || src.starts_with("play.api")
+        || src.starts_with("zio.http")
+        || src.starts_with("cask")
+}
+
+// ---------------------------------------------------------------------------
+// Per-language CLI framework import helpers
+// ---------------------------------------------------------------------------
+
+fn is_js_cli_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src == "commander"
+        || src == "yargs"
+        || src == "meow"
+        || src == "cac"
+        || src == "oclif"
+        || src == "@effect/cli"
+        || src == "inquirer"
+        || src == "vorpal"
+        || src == "caporal"
+        || src == "clipanion"
+}
+
+fn is_python_cli_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src == "argparse" || src == "click" || src == "typer" || src == "fire" || src == "docopt" || src == "plac"
+}
+
+fn is_go_cli_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src.starts_with("github.com/spf13/cobra")
+        || src.starts_with("github.com/urfave/cli")
+        || src == "flag"
+}
+
+fn is_rust_cli_framework_import(imp: &ImportInfo) -> bool {
+    let src = &imp.source;
+    src.starts_with("clap") || src.starts_with("structopt") || src.starts_with("argh") || src.starts_with("gumdrop")
+}
+
+/// Get the appropriate web framework import checker for a given language.
+fn has_web_framework_import_for_lang(file: &ParsedFile) -> bool {
+    file.imports.iter().any(|imp| match file.language {
+        Language::TypeScript | Language::JavaScript => is_js_web_framework_import(imp),
+        Language::Python => is_python_web_framework_import(imp),
+        Language::Go => is_go_web_framework_import(imp),
+        Language::Rust => is_rust_web_framework_import(imp),
+        Language::Java => is_java_web_framework_import(imp),
+        Language::CSharp => is_csharp_web_framework_import(imp),
+        Language::Php => is_php_web_framework_import(imp),
+        Language::Ruby => is_ruby_web_framework_import(imp),
+        Language::Kotlin => is_kotlin_web_framework_import(imp),
+        Language::Swift => is_swift_web_framework_import(imp),
+        Language::Scala => is_scala_web_framework_import(imp),
+        Language::C | Language::Cpp | Language::Unknown => false,
+    })
+}
+
+/// Get the appropriate CLI framework import checker for a given language.
+fn has_cli_framework_import_for_lang(file: &ParsedFile) -> bool {
+    file.imports.iter().any(|imp| match file.language {
+        Language::TypeScript | Language::JavaScript => is_js_cli_framework_import(imp),
+        Language::Python => is_python_cli_framework_import(imp),
+        Language::Go => is_go_cli_framework_import(imp),
+        Language::Rust => is_rust_cli_framework_import(imp),
+        _ => false,
+    })
+}
+
+/// Add all exported/public functions as entrypoints (used by path-based detection).
+fn add_exported_functions_as_entrypoints(
+    file: &ParsedFile,
+    ep_type: EntrypointType,
+    out: &mut Vec<Entrypoint>,
+) {
+    for def in &file.definitions {
+        if def.kind == crate::types::SymbolKind::Function && !def.name.starts_with('_') {
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol: def.name.clone(),
+                entrypoint_type: ep_type.clone(),
+            });
+        }
+    }
+    // Also add exports as entrypoints for JS/TS
+    if matches!(file.language, Language::TypeScript | Language::JavaScript) {
+        for export in &file.exports {
+            out.push(Entrypoint {
+                file: file.path.clone(),
+                symbol: export.name.clone(),
+                entrypoint_type: ep_type.clone(),
+            });
+        }
+    }
+}
+
+/// Universal path-based HTTP route detection — applies after call-site detection.
+///
+/// Tier 1: path + framework import → all exported functions become entrypoints.
+/// Tier 2: strong path only → same, no import check.
+fn detect_path_based_http_routes(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    let is_views = is_views_path(&file.path)
+        && matches!(file.language, Language::Python | Language::Ruby | Language::Php);
+
+    if is_strong_route_handler_path(&file.path) {
+        add_exported_functions_as_entrypoints(file, EntrypointType::HttpRoute, out);
+    } else if (is_route_handler_path(&file.path) || is_views) && has_web_framework_import_for_lang(file) {
+        add_exported_functions_as_entrypoints(file, EntrypointType::HttpRoute, out);
+    }
+}
+
+/// Universal path-based CLI command detection — applies after call-site detection.
+fn detect_path_based_cli_commands(file: &ParsedFile, out: &mut Vec<Entrypoint>) {
+    if is_cli_command_path(&file.path) {
+        if has_cli_framework_import_for_lang(file) {
+            add_exported_functions_as_entrypoints(file, EntrypointType::CliCommand, out);
+        }
+        // Strong signal: /commands/ directory is strong enough without import check
+        let lower = file.path.to_lowercase();
+        if lower.contains("/commands/") || lower.contains("/command/") {
+            add_exported_functions_as_entrypoints(file, EntrypointType::CliCommand, out);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3032,5 +3343,231 @@ queue.process(processEmail);
 
             assert_eq!(ep.len(), ei.len());
         }
+    }
+
+    // ========================================================================
+    // Phase 3: Path-based entrypoint detection (spec §1.4)
+    // ========================================================================
+
+    #[test]
+    fn test_ts_routes_dir_with_express() {
+        let mut file = make_file("src/routes/users.ts", Language::TypeScript);
+        file.imports = vec![make_import("express")];
+        file.definitions = vec![make_def("getUsers", SymbolKind::Function)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            result.iter().any(|e| e.entrypoint_type == EntrypointType::HttpRoute),
+            "TS file in /routes/ with express import should be detected as HTTP entrypoint"
+        );
+    }
+
+    #[test]
+    fn test_ts_routes_dir_no_import_strong_path() {
+        let mut file = make_file("src/routes/users.ts", Language::TypeScript);
+        // No framework import — but /routes/ is a strong path signal
+        file.definitions = vec![make_def("getUsers", SymbolKind::Function)];
+        file.exports = vec![make_export("getUsers", false)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            result.iter().any(|e| e.entrypoint_type == EntrypointType::HttpRoute),
+            "TS file in /routes/ should be detected as entrypoint (strong path)"
+        );
+    }
+
+    #[test]
+    fn test_ts_controller_suffix_nestjs() {
+        let mut file = make_file("src/billing.controller.ts", Language::TypeScript);
+        file.imports = vec![make_import("@nestjs/common")];
+        file.definitions = vec![make_def("create", SymbolKind::Function)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            result.iter().any(|e| e.entrypoint_type == EntrypointType::HttpRoute),
+            "*.controller.ts with @nestjs/common import should be detected"
+        );
+    }
+
+    #[test]
+    fn test_ts_controller_suffix_strong_path() {
+        let mut file = make_file("src/billing.controller.ts", Language::TypeScript);
+        // No import — strong path (controller suffix)
+        file.definitions = vec![make_def("create", SymbolKind::Function)];
+        file.exports = vec![make_export("create", false)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            result.iter().any(|e| e.entrypoint_type == EntrypointType::HttpRoute),
+            "*.controller.ts should be detected as entrypoint (strong path)"
+        );
+    }
+
+    #[test]
+    fn test_ts_entrypoints_in_name() {
+        let mut file = make_file("src/command-entrypoints.ts", Language::TypeScript);
+        file.definitions = vec![make_def("deploy", SymbolKind::Function)];
+        file.exports = vec![make_export("deploy", false)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            !result.is_empty(),
+            "File with 'entrypoints' in name should be detected (strong path)"
+        );
+    }
+
+    #[test]
+    fn test_go_handlers_dir() {
+        let mut file = make_file("internal/handlers/auth.go", Language::Go);
+        file.imports = vec![make_import("net/http")];
+        file.definitions = vec![make_def("HandleAuth", SymbolKind::Function)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            result.iter().any(|e| e.entrypoint_type == EntrypointType::HttpRoute),
+            "Go file in /handlers/ with net/http import should be detected"
+        );
+    }
+
+    #[test]
+    fn test_python_views_flask() {
+        let mut file = make_file("app/views/dashboard.py", Language::Python);
+        file.imports = vec![make_import("flask")];
+        file.definitions = vec![make_def("index", SymbolKind::Function)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            result.iter().any(|e| e.entrypoint_type == EntrypointType::HttpRoute),
+            "Python file in /views/ with flask import should be detected"
+        );
+    }
+
+    #[test]
+    fn test_java_controller_spring() {
+        let mut file = make_file("com/api/controllers/UserController.java", Language::Java);
+        file.imports = vec![make_import("org.springframework.web.bind.annotation.RestController")];
+        file.definitions = vec![make_def("getUser", SymbolKind::Function)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            result.iter().any(|e| e.entrypoint_type == EntrypointType::HttpRoute),
+            "Java controller in /controllers/ with Spring import should be detected"
+        );
+    }
+
+    #[test]
+    fn test_rust_handlers_axum() {
+        let mut file = make_file("src/handlers/auth.rs", Language::Rust);
+        file.imports = vec![make_import("axum")];
+        file.definitions = vec![make_def("login", SymbolKind::Function)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            result.iter().any(|e| e.entrypoint_type == EntrypointType::HttpRoute),
+            "Rust file in /handlers/ with axum import should be detected"
+        );
+    }
+
+    #[test]
+    fn test_no_false_positive_utils() {
+        let mut file = make_file("src/utils/helpers.ts", Language::TypeScript);
+        file.definitions = vec![make_def("formatDate", SymbolKind::Function)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            result.is_empty(),
+            "src/utils/helpers.ts should NOT be detected as entrypoint"
+        );
+    }
+
+    #[test]
+    fn test_no_false_positive_api_types() {
+        let mut file = make_file("src/api/types.ts", Language::TypeScript);
+        // No framework import, not a strong path
+        file.definitions = vec![make_def("UserType", SymbolKind::TypeAlias)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            result.is_empty(),
+            "src/api/types.ts without framework import should NOT be detected"
+        );
+    }
+
+    #[test]
+    fn test_cli_commands_dir_with_commander() {
+        let mut file = make_file("src/commands/deploy.ts", Language::TypeScript);
+        file.imports = vec![make_import("commander")];
+        file.definitions = vec![make_def("deploy", SymbolKind::Function)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            result.iter().any(|e| e.entrypoint_type == EntrypointType::CliCommand),
+            "TS file in /commands/ with commander import should be detected as CLI"
+        );
+    }
+
+    #[test]
+    fn test_cli_commands_dir_strong_path() {
+        let mut file = make_file("src/commands/migrate.ts", Language::TypeScript);
+        file.definitions = vec![make_def("migrate", SymbolKind::Function)];
+        file.exports = vec![make_export("migrate", false)];
+        let result = detect_entrypoints(&[file]);
+        assert!(
+            !result.is_empty(),
+            "/commands/ dir should detect entrypoints (strong path)"
+        );
+    }
+
+    // ========================================================================
+    // Path helper unit tests
+    // ========================================================================
+
+    #[test]
+    fn test_is_route_handler_path() {
+        assert!(is_route_handler_path("src/routes/users.ts"));
+        assert!(is_route_handler_path("src/handlers/auth.go"));
+        assert!(is_route_handler_path("src/controllers/billing.ts"));
+        assert!(is_route_handler_path("src/endpoints/api.ts"));
+        assert!(is_route_handler_path("src/billing.controller.ts"));
+        assert!(is_route_handler_path("src/users.route.ts"));
+        assert!(!is_route_handler_path("src/utils/helpers.ts"));
+        assert!(!is_route_handler_path("src/models/user.ts"));
+    }
+
+    #[test]
+    fn test_is_strong_route_handler_path() {
+        assert!(is_strong_route_handler_path("src/routes/users.ts"));
+        assert!(is_strong_route_handler_path("src/handlers/auth.go"));
+        assert!(is_strong_route_handler_path("src/controllers/billing.ts"));
+        assert!(is_strong_route_handler_path("src/billing.controller.ts"));
+        assert!(is_strong_route_handler_path("src/command-entrypoints.ts"));
+        assert!(!is_strong_route_handler_path("src/utils/helpers.ts"));
+        assert!(!is_strong_route_handler_path("src/api/types.ts"));
+    }
+
+    #[test]
+    fn test_is_cli_command_path() {
+        assert!(is_cli_command_path("src/commands/deploy.ts"));
+        assert!(is_cli_command_path("src/cmd/run.go"));
+        assert!(is_cli_command_path("src/cli/main.ts"));
+        assert!(is_cli_command_path("src/deploy.command.ts"));
+        assert!(!is_cli_command_path("src/utils/helpers.ts"));
+    }
+
+    #[test]
+    fn test_framework_import_helpers() {
+        // JS web
+        assert!(is_js_web_framework_import(&make_import("express")));
+        assert!(is_js_web_framework_import(&make_import("@nestjs/common")));
+        assert!(is_js_web_framework_import(&make_import("hono")));
+        assert!(!is_js_web_framework_import(&make_import("lodash")));
+
+        // Go web
+        assert!(is_go_web_framework_import(&make_import("net/http")));
+        assert!(is_go_web_framework_import(&make_import("github.com/gin-gonic/gin")));
+        assert!(!is_go_web_framework_import(&make_import("fmt")));
+
+        // Rust web
+        assert!(is_rust_web_framework_import(&make_import("axum")));
+        assert!(is_rust_web_framework_import(&make_import("actix_web")));
+        assert!(!is_rust_web_framework_import(&make_import("serde")));
+
+        // Java web
+        assert!(is_java_web_framework_import(&make_import("org.springframework.web.bind.annotation.RestController")));
+        assert!(!is_java_web_framework_import(&make_import("java.util.List")));
+
+        // JS CLI
+        assert!(is_js_cli_framework_import(&make_import("commander")));
+        assert!(is_js_cli_framework_import(&make_import("yargs")));
+        assert!(is_js_cli_framework_import(&make_import("@effect/cli")));
+        assert!(!is_js_cli_framework_import(&make_import("express")));
     }
 }

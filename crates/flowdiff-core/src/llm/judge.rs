@@ -331,6 +331,7 @@ mod tests {
             }],
             infrastructure_group: Some(InfrastructureGroup {
                 files: vec!["package.json".to_string()],
+                sub_groups: vec![],
                 reason: "Not reachable from entrypoints".to_string(),
             }),
             annotations: None,
