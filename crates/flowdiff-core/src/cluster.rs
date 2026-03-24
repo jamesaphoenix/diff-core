@@ -2452,6 +2452,253 @@ mod tests {
                 }
             }
 
+            /// Merge picks minimum: when a file is reachable both forward and reverse,
+            /// the merged distance equals min(forward_distance, reverse_distance).
+            #[test]
+            fn prop_merge_picks_minimum(n in 3usize..8) {
+                // Cyclic graph: forward chain f0→f1→...→f(n-1) + back-edge f(n-1)→f0.
+                // Reverse BFS from f0 follows incoming edges: finds f(n-1) at dist 2,
+                // f(n-2) at dist 4, etc. Forward BFS finds fi at dist i.
+                // Merged distance should be min(forward, reverse) for each file.
+                let mut nodes = Vec::new();
+                let mut edges = Vec::new();
+                for i in 0..n {
+                    let file = format!("src/f{}.ts", i);
+                    let func_id = format!("src/f{}.ts::func{}", i, i);
+                    nodes.push(SymbolNode {
+                        id: file.clone(),
+                        name: file.clone(),
+                        file: file.clone(),
+                        kind: SymbolKind::Module,
+                    });
+                    nodes.push(SymbolNode {
+                        id: func_id.clone(),
+                        name: format!("func{}", i),
+                        file,
+                        kind: SymbolKind::Function,
+                    });
+                    if i > 0 {
+                        edges.push(SerializableEdge {
+                            from: format!("src/f{}.ts::func{}", i - 1, i - 1),
+                            to: func_id.clone(),
+                            edge_type: EdgeType::Calls,
+                        });
+                    }
+                }
+                // Back-edge: last file calls first file
+                edges.push(SerializableEdge {
+                    from: format!("src/f{}.ts::func{}", n - 1, n - 1),
+                    to: "src/f0.ts::func0".to_string(),
+                    edge_type: EdgeType::Calls,
+                });
+                let graph = SymbolGraph::from_serializable(&SerializableGraph { nodes, edges });
+
+                let forward = bfs_pass(&graph, "src/f0.ts", "func0", Direction::Outgoing, 1);
+                let reverse = bfs_pass(&graph, "src/f0.ts", "func0", Direction::Incoming, 2);
+                let merged = compute_file_reachability(&graph, "src/f0.ts", "func0");
+
+                for (file, &dist) in &merged {
+                    let fwd = forward.get(file).copied().unwrap_or(usize::MAX);
+                    let rev = reverse.get(file).copied().unwrap_or(usize::MAX);
+                    prop_assert_eq!(
+                        dist, std::cmp::min(fwd, rev),
+                        "file {} merged={} should be min(forward={}, reverse={})",
+                        file, dist, fwd, rev,
+                    );
+                }
+            }
+
+            /// Files with no graph edges to any entrypoint always land in infrastructure.
+            #[test]
+            fn prop_disconnected_file_in_infra(n_extra in 1usize..8) {
+                let entry_file = "src/entry.ts";
+                let mut files = vec![entry_file.to_string()];
+                for i in 0..n_extra {
+                    files.push(format!("src/extra{}.ts", i));
+                }
+
+                // Graph has only the entry node — no edges to extra files.
+                let graph = make_graph(
+                    &[(entry_file, entry_file, SymbolKind::Module)],
+                    &[],
+                );
+                let entrypoints = vec![ep(entry_file, "main", EntrypointType::HttpRoute)];
+                let result = cluster_files(&graph, &entrypoints, &files);
+
+                prop_assert_eq!(result.groups.len(), 1, "one group for the entrypoint");
+                prop_assert_eq!(
+                    result.groups[0].files.len(), 1,
+                    "only the entrypoint file in the group",
+                );
+                prop_assert!(result.infrastructure.is_some(), "disconnected files → infra");
+                prop_assert_eq!(
+                    result.infrastructure.as_ref().unwrap().files.len(), n_extra,
+                    "all extra files should be in infrastructure",
+                );
+            }
+
+            /// The entrypoint file itself always has flow_position 0 in its group.
+            #[test]
+            fn prop_entry_distance_always_zero(n in 2usize..8) {
+                let graph = build_forward_chain(n);
+                let files: Vec<String> = (0..n).map(|i| format!("src/f{}.ts", i)).collect();
+                let entrypoints = vec![ep("src/f0.ts", "func0", EntrypointType::HttpRoute)];
+                let result = cluster_files(&graph, &entrypoints, &files);
+
+                prop_assert_eq!(result.groups.len(), 1);
+                let entry = result.groups[0]
+                    .files
+                    .iter()
+                    .find(|f| f.path == "src/f0.ts");
+                prop_assert!(entry.is_some(), "entrypoint file should be in the group");
+                prop_assert_eq!(
+                    entry.unwrap().flow_position, 0,
+                    "entrypoint file should have flow_position 0",
+                );
+            }
+
+            /// Reverse-only reachable files sort after immediate forward-reachable files
+            /// in flow position (reverse cost=2 > forward cost=1).
+            #[test]
+            fn prop_reverse_flow_position_after_forward(n_rev in 1usize..5) {
+                // Graph: entry → fwd0 (forward, dist 1)
+                //        rev_i → entry for each i (reverse, dist 2 each)
+                // fwd0 at dist 1 should have lower flow_position than all rev files at dist 2.
+                let entry = "src/entry.ts";
+                let fwd = "src/fwd0.ts";
+                let mut nodes = vec![
+                    SymbolNode { id: entry.to_string(), name: entry.to_string(),
+                                 file: entry.to_string(), kind: SymbolKind::Module },
+                    SymbolNode { id: format!("{}::main", entry), name: "main".to_string(),
+                                 file: entry.to_string(), kind: SymbolKind::Function },
+                    SymbolNode { id: fwd.to_string(), name: fwd.to_string(),
+                                 file: fwd.to_string(), kind: SymbolKind::Module },
+                    SymbolNode { id: format!("{}::func0", fwd), name: "func0".to_string(),
+                                 file: fwd.to_string(), kind: SymbolKind::Function },
+                ];
+                let mut edges = vec![
+                    SerializableEdge {
+                        from: format!("{}::main", entry),
+                        to: format!("{}::func0", fwd),
+                        edge_type: EdgeType::Calls,
+                    },
+                ];
+                for i in 0..n_rev {
+                    let rev_file = format!("src/rev{}.ts", i);
+                    let rev_func = format!("{}::rfunc{}", rev_file, i);
+                    nodes.push(SymbolNode {
+                        id: rev_file.clone(), name: rev_file.clone(),
+                        file: rev_file.clone(), kind: SymbolKind::Module,
+                    });
+                    nodes.push(SymbolNode {
+                        id: rev_func.clone(), name: format!("rfunc{}", i),
+                        file: rev_file, kind: SymbolKind::Function,
+                    });
+                    // Reverse file calls entry → incoming edge to entry
+                    edges.push(SerializableEdge {
+                        from: rev_func,
+                        to: format!("{}::main", entry),
+                        edge_type: EdgeType::Calls,
+                    });
+                }
+
+                let graph = SymbolGraph::from_serializable(&SerializableGraph { nodes, edges });
+                let mut files = vec![entry.to_string(), fwd.to_string()];
+                for i in 0..n_rev { files.push(format!("src/rev{}.ts", i)); }
+                let entrypoints = vec![ep(entry, "main", EntrypointType::HttpRoute)];
+                let result = cluster_files(&graph, &entrypoints, &files);
+
+                prop_assert_eq!(result.groups.len(), 1);
+                prop_assert!(result.infrastructure.is_none(), "all files should be grouped");
+
+                let fwd_pos = result.groups[0].files.iter()
+                    .find(|f| f.path == fwd)
+                    .map(|f| f.flow_position)
+                    .unwrap();
+                for fc in &result.groups[0].files {
+                    if fc.path.contains("rev") {
+                        prop_assert!(
+                            fc.flow_position >= fwd_pos,
+                            "reverse file {} (pos {}) should sort after forward file (pos {})",
+                            fc.path, fc.flow_position, fwd_pos,
+                        );
+                    }
+                }
+            }
+
+            /// When a file is forward-reachable from one entrypoint and reverse-reachable
+            /// from another, it is assigned to the forward-reachable entrypoint's group
+            /// (forward cost=1 < reverse cost=2).
+            #[test]
+            fn prop_multi_entrypoint_forward_preferred(n_shared in 1usize..4) {
+                // ep0 → shared_i (forward, dist 1)
+                // shared_i → ep1 (so reverse BFS from ep1 finds shared_i at dist 2)
+                // shared files should land in ep0's group.
+                let ep0_file = "src/ep0.ts";
+                let ep1_file = "src/ep1.ts";
+                let mut nodes = vec![
+                    SymbolNode { id: ep0_file.to_string(), name: ep0_file.to_string(),
+                                 file: ep0_file.to_string(), kind: SymbolKind::Module },
+                    SymbolNode { id: format!("{}::handler0", ep0_file), name: "handler0".to_string(),
+                                 file: ep0_file.to_string(), kind: SymbolKind::Function },
+                    SymbolNode { id: ep1_file.to_string(), name: ep1_file.to_string(),
+                                 file: ep1_file.to_string(), kind: SymbolKind::Module },
+                    SymbolNode { id: format!("{}::handler1", ep1_file), name: "handler1".to_string(),
+                                 file: ep1_file.to_string(), kind: SymbolKind::Function },
+                ];
+                let mut edges = Vec::new();
+
+                for i in 0..n_shared {
+                    let shared = format!("src/shared{}.ts", i);
+                    let shared_func = format!("{}::func{}", shared, i);
+                    nodes.push(SymbolNode {
+                        id: shared.clone(), name: shared.clone(),
+                        file: shared.clone(), kind: SymbolKind::Module,
+                    });
+                    nodes.push(SymbolNode {
+                        id: shared_func.clone(), name: format!("func{}", i),
+                        file: shared, kind: SymbolKind::Function,
+                    });
+                    // Forward from ep0 → shared (dist 1)
+                    edges.push(SerializableEdge {
+                        from: format!("{}::handler0", ep0_file),
+                        to: shared_func.clone(),
+                        edge_type: EdgeType::Calls,
+                    });
+                    // shared → ep1 (incoming edge to ep1 for reverse BFS)
+                    edges.push(SerializableEdge {
+                        from: shared_func,
+                        to: format!("{}::handler1", ep1_file),
+                        edge_type: EdgeType::Calls,
+                    });
+                }
+
+                let graph = SymbolGraph::from_serializable(&SerializableGraph { nodes, edges });
+                let mut files = vec![ep0_file.to_string(), ep1_file.to_string()];
+                for i in 0..n_shared { files.push(format!("src/shared{}.ts", i)); }
+                let entrypoints = vec![
+                    ep(ep0_file, "handler0", EntrypointType::HttpRoute),
+                    ep(ep1_file, "handler1", EntrypointType::HttpRoute),
+                ];
+                let result = cluster_files(&graph, &entrypoints, &files);
+
+                // Find ep0's group
+                let ep0_group = result.groups.iter().find(|g|
+                    g.files.iter().any(|f| f.path == ep0_file)
+                );
+                prop_assert!(ep0_group.is_some(), "ep0 should have a group");
+
+                // All shared files should be in ep0's group (forward dist 1 < reverse dist 2)
+                for i in 0..n_shared {
+                    let shared = format!("src/shared{}.ts", i);
+                    prop_assert!(
+                        ep0_group.unwrap().files.iter().any(|f| f.path == shared),
+                        "shared file {} should be in ep0's group (forward preferred)",
+                        shared,
+                    );
+                }
+            }
+
             // ── Sub-clustering property tests ───────────────────────────
 
             /// Files within each sub-group are always sorted.
@@ -2540,6 +2787,32 @@ mod tests {
                     sub_groups.iter().flat_map(|g| &g.files).collect();
                 let total: usize = sub_groups.iter().map(|g| g.files.len()).sum();
                 prop_assert_eq!(unique.len(), total, "no duplicates across sub-groups");
+            }
+
+            /// sub_cluster_infra_files is pure: same input → identical output.
+            #[test]
+            fn prop_sub_cluster_deterministic(
+                n_infra in 0usize..3,
+                n_schema in 0usize..3,
+                n_code in 0usize..3,
+            ) {
+                let mut files: Vec<String> = Vec::new();
+                for i in 0..n_infra {
+                    files.push(format!("Dockerfile.f{}", i));
+                }
+                for i in 0..n_schema {
+                    files.push(format!("schemas/s{}.ts", i));
+                }
+                for i in 0..n_code {
+                    files.push(format!("src/c{}.ts", i));
+                }
+                files.sort();
+                files.dedup();
+
+                let graph = make_graph(&[], &[]);
+                let r1 = sub_cluster_infra_files(&files, &graph);
+                let r2 = sub_cluster_infra_files(&files, &graph);
+                prop_assert_eq!(r1, r2, "sub_cluster_infra_files should be deterministic");
             }
         }
     }

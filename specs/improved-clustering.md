@@ -528,7 +528,7 @@ Each `InfraSubGroupView` renders a collapsible section with clickable files.
 2. ~~Forward pass: `Direction::Outgoing`, cost=1~~
 3. ~~Reverse pass: `Direction::Incoming`, cost=2~~
 4. ~~Merge distance maps~~
-5. ~~Add tests~~ (5 acceptance + 11 property-based: forward/reverse chain distances, merge-picks-min, chain grouping, flow order, disconnected files, entry distance zero)
+5. ~~Add tests~~ (5 acceptance + 11 property-based: every-file-placed, forward/reverse chain distances, merge-picks-min, chain grouping, flow order, disconnected-infra, entry-distance-zero, reverse-flow-position-after-forward, multi-entrypoint-forward-preferred)
 
 ### Phase 3: Path-Based Entrypoint Detection (entrypoint.rs) — DONE
 1. ~~Add shared path-matching helpers~~ (`is_route_handler_path`, `is_strong_route_handler_path`, `is_cli_command_path`, `has_filename_pattern`)
@@ -540,7 +540,7 @@ Each `InfraSubGroupView` renders a collapsible section with clickable files.
 1. ~~Add `classify_by_convention(path) -> InfraCategory`~~ (with `is_true_infrastructure` helper)
 2. ~~Add `sub_cluster_infra_files(files, graph) -> Vec<InfraSubGroup>`~~ (4-phase pipeline)
 3. ~~Wire into `cluster_files()`~~
-4. ~~Add tests~~ (10 acceptance + 7 property-based: preserves-all, no-duplicates, deterministic, files-sorted, convention-categories-match, realistic-paths-preserved)
+4. ~~Add tests~~ (10 acceptance + 7 property-based: preserves-all, no-duplicates, classify-deterministic, sub-cluster-deterministic, files-sorted, convention-categories-match, realistic-paths-preserved)
 5. ~~Fix sub-group ordering determinism~~ (sort sub_groups by name before returning)
 
 ### Phase 5: Consumer Updates
