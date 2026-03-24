@@ -321,6 +321,50 @@ mod tests {
         assert_eq!(ranked[1].group_id, "b_group");
     }
 
+    /// §13.3: Config-provided weights override defaults — custom weights produce different ranking.
+    #[test]
+    fn test_custom_weights() {
+        // With default weights (risk=0.35, centrality=0.25, surface=0.20, uncertainty=0.20),
+        // "high-risk" group should rank first.
+        let inputs = vec![
+            make_input("high_risk", 0.9, 0.1, 0.1, 0.1),
+            make_input("high_centrality", 0.1, 0.9, 0.1, 0.1),
+        ];
+
+        let default_ranked = rank_groups(&inputs, &RankWeights::default());
+        assert_eq!(default_ranked[0].group_id, "high_risk",
+            "default weights should rank risk-heavy group first");
+
+        // With custom weights that favor centrality over risk, order should flip.
+        let custom_weights = RankWeights {
+            risk: 0.05,
+            centrality: 0.80,
+            surface_area: 0.05,
+            uncertainty: 0.10,
+        };
+        let custom_ranked = rank_groups(&inputs, &custom_weights);
+        assert_eq!(custom_ranked[0].group_id, "high_centrality",
+            "custom weights favoring centrality should rank centrality-heavy group first");
+
+        // Verify the scores actually differ.
+        let default_score_risk = default_ranked.iter().find(|r| r.group_id == "high_risk").unwrap().composite_score;
+        let custom_score_risk = custom_ranked.iter().find(|r| r.group_id == "high_risk").unwrap().composite_score;
+        assert!((default_score_risk - custom_score_risk).abs() > 0.01,
+            "different weights should produce meaningfully different scores");
+    }
+
+    /// §13.3: One group still gets a valid score.
+    #[test]
+    fn test_single_group_ranking() {
+        let inputs = vec![make_input("only", 0.6, 0.4, 0.3, 0.2)];
+        let ranked = rank_groups(&inputs, &RankWeights::default());
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].group_id, "only");
+        assert_eq!(ranked[0].review_order, 1);
+        assert!(ranked[0].composite_score >= 0.0);
+        assert!(ranked[0].composite_score <= 1.0);
+    }
+
     #[test]
     fn test_is_risk_path_schema() {
         let result = is_risk_path("prisma/schema.prisma");

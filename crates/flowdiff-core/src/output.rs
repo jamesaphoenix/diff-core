@@ -1072,4 +1072,88 @@ mod tests {
         assert_eq!(short_label("auth.ts"), "auth.ts");
         assert_eq!(short_label("a/b/c/d.ts"), "c/d.ts");
     }
+
+    // ── §13.3 spec-required tests ──
+
+    /// §13.3: `annotations` is `null` when LLM not used.
+    #[test]
+    fn test_empty_annotations_field() {
+        let output = build_analysis_output(
+            &sample_diff_result(3),
+            diff_source_branch("main", "feature", Some("abc"), Some("def")),
+            &sample_parsed_files(),
+            &sample_cluster_result(),
+            &sample_ranked_groups(),
+        );
+        assert!(
+            output.annotations.is_none(),
+            "annotations should be None when LLM is not used"
+        );
+
+        // Also verify it serializes as null in JSON
+        let json = to_json(&output).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(parsed["annotations"].is_null(), "annotations should serialize as null");
+    }
+
+    /// §13.3: `-o` flag writes to file correctly.
+    #[test]
+    fn test_output_file_write() {
+        let output = build_analysis_output(
+            &sample_diff_result(2),
+            diff_source_staged(),
+            &sample_parsed_files(),
+            &sample_cluster_result(),
+            &sample_ranked_groups(),
+        );
+
+        // Write to a temporary file
+        let dir = std::env::temp_dir();
+        let path = dir.join("flowdiff_test_output.json");
+        {
+            let mut file = std::fs::File::create(&path).unwrap();
+            write_json(&output, &mut file).unwrap();
+        }
+
+        // Read back and verify
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let deserialized: AnalysisOutput = serde_json::from_str(&contents).unwrap();
+        assert_eq!(deserialized.version, "1.0.0");
+        assert_eq!(deserialized.summary.total_files_changed, 2);
+        assert_eq!(deserialized, output);
+
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// §13.3: Default outputs to stdout (writer).
+    #[test]
+    fn test_stdout_output() {
+        let output = build_analysis_output(
+            &sample_diff_result(1),
+            diff_source_staged(),
+            &[],
+            &ClusterResult {
+                groups: vec![],
+                infrastructure: None,
+            },
+            &[],
+        );
+
+        // Simulate stdout by writing to a Vec<u8> buffer
+        let mut stdout_buf: Vec<u8> = Vec::new();
+        write_json(&output, &mut stdout_buf).unwrap();
+
+        let written = String::from_utf8(stdout_buf).unwrap();
+
+        // Should be valid JSON
+        let parsed: serde_json::Value = serde_json::from_str(written.trim()).unwrap();
+        assert_eq!(parsed["version"], "1.0.0");
+
+        // Should end with newline (for clean terminal output)
+        assert!(written.ends_with('\n'), "stdout output should end with newline");
+
+        // Should be pretty-printed (contains indentation)
+        assert!(written.contains("  "), "stdout output should be pretty-printed");
+    }
 }

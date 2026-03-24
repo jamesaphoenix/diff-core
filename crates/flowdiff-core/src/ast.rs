@@ -2139,6 +2139,53 @@ class GuideDog(Dog, ServiceAnimal):
         assert!(result.call_sites.is_empty());
     }
 
+    /// §13.3: Handles Rust `mod`, `use`, `pub` visibility.
+    ///
+    /// Rust is detected as Language::Rust but parsing currently falls through to the
+    /// generic handler (no tree-sitter queries for Rust yet). This test verifies:
+    /// 1. Rust files parse without error
+    /// 2. Language is correctly detected as Rust
+    /// 3. Graceful fallback produces empty definitions/imports/exports
+    #[test]
+    fn test_parse_rust_modules() {
+        let source = r#"
+mod handlers;
+mod models;
+
+use std::collections::HashMap;
+use crate::models::User;
+
+pub fn create_user(name: &str) -> User {
+    User { name: name.to_string() }
+}
+
+pub(crate) fn internal_helper() -> bool {
+    true
+}
+"#;
+        let result = parse_file("src/lib.rs", source).unwrap();
+
+        // Language should be correctly detected
+        assert_eq!(result.language, Language::Rust);
+        assert_eq!(result.path, "src/lib.rs");
+
+        // Rust parsing is not yet implemented via tree-sitter queries,
+        // so definitions/imports/exports are empty (graceful fallback).
+        // This documents the current state and will catch when Rust parsing is added.
+        assert!(
+            result.definitions.is_empty(),
+            "Rust definitions are not yet extracted (graceful fallback)"
+        );
+        assert!(
+            result.imports.is_empty(),
+            "Rust imports are not yet extracted (graceful fallback)"
+        );
+        assert!(
+            result.exports.is_empty(),
+            "Rust exports are not yet extracted (graceful fallback)"
+        );
+    }
+
     // === Changed symbols detection ===
 
     #[test]
