@@ -151,7 +151,9 @@ Go beyond import graphs — trace how data moves through the system:
 
 ### 4.5 Entrypoint Detection
 
-Automatically detect entry points into the application:
+Automatically detect entry points into the application via three mechanisms:
+
+**Call-site detection** — pattern-match explicit framework API calls in the AST:
 
 | Type | Detection heuristic |
 |------|-------------------|
@@ -170,17 +172,32 @@ Automatically detect entry points into the application:
 | Event handlers (Effect.ts) | Effect `Stream`, `PubSub`, `Hub` listener patterns |
 | Effect.ts Services | `Effect.Service`, `Context.Tag`, `Layer` definitions — primary service/DI entrypoints |
 
+**Path-based detection (Tier 1)** — if the file path matches route/handler/controller/command directory or filename patterns AND the file imports from a known web/CLI framework, all exported/public functions become entrypoints. Works across all 14 supported languages with per-language framework import tables. Directory patterns: `/routes/`, `/handlers/`, `/controllers/`, `/endpoints/`, `/commands/`, `/cmd/`, `/cli/`. File patterns: `*.routes.*`, `*.handler.*`, `*.controller.*`, `*.endpoint.*`, `*.command.*`, `*.cli.*`.
+
+**Path-based detection (Tier 2)** — very strong path signals detect entrypoints even without a framework import check. This catches files where the import came from an unchanged transitive dependency. Strong signals: files containing `entrypoint`/`entrypoints` in name, `server.*`/`app.*` at project root, files in `/commands/` or `/cmd/` directories.
+
+See [improved-clustering.md §1](./improved-clustering.md) for the full path pattern and framework import tables.
+
 ### 4.6 Semantic Clustering
 
 Group changed files into "flow groups" — sets of files that participate in the same logical data flow.
 
 **Algorithm:**
 
-1. For each detected entrypoint in the changed set, compute its **forward reachability** in graph G (BFS/DFS following call/import/data edges)
+1. For each detected entrypoint in the changed set, compute **bidirectional reachability** in graph G:
+   - **Forward BFS** (`Direction::Outgoing`, cost-per-hop=1) — follows calls/imports downstream from the entrypoint
+   - **Reverse BFS** (`Direction::Incoming`, cost-per-hop=2) — follows edges upstream to find files that depend on the entrypoint's group
+   - Merge: keep the minimum distance for each file across both passes
 2. Intersect each reachability set with the changed file set ΔF
 3. Files reachable from the same entrypoint and in ΔF belong to the same flow group
-4. Files in ΔF not reachable from any entrypoint form an "infrastructure/shared" group
-5. Files reachable from multiple entrypoints get assigned to the group where they have the shortest path distance
+4. Files reachable from multiple entrypoints get assigned to the group where they have the shortest path distance (forward edges always win due to lower cost)
+5. Ungrouped files (not reachable from any entrypoint) are classified into infrastructure sub-groups:
+   - **Convention-based**: true infrastructure (Docker, CI/CD, env, configs), schemas, scripts, migrations, deployment, documentation, lint configs, test utilities, generated code
+   - **Import-edge clustering**: remaining files connected by graph edges form component groups
+   - **Directory proximity**: files sharing a directory prefix (≥2 files) form directory groups
+   - **Fallback**: anything left goes to "Unclassified"
+
+The reverse BFS cost=2 ensures forward-reachable files are always preferred for group assignment while preventing reverse-reachable files from being dumped into infrastructure. See [improved-clustering.md §2-3](./improved-clustering.md) for details.
 
 **Output:** `FlowGroup[]` where each group has:
 - `id: string`
@@ -411,7 +428,24 @@ flowdiff launch --tool bcompare --group group_1 --input review.json
     }
   ],
   "infrastructure_group": {
-    "files": ["tsconfig.json", "package.json"],
+    "files": ["Dockerfile", ".env.dev", "src/schemas/user.ts", "scripts/deploy.sh"],
+    "sub_groups": [
+      {
+        "name": "Infrastructure",
+        "category": "Infrastructure",
+        "files": ["Dockerfile", ".env.dev"]
+      },
+      {
+        "name": "Schemas",
+        "category": "Schema",
+        "files": ["src/schemas/user.ts"]
+      },
+      {
+        "name": "Scripts",
+        "category": "Script",
+        "files": ["scripts/deploy.sh"]
+      }
+    ],
     "reason": "Not reachable from any detected entrypoint"
   },
   "annotations": null
