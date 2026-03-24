@@ -7,8 +7,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::cluster::{category_display_name, classify_by_convention};
 use crate::types::{
-    ChangeStats, FileChange, FileRole, FlowGroup, InfrastructureGroup,
+    ChangeStats, FileChange, FileRole, FlowGroup, InfraSubGroup, InfrastructureGroup,
 };
 
 use super::schema::{
@@ -328,6 +329,12 @@ fn remove_file_from_group_or_infra(
     if group_id == "infrastructure" {
         if let Some(ref mut ig) = infra {
             ig.files.retain(|f| f != file_path);
+            // Also remove from sub-groups
+            for sg in ig.sub_groups.iter_mut() {
+                sg.files.retain(|f| f != file_path);
+            }
+            // Remove empty sub-groups
+            ig.sub_groups.retain(|sg| !sg.files.is_empty());
         }
         // Create a synthetic FileChange for infrastructure files
         return Some(FileChange {
@@ -359,16 +366,41 @@ fn add_file_to_group_or_infra(
     file_change: FileChange,
 ) {
     if group_id == "infrastructure" {
+        let path = file_change.path;
+        let category = classify_by_convention(&path);
+        let display_name = category_display_name(&category);
+
         match infra {
             Some(ig) => {
-                ig.files.push(file_change.path);
+                ig.files.push(path.clone());
                 ig.files.sort();
                 ig.files.dedup();
+                // Add to matching sub-group or create one
+                if let Some(sg) = ig
+                    .sub_groups
+                    .iter_mut()
+                    .find(|sg| sg.category == category)
+                {
+                    sg.files.push(path);
+                    sg.files.sort();
+                    sg.files.dedup();
+                } else {
+                    ig.sub_groups.push(InfraSubGroup {
+                        name: display_name,
+                        category,
+                        files: vec![path],
+                    });
+                    ig.sub_groups.sort_by(|a, b| a.name.cmp(&b.name));
+                }
             }
             None => {
                 *infra = Some(InfrastructureGroup {
-                    files: vec![file_change.path],
-                    sub_groups: vec![],
+                    files: vec![path.clone()],
+                    sub_groups: vec![InfraSubGroup {
+                        name: display_name,
+                        category,
+                        files: vec![path],
+                    }],
                     reason: "Moved to infrastructure by LLM refinement".to_string(),
                 });
             }
@@ -457,7 +489,7 @@ mod tests {
         RefinementMerge, RefinementNewGroup, RefinementReRank, RefinementReclassify,
         RefinementSplit,
     };
-    use crate::types::{Entrypoint, EntrypointType, FlowEdge, EdgeType};
+    use crate::types::{Entrypoint, EntrypointType, FlowEdge, EdgeType, InfraCategory};
 
     fn make_file(path: &str, pos: u32) -> FileChange {
         FileChange {
@@ -1029,6 +1061,210 @@ mod tests {
         assert_eq!(result[0].files.len(), 2);
     }
 
+    // ── Sub-Group Maintenance Tests ──
+
+    #[test]
+    fn test_reclassify_from_infra_removes_from_sub_group() {
+        let groups = vec![make_group("g1", "Auth", vec![make_file("auth.ts", 0)])];
+        let infra = InfrastructureGroup {
+            files: vec!["Dockerfile".to_string(), "token.ts".to_string()],
+            sub_groups: vec![
+                InfraSubGroup {
+                    name: "Infrastructure".to_string(),
+                    category: InfraCategory::Infrastructure,
+                    files: vec!["Dockerfile".to_string()],
+                },
+                InfraSubGroup {
+                    name: "Unclassified".to_string(),
+                    category: InfraCategory::Unclassified,
+                    files: vec!["token.ts".to_string()],
+                },
+            ],
+            reason: "test".to_string(),
+        };
+        let response = RefinementResponse {
+            reclassifications: vec![RefinementReclassify {
+                file: "token.ts".to_string(),
+                from_group_id: "infrastructure".to_string(),
+                to_group_id: "g1".to_string(),
+                reason: "Token belongs to auth".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let (result, infra_out) = apply_refinement(&groups, Some(&infra), &response).unwrap();
+        // File moved to group
+        assert!(result[0].files.iter().any(|f| f.path == "token.ts"));
+        // File removed from infra files
+        let ig = infra_out.unwrap();
+        assert!(!ig.files.contains(&"token.ts".to_string()));
+        // File removed from sub_groups — Unclassified sub-group should be gone (was its only file)
+        assert!(
+            !ig.sub_groups.iter().any(|sg| sg.category == InfraCategory::Unclassified),
+            "Empty Unclassified sub-group should be removed"
+        );
+        // Dockerfile sub-group still exists
+        assert!(ig.sub_groups.iter().any(|sg| sg.files.contains(&"Dockerfile".to_string())));
+    }
+
+    #[test]
+    fn test_reclassify_to_infra_adds_to_correct_sub_group() {
+        let groups = vec![make_group(
+            "g1",
+            "Group 1",
+            vec![make_file("a.ts", 0), make_file("Dockerfile", 1)],
+        )];
+        let response = RefinementResponse {
+            reclassifications: vec![RefinementReclassify {
+                file: "Dockerfile".to_string(),
+                from_group_id: "g1".to_string(),
+                to_group_id: "infrastructure".to_string(),
+                reason: "Dockerfile is infra".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let (_, infra_out) = apply_refinement(&groups, None, &response).unwrap();
+        let ig = infra_out.unwrap();
+        assert!(ig.files.contains(&"Dockerfile".to_string()));
+        // Should be classified as Infrastructure category
+        let infra_sg = ig
+            .sub_groups
+            .iter()
+            .find(|sg| sg.category == InfraCategory::Infrastructure)
+            .expect("Should have Infrastructure sub-group");
+        assert!(infra_sg.files.contains(&"Dockerfile".to_string()));
+    }
+
+    #[test]
+    fn test_reclassify_to_infra_adds_to_existing_sub_group() {
+        let groups = vec![make_group(
+            "g1",
+            "Group 1",
+            vec![make_file("a.ts", 0), make_file("docker-compose.yml", 1)],
+        )];
+        let existing_infra = InfrastructureGroup {
+            files: vec!["Dockerfile".to_string()],
+            sub_groups: vec![InfraSubGroup {
+                name: "Infrastructure".to_string(),
+                category: InfraCategory::Infrastructure,
+                files: vec!["Dockerfile".to_string()],
+            }],
+            reason: "test".to_string(),
+        };
+        let response = RefinementResponse {
+            reclassifications: vec![RefinementReclassify {
+                file: "docker-compose.yml".to_string(),
+                from_group_id: "g1".to_string(),
+                to_group_id: "infrastructure".to_string(),
+                reason: "Docker compose is infra".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let (_, infra_out) =
+            apply_refinement(&groups, Some(&existing_infra), &response).unwrap();
+        let ig = infra_out.unwrap();
+        // Should be added to the existing Infrastructure sub-group, not create a new one
+        let infra_sgs: Vec<_> = ig
+            .sub_groups
+            .iter()
+            .filter(|sg| sg.category == InfraCategory::Infrastructure)
+            .collect();
+        assert_eq!(infra_sgs.len(), 1, "Should have exactly one Infrastructure sub-group");
+        assert_eq!(infra_sgs[0].files.len(), 2);
+        assert!(infra_sgs[0].files.contains(&"Dockerfile".to_string()));
+        assert!(infra_sgs[0].files.contains(&"docker-compose.yml".to_string()));
+    }
+
+    #[test]
+    fn test_reclassify_to_infra_schema_file_categorized() {
+        let groups = vec![make_group(
+            "g1",
+            "Group 1",
+            vec![make_file("a.ts", 0), make_file("schemas/user.schema.ts", 1)],
+        )];
+        let response = RefinementResponse {
+            reclassifications: vec![RefinementReclassify {
+                file: "schemas/user.schema.ts".to_string(),
+                from_group_id: "g1".to_string(),
+                to_group_id: "infrastructure".to_string(),
+                reason: "Schema is shared".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let (_, infra_out) = apply_refinement(&groups, None, &response).unwrap();
+        let ig = infra_out.unwrap();
+        let schema_sg = ig
+            .sub_groups
+            .iter()
+            .find(|sg| sg.category == InfraCategory::Schema)
+            .expect("Should have Schema sub-group");
+        assert!(schema_sg.files.contains(&"schemas/user.schema.ts".to_string()));
+    }
+
+    #[test]
+    fn test_reclassify_from_infra_sub_groups_consistent_with_files() {
+        let groups = vec![make_group("g1", "Auth", vec![make_file("auth.ts", 0)])];
+        let infra = InfrastructureGroup {
+            files: vec![
+                "Dockerfile".to_string(),
+                "scripts/deploy.sh".to_string(),
+                "README.md".to_string(),
+            ],
+            sub_groups: vec![
+                InfraSubGroup {
+                    name: "Infrastructure".to_string(),
+                    category: InfraCategory::Infrastructure,
+                    files: vec!["Dockerfile".to_string()],
+                },
+                InfraSubGroup {
+                    name: "Scripts".to_string(),
+                    category: InfraCategory::Script,
+                    files: vec!["scripts/deploy.sh".to_string()],
+                },
+                InfraSubGroup {
+                    name: "Documentation".to_string(),
+                    category: InfraCategory::Documentation,
+                    files: vec!["README.md".to_string()],
+                },
+            ],
+            reason: "test".to_string(),
+        };
+        let response = RefinementResponse {
+            reclassifications: vec![
+                RefinementReclassify {
+                    file: "scripts/deploy.sh".to_string(),
+                    from_group_id: "infrastructure".to_string(),
+                    to_group_id: "g1".to_string(),
+                    reason: "Deploy script belongs to auth flow".to_string(),
+                },
+                RefinementReclassify {
+                    file: "README.md".to_string(),
+                    from_group_id: "infrastructure".to_string(),
+                    to_group_id: "g1".to_string(),
+                    reason: "Docs for auth".to_string(),
+                },
+            ],
+            ..empty_refinement()
+        };
+
+        let (_, infra_out) = apply_refinement(&groups, Some(&infra), &response).unwrap();
+        let ig = infra_out.unwrap();
+        // Only Dockerfile should remain
+        assert_eq!(ig.files.len(), 1);
+        assert_eq!(ig.files[0], "Dockerfile");
+        // Only Infrastructure sub-group should remain
+        assert_eq!(ig.sub_groups.len(), 1);
+        assert_eq!(ig.sub_groups[0].category, InfraCategory::Infrastructure);
+        // All sub_group files should be a subset of ig.files
+        let all_sg_files: Vec<&String> = ig.sub_groups.iter().flat_map(|sg| &sg.files).collect();
+        for f in &all_sg_files {
+            assert!(ig.files.contains(f), "Sub-group file {:?} not in infra.files", f);
+        }
+    }
+
     // ── Property-Based Tests ──
 
     mod proptests {
@@ -1038,6 +1274,27 @@ mod tests {
         fn file_path_strategy() -> impl Strategy<Value = String> {
             "[a-z]{1,5}"
                 .prop_map(|name| format!("src/{}.ts", name))
+        }
+
+        /// Strategy that generates classifiable infra file paths
+        fn infra_file_path_strategy() -> impl Strategy<Value = String> {
+            prop::sample::select(vec![
+                "Dockerfile".to_string(),
+                "docker-compose.yml".to_string(),
+                ".env.dev".to_string(),
+                "tsconfig.json".to_string(),
+                "package.json".to_string(),
+                "schemas/user.ts".to_string(),
+                "schemas/billing.schema.ts".to_string(),
+                "scripts/deploy.sh".to_string(),
+                "scripts/setup.sh".to_string(),
+                "migrations/001.sql".to_string(),
+                "docs/README.md".to_string(),
+                "docs/setup.md".to_string(),
+                "src/random-file.ts".to_string(),
+                ".eslintrc.json".to_string(),
+                "src/generated/api.ts".to_string(),
+            ])
         }
 
         fn group_strategy() -> impl Strategy<Value = FlowGroup> {
@@ -1112,6 +1369,141 @@ mod tests {
                 let (result, _) = apply_refinement(&groups, None, &empty_refinement()).unwrap();
                 for (i, group) in result.iter().enumerate() {
                     prop_assert_eq!(group.review_order, (i + 1) as u32);
+                }
+            }
+
+            /// Reclassifying to infrastructure always places the file in a sub-group
+            /// whose category matches classify_by_convention
+            #[test]
+            fn prop_reclassify_to_infra_categorized_correctly(
+                file_path in infra_file_path_strategy()
+            ) {
+                let groups = vec![make_group(
+                    "g1",
+                    "Group 1",
+                    vec![make_file(&file_path, 0), make_file("src/keep.ts", 1)],
+                )];
+                let response = RefinementResponse {
+                    reclassifications: vec![RefinementReclassify {
+                        file: file_path.clone(),
+                        from_group_id: "g1".to_string(),
+                        to_group_id: "infrastructure".to_string(),
+                        reason: "test".to_string(),
+                    }],
+                    ..empty_refinement()
+                };
+
+                let (_, infra_out) = apply_refinement(&groups, None, &response).unwrap();
+                let ig = infra_out.unwrap();
+                let expected_category = crate::cluster::classify_by_convention(&file_path);
+                // File must appear in exactly one sub-group with the correct category
+                let matching: Vec<_> = ig
+                    .sub_groups
+                    .iter()
+                    .filter(|sg| sg.files.contains(&file_path))
+                    .collect();
+                prop_assert_eq!(
+                    matching.len(),
+                    1,
+                    "File should be in exactly one sub-group, found {}",
+                    matching.len()
+                );
+                prop_assert_eq!(matching[0].category.clone(), expected_category);
+            }
+
+            /// After reclassifying a file FROM infrastructure, it appears in no sub-group
+            #[test]
+            fn prop_reclassify_from_infra_removes_from_all_sub_groups(
+                file_path in infra_file_path_strategy()
+            ) {
+                use crate::cluster::classify_by_convention;
+                use crate::cluster::category_display_name;
+                let category = classify_by_convention(&file_path);
+                let display = category_display_name(&category);
+
+                let groups = vec![make_group("g1", "Target", vec![make_file("src/a.ts", 0)])];
+                let infra = InfrastructureGroup {
+                    files: vec![file_path.clone()],
+                    sub_groups: vec![InfraSubGroup {
+                        name: display,
+                        category,
+                        files: vec![file_path.clone()],
+                    }],
+                    reason: "test".to_string(),
+                };
+                let response = RefinementResponse {
+                    reclassifications: vec![RefinementReclassify {
+                        file: file_path.clone(),
+                        from_group_id: "infrastructure".to_string(),
+                        to_group_id: "g1".to_string(),
+                        reason: "test".to_string(),
+                    }],
+                    ..empty_refinement()
+                };
+
+                let (_, infra_out) = apply_refinement(&groups, Some(&infra), &response).unwrap();
+                if let Some(ig) = infra_out {
+                    for sg in &ig.sub_groups {
+                        prop_assert!(
+                            !sg.files.contains(&file_path),
+                            "File {:?} still in sub-group {:?}",
+                            file_path,
+                            sg.name
+                        );
+                    }
+                    prop_assert!(
+                        !ig.files.contains(&file_path),
+                        "File {:?} still in infra.files",
+                        file_path
+                    );
+                }
+            }
+
+            /// After any reclassification involving infrastructure, every file in
+            /// infra.files appears in exactly one sub-group (consistency invariant)
+            #[test]
+            fn prop_infra_sub_groups_consistent_after_reclassify(
+                file_path in infra_file_path_strategy()
+            ) {
+                // Start with a group containing the file, reclassify to infra
+                let groups = vec![make_group(
+                    "g1",
+                    "Group 1",
+                    vec![make_file(&file_path, 0), make_file("src/keep.ts", 1)],
+                )];
+                let response = RefinementResponse {
+                    reclassifications: vec![RefinementReclassify {
+                        file: file_path.clone(),
+                        from_group_id: "g1".to_string(),
+                        to_group_id: "infrastructure".to_string(),
+                        reason: "test".to_string(),
+                    }],
+                    ..empty_refinement()
+                };
+
+                let (_, infra_out) = apply_refinement(&groups, None, &response).unwrap();
+                let ig = infra_out.unwrap();
+
+                // Every file in ig.files must appear in exactly one sub-group
+                for f in &ig.files {
+                    let count = ig.sub_groups.iter().filter(|sg| sg.files.contains(f)).count();
+                    prop_assert_eq!(
+                        count,
+                        1,
+                        "File {:?} appears in {} sub-groups, expected 1",
+                        f,
+                        count
+                    );
+                }
+                // Every file in sub-groups must appear in ig.files
+                for sg in &ig.sub_groups {
+                    for f in &sg.files {
+                        prop_assert!(
+                            ig.files.contains(f),
+                            "Sub-group file {:?} not in infra.files",
+                            f
+                        );
+                    }
                 }
             }
         }

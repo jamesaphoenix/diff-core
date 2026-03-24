@@ -556,7 +556,7 @@ pub fn sub_cluster_infra_files(files: &[String], graph: &SymbolGraph) -> Vec<Inf
     sub_groups
 }
 
-fn category_display_name(cat: &InfraCategory) -> String {
+pub(crate) fn category_display_name(cat: &InfraCategory) -> String {
     match cat {
         InfraCategory::Infrastructure => "Infrastructure".to_string(),
         InfraCategory::Schema => "Schemas".to_string(),

@@ -547,7 +547,7 @@ Each `InfraSubGroupView` renders a collapsible section with clickable files.
 1. CLI output — no changes needed (JSON structure is backward compatible via `files` field)
 2. Tauri UI — make infrastructure files clickable (load diff on click, selected state, keyboard nav)
 3. Tauri UI — render sub-groups with collapsible headers instead of flat list
-4. LLM refinement — update `from_group_id: "infrastructure"` to work with sub-groups
+4. ~~LLM refinement — update `from_group_id: "infrastructure"` to work with sub-groups~~ (remove from sub-group on reclassify-out, classify into correct sub-group on reclassify-in, empty sub-group cleanup. 5 unit tests + 3 property-based: categorized-correctly, removes-from-all-sub-groups, sub-groups-consistent-after-reclassify)
 5. LLM judge — no changes needed
 
 ### Phase 6: Update Existing Spec
