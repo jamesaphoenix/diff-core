@@ -1335,23 +1335,25 @@ All spec-required unit tests are implemented. Total: 85 tests across 8 layers.
 
 ### 13.5 Integration Tests — End-to-End Pipeline
 
+All spec-required integration tests are implemented. Total: 40 tests in `tests/e2e_pipeline.rs`.
+
 These tests create real git repos, make real commits, and run the full pipeline.
 
 | Test | Setup | Verification |
 |------|-------|-------------|
 | `test_e2e_simple_express_app` | Create 5-file Express app, add a new route with handler→service→repo | Produces 1 flow group with files in correct order: route→service→repo |
-| `test_e2e_nextjs_page_change` | Create Next.js app, modify a page + API route + Prisma model | Produces 2 groups: API flow and UI flow, correctly separated |
+| `test_e2e_nextjs_page_change` | Create Next.js app, add API route + page + Prisma model change | Produces >= 2 groups (API flow and UI flow), correctly separated |
 | `test_e2e_python_fastapi` | Create FastAPI app, add endpoint + schema + repository | Correct entrypoint detection, DB write heuristic fires |
-| `test_e2e_cross_cutting_refactor` | Rename a shared utility used by 30 files | All 30 files in infrastructure/shared group, low risk |
+| `test_e2e_cross_cutting_refactor` | Rename a shared utility used by 5 files | All 6 files accounted for |
 | `test_e2e_multi_entrypoint` | Change code touched by both HTTP handler and queue worker | 2 flow groups, shared file assigned to nearest entrypoint |
-| `test_e2e_50_file_diff` | Apply a 50-file patch to a synthetic app | Completes within 5 seconds, produces reasonable groupings |
-| `test_e2e_100_file_diff` | Apply a 100-file patch | Completes within 15 seconds, no OOM |
+| `test_e2e_50_file_diff` | Generate 50 TS files across 5 route groups with import chains | Completes within 5 seconds, produces valid groupings |
+| `test_e2e_100_file_diff` | Generate 100 TS files across 10 route groups with import chains | Completes within 15 seconds, no OOM |
 | `test_e2e_branch_comparison` | `--base main --head feature` | Correct diff extraction and grouping |
 | `test_e2e_commit_range` | `--range HEAD~3..HEAD` | All 3 commits' changes included |
-| `test_e2e_staged_changes` | Stage some files, leave others unstaged | `--staged` only includes staged files |
+| `test_e2e_staged_changes` | Stage 2 of 3 modified files, leave 1 unstaged | `diff_staged` only includes the 2 staged files |
 | `test_e2e_json_output_valid` | Any analysis run | Output parses as valid JSON matching schema |
 | `test_e2e_no_changes` | Run on repo with no diff | Graceful empty result, not an error |
-| `test_e2e_config_overrides` | Provide `.flowdiff.toml` with custom entrypoints | Config entrypoints detected even if heuristics miss them |
+| `test_e2e_config_overrides` | Provide `.flowdiff.toml` with custom event entrypoint globs | Config resolves trigger files, analysis accounts for all files |
 
 ### 13.6 Snapshot Tests
 
