@@ -3570,4 +3570,151 @@ queue.process(processEmail);
         assert!(is_js_cli_framework_import(&make_import("@effect/cli")));
         assert!(!is_js_cli_framework_import(&make_import("express")));
     }
+
+    // ===================================================================
+    // Property-based tests for path detection helpers (spec §1)
+    // ===================================================================
+
+    mod proptests_path {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Strong route handler paths are always also regular route handler paths.
+            #[test]
+            fn prop_strong_route_implies_regular(
+                dir in prop_oneof![
+                    Just("routes"),
+                    Just("handlers"),
+                    Just("controllers"),
+                    Just("endpoints"),
+                ],
+                name in "[a-z]{3,10}",
+                ext in prop_oneof![Just(".ts"), Just(".js"), Just(".py"), Just(".go")],
+            ) {
+                let path = format!("src/{}/{}{}", dir, name, ext);
+                if is_strong_route_handler_path(&path) {
+                    prop_assert!(
+                        is_route_handler_path(&path),
+                        "strong path '{}' must also be a regular route path", path,
+                    );
+                }
+            }
+
+            /// Route handler path detection is case-insensitive.
+            #[test]
+            fn prop_route_handler_case_insensitive(
+                dir in prop_oneof![
+                    Just("routes"),
+                    Just("handlers"),
+                    Just("controllers"),
+                ],
+                name in "[a-z]{3,10}",
+            ) {
+                let lower = format!("src/{}/{}.ts", dir, name);
+                let upper = format!("SRC/{}/{}.TS", dir.to_uppercase(), name.to_uppercase());
+                prop_assert_eq!(
+                    is_route_handler_path(&lower),
+                    is_route_handler_path(&upper),
+                    "detection should be case-insensitive: '{}' vs '{}'", lower, upper,
+                );
+            }
+
+            /// Files in plain src/ directories (no route/handler/controller pattern) are not
+            /// detected as route handlers.
+            #[test]
+            fn prop_plain_src_not_route(name in "[a-z]{3,15}") {
+                let path = format!("src/{}.ts", name);
+                // Only assert when name doesn't accidentally contain a pattern keyword
+                prop_assume!(
+                    !name.contains("route") && !name.contains("handler")
+                    && !name.contains("controller") && !name.contains("endpoint")
+                    && !name.contains("entrypoint")
+                );
+                prop_assert!(
+                    !is_route_handler_path(&path),
+                    "'{}' should not be a route handler path", path,
+                );
+            }
+
+            /// CLI command path detection: files in /commands/ are always detected.
+            #[test]
+            fn prop_cli_commands_dir_always_detected(
+                name in "[a-z]{3,10}",
+                ext in prop_oneof![Just(".ts"), Just(".go"), Just(".py"), Just(".rs")],
+            ) {
+                let path = format!("src/commands/{}{}", name, ext);
+                prop_assert!(
+                    is_cli_command_path(&path),
+                    "'{}' should be a CLI command path", path,
+                );
+            }
+
+            /// CLI and route directory patterns don't overlap (commands/ is CLI, routes/ is HTTP).
+            #[test]
+            fn prop_cli_route_dirs_disjoint(name in "[a-z]{3,10}") {
+                let cli_path = format!("src/commands/{}.ts", name);
+                let route_path = format!("src/routes/{}.ts", name);
+
+                // Guard: name doesn't contain keywords from the other domain
+                prop_assume!(
+                    !name.contains("route") && !name.contains("handler")
+                    && !name.contains("controller") && !name.contains("endpoint")
+                );
+                prop_assume!(
+                    !name.contains("command") && !name.contains("cli")
+                );
+
+                prop_assert!(is_cli_command_path(&cli_path), "commands/ should be CLI");
+                prop_assert!(!is_route_handler_path(&cli_path), "commands/ should NOT be HTTP");
+                prop_assert!(is_route_handler_path(&route_path), "routes/ should be HTTP");
+                prop_assert!(!is_cli_command_path(&route_path), "routes/ should NOT be CLI");
+            }
+
+            /// has_filename_pattern requires dot delimiters — partial substring matches don't count.
+            #[test]
+            fn prop_filename_pattern_requires_dots(
+                prefix in "[a-z]{2,8}",
+                pattern in prop_oneof![
+                    Just("controller"),
+                    Just("route"),
+                    Just("handler"),
+                ],
+                ext in prop_oneof![Just(".ts"), Just(".js")],
+            ) {
+                // With dots: "prefix.pattern.ext" → should match
+                let dotted = format!("src/{}.{}{}", prefix, pattern, ext);
+                prop_assert!(
+                    has_filename_pattern(&dotted.to_lowercase(), pattern),
+                    "'{}' with dot-delimited pattern should match", dotted,
+                );
+
+                // Without dots: "prefixpatternext" → should NOT match
+                let no_dots = format!("src/{}{}{}", prefix, pattern, ext);
+                // Only assert if the concatenation doesn't accidentally create a dot pattern
+                if !no_dots.to_lowercase().contains(&format!(".{}.", pattern)) {
+                    prop_assert!(
+                        !has_filename_pattern(&no_dots.to_lowercase(), pattern),
+                        "'{}' without dot delimiters should not match", no_dots,
+                    );
+                }
+            }
+
+            /// is_route_handler_path is deterministic.
+            #[test]
+            fn prop_route_handler_deterministic(path in "[a-z/._]{1,50}") {
+                let r1 = is_route_handler_path(&path);
+                let r2 = is_route_handler_path(&path);
+                prop_assert_eq!(r1, r2);
+            }
+
+            /// is_cli_command_path is deterministic.
+            #[test]
+            fn prop_cli_command_deterministic(path in "[a-z/._]{1,50}") {
+                let r1 = is_cli_command_path(&path);
+                let r2 = is_cli_command_path(&path);
+                prop_assert_eq!(r1, r2);
+            }
+        }
+    }
 }

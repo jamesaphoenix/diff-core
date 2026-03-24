@@ -521,26 +521,27 @@ Each `InfraSubGroupView` renders a collapsible section with clickable files.
 2. ~~Add `InfraSubGroup` struct~~
 3. ~~Update `InfrastructureGroup` to include `sub_groups` field~~ (with backward-compat serde)
 4. ~~Update test helpers~~ (all constructors updated across 7 files)
-5. Tests: serde roundtrip, backward-compat deserialization, property-based tests
+5. ~~Tests: serde roundtrip, backward-compat deserialization, property-based tests~~
 
 ### Phase 2: Bidirectional Reachability (cluster.rs) — DONE
 1. ~~Modify `compute_file_reachability` to do two-pass BFS~~ (refactored into `bfs_pass` helper)
 2. ~~Forward pass: `Direction::Outgoing`, cost=1~~
 3. ~~Reverse pass: `Direction::Incoming`, cost=2~~
 4. ~~Merge distance maps~~
-5. ~~Add tests~~ (5 acceptance + property-based)
+5. ~~Add tests~~ (5 acceptance + 11 property-based: forward/reverse chain distances, merge-picks-min, chain grouping, flow order, disconnected files, entry distance zero)
 
 ### Phase 3: Path-Based Entrypoint Detection (entrypoint.rs) — DONE
 1. ~~Add shared path-matching helpers~~ (`is_route_handler_path`, `is_strong_route_handler_path`, `is_cli_command_path`, `has_filename_pattern`)
 2. ~~Add per-language framework import helpers~~ (11 web + 4 CLI framework checkers)
 3. ~~Add path-based detection~~ (`detect_path_based_http_routes`, `detect_path_based_cli_commands`)
-4. ~~Add tests per language~~ (12 acceptance tests + helper unit tests)
+4. ~~Add tests per language~~ (12 acceptance tests + helper unit tests + 8 property-based: strong⊂regular, case insensitivity, CLI/route disjointness, dot-delimited patterns, determinism)
 
 ### Phase 4: Infrastructure Sub-Clustering (cluster.rs) — DONE
 1. ~~Add `classify_by_convention(path) -> InfraCategory`~~ (with `is_true_infrastructure` helper)
 2. ~~Add `sub_cluster_infra_files(files, graph) -> Vec<InfraSubGroup>`~~ (4-phase pipeline)
 3. ~~Wire into `cluster_files()`~~
-4. ~~Add tests~~ (10 acceptance + 3 property-based)
+4. ~~Add tests~~ (10 acceptance + 7 property-based: preserves-all, no-duplicates, deterministic, files-sorted, convention-categories-match, realistic-paths-preserved)
+5. ~~Fix sub-group ordering determinism~~ (sort sub_groups by name before returning)
 
 ### Phase 5: Consumer Updates
 1. CLI output — no changes needed (JSON structure is backward compatible via `files` field)

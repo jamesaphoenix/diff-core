@@ -550,6 +550,9 @@ pub fn sub_cluster_infra_files(files: &[String], graph: &SymbolGraph) -> Vec<Inf
         });
     }
 
+    // Ensure deterministic ordering: sort by name so HashSet iteration order doesn't matter.
+    sub_groups.sort_by(|a, b| a.name.cmp(&b.name));
+
     sub_groups
 }
 
@@ -2091,12 +2094,205 @@ mod tests {
     }
 
     // ===================================================================
+    // BFS internal distance correctness tests
+    // ===================================================================
+
+    #[test]
+    fn test_bfs_forward_chain_distances() {
+        // Forward chain: entry → a → b → c
+        // Expected distances with cost=1: entry=0, a=1, b=2, c=3
+        let graph = make_graph(
+            &[
+                ("src/entry.ts", "src/entry.ts", SymbolKind::Module),
+                ("src/entry.ts::main", "src/entry.ts", SymbolKind::Function),
+                ("src/a.ts", "src/a.ts", SymbolKind::Module),
+                ("src/a.ts::fa", "src/a.ts", SymbolKind::Function),
+                ("src/b.ts", "src/b.ts", SymbolKind::Module),
+                ("src/b.ts::fb", "src/b.ts", SymbolKind::Function),
+                ("src/c.ts", "src/c.ts", SymbolKind::Module),
+                ("src/c.ts::fc", "src/c.ts", SymbolKind::Function),
+            ],
+            &[
+                ("src/entry.ts::main", "src/a.ts::fa", EdgeType::Calls),
+                ("src/a.ts::fa", "src/b.ts::fb", EdgeType::Calls),
+                ("src/b.ts::fb", "src/c.ts::fc", EdgeType::Calls),
+            ],
+        );
+
+        let forward = bfs_pass(&graph, "src/entry.ts", "main", Direction::Outgoing, 1);
+        assert_eq!(forward.get("src/entry.ts"), Some(&0));
+        assert_eq!(forward.get("src/a.ts"), Some(&1));
+        assert_eq!(forward.get("src/b.ts"), Some(&2));
+        assert_eq!(forward.get("src/c.ts"), Some(&3));
+    }
+
+    #[test]
+    fn test_bfs_reverse_chain_costs_double() {
+        // Reverse chain: a→entry, b→a, c→b (edges point toward entry)
+        // With cost_per_hop=2, reverse BFS from entry finds: a=2, b=4, c=6
+        let graph = make_graph(
+            &[
+                ("src/entry.ts", "src/entry.ts", SymbolKind::Module),
+                ("src/entry.ts::main", "src/entry.ts", SymbolKind::Function),
+                ("src/a.ts", "src/a.ts", SymbolKind::Module),
+                ("src/a.ts::fa", "src/a.ts", SymbolKind::Function),
+                ("src/b.ts", "src/b.ts", SymbolKind::Module),
+                ("src/b.ts::fb", "src/b.ts", SymbolKind::Function),
+                ("src/c.ts", "src/c.ts", SymbolKind::Module),
+                ("src/c.ts::fc", "src/c.ts", SymbolKind::Function),
+            ],
+            &[
+                ("src/a.ts::fa", "src/entry.ts::main", EdgeType::Calls),
+                ("src/b.ts::fb", "src/a.ts::fa", EdgeType::Calls),
+                ("src/c.ts::fc", "src/b.ts::fb", EdgeType::Calls),
+            ],
+        );
+
+        let reverse = bfs_pass(&graph, "src/entry.ts", "main", Direction::Incoming, 2);
+        assert_eq!(reverse.get("src/entry.ts"), Some(&0));
+        assert_eq!(reverse.get("src/a.ts"), Some(&2));
+        assert_eq!(reverse.get("src/b.ts"), Some(&4));
+        assert_eq!(reverse.get("src/c.ts"), Some(&6));
+    }
+
+    #[test]
+    fn test_compute_reachability_merge_picks_minimum() {
+        // x is reachable forward at dist 3 (entry→a→b→x) and reverse at dist 2 (x→entry)
+        // Merged should pick min(3, 2) = 2
+        let graph = make_graph(
+            &[
+                ("src/entry.ts", "src/entry.ts", SymbolKind::Module),
+                ("src/entry.ts::main", "src/entry.ts", SymbolKind::Function),
+                ("src/a.ts", "src/a.ts", SymbolKind::Module),
+                ("src/a.ts::fa", "src/a.ts", SymbolKind::Function),
+                ("src/b.ts", "src/b.ts", SymbolKind::Module),
+                ("src/b.ts::fb", "src/b.ts", SymbolKind::Function),
+                ("src/x.ts", "src/x.ts", SymbolKind::Module),
+                ("src/x.ts::fx", "src/x.ts", SymbolKind::Function),
+            ],
+            &[
+                // Forward: entry→a→b→x (distance 3)
+                ("src/entry.ts::main", "src/a.ts::fa", EdgeType::Calls),
+                ("src/a.ts::fa", "src/b.ts::fb", EdgeType::Calls),
+                ("src/b.ts::fb", "src/x.ts::fx", EdgeType::Calls),
+                // Reverse: x calls entry (reverse distance = 2)
+                ("src/x.ts::fx", "src/entry.ts::main", EdgeType::Calls),
+            ],
+        );
+
+        let merged = compute_file_reachability(&graph, "src/entry.ts", "main");
+        assert_eq!(merged.get("src/entry.ts"), Some(&0));
+        assert_eq!(merged.get("src/x.ts"), Some(&2), "should pick min(forward=3, reverse=2)");
+        assert_eq!(merged.get("src/a.ts"), Some(&1));
+    }
+
+    #[test]
+    fn test_bfs_disconnected_file_not_reached() {
+        let graph = make_graph(
+            &[
+                ("src/entry.ts", "src/entry.ts", SymbolKind::Module),
+                ("src/entry.ts::main", "src/entry.ts", SymbolKind::Function),
+                ("src/connected.ts", "src/connected.ts", SymbolKind::Module),
+                ("src/connected.ts::fc", "src/connected.ts", SymbolKind::Function),
+                ("src/isolated.ts", "src/isolated.ts", SymbolKind::Module),
+                ("src/isolated.ts::fi", "src/isolated.ts", SymbolKind::Function),
+            ],
+            &[
+                ("src/entry.ts::main", "src/connected.ts::fc", EdgeType::Calls),
+            ],
+        );
+
+        let forward = bfs_pass(&graph, "src/entry.ts", "main", Direction::Outgoing, 1);
+        assert!(forward.contains_key("src/connected.ts"));
+        assert!(!forward.contains_key("src/isolated.ts"));
+    }
+
+    #[test]
+    fn test_bfs_entry_distance_always_zero() {
+        let graph = make_graph(
+            &[
+                ("src/entry.ts", "src/entry.ts", SymbolKind::Module),
+                ("src/entry.ts::main", "src/entry.ts", SymbolKind::Function),
+            ],
+            &[],
+        );
+
+        let forward = bfs_pass(&graph, "src/entry.ts", "main", Direction::Outgoing, 1);
+        assert_eq!(forward.get("src/entry.ts"), Some(&0));
+
+        let reverse = bfs_pass(&graph, "src/entry.ts", "main", Direction::Incoming, 2);
+        assert_eq!(reverse.get("src/entry.ts"), Some(&0));
+    }
+
+    // ===================================================================
     // Property-based tests for bidirectional BFS and sub-clustering
     // ===================================================================
 
     mod proptests_bidir {
         use super::*;
         use proptest::prelude::*;
+        use crate::graph::{SerializableEdge, SerializableGraph, SymbolNode};
+
+        /// Build a forward chain graph: f0 → f1 → f2 → ... → f(n-1)
+        fn build_forward_chain(n: usize) -> SymbolGraph {
+            let mut nodes = Vec::new();
+            let mut edges = Vec::new();
+            for i in 0..n {
+                let file = format!("src/f{}.ts", i);
+                let func_id = format!("src/f{}.ts::func{}", i, i);
+                nodes.push(SymbolNode {
+                    id: file.clone(),
+                    name: file.clone(),
+                    file: file.clone(),
+                    kind: SymbolKind::Module,
+                });
+                nodes.push(SymbolNode {
+                    id: func_id.clone(),
+                    name: format!("func{}", i),
+                    file,
+                    kind: SymbolKind::Function,
+                });
+                if i > 0 {
+                    edges.push(SerializableEdge {
+                        from: format!("src/f{}.ts::func{}", i - 1, i - 1),
+                        to: func_id,
+                        edge_type: EdgeType::Calls,
+                    });
+                }
+            }
+            SymbolGraph::from_serializable(&SerializableGraph { nodes, edges })
+        }
+
+        /// Build a reverse chain graph: f1→f0, f2→f1, ... (each file calls its predecessor)
+        fn build_reverse_chain(n: usize) -> SymbolGraph {
+            let mut nodes = Vec::new();
+            let mut edges = Vec::new();
+            for i in 0..n {
+                let file = format!("src/f{}.ts", i);
+                let func_id = format!("src/f{}.ts::func{}", i, i);
+                nodes.push(SymbolNode {
+                    id: file.clone(),
+                    name: file.clone(),
+                    file: file.clone(),
+                    kind: SymbolKind::Module,
+                });
+                nodes.push(SymbolNode {
+                    id: func_id.clone(),
+                    name: format!("func{}", i),
+                    file,
+                    kind: SymbolKind::Function,
+                });
+                if i > 0 {
+                    // Reverse: file i calls file i-1 (edge points toward f0/entry)
+                    edges.push(SerializableEdge {
+                        from: func_id,
+                        to: format!("src/f{}.ts::func{}", i - 1, i - 1),
+                        edge_type: EdgeType::Calls,
+                    });
+                }
+            }
+            SymbolGraph::from_serializable(&SerializableGraph { nodes, edges })
+        }
 
         proptest! {
             /// Bidirectional BFS: every file still ends up in exactly one group or infrastructure.
@@ -2108,11 +2304,7 @@ mod tests {
                     .map(|i| format!("src/f{}.ts", i))
                     .collect();
 
-                // Create a simple chain: f0 → f1 → f2 → ...
-                let mut nodes: Vec<(&str, &str, SymbolKind)> = Vec::new();
-                let mut edges: Vec<(&str, &str, EdgeType)> = Vec::new();
-
-                // We can't easily create &str refs in proptest, so use a simpler approach.
+                // Empty graph — entrypoint file is grouped, rest goes to infrastructure.
                 let graph = make_graph(&[], &[]);
                 let ep_file = &files[0];
                 let entrypoints = vec![ep(ep_file, "main", EntrypointType::CliCommand)];
@@ -2182,6 +2374,172 @@ mod tests {
                 let c1 = classify_by_convention(&path);
                 let c2 = classify_by_convention(&path);
                 prop_assert_eq!(c1, c2);
+            }
+
+            // ── Bidirectional BFS property tests ────────────────────────
+
+            /// Forward chain: file at position i has distance i from entry.
+            #[test]
+            fn prop_forward_chain_distances_sequential(n in 2usize..10) {
+                let graph = build_forward_chain(n);
+                let forward = bfs_pass(&graph, "src/f0.ts", "func0", Direction::Outgoing, 1);
+                for i in 0..n {
+                    let file = format!("src/f{}.ts", i);
+                    prop_assert_eq!(
+                        forward.get(&file).copied(), Some(i),
+                        "file {} should be at forward distance {}", file, i,
+                    );
+                }
+            }
+
+            /// Reverse chain: file at position i has reverse distance 2*i (cost_per_hop=2).
+            #[test]
+            fn prop_reverse_chain_distances_doubled(n in 2usize..10) {
+                let graph = build_reverse_chain(n);
+                let reverse = bfs_pass(&graph, "src/f0.ts", "func0", Direction::Incoming, 2);
+                for i in 0..n {
+                    let file = format!("src/f{}.ts", i);
+                    prop_assert_eq!(
+                        reverse.get(&file).copied(), Some(i * 2),
+                        "file {} should be at reverse distance {}", file, i * 2,
+                    );
+                }
+            }
+
+            /// Forward chain: all files grouped with the entrypoint (no infrastructure).
+            #[test]
+            fn prop_forward_chain_all_grouped(n in 2usize..8) {
+                let graph = build_forward_chain(n);
+                let files: Vec<String> = (0..n).map(|i| format!("src/f{}.ts", i)).collect();
+                let entrypoints = vec![ep("src/f0.ts", "func0", EntrypointType::HttpRoute)];
+                let result = cluster_files(&graph, &entrypoints, &files);
+                prop_assert_eq!(result.groups.len(), 1);
+                prop_assert!(result.infrastructure.is_none(), "no infrastructure with forward chain");
+                prop_assert_eq!(result.groups[0].files.len(), n);
+            }
+
+            /// Reverse chain: all files still grouped via bidirectional BFS (not infrastructure).
+            #[test]
+            fn prop_reverse_chain_all_grouped(n in 2usize..8) {
+                let graph = build_reverse_chain(n);
+                let files: Vec<String> = (0..n).map(|i| format!("src/f{}.ts", i)).collect();
+                let entrypoints = vec![ep("src/f0.ts", "func0", EntrypointType::HttpRoute)];
+                let result = cluster_files(&graph, &entrypoints, &files);
+                prop_assert_eq!(result.groups.len(), 1);
+                prop_assert!(
+                    result.infrastructure.is_none(),
+                    "reverse-reachable files should not be infrastructure",
+                );
+                prop_assert_eq!(result.groups[0].files.len(), n);
+            }
+
+            /// In a forward chain, flow_position preserves distance order.
+            #[test]
+            fn prop_forward_chain_flow_order_preserved(n in 3usize..8) {
+                let graph = build_forward_chain(n);
+                let files: Vec<String> = (0..n).map(|i| format!("src/f{}.ts", i)).collect();
+                let entrypoints = vec![ep("src/f0.ts", "func0", EntrypointType::HttpRoute)];
+                let result = cluster_files(&graph, &entrypoints, &files);
+                prop_assert_eq!(result.groups.len(), 1);
+
+                let positions: Vec<u32> = result.groups[0]
+                    .files
+                    .iter()
+                    .map(|f| f.flow_position)
+                    .collect();
+                for w in positions.windows(2) {
+                    prop_assert!(w[0] <= w[1], "flow positions should be non-decreasing");
+                }
+            }
+
+            // ── Sub-clustering property tests ───────────────────────────
+
+            /// Files within each sub-group are always sorted.
+            #[test]
+            fn prop_sub_cluster_files_sorted(n in 0usize..10) {
+                let files: Vec<String> = (0..n).map(|i| format!("src/f{}.ts", i)).collect();
+                let graph = make_graph(&[], &[]);
+                let sub_groups = sub_cluster_infra_files(&files, &graph);
+                for sg in &sub_groups {
+                    let mut sorted = sg.files.clone();
+                    sorted.sort();
+                    prop_assert_eq!(&sg.files, &sorted, "files in '{}' should be sorted", sg.name);
+                }
+            }
+
+            /// Convention-classified files always land in their convention category.
+            #[test]
+            fn prop_sub_cluster_convention_categories_match(
+                infra_idx in 0usize..5,
+                schema_idx in 0usize..3,
+                script_idx in 0usize..3,
+            ) {
+                let infra_paths = ["Dockerfile", "package.json", ".env.dev", "tsconfig.json", "Cargo.toml"];
+                let schema_paths = ["schemas/user.ts", "src/user.dto.ts", "types/index.ts"];
+                let script_paths = ["scripts/deploy.sh", "init.bash", "scripts/setup.zsh"];
+
+                let files: Vec<String> = vec![
+                    infra_paths[infra_idx % infra_paths.len()].to_string(),
+                    schema_paths[schema_idx % schema_paths.len()].to_string(),
+                    script_paths[script_idx % script_paths.len()].to_string(),
+                ];
+
+                let graph = make_graph(&[], &[]);
+                let sub_groups = sub_cluster_infra_files(&files, &graph);
+
+                for sg in &sub_groups {
+                    for f in &sg.files {
+                        let expected = classify_by_convention(f);
+                        if expected != InfraCategory::Unclassified {
+                            prop_assert_eq!(
+                                &sg.category, &expected,
+                                "file '{}' classified as {:?} but in sub-group {:?}",
+                                f, expected, sg.category,
+                            );
+                        }
+                    }
+                }
+            }
+
+            /// Sub-clustering with realistic mixed paths preserves all files.
+            #[test]
+            fn prop_sub_cluster_realistic_paths_preserved(
+                n_infra in 0usize..4,
+                n_schema in 0usize..3,
+                n_docs in 0usize..3,
+                n_code in 0usize..4,
+            ) {
+                let mut files: Vec<String> = Vec::new();
+                for i in 0..n_infra {
+                    files.push(format!(".env.f{}", i));
+                }
+                for i in 0..n_schema {
+                    files.push(format!("schemas/s{}.ts", i));
+                }
+                for i in 0..n_docs {
+                    files.push(format!("docs/d{}.md", i));
+                }
+                for i in 0..n_code {
+                    files.push(format!("src/c{}.ts", i));
+                }
+                files.sort();
+                files.dedup();
+
+                let graph = make_graph(&[], &[]);
+                let sub_groups = sub_cluster_infra_files(&files, &graph);
+
+                let mut all_sub: Vec<String> = sub_groups
+                    .iter()
+                    .flat_map(|g| g.files.clone())
+                    .collect();
+                all_sub.sort();
+                prop_assert_eq!(all_sub, files, "all files must appear in sub-groups");
+
+                // No duplicates
+                let unique: std::collections::HashSet<&String> =
+                    sub_groups.iter().flat_map(|g| &g.files).collect();
+                let total: usize = sub_groups.iter().map(|g| g.files.len()).sum();
+                prop_assert_eq!(unique.len(), total, "no duplicates across sub-groups");
             }
         }
     }
