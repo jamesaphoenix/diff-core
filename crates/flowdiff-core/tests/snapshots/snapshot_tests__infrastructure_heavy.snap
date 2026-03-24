@@ -1,0 +1,35 @@
+---
+source: crates/flowdiff-core/tests/snapshot_tests.rs
+expression: v
+---
+{
+  "annotations": null,
+  "diff_source": {
+    "base": "main",
+    "base_sha": "[sha]",
+    "diff_type": "BranchComparison",
+    "head": "chore/infra-update",
+    "head_sha": "[sha]"
+  },
+  "groups": [],
+  "infrastructure_group": {
+    "files": [
+      ".env.dev",
+      ".github/workflows/ci.yml",
+      "Dockerfile",
+      "docker-compose.yml",
+      "docs/setup.md",
+      "migrations/001_init.sql",
+      "scripts/deploy.sh",
+      "tsconfig.json"
+    ],
+    "reason": "Not reachable from any detected entrypoint"
+  },
+  "summary": {
+    "frameworks_detected": [],
+    "languages_detected": [],
+    "total_files_changed": 8,
+    "total_groups": 0
+  },
+  "version": "1.0.0"
+}

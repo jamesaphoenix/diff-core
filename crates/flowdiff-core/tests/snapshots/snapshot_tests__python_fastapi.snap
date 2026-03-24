@@ -1,0 +1,76 @@
+---
+source: crates/flowdiff-core/tests/snapshot_tests.rs
+expression: v
+---
+{
+  "annotations": null,
+  "diff_source": {
+    "base": "main",
+    "base_sha": "[sha]",
+    "diff_type": "BranchComparison",
+    "head": "feature/add-items",
+    "head_sha": "[sha]"
+  },
+  "groups": [
+    {
+      "edges": [],
+      "entrypoint": {
+        "entrypoint_type": "HttpRoute",
+        "file": "app/routes/items.py",
+        "symbol": "post_item"
+      },
+      "files": [
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 0,
+          "path": "app/routes/items.py",
+          "role": "Entrypoint",
+          "symbols_changed": []
+        }
+      ],
+      "id": "group_1",
+      "name": "post_item route flow",
+      "review_order": 1,
+      "risk_score": 0.3125
+    }
+  ],
+  "infrastructure_group": {
+    "files": [
+      "app/repositories/item_repo.py",
+      "app/schemas/item.py",
+      "app/services/item_service.py"
+    ],
+    "reason": "Not reachable from any detected entrypoint",
+    "sub_groups": [
+      {
+        "category": "Schema",
+        "files": [
+          "app/schemas/item.py"
+        ],
+        "name": "Schemas"
+      },
+      {
+        "category": "Unclassified",
+        "files": [
+          "app/repositories/item_repo.py",
+          "app/services/item_service.py"
+        ],
+        "name": "Unclassified"
+      }
+    ]
+  },
+  "summary": {
+    "frameworks_detected": [
+      "FastAPI"
+    ],
+    "languages_detected": [
+      "python"
+    ],
+    "total_files_changed": 4,
+    "total_groups": 1
+  },
+  "version": "1.0.0"
+}

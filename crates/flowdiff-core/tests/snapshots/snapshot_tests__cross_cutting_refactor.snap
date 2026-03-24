@@ -1,0 +1,35 @@
+---
+source: crates/flowdiff-core/tests/snapshot_tests.rs
+expression: v
+---
+{
+  "annotations": null,
+  "diff_source": {
+    "base": "main",
+    "base_sha": "[sha]",
+    "diff_type": "BranchComparison",
+    "head": "refactor/rename-format",
+    "head_sha": "[sha]"
+  },
+  "groups": [],
+  "infrastructure_group": {
+    "files": [
+      "src/services/service1.ts",
+      "src/services/service2.ts",
+      "src/services/service3.ts",
+      "src/services/service4.ts",
+      "src/services/service5.ts",
+      "src/utils/format.ts"
+    ],
+    "reason": "Not reachable from any detected entrypoint"
+  },
+  "summary": {
+    "frameworks_detected": [],
+    "languages_detected": [
+      "typescript"
+    ],
+    "total_files_changed": 6,
+    "total_groups": 0
+  },
+  "version": "1.0.0"
+}

@@ -1355,24 +1355,25 @@ These tests create real git repos, make real commits, and run the full pipeline.
 | `test_e2e_no_changes` | Run on repo with no diff | Graceful empty result, not an error |
 | `test_e2e_config_overrides` | Provide `.flowdiff.toml` with custom event entrypoint globs | Config resolves trigger files, analysis accounts for all files |
 
-### 13.6 Snapshot Tests
+### 13.6 Snapshot Tests — ✅ All 8 implemented
 
-Use `insta` crate for snapshot testing of JSON output.
+Use `insta` crate for snapshot testing of JSON output. Implemented in `tests/snapshot_tests.rs` with 8 fixture scenarios. Snapshots stored in `tests/snapshots/`. Git SHAs are redacted for determinism.
 
 For each fixture repo:
-1. Run `flowdiff analyze`
+1. Run `flowdiff analyze` via `run_pipeline()`
 2. Compare JSON output against stored snapshot
-3. If graph construction or ranking algorithm changes, review and approve new snapshots
+3. If graph construction or ranking algorithm changes, review and approve new snapshots with `cargo insta review`
 
-This catches unintended regressions in grouping or ranking logic.
-
-```rust
-#[test]
-fn test_snapshot_simple_app() {
-    let result = analyze_fixture("simple-ts-app");
-    insta::assert_json_snapshot!(result);
-}
-```
+| Test | Fixture | What it snapshots |
+|------|---------|------------------|
+| `snapshot_simple_express_app` | 5-file Express app (route→service→repo) | 2 flow groups, edges, flow ordering |
+| `snapshot_python_fastapi` | FastAPI endpoint + service + repo + schema | Python entrypoint detection, data flow |
+| `snapshot_cross_cutting_refactor` | Rename shared utility used by 5 files | 6 files in infrastructure (no entrypoints) |
+| `snapshot_multi_entrypoint` | HTTP route + queue worker with shared service | Multi-entrypoint grouping, shared file assignment |
+| `snapshot_mixed_language` | TypeScript + Python in same repo | Multi-language detection and grouping |
+| `snapshot_infrastructure_heavy` | Docker, CI, env, scripts, docs, migrations | Infrastructure sub-group classification |
+| `snapshot_go_http_api` | Go HTTP handler → service → repository | Go language support, net/http detection |
+| `snapshot_empty_diff` | No changes between base and head | Graceful empty result |
 
 ### 13.7 Property-Based Tests
 

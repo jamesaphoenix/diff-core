@@ -1,0 +1,113 @@
+---
+source: crates/flowdiff-core/tests/snapshot_tests.rs
+expression: v
+---
+{
+  "annotations": null,
+  "diff_source": {
+    "base": "main",
+    "base_sha": "[sha]",
+    "diff_type": "BranchComparison",
+    "head": "feature/mixed",
+    "head_sha": "[sha]"
+  },
+  "groups": [
+    {
+      "edges": [],
+      "entrypoint": {
+        "entrypoint_type": "HttpRoute",
+        "file": "backend/app/routes/analytics.py",
+        "symbol": "get_analytics"
+      },
+      "files": [
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 0,
+          "path": "backend/app/routes/analytics.py",
+          "role": "Entrypoint",
+          "symbols_changed": []
+        }
+      ],
+      "id": "group_1",
+      "name": "get_analytics route flow",
+      "review_order": 1,
+      "risk_score": 0.3125
+    },
+    {
+      "edges": [
+        {
+          "edge_type": "Imports",
+          "from": "frontend/src/routes/dashboard.ts",
+          "to": "frontend/src/services/statsService.ts::fetchStats"
+        },
+        {
+          "edge_type": "Calls",
+          "from": "frontend/src/routes/dashboard.ts::getDashboard",
+          "to": "frontend/src/services/statsService.ts::fetchStats"
+        }
+      ],
+      "entrypoint": {
+        "entrypoint_type": "HttpRoute",
+        "file": "frontend/src/routes/dashboard.ts",
+        "symbol": "getDashboard"
+      },
+      "files": [
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 0,
+          "path": "frontend/src/routes/dashboard.ts",
+          "role": "Entrypoint",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 1,
+          "path": "frontend/src/services/statsService.ts",
+          "role": "Service",
+          "symbols_changed": []
+        }
+      ],
+      "id": "group_2",
+      "name": "getDashboard route flow",
+      "review_order": 2,
+      "risk_score": 0.3125
+    }
+  ],
+  "infrastructure_group": {
+    "files": [
+      "backend/app/services/analytics_service.py"
+    ],
+    "reason": "Not reachable from any detected entrypoint",
+    "sub_groups": [
+      {
+        "category": "Unclassified",
+        "files": [
+          "backend/app/services/analytics_service.py"
+        ],
+        "name": "Unclassified"
+      }
+    ]
+  },
+  "summary": {
+    "frameworks_detected": [
+      "Express",
+      "FastAPI"
+    ],
+    "languages_detected": [
+      "python",
+      "typescript"
+    ],
+    "total_files_changed": 4,
+    "total_groups": 2
+  },
+  "version": "1.0.0"
+}
