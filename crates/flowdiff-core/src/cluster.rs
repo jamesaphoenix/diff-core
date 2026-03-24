@@ -2072,6 +2072,486 @@ mod tests {
         assert_eq!(classify_by_convention("src/utils/helpers.ts"), InfraCategory::Unclassified);
     }
 
+    // ===================================================================
+    // Exhaustive spec §3.3 coverage: every pattern listed in the spec
+    // "What IS Infrastructure" table must classify as Infrastructure.
+    // ===================================================================
+
+    #[test]
+    fn test_infra_exhaustive_env_patterns() {
+        // Spec §3.3 — Environment/Secrets: `.env*`, `*.env`, `.env.dev`, `.env.prod`, `.env.local`
+        for path in &[
+            ".env",
+            ".env.dev",
+            ".env.prod",
+            ".env.local",
+            ".env.staging",
+            ".env.test",
+            "app.env",
+            "config/settings.env",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "expected Infrastructure for env pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_infra_exhaustive_docker_patterns() {
+        // Spec §3.3 — Docker: `Dockerfile*`, `docker-compose*`, `.dockerignore`
+        for path in &[
+            "Dockerfile",
+            "Dockerfile.prod",
+            "Dockerfile.dev",
+            "docker-compose.yml",
+            "docker-compose.override.yml",
+            "docker-compose.prod.yml",
+            ".dockerignore",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "expected Infrastructure for docker pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_infra_exhaustive_cicd_patterns() {
+        // Spec §3.3 — CI/CD: `.github/workflows/*`, `.gitlab-ci.yml`, `Jenkinsfile`,
+        // `.circleci/*`, `.travis.yml`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`
+        for path in &[
+            ".github/workflows/ci.yml",
+            ".github/workflows/deploy.yml",
+            ".github/workflows/test.yml",
+            ".gitlab-ci.yml",
+            "Jenkinsfile",
+            ".circleci/config.yml",
+            ".circleci/setup.yml",
+            ".travis.yml",
+            "azure-pipelines.yml",
+            "bitbucket-pipelines.yml",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "expected Infrastructure for CI/CD pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_infra_exhaustive_container_orch_patterns() {
+        // Spec §3.3 — Container orchestration: `k8s/*`, `kubernetes/*`, `helm/*`, `*.helmrelease.*`
+        for path in &[
+            "k8s/deployment.yml",
+            "k8s/service.yml",
+            "k8s/ingress.yml",
+            "kubernetes/deployment.yml",
+            "kubernetes/namespace.yml",
+            "helm/Chart.yaml",
+            "helm/values.yaml",
+            "infra/helm/templates/app.yaml",
+            "app.helmrelease.yaml",
+            "web.helmrelease.yml",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "expected Infrastructure for container orch pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_infra_exhaustive_iac_patterns() {
+        // Spec §3.3 — Terraform/IaC: `terraform/*`, `*.tf`, `*.tfvars`,
+        // `pulumi/*`, `Pulumi.*`, `cdk/*`, `cloudformation/*`
+        for path in &[
+            "terraform/main.tf",
+            "terraform/variables.tf",
+            "infra/terraform/outputs.tf",
+            "main.tf",
+            "variables.tf",
+            "prod.tfvars",
+            "staging.tfvars",
+            "pulumi/index.ts",
+            "pulumi/Pulumi.yaml",
+            "Pulumi.yaml",
+            "Pulumi.dev.yaml",
+            "cdk/app.ts",
+            "cdk/lib/stack.ts",
+            "cloudformation/stack.yaml",
+            "cloudformation/template.json",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "expected Infrastructure for IaC pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_infra_exhaustive_package_mgr_patterns() {
+        // Spec §3.3 — Package manager configs
+        for path in &[
+            "package.json",
+            "Cargo.toml",
+            "go.mod",
+            "go.sum",
+            "requirements.txt",
+            "Pipfile",
+            "pyproject.toml",
+            "Gemfile",
+            "pom.xml",
+            "build.gradle",
+            "build.gradle.kts",
+            "app/app.csproj",
+            "Package.swift",
+            "build.sbt",
+            "composer.json",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "expected Infrastructure for package manager pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_infra_exhaustive_lock_file_patterns() {
+        // Spec §3.3 — Lock files
+        for path in &[
+            "package-lock.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
+            "Cargo.lock",
+            "Gemfile.lock",
+            "poetry.lock",
+            "composer.lock",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "expected Infrastructure for lock file pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_infra_exhaustive_build_tool_patterns() {
+        // Spec §3.3 — Build tool configs
+        for path in &[
+            "tsconfig.json",
+            "tsconfig.app.json",
+            "tsconfig.spec.json",
+            "webpack.config.js",
+            "webpack.prod.js",
+            "vite.config.ts",
+            "vite.config.js",
+            "rollup.config.js",
+            "rollup.config.mjs",
+            "esbuild.config.mjs",
+            "esbuild.js",
+            "babel.config.js",
+            "babel.config.json",
+            "Makefile",
+            "CMakeLists.txt",
+            "build.mk",
+            "rules.mk",
+            "build.rs",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "expected Infrastructure for build tool pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_infra_exhaustive_ide_patterns() {
+        // Spec §3.3 — IDE/editor: `.vscode/*`, `.idea/*`, `.eclipse/*`
+        for path in &[
+            ".vscode/settings.json",
+            ".vscode/extensions.json",
+            ".vscode/launch.json",
+            ".idea/workspace.xml",
+            ".idea/modules.xml",
+            ".idea/.gitignore",
+            ".eclipse/.project",
+            ".eclipse/.classpath",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "expected Infrastructure for IDE pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_infra_exhaustive_mcp_tool_patterns() {
+        // Spec §3.3 — MCP/tool configs
+        for path in &[
+            ".mcp.json",
+            ".mcp/config.json",
+            ".mcp/servers.json",
+            ".tool-versions",
+            ".nvmrc",
+            ".node-version",
+            ".python-version",
+            ".ruby-version",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "expected Infrastructure for MCP/tool pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_infra_exhaustive_git_patterns() {
+        // Spec §3.3 — Git configs: `.gitignore`, `.gitattributes`, `.gitmodules`
+        for path in &[".gitignore", ".gitattributes", ".gitmodules"] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "expected Infrastructure for git pattern: {}",
+                path
+            );
+        }
+    }
+
+    // ===================================================================
+    // Exhaustive spec §3.4 + §3.7 coverage: every non-infrastructure
+    // category pattern must classify to its correct category.
+    // ===================================================================
+
+    #[test]
+    fn test_classify_exhaustive_schema_patterns() {
+        // Spec §3.4/§3.7 — Schemas/Types
+        for path in &[
+            "schemas/user.ts",
+            "src/schemas/billing.ts",
+            "schema/order.ts",
+            "src/schema/product.ts",
+            "src/user.schema.ts",
+            "src/order.schema.json",
+            "src/user.dto.ts",
+            "src/billing.dto.ts",
+            "types/index.ts",
+            "src/types/api.ts",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Schema,
+                "expected Schema for pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_classify_exhaustive_migration_patterns() {
+        // Spec §3.4/§3.7 — Migrations
+        for path in &[
+            "migrations/001.sql",
+            "db/migrations/002_add_users.ts",
+            "migrate/003.sql",
+            "src/migrate/schema.ts",
+            "src/order.migration.ts",
+            "seeds/users.ts",
+            "db/seeds/products.json",
+            "fixtures/test-data.json",
+            "test/fixtures/setup.sql",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Migration,
+                "expected Migration for pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_classify_exhaustive_script_patterns() {
+        // Spec §3.4/§3.7 — Scripts
+        for path in &[
+            "scripts/deploy.sh",
+            "scripts/setup.sh",
+            "scripts/seed-db.sh",
+            "init.bash",
+            "clean.zsh",
+            "setup.ps1",
+            "install.sh",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Script,
+                "expected Script for pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_classify_exhaustive_deployment_patterns() {
+        // Spec §3.4/§3.7 — Deployment
+        for path in &[
+            "deploy/app.yaml",
+            "deploy/staging.yaml",
+            "deployment/config.yaml",
+            "infra/deployment/service.yaml",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Deployment,
+                "expected Deployment for pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_classify_exhaustive_documentation_patterns() {
+        // Spec §3.4/§3.7 — Documentation
+        for path in &[
+            "README.md",
+            "CHANGELOG.md",
+            "CONTRIBUTING.md",
+            "docs/setup.md",
+            "docs/api.md",
+            "documentation/guide.md",
+            "src/overview.mdx",
+            "docs/architecture.rst",
+            "notes.txt",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Documentation,
+                "expected Documentation for pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_classify_exhaustive_lint_patterns() {
+        // Spec §3.3/§3.7 — Linter/formatter configs (separate from Infrastructure)
+        for path in &[
+            ".eslintrc.json",
+            ".eslintrc.js",
+            ".eslintrc.yml",
+            ".eslintrc",
+            ".prettierrc",
+            ".prettierrc.json",
+            ".prettierrc.yml",
+            ".stylelintrc",
+            ".stylelintrc.json",
+            ".editorconfig",
+            ".clang-format",
+            "rustfmt.toml",
+            ".rubocop.yml",
+            ".flake8",
+            "mypy.ini",
+            ".golangci.yml",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Lint,
+                "expected Lint for pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_classify_exhaustive_test_util_patterns() {
+        // Spec §3.4/§3.7 — Test utilities
+        for path in &[
+            "src/test-utils/helpers.ts",
+            "src/test-utils/render.tsx",
+            "test/test-helpers/mock-db.ts",
+            "test/__fixtures__/data.json",
+            "test/__fixtures__/sample.ts",
+            "src/testutils/factory.ts",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::TestUtil,
+                "expected TestUtil for pattern: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_classify_exhaustive_generated_patterns() {
+        // Spec §3.4/§3.7 — Generated code
+        for path in &[
+            "src/generated/types.ts",
+            "lib/generated/api.ts",
+            "src/__generated__/schema.ts",
+            "lib/__generated__/graphql.ts",
+            "src/api.generated.ts",
+            "src/models.generated.rs",
+            "lib/widget.g.dart",
+            "proto/service.pb.go",
+        ] {
+            assert_eq!(
+                classify_by_convention(path),
+                InfraCategory::Generated,
+                "expected Generated for pattern: {}",
+                path
+            );
+        }
+    }
+
+    // ===================================================================
+    // Boundary tests: patterns that should NOT be Infrastructure
+    // ===================================================================
+
+    #[test]
+    fn test_infra_false_positive_guards() {
+        // These paths look infra-adjacent but should NOT be Infrastructure
+        let non_infra_paths = &[
+            ("src/utils/helpers.ts", "source code util"),
+            ("src/services/auth.ts", "application service"),
+            ("src/models/user.ts", "application model"),
+            ("src/config/database.ts", "app config code"),
+            ("lib/core/engine.rs", "core library code"),
+            ("src/api/client.ts", "api client code"),
+            ("src/index.ts", "app entry"),
+            ("main.go", "go main"),
+        ];
+        for (path, desc) in non_infra_paths {
+            assert_ne!(
+                classify_by_convention(path),
+                InfraCategory::Infrastructure,
+                "{} should NOT be Infrastructure: {}",
+                path,
+                desc
+            );
+        }
+    }
+
     #[test]
     fn test_sub_cluster_only_true_infra() {
         let graph = make_graph(&[], &[]);
@@ -2923,6 +3403,108 @@ mod tests {
                 let r1 = sub_cluster_infra_files(&files, &graph);
                 let r2 = sub_cluster_infra_files(&files, &graph);
                 prop_assert_eq!(r1, r2, "sub_cluster_infra_files should be deterministic");
+            }
+
+            // ── Classification invariant property tests ──────────────────
+
+            /// Infrastructure filenames classify as Infrastructure regardless of
+            /// directory nesting depth.
+            #[test]
+            fn prop_infra_dir_depth_invariant(depth in 0usize..6) {
+                let infra_filenames = [
+                    "Dockerfile", "docker-compose.yml", ".dockerignore",
+                    "package.json", "Cargo.toml", "go.mod", "go.sum",
+                    "Cargo.lock", "yarn.lock", "pnpm-lock.yaml",
+                    "Makefile", "build.rs", "CMakeLists.txt",
+                    ".gitignore", ".gitattributes",
+                    ".tool-versions", ".nvmrc", ".node-version",
+                ];
+                let prefix: String = (0..depth).map(|i| format!("d{}/", i)).collect();
+                for fname in &infra_filenames {
+                    let path = format!("{}{}", prefix, fname);
+                    prop_assert_eq!(
+                        classify_by_convention(&path),
+                        InfraCategory::Infrastructure,
+                        "infra file '{}' nested {} deep should still be Infrastructure",
+                        path, depth,
+                    );
+                }
+            }
+
+            /// Schema directory paths classify as Schema regardless of nesting.
+            #[test]
+            fn prop_schema_dir_depth_invariant(depth in 0usize..5, idx in 0usize..5) {
+                let prefix: String = (0..depth).map(|i| format!("d{}/", i)).collect();
+                let path = format!("{}schemas/file{}.ts", prefix, idx);
+                prop_assert_eq!(
+                    classify_by_convention(&path),
+                    InfraCategory::Schema,
+                    "schema path '{}' should be Schema regardless of depth",
+                    path,
+                );
+            }
+
+            /// Source code files (*.ts, *.js, *.py, *.rs) in src/ are never Infrastructure.
+            #[test]
+            fn prop_source_code_never_infrastructure(
+                name_len in 1usize..15,
+                ext_idx in 0usize..4,
+            ) {
+                let exts = ["ts", "js", "py", "rs"];
+                let ext = exts[ext_idx % exts.len()];
+                let name: String = (0..name_len).map(|i| (b'a' + (i as u8 % 26)) as char).collect();
+                let path = format!("src/{}.{}", name, ext);
+                prop_assert_ne!(
+                    classify_by_convention(&path),
+                    InfraCategory::Infrastructure,
+                    "source code file '{}' should never be Infrastructure",
+                    path,
+                );
+            }
+
+            /// Infrastructure and Lint categories are disjoint: no path
+            /// classifies as both via the convention classifier.
+            #[test]
+            fn prop_infra_lint_disjoint(idx in 0usize..16) {
+                let lint_files = [
+                    ".eslintrc.json", ".eslintrc.js", ".eslintrc.yml", ".eslintrc",
+                    ".prettierrc", ".prettierrc.json", ".prettierrc.yml",
+                    ".stylelintrc", ".stylelintrc.json",
+                    ".editorconfig", ".clang-format", "rustfmt.toml",
+                    ".rubocop.yml", ".flake8", "mypy.ini", ".golangci.yml",
+                ];
+                let file = lint_files[idx % lint_files.len()];
+                let category = classify_by_convention(file);
+                prop_assert_eq!(
+                    category,
+                    InfraCategory::Lint,
+                    "lint file '{}' should be Lint, not Infrastructure",
+                    file,
+                );
+            }
+
+            /// Every InfraCategory variant (except DirectoryGroup/Unclassified)
+            /// has at least one representative path that classifies correctly.
+            #[test]
+            fn prop_all_categories_reachable(cat_idx in 0usize..9) {
+                let representatives: [(InfraCategory, &str); 9] = [
+                    (InfraCategory::Infrastructure, "Dockerfile"),
+                    (InfraCategory::Schema, "schemas/user.ts"),
+                    (InfraCategory::Script, "scripts/deploy.sh"),
+                    (InfraCategory::Migration, "migrations/001.sql"),
+                    (InfraCategory::Deployment, "deploy/app.yaml"),
+                    (InfraCategory::Documentation, "docs/README.md"),
+                    (InfraCategory::Lint, ".eslintrc.json"),
+                    (InfraCategory::TestUtil, "src/test-utils/helpers.ts"),
+                    (InfraCategory::Generated, "src/generated/types.ts"),
+                ];
+                let (expected, path) = &representatives[cat_idx % representatives.len()];
+                prop_assert_eq!(
+                    &classify_by_convention(path),
+                    expected,
+                    "representative path '{}' should classify as {:?}",
+                    path, expected,
+                );
             }
         }
     }

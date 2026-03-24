@@ -550,6 +550,12 @@ Each `InfraSubGroupView` renders a collapsible section with clickable files.
 4. ~~LLM refinement — update `from_group_id: "infrastructure"` to work with sub-groups~~ (remove from sub-group on reclassify-out, classify into correct sub-group on reclassify-in, empty sub-group cleanup. 5 unit tests + 3 property-based: categorized-correctly, removes-from-all-sub-groups, sub-groups-consistent-after-reclassify)
 5. LLM judge — no changes needed
 
+### Phase 7: Exhaustive Spec Pattern Coverage Tests (cluster.rs) — DONE
+1. ~~Add exhaustive unit tests for `is_true_infrastructure`~~ (11 tests covering every §3.3 category: env, docker, CI/CD, container orchestration, IaC, package managers, lock files, build tools, IDE, MCP/tool configs, git configs)
+2. ~~Add exhaustive unit tests for `classify_by_convention` non-infrastructure categories~~ (8 tests: schema, migration, script, deployment, documentation, lint, test-util, generated patterns)
+3. ~~Add boundary/false-positive guard tests~~ (source code paths, app config, models, services must NOT be Infrastructure)
+4. ~~Add 5 property-based tests~~ (infra-dir-depth-invariant, schema-dir-depth-invariant, source-code-never-infrastructure, infra-lint-disjoint, all-categories-reachable)
+
 ### Phase 6: Update Existing Spec — DONE
 1. ~~Update `diff-analyzer.md` section 4.5 (Entrypoint Detection) to reference path-based heuristics~~ (added Tier 1/Tier 2 path-based detection, framework import tables cross-reference)
 2. ~~Update section 4.6 (Semantic Clustering) to reference bidirectional BFS~~ (replaced forward-only algorithm with bidirectional BFS description, added infrastructure sub-group classification pipeline)
