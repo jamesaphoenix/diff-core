@@ -1405,6 +1405,116 @@ mod tests {
                 prop_assert!(grouped_files.contains(&ep_file_str.as_str()),
                     "entrypoint file should be in a group");
             }
+
+            /// Group file order is topologically valid w.r.t. BFS distance:
+            /// (a) flow_position values are monotonically non-decreasing in
+            ///     each group's file list, and
+            /// (b) for every internal forward edge where the source has a
+            ///     strictly smaller flow_position than the target, the source
+            ///     file appears before the target in the file list.
+            /// This is the BFS-tree topological order guarantee.
+            /// Spec §13.7 property #2.
+            #[test]
+            fn prop_group_file_order_topologically_valid(
+                chain_len in 2usize..7,
+                extra_edges in prop::collection::vec((1usize..6, 1usize..6), 0..4)
+            ) {
+                // Build a chain of files: f0 → f1 → f2 → ... → f(N-1)
+                let files: Vec<String> = (0..chain_len)
+                    .map(|i| format!("src/f{}.ts", i))
+                    .collect();
+
+                let func_ids: Vec<String> = (0..chain_len)
+                    .map(|i| format!("src/f{}.ts::func{}", i, i))
+                    .collect();
+
+                let node_data: Vec<(String, String, SymbolKind)> = (0..chain_len)
+                    .flat_map(|i| {
+                        vec![
+                            (files[i].clone(), files[i].clone(), SymbolKind::Module),
+                            (func_ids[i].clone(), files[i].clone(), SymbolKind::Function),
+                        ]
+                    })
+                    .collect();
+
+                let node_refs: Vec<(&str, &str, SymbolKind)> = node_data
+                    .iter()
+                    .map(|(id, file, kind)| (id.as_str(), file.as_str(), kind.clone()))
+                    .collect();
+
+                // Chain edges: f0 → f1 → f2 → ...
+                let mut edge_data: Vec<(String, String, EdgeType)> = Vec::new();
+                for i in 0..chain_len - 1 {
+                    edge_data.push((files[i].clone(), func_ids[i + 1].clone(), EdgeType::Imports));
+                    edge_data.push((func_ids[i].clone(), func_ids[i + 1].clone(), EdgeType::Calls));
+                }
+
+                // Add extra forward edges (skip-connections in the DAG)
+                for (from_raw, to_raw) in &extra_edges {
+                    let from_idx = from_raw % chain_len;
+                    let to_idx = to_raw % chain_len;
+                    if from_idx < to_idx {
+                        edge_data.push((
+                            func_ids[from_idx].clone(),
+                            func_ids[to_idx].clone(),
+                            EdgeType::Calls,
+                        ));
+                    }
+                }
+
+                let edge_refs: Vec<(&str, &str, EdgeType)> = edge_data
+                    .iter()
+                    .map(|(f, t, e)| (f.as_str(), t.as_str(), e.clone()))
+                    .collect();
+
+                let graph = make_graph(&node_refs, &edge_refs);
+                let entrypoints = vec![ep(&files[0], "func0", EntrypointType::HttpRoute)];
+                let changed: Vec<String> = files.clone();
+
+                let result = cluster_files(&graph, &entrypoints, &changed);
+
+                for group in &result.groups {
+                    // (a) flow_position is monotonically non-decreasing
+                    for window in group.files.windows(2) {
+                        prop_assert!(
+                            window[0].flow_position <= window[1].flow_position,
+                            "flow_position not monotonic: {} (fp={}) followed by {} (fp={})",
+                            window[0].path, window[0].flow_position,
+                            window[1].path, window[1].flow_position,
+                        );
+                    }
+
+                    // (b) For edges where source has strictly smaller
+                    //     flow_position, source appears before target.
+                    let pos_map: std::collections::HashMap<&str, (usize, u32)> = group
+                        .files
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, fc)| (fc.path.as_str(), (idx, fc.flow_position)))
+                        .collect();
+
+                    for edge in &group.edges {
+                        let from_file = edge.from.split("::").next().unwrap_or(&edge.from);
+                        let to_file = edge.to.split("::").next().unwrap_or(&edge.to);
+                        if from_file == to_file {
+                            continue;
+                        }
+                        if let (Some(&(from_idx, from_fp)), Some(&(to_idx, to_fp))) =
+                            (pos_map.get(from_file), pos_map.get(to_file))
+                        {
+                            if from_fp < to_fp {
+                                prop_assert!(
+                                    from_idx < to_idx,
+                                    "BFS-tree topological violation: {} (fp={}, idx={}) \
+                                     has edge to {} (fp={}, idx={})",
+                                    from_file, from_fp, from_idx,
+                                    to_file, to_fp, to_idx,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -1377,7 +1377,7 @@ Use `proptest` crate for fuzzing graph construction and ranking.
 | Property | Description |
 |----------|-------------|
 | Every changed file appears in exactly one group | No file lost, no file duplicated |
-| Group file order is topologically valid | No file appears before its dependency within the same group |
+| Group file order is topologically valid | BFS-tree ordering: flow_position monotonically non-decreasing, and for edges where source has strictly smaller flow_position than target, source appears first. Implemented as `prop_group_file_order_topologically_valid` in `cluster.rs` |
 | Ranking scores are in [0.0, 1.0] | No score exceeds bounds |
 | Ranking is total order | No two groups have identical rank (tie-break is deterministic) |
 | Empty diff → empty groups | No phantom groups from empty input |
