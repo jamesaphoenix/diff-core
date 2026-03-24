@@ -34,7 +34,7 @@ Three levels of semantics, each building on the last:
 
 ## Tests
 
-1969 tests: unit (co-located `#[cfg(test)]`), integration (`tests/` directory), property-based (proptest), snapshot (insta), live LLM (gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`), VCR replay, CLI arg parsing + config override tests, eval harness. Playwright E2E planned for Tauri app.
+1987 tests: unit (co-located `#[cfg(test)]`), integration (`tests/` directory), property-based (proptest), snapshot (insta), regression (`tests/regressions.rs`), live LLM (gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`), VCR replay, CLI arg parsing + config override tests, eval harness. Playwright E2E planned for Tauri app.
 
 ## Specs
 

@@ -1586,25 +1586,19 @@ These tests hit real APIs and are gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`.
 | `test_live_reasoning_model` | Extended thinking / o3 models produce richer output |
 | `test_live_structured_output_compliance` | Response conforms to schema (no hallucinated fields) |
 
-### 13.13 Regression Test Suite
+### 13.13 Regression Test Suite — ✅ All 13 implemented
 
-Maintained list of real-world diffs that previously caused issues:
+Implemented as integration tests in `tests/regressions.rs` using RepoBuilder to programmatically recreate each scenario. Each test creates a real git repo, commits the problematic state, runs the full pipeline, and asserts correctness.
 
-```
-tests/regressions/
-├── 001-barrel-file-explosion/     # index.ts re-exporting 50 modules
-├── 002-circular-dependency/       # A→B→C→A import cycle
-├── 003-dynamic-import/            # import() not detected
-├── 004-monorepo-cross-package/    # imports across workspace packages
-├── 005-file-rename-chain/         # A renamed to B, B renamed to C
-├── 006-generated-code/            # Large generated files dominating analysis
-└── 007-mixed-language-project/    # TS + Python + Rust in same repo
-```
-
-Each regression test:
-1. Has a `setup.sh` that creates the problematic repo state
-2. Has an `expected.json` with correct output
-3. Runs in CI to prevent regression
+| Scenario | Tests | What it verifies |
+|----------|-------|-----------------|
+| 001 — Barrel file explosion | `regression_001_barrel_file_50_reexports_no_explosion`, `regression_001_barrel_single_module_change` | 50-module barrel doesn't explode group count; single module change doesn't pull siblings |
+| 002 — Circular dependency | `regression_002_circular_dependency_no_infinite_loop`, `regression_002_circular_with_entrypoint` | A→B→C→A cycle terminates; cycle with route entrypoint produces valid groups |
+| 003 — Dynamic import | `regression_003_dynamic_import_no_crash`, `regression_003_dynamic_require_template_literal` | `import()` and `require()` with template literals don't crash parser |
+| 004 — Monorepo cross-package | `regression_004_monorepo_cross_package_imports`, `regression_004_monorepo_shared_dep_not_lost` | Cross-package `@scope/pkg` imports don't crash; shared dep files not lost |
+| 005 — File rename chain | `regression_005_file_rename_chain`, `regression_005_rename_with_content_change` | Rename chain doesn't double-count; rename + modify in same commit works |
+| 006 — Generated code | `regression_006_generated_code_not_dominating` | Large `__generated__/` files don't swamp flow groups; real routes still detected |
+| 007 — Mixed language | `regression_007_mixed_language_ts_python_rust`, `regression_007_mixed_language_no_cross_contamination` | TS + Python + Rust in same diff; isolated language files don't cross-contaminate groups |
 
 ### 13.14 CI Pipeline
 
