@@ -53,11 +53,15 @@ echo "Repos: $REPO_COUNT (need ≥47 for next OPTIMISING round)"
 
 **If state = OPTIMISING:** All phases are allowed. Alternate between GLOBAL and LOCAL optimization:
 
-**Optimization types (alternate every 3-5 experiments):**
-- **LOCAL**: Hardcoded heuristics targeting specific failure patterns (config filename lists, extension checks, threshold tuning). Quick wins but risk overfitting.
-- **GLOBAL**: Generic approaches that improve grouping broadly (embeddings, graph algorithms, import resolution, learned weights). Slower but more durable.
+**Experiment schedule: 10 MACRO → 10 MICRO → 10 GROWING_DATA → repeat**
 
-Track each experiment as `optimization_type: "local"` or `optimization_type: "global"` in experiments.jsonl. After 3 consecutive LOCAL experiments, switch to at least 1 GLOBAL before continuing. This prevents the algorithm from becoming a pile of special cases.
+Check `experiments/human-experiment-ideas-for-later.md` for the current queue and counter.
+
+- **MACRO (GLOBAL)**: Generic approaches — embeddings, AST improvements, graph algorithms, CodeQL, LSP. Free/local only (no LLM API keys available).
+- **MICRO (LOCAL)**: Targeted heuristics — config filename lists, extension checks, threshold tuning.
+- **GROWING_DATA**: Expand corpus — add repos, generate goldens via sub-agents.
+
+Track each experiment as `optimization_type: "local"` or `optimization_type: "global"` in experiments.jsonl.
 
 Print the state at the start of every experiment: `STATE: GROWING_DATA (17/47 repos)` or `STATE: OPTIMISING (47/47 repos)`.
 
@@ -176,11 +180,11 @@ Two sub-tracks — pick based on WHY goldens are failing:
 - git commit → run eval → keep or `git reset --hard HEAD~1`
 - Look at the worst-scoring repos — if a language gets 0 groups, it's a 2b problem
 
-**Phase 3: Optimize LLM refinement** (after deterministic is tuned)
-- Test models/prompts/iterations with VCR caching
-- Compare golden scores: deterministic-only vs with-refinement
-- Record model, prompt_version, prompt_hash, iterations, per-repo golden scores, token count, and estimated cost
-- Goal: build a leaderboard of which model + prompt gives the best refinement lift
+**Phase 3: Optimize LLM refinement** (BLOCKED — no API keys available)
+- **NOTE: LLM API keys are NOT available. Do NOT attempt Phase 3 experiments.**
+- Focus MACRO experiments on free approaches: embeddings, AST improvements, graph algorithms, CodeQL, LSP.
+- Phase 3 will be unblocked when API keys are configured via 1Password.
+- When unblocked: test models/prompts/iterations with VCR caching, compare golden scores
 
 **Phase 4: Synthetic data** (ongoing, interleave with other phases)
 - Create new fixtures in the eval system or synthetic test repos
