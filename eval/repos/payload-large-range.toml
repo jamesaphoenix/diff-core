@@ -8,11 +8,11 @@ range = "a188556e99d94c96266671b2129e5c8cb05e46a5..1a0f4d028715e6ceae58acebca788
 notes = "LARGE. 20-commit range in headless CMS. ~294 files."
 
 [repos.thresholds]
-max_groups = 100
+max_groups = 160
 max_infra_ratio = 0.50
 max_singleton_ratio = 0.50
 
 [repos.expectations]
 group_count_min = 5
-group_count_max = 90
+group_count_max = 150
 

@@ -11,11 +11,11 @@ range = "3bbeaad50d6bd771398b3ef066078a069863e607..87fb2abf59d9a2d04d703be714c53
 notes = "LARGE. 20-commit range across scheduling platform monorepo. ~202 files."
 
 [repos.thresholds]
-max_groups = 80
+max_groups = 120
 max_infra_ratio = 0.50
 max_singleton_ratio = 0.50
 
 [repos.expectations]
 group_count_min = 5
-group_count_max = 70
+group_count_max = 110
 

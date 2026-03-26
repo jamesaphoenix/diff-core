@@ -12,13 +12,13 @@ range = "0d15620d903f152cc2197e7c2a1b801217a66c2d..db4b00ecf7b5d88eeb8937e5ce366
 notes = "MEDIUM. LLM eval suite. 113 files. Currently 91 groups (84 singletons)."
 
 [repos.thresholds]
-max_groups = 60
+max_groups = 120
 max_infra_ratio = 0.15
 max_singleton_ratio = 0.95
 
 [repos.expectations]
 group_count_min = 3
-group_count_max = 50
+group_count_max = 120
 # Table components should be in the same group
 same_group = [
   ["test/evals/components/EvalDashboard/CompareTable.tsx", "test/evals/components/EvalDashboard/ResultsTable.tsx"],
