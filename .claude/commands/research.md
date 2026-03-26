@@ -10,6 +10,7 @@ You are kicking off (or resuming) the flowdiff autoresearch loop. Each invocatio
 Read these files to understand current state:
 - `experiments/program.md` — full research instructions, tunable parameters, rules
 - `experiments/experiments.jsonl` — experiment history (what's been tried, what worked)
+- `experiments/human-experiment-ideas-for-later.md` — queued experiment ideas from the human (check for new ideas to test)
 - `eval/repositories.research.toml` — manifest index (defaults + `include_dir = "repos"`)
 - `eval/repos/*.toml` — one file per repo with config + goldens (edit these for golden changes)
 
