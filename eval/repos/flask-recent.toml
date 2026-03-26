@@ -1,17 +1,55 @@
-# Python — flask recent, ~28 files
+# flask-recent
 [[repos]]
 name = "flask-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/flask"
 language = "python"
 range = "663198d7b453ffdbe86d0e0238b1feafde6ce569..7ef2946fb5151b745df30201b8c27790cac53875"
-notes = "SMALL. 10-commit range. ~28 files."
+notes = "SMALL. 10-commit range: teardown robustness, session tracking, automatic options. ~28 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.4
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 9
+group_count_min = 3
+group_count_max = 6
+same_group = [
+  ["src/flask/helpers.py", "src/flask/app.py", "tests/test_appctx.py"],
+  ["src/flask/sessions.py", "src/flask/templating.py"],
+  ["src/flask/sansio/app.py", "tests/test_views.py"],
+  ["docs/tutorial/factory.rst", "examples/tutorial/flaskr/__init__.py"],
+]
+infrastructure = [
+  ".github/workflows/lock.yaml",
+  ".github/workflows/pre-commit.yaml",
+  ".github/workflows/publish.yaml",
+  ".github/workflows/tests.yaml",
+  ".github/workflows/zizmor.yaml",
+  ".pre-commit-config.yaml",
+  "CHANGES.rst",
+  "uv.lock",
+]
+non_infrastructure = [
+  "docs/appcontext.rst",
+  "docs/config.rst",
+  "docs/patterns/streaming.rst",
+  "docs/templating.rst",
+  "docs/tutorial/factory.rst",
+  "examples/tutorial/flaskr/__init__.py",
+  "src/flask/app.py",
+  "src/flask/ctx.py",
+  "src/flask/helpers.py",
+  "src/flask/sansio/app.py",
+  "src/flask/sessions.py",
+  "src/flask/templating.py",
+  "tests/test_appctx.py",
+  "tests/test_basic.py",
+  "tests/test_blueprints.py",
+  "tests/test_cli.py",
+  "tests/test_helpers.py",
+  "tests/test_reqctx.py",
+  "tests/test_testing.py",
+  "tests/test_views.py",
+]

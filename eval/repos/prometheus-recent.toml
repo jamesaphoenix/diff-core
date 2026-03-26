@@ -1,17 +1,58 @@
-# Go — prometheus recent, ~32 files
+# prometheus-recent
 [[repos]]
 name = "prometheus-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/prometheus"
 language = "go"
 range = "cfcc8621827a82b14e0385d516d3eaff4b74a3ab..5b1d22e2ce97dd5ebb9e834180c196f7ea353ece"
-notes = "SMALL. 10-commit range. ~32 files."
+notes = "SMALL. 10-commit range: Vultr API upgrade, variance docs, XOR fuzzing, PromQL tests. ~32 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.7
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 10
+group_count_min = 3
+group_count_max = 6
+same_group = [
+  ["docs/querying/functions.md", "docs/querying/operators.md", "web/ui/mantine-ui/src/promql/functionDocs.tsx"],
+  ["util/fuzzing/corpus.go", "util/fuzzing/fuzz_test.go"],
+  ["promql/promqltest/test.go", "promql/promqltest/testdata/info.test"],
+]
+infrastructure = [
+  ".github/PULL_REQUEST_TEMPLATE.md",
+  ".github/workflows/check_release_notes.yml",
+  ".github/workflows/ci.yml",
+  ".github/workflows/fuzzing.yml",
+  "Makefile",
+  "RELEASE.md",
+  "compliance/go.mod",
+  "compliance/go.sum",
+  "documentation/examples/remote_storage/go.mod",
+  "documentation/examples/remote_storage/go.sum",
+  "go.mod",
+  "go.sum",
+  "go.work",
+  "internal/tools/go.mod",
+  "internal/tools/go.sum",
+  "scripts/generate_release_notes.sh",
+  "web/ui/mantine-ui/package.json",
+  "web/ui/mantine-ui/src/promql/tools/go.mod",
+  "web/ui/mantine-ui/src/promql/tools/go.sum",
+  "web/ui/module/codemirror-promql/package.json",
+  "web/ui/package-lock.json",
+  "web/ui/package.json",
+]
+non_infrastructure = [
+  "discovery/vultr/vultr.go",
+  "docs/querying/functions.md",
+  "docs/querying/operators.md",
+  "promql/promqltest/test.go",
+  "promql/promqltest/testdata/info.test",
+  "tracing/tracing.go",
+  "util/fuzzing/corpus.go",
+  "util/fuzzing/corpus_gen/main.go",
+  "util/fuzzing/fuzz_test.go",
+  "web/ui/mantine-ui/src/promql/functionDocs.tsx",
+]
