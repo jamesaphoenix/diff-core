@@ -1,0 +1,17 @@
+# TypeScript — Prisma ORM features, ~71 files
+[[repos]]
+name = "prisma-features"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/prisma"
+language = "typescript"
+range = "de1c376e2746019b1cff3c58ac168142fe9d1569..5fece0a97ca3f7a05a7ae6691d49728d19b795a4"
+notes = "MEDIUM. 20-commit range: postgres link, mariadb, statement names. ~71 files."
+
+[repos.thresholds]
+max_groups = 40
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 30

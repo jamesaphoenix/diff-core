@@ -1,0 +1,17 @@
+# Go — kubectl features, ~37 files
+[[repos]]
+name = "kubectl-features"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/kubectl"
+language = "go"
+range = "3110da20e635eaf87069caba6d67a73e4c400b18..82a3c054228a186e09d62e606a4028b10da87250"
+notes = "SMALL. 50-commit range: describe, kuberc, CLI. ~37 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 20

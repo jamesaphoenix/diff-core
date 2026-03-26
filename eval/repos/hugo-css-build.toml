@@ -1,0 +1,17 @@
+# Go — Hugo static site generator, ~199 files
+[[repos]]
+name = "hugo-css-build"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/hugo"
+language = "go"
+range = "eaf4c7515a63224b75279575d7ffc8c0ec40776b..458ebdd448492d82113b0149886f2b5f8e7b91a4"
+notes = "LARGE. 20-commit range: css.Build feature + deps. ~199 files."
+
+[repos.thresholds]
+max_groups = 80
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 50

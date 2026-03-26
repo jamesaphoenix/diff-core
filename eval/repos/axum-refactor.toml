@@ -1,0 +1,17 @@
+# Rust — Axum web framework, ~121 files
+[[repos]]
+name = "axum-refactor"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/axum"
+language = "rust"
+range = "e3b32f48b5bc94b47459a039eef8c58800036982..7c7a03927af82ccd4c7d71a1603b7e4ec094ea58"
+notes = "MEDIUM. 50-commit range: examples, deps, refactors. ~121 files."
+
+[repos.thresholds]
+max_groups = 60
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 40
