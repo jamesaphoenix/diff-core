@@ -379,7 +379,7 @@ const SMALL_GROUP_THRESHOLD: usize = 5;
 
 /// Maximum number of small groups that can merge in a single directory bucket.
 /// Prevents collapsing 15+ singletons into one mega-group.
-const MAX_MERGE_BUCKET_SIZE: usize = 8;
+const MAX_MERGE_BUCKET_SIZE: usize = 12;
 
 /// Merge small groups that share a common directory prefix.
 ///
