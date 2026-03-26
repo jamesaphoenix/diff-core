@@ -111,6 +111,11 @@ pub fn cluster_files(
             .push((file.clone(), *dist));
     }
 
+    // Step 3.5: Coalesce test files with their implementations.
+    // If a test file (*.spec.*, *.test.*, *_test.*) is in a different group
+    // than its corresponding implementation, move the test to the impl's group.
+    coalesce_test_impl_pairs(&mut group_map, &assignments);
+
     // Step 4: Build FlowGroup for each entrypoint that has changed files.
     let mut groups: Vec<FlowGroup> = Vec::new();
     for (group_num, (ep_idx, mut files)) in group_map.into_iter().enumerate() {
@@ -200,6 +205,100 @@ pub fn cluster_files(
         groups,
         infrastructure,
     }
+}
+
+/// Move test files to the same group as their corresponding implementation files.
+///
+/// For each test file (matching *.spec.*, *.test.*, *_test.*), find the corresponding
+/// implementation file (without the test suffix) in a different group and move the test
+/// to that group. This ensures test+impl pairs always end up together regardless of
+/// BFS assignment.
+fn coalesce_test_impl_pairs(
+    group_map: &mut BTreeMap<usize, Vec<(String, usize)>>,
+    assignments: &BTreeMap<String, (usize, usize)>,
+) {
+    // Build a lookup: filename stem → (file_path, group_idx)
+    let mut impl_lookup: HashMap<String, (String, usize)> = HashMap::new();
+    for (file, (ep_idx, _)) in assignments {
+        if !is_test_file_name(file) {
+            let stem = test_impl_stem(file);
+            impl_lookup.insert(stem, (file.clone(), *ep_idx));
+        }
+    }
+
+    // Find test files whose impl is in a different group
+    let mut moves: Vec<(String, usize, usize)> = Vec::new(); // (file, from_group, to_group)
+    for (file, (ep_idx, _)) in assignments.iter() {
+        if is_test_file_name(file) {
+            let stem = test_impl_stem(file);
+            if let Some((_, impl_group)) = impl_lookup.get(&stem) {
+                if impl_group != ep_idx {
+                    moves.push((file.clone(), *ep_idx, *impl_group));
+                }
+            }
+        }
+    }
+
+    // Apply moves
+    for (file, from_group, to_group) in moves {
+        if let Some(from_files) = group_map.get_mut(&from_group) {
+            if let Some(pos) = from_files.iter().position(|(f, _)| *f == file) {
+                let (f, dist) = from_files.remove(pos);
+                group_map.entry(to_group).or_default().push((f, dist));
+            }
+        }
+    }
+}
+
+/// Check if a filename looks like a test file.
+fn is_test_file_name(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    let filename = lower.rsplit('/').next().unwrap_or(&lower);
+    filename.contains(".test.")
+        || filename.contains(".spec.")
+        || filename.contains("_test.")
+        || filename.starts_with("test_")
+        || filename.contains(".e2e.")
+        || filename.contains(".integration-test.")
+        || filename.contains("_bench_test.")
+}
+
+/// Extract the "stem" that a test file and its impl share.
+/// "sort.rs" and "sort_test.rs" both have stem "sort".
+/// "controller.spec.ts" and "controller.ts" both have stem "controller".
+fn test_impl_stem(path: &str) -> String {
+    let filename = path.rsplit('/').next().unwrap_or(path);
+    let dir = if path.contains('/') {
+        &path[..path.rfind('/').unwrap_or(0)]
+    } else {
+        ""
+    };
+
+    // Remove test suffixes to get the base name
+    let base = filename
+        .replace(".test.", ".")
+        .replace(".spec.", ".")
+        .replace("_test.", ".")
+        .replace(".e2e.", ".")
+        .replace(".integration-test.", ".")
+        .replace("_bench_test.", ".");
+
+    // Remove extension
+    let stem = base.rsplit_once('.').map(|(s, _)| s).unwrap_or(&base);
+
+    // Also strip "test_" prefix (Python convention)
+    let stem = stem.strip_prefix("test_").unwrap_or(stem);
+
+    // Combine directory context with stem for uniqueness
+    // Use the last 2 directory components + stem
+    let dir_parts: Vec<&str> = dir.split('/').collect();
+    let context = if dir_parts.len() >= 2 {
+        dir_parts[dir_parts.len() - 2..].join("/")
+    } else {
+        dir.to_string()
+    };
+
+    format!("{}:{}", context, stem)
 }
 
 /// Separate truly infrastructure files from source files that just couldn't be reached
