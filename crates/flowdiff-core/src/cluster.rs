@@ -182,6 +182,10 @@ pub fn cluster_files(
 /// Maximum number of files for a group to be considered "small" and eligible for merging.
 const SMALL_GROUP_THRESHOLD: usize = 3;
 
+/// Maximum number of small groups that can merge in a single directory bucket.
+/// Prevents collapsing 15+ singletons into one mega-group.
+const MAX_MERGE_BUCKET_SIZE: usize = 5;
+
 /// Merge small groups that share a common directory prefix.
 ///
 /// For each directory depth (from deepest to shallowest), groups whose files all
@@ -249,40 +253,43 @@ fn merge_at_depth(groups: Vec<FlowGroup>, depth: usize) -> Vec<FlowGroup> {
         result.push(groups[*idx].clone());
     }
 
-    // Merge buckets
+    // Merge buckets (chunked by MAX_MERGE_BUCKET_SIZE)
     for (_prefix, indices) in &buckets {
         if indices.len() <= 1 {
-            // Only one group at this prefix — keep as-is
             for idx in indices {
                 result.push(groups[*idx].clone());
             }
         } else {
-            // Merge all groups in this bucket into one
-            let first = &groups[indices[0]];
-            let mut merged_files: Vec<FileChange> = Vec::new();
-            let mut merged_edges: Vec<crate::types::FlowEdge> = Vec::new();
+            // Split large buckets into chunks to prevent mega-groups
+            for chunk in indices.chunks(MAX_MERGE_BUCKET_SIZE) {
+                if chunk.len() == 1 {
+                    result.push(groups[chunk[0]].clone());
+                } else {
+                    let first = &groups[chunk[0]];
+                    let mut merged_files: Vec<FileChange> = Vec::new();
+                    let mut merged_edges: Vec<crate::types::FlowEdge> = Vec::new();
 
-            for idx in indices {
-                merged_files.extend(groups[*idx].files.clone());
-                merged_edges.extend(groups[*idx].edges.clone());
+                    for idx in chunk {
+                        merged_files.extend(groups[*idx].files.clone());
+                        merged_edges.extend(groups[*idx].edges.clone());
+                    }
+
+                    merged_files.sort_by(|a, b| a.path.cmp(&b.path));
+                    for (i, f) in merged_files.iter_mut().enumerate() {
+                        f.flow_position = i as u32;
+                    }
+
+                    result.push(FlowGroup {
+                        id: first.id.clone(),
+                        name: first.name.clone(),
+                        entrypoint: first.entrypoint.clone(),
+                        files: merged_files,
+                        edges: merged_edges,
+                        risk_score: 0.0,
+                        review_order: 0,
+                    });
+                }
             }
-
-            // Sort files by path for determinism
-            merged_files.sort_by(|a, b| a.path.cmp(&b.path));
-            // Re-assign flow_position
-            for (i, f) in merged_files.iter_mut().enumerate() {
-                f.flow_position = i as u32;
-            }
-
-            result.push(FlowGroup {
-                id: first.id.clone(),
-                name: first.name.clone(),
-                entrypoint: first.entrypoint.clone(),
-                files: merged_files,
-                edges: merged_edges,
-                risk_score: 0.0,
-                review_order: 0,
-            });
         }
     }
 
