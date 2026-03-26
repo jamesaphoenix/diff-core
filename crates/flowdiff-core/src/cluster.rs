@@ -655,16 +655,27 @@ const MAX_MERGE_BUCKET_SIZE: usize = 12;
 /// share that directory prefix and have ≤ SMALL_GROUP_THRESHOLD files get merged
 /// into one group. The merged group takes the name of the first group.
 fn consolidate_small_groups(mut groups: Vec<FlowGroup>) -> Vec<FlowGroup> {
-    // Try merging at progressively shallower depths: 6, 5, 4, 3, 2, 1
-    for depth in (1..=6).rev() {
+    // Try merging at progressively shallower depths: 6, 5, 4, 3, 2, 1, 0
+    // depth=0 catches root-level files (no directory) that share no prefix at depth≥1
+    for depth in (0..=6).rev() {
         groups = merge_at_depth(groups, depth);
     }
     groups
 }
 
+
+
 /// Get the directory prefix of a path at a given depth.
+/// depth=0: "" (root level — all files with no directory match here)
 /// depth=1: "cmd/", depth=2: "cmd/admin/", etc.
 fn dir_prefix(path: &str, depth: usize) -> Option<String> {
+    if depth == 0 {
+        // All root-level files (no directory) share the empty prefix
+        if !path.contains('/') {
+            return Some(String::new());
+        }
+        return None; // Files with directories don't match at depth=0
+    }
     let parts: Vec<&str> = path.split('/').collect();
     if parts.len() <= depth {
         return None;
