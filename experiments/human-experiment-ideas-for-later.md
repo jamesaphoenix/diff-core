@@ -93,11 +93,11 @@ Ideas queued for testing in the autoresearch loop. Move items to `experiments.js
 
 **Schedule: 10 MACRO → 10 MICRO → 10 GROWING_DATA → repeat**
 
-**Current phase: MACRO (2/10)** — next: graph community detection
+**Current phase: MACRO (3/10)** — next: co-change mining or multi-signal fusion
 
 ### Macro (GLOBAL) — 10 experiments, generic approaches
-1. [x] **Diff-based embeddings** — embed change hunks not full content (#62, running)
-2. [ ] **Graph community detection (Louvain)** — community detection on symbol graph
+1. [x] **Diff-based embeddings** — embed change hunks not full content (#62, +0.0002 keep)
+2. [x] **Filename stem clustering** — bare-stem matching across dirs (#63, neutral revert)
 3. [ ] **Co-change mining** — `git log --name-only` co-change frequencies
 4. [ ] **Multi-signal fusion** — weighted similarity matrix (graph + embeddings + dir + name)
 5. [ ] **Learned merge policy** — train on 47 golden repos, learn optimal merges
