@@ -156,6 +156,12 @@ pub fn cluster_files(
         });
     }
 
+    // Step 5: Consolidate small groups by directory.
+    // Merge singleton/small groups (≤ SMALL_GROUP_THRESHOLD files) that share a common
+    // directory prefix. This reduces singleton explosion where each entrypoint in the
+    // same directory creates its own tiny group.
+    groups = consolidate_small_groups(groups);
+
     let infrastructure = if infra_files.is_empty() {
         None
     } else {
@@ -171,6 +177,122 @@ pub fn cluster_files(
         groups,
         infrastructure,
     }
+}
+
+/// Maximum number of files for a group to be considered "small" and eligible for merging.
+const SMALL_GROUP_THRESHOLD: usize = 3;
+
+/// Merge small groups that share a common directory prefix.
+///
+/// For each directory depth (from deepest to shallowest), groups whose files all
+/// share that directory prefix and have ≤ SMALL_GROUP_THRESHOLD files get merged
+/// into one group. The merged group takes the name of the first group.
+fn consolidate_small_groups(mut groups: Vec<FlowGroup>) -> Vec<FlowGroup> {
+    // Try merging at progressively shallower depths: 4, 3, 2, 1
+    for depth in (1..=4).rev() {
+        groups = merge_at_depth(groups, depth);
+    }
+    groups
+}
+
+/// Get the directory prefix of a path at a given depth.
+/// depth=1: "cmd/", depth=2: "cmd/admin/", etc.
+fn dir_prefix(path: &str, depth: usize) -> Option<String> {
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() <= depth {
+        return None;
+    }
+    Some(parts[..depth].join("/"))
+}
+
+/// Get the common directory prefix for all files in a group at a given depth.
+fn group_dir_prefix(group: &FlowGroup, depth: usize) -> Option<String> {
+    let mut common: Option<String> = None;
+    for file in &group.files {
+        match dir_prefix(&file.path, depth) {
+            Some(prefix) => {
+                if let Some(ref c) = common {
+                    if *c != prefix {
+                        return None; // Files don't share the same prefix
+                    }
+                } else {
+                    common = Some(prefix);
+                }
+            }
+            None => return None,
+        }
+    }
+    common
+}
+
+/// Merge small groups sharing a directory prefix at a specific depth.
+fn merge_at_depth(groups: Vec<FlowGroup>, depth: usize) -> Vec<FlowGroup> {
+    let mut buckets: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    let mut no_merge: Vec<usize> = Vec::new();
+
+    for (idx, group) in groups.iter().enumerate() {
+        if group.files.len() <= SMALL_GROUP_THRESHOLD {
+            if let Some(prefix) = group_dir_prefix(group, depth) {
+                buckets.entry(prefix).or_default().push(idx);
+            } else {
+                no_merge.push(idx);
+            }
+        } else {
+            no_merge.push(idx);
+        }
+    }
+
+    let mut result: Vec<FlowGroup> = Vec::new();
+
+    // Keep non-mergeable groups as-is
+    for idx in &no_merge {
+        result.push(groups[*idx].clone());
+    }
+
+    // Merge buckets
+    for (_prefix, indices) in &buckets {
+        if indices.len() <= 1 {
+            // Only one group at this prefix — keep as-is
+            for idx in indices {
+                result.push(groups[*idx].clone());
+            }
+        } else {
+            // Merge all groups in this bucket into one
+            let first = &groups[indices[0]];
+            let mut merged_files: Vec<FileChange> = Vec::new();
+            let mut merged_edges: Vec<crate::types::FlowEdge> = Vec::new();
+
+            for idx in indices {
+                merged_files.extend(groups[*idx].files.clone());
+                merged_edges.extend(groups[*idx].edges.clone());
+            }
+
+            // Sort files by path for determinism
+            merged_files.sort_by(|a, b| a.path.cmp(&b.path));
+            // Re-assign flow_position
+            for (i, f) in merged_files.iter_mut().enumerate() {
+                f.flow_position = i as u32;
+            }
+
+            result.push(FlowGroup {
+                id: first.id.clone(),
+                name: first.name.clone(),
+                entrypoint: first.entrypoint.clone(),
+                files: merged_files,
+                edges: merged_edges,
+                risk_score: 0.0,
+                review_order: 0,
+            });
+        }
+    }
+
+    // Re-number group IDs
+    result.sort_by(|a, b| a.name.cmp(&b.name));
+    for (i, group) in result.iter_mut().enumerate() {
+        group.id = format!("group_{}", i + 1);
+    }
+
+    result
 }
 
 /// BFS from an entrypoint using bidirectional traversal, returning file_path → minimum graph distance.
