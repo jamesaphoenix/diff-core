@@ -89,6 +89,29 @@ Ideas queued for testing in the autoresearch loop. Move items to `experiments.js
 - TypeScript monorepo cross-package imports (`@org/package`)
 - Python relative imports (`from . import`)
 
+## Micro/Macro Experiment Queue (alternate between them)
+
+**Counter: next = MACRO #1** (after 3 consecutive LOCAL: #59, #60, #61)
+
+### Micro (LOCAL) — targeted heuristics
+1. [ ] `.changeset/` directory → infra (Effect.ts repos)
+2. [ ] `version.go` / `version.ts` → `is_config_like_filename` (auto-bumped constants)
+3. [ ] `__init__.py` context-aware — only config if <10 lines or non-test dir
+4. [ ] Cross-directory stem match: `django/forms/fields.py` ↔ `tests/forms_tests/*/test_*.py`
+5. [ ] `go.mod` + `go.sum` always same group (post-processing merge)
+
+### Macro (GLOBAL) — generic approaches
+1. [ ] **Diff-based embeddings** — embed change hunks not full content, cluster by change similarity
+2. [ ] **Graph community detection (Louvain)** — community detection on symbol graph via petgraph
+3. [ ] **Co-change mining** — `git log --name-only` co-change frequencies as grouping signal
+4. [ ] **Multi-signal fusion** — weighted similarity matrix (graph + embeddings + directory + name)
+5. [ ] **Learned merge policy** — train on 47 golden repos, extract pairwise features, learn merges
+
+### Alternation rule
+- Pick from Macro list first (counter says MACRO), then switch to Micro, etc.
+- After testing an item, mark it `[x]` and update the counter line.
+- If an item is blocked (e.g., needs API keys), skip to next in same list.
+
 ## Phase 0: Corpus Expansion Ideas
 
 - Add Java repo (Spring Boot)
