@@ -1,12 +1,12 @@
 # Rust — nushell testing refactor, 40 files
-# NOTE: Currently 15 singleton groups (all test files). Test infra and url-parse source in infra.
+# Testing refactor + url parse. Test harness changes drive downstream test file rewrites.
 [[repos]]
 name = "nushell-testing-refactor"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/nushell"
 language = "rust"
 range = "ac01452bcafa0343ca1c48d3c0f358beb0db2b02..6707dc927412458a186474b87e2ee68851c86ada"
-notes = "SMALL. Testing refactor + url parse. 40 files. 15 singleton test groups."
+notes = "SMALL. Testing refactor + url parse. 40 files."
 
 [repos.thresholds]
 max_groups = 25
@@ -14,14 +14,69 @@ max_infra_ratio = 0.70
 max_singleton_ratio = 1.0
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 20
-# Tests for the same command subsystem should cluster (not all be singletons)
-# The test infrastructure crate should be non-infra
-non_infrastructure = [
-  "crates/nu-command/tests/commands/group_by.rs",
-  "crates/nu-command/tests/commands/merge.rs",
+group_count_min = 3
+group_count_max = 10
+same_group = [
+  # Test harness internals
+  ["crates/nu-test-support/src/lib.rs", "crates/nu-test-support/src/tester/mod.rs"],
+  # nu-mcp crate: lib + server are one feature unit
+  ["crates/nu-mcp/src/lib.rs", "crates/nu-mcp/src/server.rs"],
+  # sort command: source + its tests
+  ["crates/nu-command/tests/commands/sort.rs", "crates/nu-command/src/filters/sort.rs"],
+  # group_by command: source + its tests
+  ["crates/nu-command/tests/commands/group_by.rs", "crates/nu-command/src/filters/group_by.rs"],
+  # uname command: source + its tests
+  ["crates/nu-command/tests/commands/uname.rs", "crates/nu-command/src/system/uname.rs"],
 ]
-
-# ===========================================================================
-
+non_infrastructure = [
+  # Source: filesystem commands
+  "crates/nu-command/src/filesystem/cd.rs",
+  "crates/nu-command/src/filesystem/du.rs",
+  "crates/nu-command/src/filesystem/glob.rs",
+  "crates/nu-command/src/filesystem/rm.rs",
+  "crates/nu-command/src/filesystem/umkdir.rs",
+  "crates/nu-command/src/filesystem/umv.rs",
+  # Source: filter commands
+  "crates/nu-command/src/filters/first.rs",
+  "crates/nu-command/src/filters/group_by.rs",
+  "crates/nu-command/src/filters/last.rs",
+  "crates/nu-command/src/filters/sort.rs",
+  "crates/nu-command/src/filters/tee.rs",
+  # Source: platform commands
+  "crates/nu-command/src/platform/clear.rs",
+  "crates/nu-command/src/platform/kill.rs",
+  # Source: system commands
+  "crates/nu-command/src/system/ps.rs",
+  "crates/nu-command/src/system/uname.rs",
+  # Tests: command tests
+  "crates/nu-command/tests/commands/group_by.rs",
+  "crates/nu-command/tests/commands/histogram.rs",
+  "crates/nu-command/tests/commands/ignore.rs",
+  "crates/nu-command/tests/commands/merge.rs",
+  "crates/nu-command/tests/commands/merge_deep.rs",
+  "crates/nu-command/tests/commands/par_each.rs",
+  "crates/nu-command/tests/commands/prepend.rs",
+  "crates/nu-command/tests/commands/select.rs",
+  "crates/nu-command/tests/commands/sort.rs",
+  "crates/nu-command/tests/commands/split_row.rs",
+  "crates/nu-command/tests/commands/uname.rs",
+  "crates/nu-command/tests/commands/update.rs",
+  "crates/nu-command/tests/commands/upsert.rs",
+  "crates/nu-command/tests/commands/use_.rs",
+  "crates/nu-command/tests/commands/with_env.rs",
+  # MCP crate
+  "crates/nu-mcp/src/lib.rs",
+  "crates/nu-mcp/src/server.rs",
+  # Protocol crate
+  "crates/nu-protocol/src/value/into_value.rs",
+  "crates/nu-protocol/src/value/record.rs",
+  # Test support crate
+  "crates/nu-test-support/src/lib.rs",
+  "crates/nu-test-support/src/tester/mod.rs",
+]
+infrastructure = [
+  "Cargo.lock",
+  "Cargo.toml",
+  "crates/nu-mcp/Cargo.toml",
+  "crates/nu-test-support/Cargo.toml",
+]

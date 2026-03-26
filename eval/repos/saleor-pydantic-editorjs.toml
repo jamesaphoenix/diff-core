@@ -1,12 +1,12 @@
 # Python — saleor Pydantic EditorJS, 53 files
-# NOTE: Currently 19 groups (14 singletons). EditorJS core cleaners + tests grouped well. Good structure.
+# EditorJS to Pydantic migration: new core module + consumer updates across domains.
 [[repos]]
 name = "saleor-pydantic-editorjs"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/saleor"
 language = "python"
 range = "49b2f1c47d9ce77d2e19e42ad4f2ea717e8b6e84..484eb7c0edea31266802149d9a3244ac8643681f"
-notes = "MEDIUM. EditorJS to Pydantic migration. 53 files. 19 groups (14 singletons)."
+notes = "MEDIUM. EditorJS to Pydantic migration. 53 files."
 
 [repos.thresholds]
 max_groups = 30
@@ -14,15 +14,89 @@ max_infra_ratio = 0.55
 max_singleton_ratio = 0.80
 
 [repos.expectations]
-group_count_min = 3
-group_count_max = 25
-# Core EditorJS test + cleaners should stay grouped
+group_count_min = 4
+group_count_max = 12
 same_group = [
+  # Core editorjs module internals
+  ["saleor/core/editorjs/models.py", "saleor/core/editorjs/cleaners.py"],
+  ["saleor/core/editorjs/models.py", "saleor/core/editorjs/converters.py"],
   ["saleor/core/editorjs/tests/test_editorjs.py", "saleor/core/editorjs/cleaners.py"],
+  # Product domain: model + mutations
+  ["saleor/product/models.py", "saleor/graphql/product/mutations/product/product_cleaner.py"],
+  # Attribute domain: model + search
+  ["saleor/attribute/models/base.py", "saleor/attribute/search.py"],
+  # Page domain: model + search
+  ["saleor/page/models.py", "saleor/page/search.py"],
+  # Translation mutations pair
+  ["saleor/graphql/translations/mutations/attribute_value_bulk_translate.py", "saleor/graphql/translations/mutations/attribute_value_translate.py"],
+  # CSV util + test helper
+  ["saleor/csv/utils/products_data.py", "saleor/csv/tests/export/products_data/utils.py"],
 ]
-# Management command that drives the migration should be non-infra
 non_infrastructure = [
-  "saleor/core/management/commands/clean_editorjs_fields.py",
+  # Core EditorJS module (heart of migration)
+  "saleor/core/editorjs/models.py",
   "saleor/core/editorjs/cleaners.py",
+  "saleor/core/editorjs/converters.py",
+  "saleor/core/editorjs/utils.py",
+  "saleor/core/utils/editorjs.py",
+  # Core EditorJS tests
+  "saleor/core/editorjs/tests/conftest.py",
+  "saleor/core/editorjs/tests/test_editorjs.py",
+  "saleor/core/editorjs/tests/test_lists.py",
+  # Management command
+  "saleor/core/management/commands/clean_editorjs_fields.py",
+  # Domain models consuming EditorJS
+  "saleor/attribute/models/base.py",
+  "saleor/attribute/search.py",
+  "saleor/attribute/tests/fixtures/attribute.py",
+  "saleor/discount/models.py",
+  "saleor/page/models.py",
+  "saleor/page/search.py",
+  "saleor/product/models.py",
+  "saleor/shipping/models.py",
+  # CSV
+  "saleor/csv/utils/products_data.py",
+  "saleor/csv/tests/export/products_data/utils.py",
+  # GraphQL mutations
+  "saleor/graphql/attribute/utils/type_handlers.py",
+  "saleor/graphql/product/bulk_mutations/product_bulk_create.py",
+  "saleor/graphql/product/mutations/category/category_create.py",
+  "saleor/graphql/product/mutations/product/product_cleaner.py",
+  "saleor/graphql/translations/mutations/attribute_value_bulk_translate.py",
+  "saleor/graphql/translations/mutations/attribute_value_translate.py",
+  # GraphQL tests
+  "saleor/graphql/discount/tests/queries/test_promotion.py",
+  "saleor/graphql/product/tests/deprecated/test_collection.py",
+  "saleor/graphql/product/tests/mutations/test_product_create.py",
+  "saleor/graphql/product/tests/mutations/test_product_update.py",
+  "saleor/graphql/product/tests/mutations/test_product_variant_bulk_create.py",
+  "saleor/graphql/product/tests/mutations/test_product_variant_create.py",
+  "saleor/graphql/product/tests/mutations/test_product_variant_update.py",
+  "saleor/graphql/translations/tests/mutations/test_promotion_rule_translate.py",
+  "saleor/graphql/translations/tests/mutations/test_promotion_translate.py",
+  "saleor/graphql/translations/tests/test_translations.py",
+  # E2E tests
+  "saleor/tests/e2e/promotions/test_staff_can_translate_promotions.py",
+  "saleor/tests/e2e/promotions/test_unable_to_query_nor_mutate_sale_updated_by_promotion_translations.py",
+  # Shared test infrastructure
+  "saleor/tests/fixtures.py",
+  "saleor/tests/utils.py",
 ]
-
+infrastructure = [
+  "CHANGELOG.md",
+  "uv.lock",
+  # Django migrations (updating field type imports)
+  "saleor/attribute/migrations/0008_auto_20210407_0632.py",
+  "saleor/discount/migrations/0045_promotions.py",
+  "saleor/page/migrations/0016_auto_20201112_0904.py",
+  "saleor/page/migrations/0018_migrate_content_json_into_content.py",
+  "saleor/page/migrations/0020_update_content_fields.py",
+  "saleor/product/migrations/0131_auto_20201112_0904.py",
+  "saleor/product/migrations/0138_migrate_description_json_into_description.py",
+  "saleor/product/migrations/0141_update_descritpion_fields.py",
+  "saleor/product/migrations/0178_fix_description_plaintext_field.py",
+  "saleor/shipping/migrations/0030_auto_20210415_1001.py",
+  # Package init files
+  "saleor/core/editorjs/__init__.py",
+  "saleor/core/editorjs/tests/__init__.py",
+]
