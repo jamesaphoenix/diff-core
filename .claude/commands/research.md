@@ -74,6 +74,8 @@ Count repos: `ls eval/repos/*.toml | wc -l`
 **Phase 1: Build goldens via sub-agents** (highest priority if lint-goldens reports gaps)
 Use Claude Code sub-agents to generate golden constraints from diff content. **Every file in the diff must be classified as infrastructure or non_infrastructure** — this is enforced by `lint-goldens`.
 
+**IMPORTANT: NEVER use scripts or pattern-matching to classify files.** Goldens are semantic ground truth — they require understanding what each file does by reading the actual diff. A script that classifies by extension (`.go` → non-infra) produces wrong results (e.g., `config/tracing.go` IS feature code but a script might miss that, or `seed.ts` IS infra but has a source extension). Always use LLM sub-agents that read the diff content.
+
 **Sizing strategy:**
 - **Small repos (< 100 files):** Classify directly or with one sub-agent
 - **Medium repos (100-300 files):** One sub-agent with the file list
