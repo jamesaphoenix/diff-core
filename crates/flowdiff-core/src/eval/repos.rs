@@ -279,6 +279,16 @@ pub struct RepoEvalGoldenResult {
     pub satisfied_checks: usize,
     pub score: f64,
     pub failures: Vec<String>,
+    /// File classification coverage: fraction of changed files that appear in
+    /// either `infrastructure` or `non_infrastructure` expectations.
+    pub file_coverage: f64,
+    /// Number of files in the diff that have a classification.
+    pub classified_files: usize,
+    /// Number of files in the diff that are NOT classified.
+    pub unclassified_files: usize,
+    /// Paths of files that are not classified (for linting).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unclassified_paths: Vec<String>,
 }
 
 impl Default for RepoEvalGoldenResult {
@@ -288,6 +298,10 @@ impl Default for RepoEvalGoldenResult {
             satisfied_checks: 0,
             score: 1.0,
             failures: Vec::new(),
+            file_coverage: 0.0,
+            classified_files: 0,
+            unclassified_files: 0,
+            unclassified_paths: Vec::new(),
         }
     }
 }
@@ -779,6 +793,41 @@ fn evaluate_repo_expectations(
         }
     }
 
+    // Compute file classification coverage
+    let classified_set: HashSet<&str> = expectations
+        .infrastructure
+        .iter()
+        .chain(expectations.non_infrastructure.iter())
+        .map(|s| s.as_str())
+        .collect();
+
+    let all_changed_files: HashSet<&str> = output
+        .groups
+        .iter()
+        .flat_map(|g| g.files.iter().map(|f| f.path.as_str()))
+        .chain(
+            output
+                .infrastructure_group
+                .as_ref()
+                .into_iter()
+                .flat_map(|ig| ig.files.iter().map(|s| s.as_str())),
+        )
+        .collect();
+
+    let mut unclassified_paths: Vec<String> = all_changed_files
+        .iter()
+        .filter(|f| !classified_set.contains(**f))
+        .map(|f| f.to_string())
+        .collect();
+    unclassified_paths.sort();
+
+    let classified_files = all_changed_files.len() - unclassified_paths.len();
+    let file_coverage = if all_changed_files.is_empty() {
+        1.0
+    } else {
+        classified_files as f64 / all_changed_files.len() as f64
+    };
+
     RepoEvalGoldenResult {
         total_checks,
         satisfied_checks,
@@ -788,6 +837,10 @@ fn evaluate_repo_expectations(
             satisfied_checks as f64 / total_checks as f64
         },
         failures,
+        file_coverage,
+        classified_files,
+        unclassified_files: unclassified_paths.len(),
+        unclassified_paths,
     }
 }
 

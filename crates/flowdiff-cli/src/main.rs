@@ -45,6 +45,9 @@ enum Commands {
     Launch(LaunchArgs),
     /// Run the eval suite against synthetic fixture codebases
     Eval(EvalArgs),
+    /// Check that every file in each repo's diff is classified in the golden expectations.
+    /// Exits with code 1 if any repo has unclassified files.
+    LintGoldens(LintGoldensArgs),
 }
 
 #[derive(Parser)]
@@ -176,6 +179,17 @@ struct EvalArgs {
     history_file: Option<PathBuf>,
 }
 
+#[derive(Parser)]
+struct LintGoldensArgs {
+    /// Path to the repo eval manifest (TOML)
+    #[arg(long)]
+    manifest: PathBuf,
+
+    /// Minimum required file coverage (0.0–1.0). Default 1.0 = every file must be classified.
+    #[arg(long, default_value = "1.0")]
+    min_coverage: f64,
+}
+
 fn main() {
     env_logger::init();
     let cli = Cli::parse();
@@ -195,6 +209,9 @@ fn main() {
         }
         Commands::Eval(args) => {
             run_eval_command(args);
+        }
+        Commands::LintGoldens(args) => {
+            run_lint_goldens(args);
         }
     }
 }
@@ -688,6 +705,48 @@ fn run_eval_command(args: EvalArgs) {
 
     if !result.passed {
         process::exit(1);
+    }
+}
+
+#[allow(clippy::print_stdout)]
+fn run_lint_goldens(args: LintGoldensArgs) {
+    let format = eval::EvalFormat::Text;
+    match eval::repos::run_repo_eval(&args.manifest, 0.0, format) {
+        Ok(result) => {
+            let mut has_gaps = false;
+            for repo in &result.repos {
+                let cov = repo.golden.file_coverage;
+                let uncl = &repo.golden.unclassified_paths;
+                if cov < args.min_coverage {
+                    has_gaps = true;
+                    println!(
+                        "FAIL {}: {:.0}% coverage ({}/{} files classified)",
+                        repo.name,
+                        cov * 100.0,
+                        repo.golden.classified_files,
+                        repo.golden.classified_files + repo.golden.unclassified_files,
+                    );
+                    for path in uncl {
+                        println!("  UNCLASSIFIED: {}", path);
+                    }
+                } else {
+                    println!(
+                        "OK   {}: 100% coverage ({} files)",
+                        repo.name, repo.golden.classified_files,
+                    );
+                }
+            }
+            if has_gaps {
+                println!("\nFailed: some repos have unclassified files. Add them to infrastructure or non_infrastructure in eval/repos/<name>.toml");
+                process::exit(1);
+            } else {
+                println!("\nAll repos have full file classification coverage.");
+            }
+        }
+        Err(e) => {
+            error!("Lint error: {}", e);
+            process::exit(1);
+        }
     }
 }
 
