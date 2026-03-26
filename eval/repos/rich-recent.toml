@@ -1,17 +1,32 @@
-# Python — rich recent, ~7 files
+# Python — Rich terminal formatting, ~7 files
+# 10-commit range: cell width bug fixes, AI policy, version bumps.
 [[repos]]
 name = "rich-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/rich"
 language = "python"
 range = "9a99acc97d26d7832200a271ed8e95dd59df10c7..fc41075a3206d2a5fd846c6f41c4d2becab814fa"
-notes = "SMALL. 10-commit range. ~7 files."
+notes = "SMALL. 10-commit range: cell width fixes, AI policy. ~7 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.80
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 5
+group_count_min = 1
+group_count_max = 2
+same_group = [
+  ["rich/cells.py", "tests/test_cells.py"],
+]
+infrastructure = [
+  "AI_POLICY.md",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  "pyproject.toml",
+  "rich/progress.py",
+]
+non_infrastructure = [
+  "rich/cells.py",
+  "tests/test_cells.py",
+]
