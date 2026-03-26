@@ -987,11 +987,17 @@ pub fn classify_by_convention(path: &str) -> InfraCategory {
     }
 
     // Documentation
-    if matches!(ext, "md" | "mdx" | "rst" | "txt")
-        || lower.contains("/docs/")
-        || lower.starts_with("docs/")
-        || lower.contains("/documentation/")
-        || lower.starts_with("documentation/")
+    // Exception: top-level docs/content/ is site content in static site generators (Hugo),
+    // not project documentation. Also skip www/docs/ which is often a docs website source.
+    // But packages/docs/content/ (nested under a package) is still documentation.
+    let is_site_content = lower.starts_with("docs/content/")
+        || lower.starts_with("www/docs/");
+    if !is_site_content
+        && (matches!(ext, "md" | "mdx" | "rst" | "txt")
+            || lower.contains("/docs/")
+            || lower.starts_with("docs/")
+            || lower.contains("/documentation/")
+            || lower.starts_with("documentation/"))
     {
         return InfraCategory::Documentation;
     }
