@@ -1,0 +1,17 @@
+# Python — pydantic recent, ~22 files
+[[repos]]
+name = "pydantic-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/pydantic"
+language = "python"
+range = "fbf9c6e7b3937168e1b7648fdc1f1421d9d14b29..94dd544cc0ba0692801f429dd64124db76a4537d"
+notes = "SMALL. 10-commit range. ~22 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 7

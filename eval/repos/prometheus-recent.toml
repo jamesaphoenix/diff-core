@@ -1,0 +1,17 @@
+# Go — prometheus recent, ~32 files
+[[repos]]
+name = "prometheus-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/prometheus"
+language = "go"
+range = "cfcc8621827a82b14e0385d516d3eaff4b74a3ab..5b1d22e2ce97dd5ebb9e834180c196f7ea353ece"
+notes = "SMALL. 10-commit range. ~32 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 10

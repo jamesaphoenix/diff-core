@@ -1,0 +1,17 @@
+# Typescript — effect recent, ~96 files
+[[repos]]
+name = "effect-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/effect"
+language = "typescript"
+range = "041dd22de07235de08b75f0bc29e206e3c27942b..6c39a34c6145811f5c41292f03bf7939cfa8e70d"
+notes = "MEDIUM. 10-commit range. ~96 files."
+
+[repos.thresholds]
+max_groups = 60
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 32

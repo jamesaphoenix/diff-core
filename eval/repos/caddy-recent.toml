@@ -1,0 +1,17 @@
+# Go — caddy recent, ~25 files
+[[repos]]
+name = "caddy-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/caddy"
+language = "go"
+range = "fbfb8fc517728f85890cd46559c01bec9495bf17..e98ed6232d65790d27bacd13fb49fa5474b9ec93"
+notes = "SMALL. 10-commit range. ~25 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 8

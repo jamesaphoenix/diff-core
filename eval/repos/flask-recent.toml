@@ -1,0 +1,17 @@
+# Python — flask recent, ~28 files
+[[repos]]
+name = "flask-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/flask"
+language = "python"
+range = "663198d7b453ffdbe86d0e0238b1feafde6ce569..7ef2946fb5151b745df30201b8c27790cac53875"
+notes = "SMALL. 10-commit range. ~28 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 9

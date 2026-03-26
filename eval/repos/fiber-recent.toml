@@ -1,0 +1,17 @@
+# Go — fiber recent, ~10 files
+[[repos]]
+name = "fiber-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/fiber"
+language = "go"
+range = "e6353ef40f6464acad546f365f0c0767d87bc759..fb4206c367d60cd68807cdcd57cd5b5d012779cb"
+notes = "SMALL. 10-commit range. ~10 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5

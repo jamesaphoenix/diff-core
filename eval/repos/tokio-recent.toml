@@ -1,0 +1,17 @@
+# Rust — tokio recent, ~19 files
+[[repos]]
+name = "tokio-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/tokio"
+language = "rust"
+range = "e67cd87f71304e6b4cc94ce0c1656797466e56f3..a8435c0fc8612bbdf38d3ad8b2ba96d5dbc848d9"
+notes = "SMALL. 10-commit range. ~19 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 6

@@ -1,0 +1,17 @@
+# Go — echo recent, ~15 files
+[[repos]]
+name = "echo-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/echo"
+language = "go"
+range = "fa0078cfd6840c4578d117eadaa486e0954bfa1b..675712da34c15a72b87cd67a2e7f24510742fc76"
+notes = "SMALL. 10-commit range. ~15 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5

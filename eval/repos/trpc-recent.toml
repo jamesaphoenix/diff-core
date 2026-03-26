@@ -1,0 +1,17 @@
+# Typescript — trpc recent, ~64 files
+[[repos]]
+name = "trpc-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/trpc"
+language = "typescript"
+range = "e39a654b306d0c75730a9c546e77333f9d1dca8c..f6e839f2b127b394fa1e9eb26bfe0c75c47fcbf2"
+notes = "MEDIUM. 10-commit range. ~64 files."
+
+[repos.thresholds]
+max_groups = 60
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 21

@@ -1,0 +1,17 @@
+# Python — celery recent, ~22 files
+[[repos]]
+name = "celery-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/celery"
+language = "python"
+range = "7735d2ba9451bcfe3fd905942f95cd85e049cc3b..c167ccf4a12cc3fd11e8c31837a642e65fab6bbb"
+notes = "SMALL. 10-commit range. ~22 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 7
