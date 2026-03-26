@@ -1,4 +1,5 @@
 # Python — saleor recent changes, ~92 files
+# 10-commit range: EditorJS refactor, product media, checkout migration, thumbnails, translations.
 [[repos]]
 name = "saleor-recent-changes"
 type = "real"
@@ -13,6 +14,138 @@ max_infra_ratio = 0.40
 max_singleton_ratio = 0.50
 
 [repos.expectations]
-group_count_min = 3
-group_count_max = 35
-
+group_count_min = 7
+group_count_max = 15
+same_group = [
+  # EditorJS core module: cleaners + converters + tests
+  ["saleor/core/editorjs/cleaners.py", "saleor/core/editorjs/converters.py"],
+  ["saleor/core/editorjs/tests/test_editorjs.py", "saleor/core/editorjs/cleaners.py"],
+  # Checkout migration task + test
+  ["saleor/checkout/migrations/tasks/saleor3_23.py", "saleor/checkout/tests/test_migrations_tasks.py"],
+  # Product media create mutation + test
+  ["saleor/graphql/product/mutations/product/product_media_create.py", "saleor/graphql/product/tests/mutations/test_product_media_create.py"],
+  # Thumbnail views + utils + tests
+  ["saleor/thumbnail/views.py", "saleor/thumbnail/tests/test_views.py"],
+  # Product tasks + tests
+  ["saleor/product/tasks.py", "saleor/product/tests/test_tasks.py"],
+  # Refund settings mutation + tests
+  ["saleor/graphql/shop/mutations/refund_settings_update.py", "saleor/graphql/shop/tests/mutations/test_refund_settings_update.py"],
+  # Core validators + tests
+  ["saleor/core/utils/validators.py", "saleor/core/utils/tests/test_validators.py"],
+  # CSV export utils + tests
+  ["saleor/csv/utils/products_data.py", "saleor/csv/tests/export/products_data/utils.py"],
+  # Translation mutations pair
+  ["saleor/graphql/translations/mutations/attribute_value_bulk_translate.py", "saleor/graphql/translations/mutations/attribute_value_translate.py"],
+]
+non_infrastructure = [
+  # EditorJS refactor (core)
+  "saleor/core/editorjs/__init__.py",
+  "saleor/core/editorjs/cleaners.py",
+  "saleor/core/editorjs/converters.py",
+  "saleor/core/editorjs/models.py",
+  "saleor/core/editorjs/utils.py",
+  "saleor/core/editorjs/tests/__init__.py",
+  "saleor/core/editorjs/tests/conftest.py",
+  "saleor/core/editorjs/tests/test_editorjs.py",
+  "saleor/core/editorjs/tests/test_lists.py",
+  "saleor/core/utils/editorjs.py",
+  "saleor/core/management/commands/clean_editorjs_fields.py",
+  "saleor/core/cleaners/html.py",
+  "saleor/core/utils/__init__.py",
+  "saleor/core/deprecations.py",
+  # EditorJS consumers (model/search updates)
+  "saleor/attribute/models/base.py",
+  "saleor/attribute/search.py",
+  "saleor/attribute/tests/fixtures/attribute.py",
+  "saleor/discount/models.py",
+  "saleor/page/models.py",
+  "saleor/page/search.py",
+  "saleor/product/models.py",
+  "saleor/shipping/models.py",
+  # Checkout migration
+  "saleor/checkout/migrations/tasks/saleor3_23.py",
+  "saleor/checkout/tests/test_migrations_tasks.py",
+  # Product media
+  "saleor/graphql/product/mutations/product/product_media_create.py",
+  "saleor/graphql/product/tests/mutations/test_product_media_create.py",
+  "saleor/graphql/product/utils.py",
+  "saleor/product/tests/fixtures/product_media.py",
+  # Product bulk create
+  "saleor/graphql/product/bulk_mutations/product_bulk_create.py",
+  "saleor/graphql/product/tests/mutations/test_product_bulk_create.py",
+  # Product other
+  "saleor/graphql/product/mutations/category/category_create.py",
+  "saleor/graphql/product/mutations/product/product_cleaner.py",
+  "saleor/graphql/product/tests/deprecated/test_collection.py",
+  "saleor/graphql/product/tests/mutations/test_product_create.py",
+  "saleor/graphql/product/tests/mutations/test_product_update.py",
+  "saleor/graphql/product/tests/mutations/test_product_variant_bulk_create.py",
+  "saleor/graphql/product/tests/mutations/test_product_variant_create.py",
+  "saleor/graphql/product/tests/mutations/test_product_variant_update.py",
+  "saleor/graphql/product/tests/queries/test_product_query.py",
+  "saleor/graphql/product/types/products.py",
+  # Product tasks
+  "saleor/product/tasks.py",
+  "saleor/product/utils/tasks_utils.py",
+  "saleor/product/tests/test_tasks.py",
+  # Thumbnails
+  "saleor/thumbnail/views.py",
+  "saleor/thumbnail/utils.py",
+  "saleor/thumbnail/tests/test_views.py",
+  # Translations
+  "saleor/graphql/translations/mutations/attribute_value_bulk_translate.py",
+  "saleor/graphql/translations/mutations/attribute_value_translate.py",
+  "saleor/graphql/translations/tests/mutations/test_promotion_rule_translate.py",
+  "saleor/graphql/translations/tests/mutations/test_promotion_translate.py",
+  "saleor/graphql/translations/tests/test_translations.py",
+  "saleor/tests/e2e/promotions/test_staff_can_translate_promotions.py",
+  "saleor/tests/e2e/promotions/test_unable_to_query_nor_mutate_sale_updated_by_promotion_translations.py",
+  # GraphQL core
+  "saleor/graphql/attribute/utils/type_handlers.py",
+  "saleor/graphql/core/descriptions.py",
+  "saleor/graphql/core/tests/test_file_validation.py",
+  "saleor/graphql/core/utils/__init__.py",
+  "saleor/graphql/core/validators/file.py",
+  "saleor/graphql/schema.graphql",
+  # Refund settings
+  "saleor/graphql/shop/mutations/refund_settings_update.py",
+  "saleor/graphql/shop/tests/mutations/test_refund_settings_update.py",
+  # Discount
+  "saleor/graphql/discount/tests/queries/test_promotion.py",
+  # Core validators
+  "saleor/core/utils/validators.py",
+  "saleor/core/utils/tests/test_validators.py",
+  # CSV export
+  "saleor/csv/utils/products_data.py",
+  "saleor/csv/tests/export/products_data/utils.py",
+  # Shared test infra
+  "saleor/tests/fixtures.py",
+  "saleor/tests/utils.py",
+]
+infrastructure = [
+  ".claude/skills/filter-benchmark/SKILL.md",
+  ".claude/skills/filter-benchmark/analyze_query.py",
+  "AGENTS.md",
+  "CHANGELOG.md",
+  "package-lock.json",
+  "package.json",
+  "pyproject.toml",
+  "saleor/__init__.py",
+  "saleor/celeryconf.py",
+  "saleor/settings.py",
+  "saleor/tests/settings.py",
+  "saleor/urls.py",
+  "uv.lock",
+  # Django migrations
+  "saleor/attribute/migrations/0008_auto_20210407_0632.py",
+  "saleor/checkout/migrations/0093_propagate_checkout_delivery.py",
+  "saleor/discount/migrations/0045_promotions.py",
+  "saleor/page/migrations/0016_auto_20201112_0904.py",
+  "saleor/page/migrations/0018_migrate_content_json_into_content.py",
+  "saleor/page/migrations/0020_update_content_fields.py",
+  "saleor/product/migrations/0131_auto_20201112_0904.py",
+  "saleor/product/migrations/0138_migrate_description_json_into_description.py",
+  "saleor/product/migrations/0141_update_descritpion_fields.py",
+  "saleor/product/migrations/0178_fix_description_plaintext_field.py",
+  "saleor/shipping/migrations/0030_auto_20210415_1001.py",
+]

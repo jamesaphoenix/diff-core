@@ -1,4 +1,5 @@
 # Go — gitea recent changes, ~102 files
+# 10-commit range: CLI refactor, artifact v4, HTTP serve refactor, org edit, repo visibility, frontend.
 [[repos]]
 name = "gitea-recent-changes"
 type = "real"
@@ -15,8 +16,8 @@ max_singleton_ratio = 0.50
 [repos.expectations]
 group_count_min = 5
 group_count_max = 15
-# CLI command refactoring: all cmd/*.go files are part of one var-to-func migration
 same_group = [
+  # CLI command refactoring: all cmd/*.go files are part of one var-to-func migration
   ["cmd/actions.go", "cmd/admin.go"],
   ["cmd/admin.go", "cmd/dump.go"],
   ["cmd/dump.go", "cmd/web.go"],
@@ -40,28 +41,122 @@ same_group = [
   ["services/actions/permission_parser.go", "services/actions/permission_parser_test.go"],
 ]
 separate_group = [
-  # CLI refactoring is separate from artifact API
   ["cmd/main.go", "routers/api/actions/artifactsv4.go"],
-  # CLI refactoring is separate from HTTP serve refactor
   ["cmd/main.go", "modules/httplib/serve.go"],
-  # Artifact v4 is separate from org edit
   ["routers/api/actions/artifactsv4.go", "modules/structs/org.go"],
-  # Frontend CSS is separate from backend artifact API
   ["web_src/css/themes/theme-gitea-dark.css", "routers/api/actions/artifactsv4.go"],
 ]
 non_infrastructure = [
-  "models/actions/artifact.go",
-  "modules/httplib/serve.go",
-  "modules/httplib/content_disposition.go",
-  "modules/structs/org.go",
-  "routers/api/actions/artifactsv4.go",
-  "services/repository/repository.go",
-  "services/org/org.go",
+  # CLI commands (var-to-func refactor)
+  "cmd/actions.go",
+  "cmd/admin.go",
+  "cmd/admin_auth.go",
+  "cmd/admin_regenerate.go",
+  "cmd/admin_user.go",
+  "cmd/admin_user_generate_access_token.go",
+  "cmd/admin_user_list.go",
+  "cmd/docs.go",
+  "cmd/doctor.go",
+  "cmd/doctor_convert.go",
+  "cmd/doctor_test.go",
+  "cmd/dump.go",
+  "cmd/dump_repo.go",
+  "cmd/embedded.go",
+  "cmd/generate.go",
+  "cmd/hook.go",
+  "cmd/keys.go",
   "cmd/main.go",
+  "cmd/manager.go",
+  "cmd/manager_logging.go",
+  "cmd/migrate.go",
+  "cmd/migrate_storage.go",
+  "cmd/restore_repo.go",
+  "cmd/serv.go",
+  "cmd/web.go",
+  # Models
+  "models/actions/artifact.go",
+  # Modules
+  "modules/actions/artifacts.go",
+  "modules/httplib/content_disposition.go",
+  "modules/httplib/content_disposition_test.go",
+  "modules/httplib/serve.go",
+  "modules/httplib/serve_test.go",
+  "modules/lfs/content_store.go",
+  "modules/storage/minio.go",
+  "modules/storage/storage.go",
+  "modules/storage/storage_test.go",
+  "modules/structs/org.go",
+  "modules/test/utils.go",
+  "modules/typesniffer/typesniffer.go",
+  # Routers
+  "routers/api/actions/artifacts.go",
+  "routers/api/actions/artifacts_chunks.go",
+  "routers/api/actions/artifactsv4.go",
+  "routers/api/packages/alpine/alpine.go",
+  "routers/api/packages/arch/arch.go",
+  "routers/api/packages/debian/debian.go",
+  "routers/api/packages/helper/helper.go",
+  "routers/api/packages/maven/maven.go",
+  "routers/api/packages/rpm/rpm.go",
+  "routers/api/packages/rubygems/rubygems.go",
+  "routers/api/packages/swift/swift.go",
+  "routers/api/v1/org/org.go",
+  "routers/api/v1/repo/action.go",
+  "routers/api/v1/repo/file.go",
+  "routers/common/actions.go",
+  "routers/common/serve.go",
+  "routers/web/admin/diagnosis.go",
+  "routers/web/org/setting.go",
+  "routers/web/repo/actions/view.go",
+  "routers/web/repo/attachment.go",
+  "routers/web/repo/download.go",
+  "routers/web/repo/setting/setting.go",
+  "routers/web/user/setting/packages.go",
+  # Services
   "services/actions/permission_parser.go",
+  "services/actions/permission_parser_test.go",
+  "services/context/base.go",
+  "services/forms/org.go",
+  "services/lfs/server.go",
+  "services/org/org.go",
+  "services/org/org_test.go",
+  "services/repository/archiver/archiver.go",
+  "services/repository/repository.go",
+  "services/repository/repository_test.go",
+  "services/user/email.go",
+  "services/user/email_test.go",
+  # Templates
+  "templates/devtest/severity-colors.tmpl",
+  "templates/repo/migrate/migrating.tmpl",
+  "templates/repo/settings/options.tmpl",
+  "templates/repo/settings/repo_name_confirm_fields.tmpl",
+  # Integration tests
+  "tests/integration/api_actions_artifact_v4_test.go",
+  "tests/integration/api_org_test.go",
+  "tests/integration/cmd_keys_test.go",
+  "tests/integration/download_test.go",
+  "tests/integration/integration_test.go",
+  "tests/integration/org_test.go",
+  "tests/integration/repo_visibility_test.go",
+  # Frontend
+  "web_src/css/base.css",
+  "web_src/css/modules/checkbox.css",
+  "web_src/css/modules/message.css",
+  "web_src/js/components/ActionRunJobView.vue",
+  "web_src/js/components/ActionRunView.test.ts",
+  "web_src/js/components/ActionRunView.ts",
+  "web_src/js/render/ansi.test.ts",
+  "web_src/js/render/ansi.ts",
+  "web_src/js/utils/url.test.ts",
+  "web_src/js/utils/url.ts",
 ]
 infrastructure = [
   "options/locale/locale_en-US.json",
   "options/locale/locale_ga-IE.json",
+  "models/fixtures/action_artifact.yml",
+  "routers/api/actions/artifact.pb.go",
+  "routers/api/actions/artifact.proto",
+  "templates/swagger/v1_json.tmpl",
+  "web_src/css/themes/theme-gitea-dark.css",
+  "web_src/css/themes/theme-gitea-light.css",
 ]
-
