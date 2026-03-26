@@ -561,15 +561,21 @@ pub fn classify_by_convention(path: &str) -> InfraCategory {
     let filename = lower.rsplit('/').next().unwrap_or(&lower);
     let ext = filename.rsplit('.').next().unwrap_or("");
 
-    // Schemas/Types
-    if lower.contains("/schemas/")
+    // Schemas/Types — but NOT source code files in /types/ directories
+    // (Go, Rust, TS packages named "types" contain core application types, not infra)
+    let is_source_ext = matches!(
+        ext,
+        "go" | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "java" | "kt" | "rb" | "php"
+            | "cs" | "swift" | "scala"
+    );
+    if (lower.contains("/schemas/")
         || lower.starts_with("schemas/")
         || lower.contains("/schema/")
         || lower.starts_with("schema/")
         || filename.contains(".schema.")
-        || filename.contains(".dto.")
-        || lower.contains("/types/")
-        || lower.starts_with("types/")
+        || filename.contains(".dto."))
+        // /types/ only counts as schema for non-source files (JSON schemas, etc.)
+        || ((lower.contains("/types/") || lower.starts_with("types/")) && !is_source_ext)
     {
         return InfraCategory::Schema;
     }
