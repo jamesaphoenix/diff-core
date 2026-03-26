@@ -1,17 +1,48 @@
-# Python — pydantic recent, ~22 files
+# pydantic-recent
 [[repos]]
 name = "pydantic-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/pydantic"
 language = "python"
 range = "fbf9c6e7b3937168e1b7648fdc1f1421d9d14b29..94dd544cc0ba0692801f429dd64124db76a4537d"
-notes = "SMALL. 10-commit range. ~22 files."
+notes = "SMALL. 10-commit range: exclude_if, MISSING sentinel, validate_strings fix. ~22 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.4
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 2
+group_count_min = 4
 group_count_max = 7
+same_group = [
+  ["pydantic/fields.py", "tests/test_computed_fields.py"],
+  ["pydantic-core/src/input/input_string.rs", "tests/test_edge_cases.py"],
+  ["celery/worker/loops.py", "t/unit/worker/test_loops.py"],
+]
+infrastructure = [
+  ".github/workflows/ci.yml",
+  "Makefile",
+  "pydantic/_internal/_model_construction.py",
+  "pydantic/plugin/_loader.py",
+  "pydantic/plugin/_schema_validator.py",
+]
+non_infrastructure = [
+  "docs/concepts/experimental.md",
+  "docs/concepts/fields.md",
+  "pydantic-core/python/pydantic_core/core_schema.py",
+  "pydantic-core/src/input/input_string.rs",
+  "pydantic-core/src/serializers/computed_fields.rs",
+  "pydantic-core/src/serializers/type_serializers/model.rs",
+  "pydantic-core/src/validators/union.rs",
+  "pydantic/_internal/_generate_schema.py",
+  "pydantic/_internal/_schema_gather.py",
+  "pydantic/fields.py",
+  "pydantic/json_schema.py",
+  "pydantic/mypy.py",
+  "tests/test_computed_fields.py",
+  "tests/test_edge_cases.py",
+  "tests/test_missing_sentinel.py",
+  "tests/test_types_namedtuple.py",
+  "tests/types/test_union.py",
+]

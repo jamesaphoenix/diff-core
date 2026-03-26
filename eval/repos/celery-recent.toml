@@ -1,17 +1,48 @@
-# Python — celery recent, ~22 files
+# celery-recent
 [[repos]]
 name = "celery-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/celery"
 language = "python"
 range = "7735d2ba9451bcfe3fd905942f95cd85e049cc3b..c167ccf4a12cc3fd11e8c31837a642e65fab6bbb"
-notes = "SMALL. 10-commit range. ~22 files."
+notes = "SMALL. 10-commit range: ignore_result priority, task_result_exists, loop reconnect. ~22 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.4
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 7
+group_count_min = 3
+group_count_max = 4
+same_group = [
+  ["celery/app/trace.py", "t/unit/tasks/test_trace.py"],
+  ["celery/backends/base.py", "t/unit/backends/test_base.py"],
+  ["celery/worker/loops.py", "t/unit/worker/test_loops.py"],
+]
+infrastructure = [
+  ".github/workflows/integration-tests.yml",
+  ".github/workflows/smoke-tests.yml",
+  "celery/bootsteps.py",
+  "docs/userguide/extending.rst",
+  "requirements/extras/gcpubsub.txt",
+  "setup.py",
+]
+non_infrastructure = [
+  "celery/app/trace.py",
+  "celery/backends/base.py",
+  "celery/backends/database/__init__.py",
+  "celery/backends/mongodb.py",
+  "celery/result.py",
+  "celery/worker/loops.py",
+  "celery/worker/request.py",
+  "docs/internals/protocol.rst",
+  "docs/userguide/tasks.rst",
+  "t/unit/backends/test_base.py",
+  "t/unit/backends/test_database.py",
+  "t/unit/backends/test_mongodb.py",
+  "t/unit/tasks/test_result.py",
+  "t/unit/tasks/test_trace.py",
+  "t/unit/worker/test_loops.py",
+  "t/unit/worker/test_request.py",
+]
