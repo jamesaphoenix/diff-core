@@ -1,17 +1,61 @@
 # TypeScript — Next.js features, ~30 files
+# 5-commit range: monorepo version bump, turbopack Effect trait refactor, docs.
 [[repos]]
 name = "nextjs-features"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/nextjs"
 language = "typescript"
 range = "468a40fa32bcd0d3683d8fa13ce4dbab892b65eb..cc62489bbdca35f52a8bfd2bfb0f6914d44a5397"
-notes = "SMALL. 5-commit range: docs, turbopack, CLI. ~30 files."
+notes = "SMALL. 5-commit range: version bump, turbopack Effect refactor, docs. ~30 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.80
 max_singleton_ratio = 0.60
 
 [repos.expectations]
 group_count_min = 2
-group_count_max = 15
+group_count_max = 6
+same_group = [
+  # Turbo-tasks Effect trait refactor: core + impls
+  ["turbopack/crates/turbo-tasks/src/effect.rs", "turbopack/crates/turbo-tasks/src/marker_trait.rs"],
+  ["turbopack/crates/turbo-tasks/src/effect.rs", "turbopack/crates/turbo-tasks/src/trace.rs"],
+  # Effect consumer in turbo-tasks-fs
+  ["turbopack/crates/turbo-tasks-fs/src/lib.rs", "turbopack/crates/turbo-tasks/src/effect.rs"],
+  # Docs pair
+  ["docs/01-app/01-getting-started/17-deploying.mdx", "docs/01-app/02-guides/deploying-to-platforms.mdx"],
+]
+infrastructure = [
+  "docs/01-app/01-getting-started/17-deploying.mdx",
+  "docs/01-app/02-guides/deploying-to-platforms.mdx",
+  "lerna.json",
+  "packages/create-next-app/package.json",
+  "packages/eslint-config-next/package.json",
+  "packages/eslint-plugin-internal/package.json",
+  "packages/eslint-plugin-next/package.json",
+  "packages/font/package.json",
+  "packages/next-bundle-analyzer/package.json",
+  "packages/next-codemod/package.json",
+  "packages/next-env/package.json",
+  "packages/next-mdx/package.json",
+  "packages/next-playwright/package.json",
+  "packages/next-plugin-storybook/package.json",
+  "packages/next-polyfill-module/package.json",
+  "packages/next-polyfill-nomodule/package.json",
+  "packages/next-routing/package.json",
+  "packages/next-rspack/package.json",
+  "packages/next-swc/package.json",
+  "packages/next/package.json",
+  "packages/react-refresh-utils/package.json",
+  "packages/third-parties/package.json",
+  "pnpm-lock.yaml",
+]
+non_infrastructure = [
+  "test/e2e/css-data-url-global-pages/data-url-css.d.ts",
+  "turbopack/crates/turbo-tasks-fs/src/lib.rs",
+  "turbopack/crates/turbo-tasks/src/effect.rs",
+  "turbopack/crates/turbo-tasks/src/invalidation.rs",
+  "turbopack/crates/turbo-tasks/src/lib.rs",
+  "turbopack/crates/turbo-tasks/src/marker_trait.rs",
+  "turbopack/crates/turbo-tasks/src/trace.rs",
+]
