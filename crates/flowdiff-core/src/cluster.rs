@@ -396,42 +396,42 @@ fn merge_at_depth(groups: Vec<FlowGroup>, depth: usize) -> Vec<FlowGroup> {
         result.push(groups[*idx].clone());
     }
 
-    // Merge buckets (chunked by MAX_MERGE_BUCKET_SIZE)
+    // Merge buckets — sub-bucket by next directory level to keep siblings together
     for (_prefix, indices) in &buckets {
         if indices.len() <= 1 {
             for idx in indices {
                 result.push(groups[*idx].clone());
             }
+        } else if indices.len() <= MAX_MERGE_BUCKET_SIZE {
+            // Small enough to merge directly
+            merge_group_indices(&groups, indices, &mut result);
         } else {
-            // Split large buckets into chunks to prevent mega-groups
-            for chunk in indices.chunks(MAX_MERGE_BUCKET_SIZE) {
-                if chunk.len() == 1 {
-                    result.push(groups[chunk[0]].clone());
+            // Large bucket: sub-divide by the next directory level (depth+1)
+            // so files in the same immediate directory always stay together
+            let mut sub_buckets: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+            for &idx in indices.iter() {
+                // Use the entrypoint file's parent directory as sub-key
+                let sub_key = if let Some(ref ep) = groups[idx].entrypoint {
+                    ep.file
+                        .rsplit_once('/')
+                        .map(|(dir, _)| dir.to_string())
+                        .unwrap_or_else(|| ep.file.clone())
+                } else if let Some(first) = groups[idx].files.first() {
+                    first.path
+                        .rsplit_once('/')
+                        .map(|(dir, _)| dir.to_string())
+                        .unwrap_or_else(|| first.path.clone())
                 } else {
-                    let first = &groups[chunk[0]];
-                    let mut merged_files: Vec<FileChange> = Vec::new();
-                    let mut merged_edges: Vec<crate::types::FlowEdge> = Vec::new();
+                    format!("_unknown_{}", idx)
+                };
+                sub_buckets.entry(sub_key).or_default().push(idx);
+            }
 
-                    for idx in chunk {
-                        merged_files.extend(groups[*idx].files.clone());
-                        merged_edges.extend(groups[*idx].edges.clone());
-                    }
-
-                    merged_files.sort_by(|a, b| a.path.cmp(&b.path));
-                    for (i, f) in merged_files.iter_mut().enumerate() {
-                        f.flow_position = i as u32;
-                    }
-
-                    result.push(FlowGroup {
-                        id: first.id.clone(),
-                        name: first.name.clone(),
-                        entrypoint: first.entrypoint.clone(),
-                        files: merged_files,
-                        edges: merged_edges,
-                        risk_score: 0.0,
-                        review_order: 0,
-                    });
-                }
+            // Merge within each sub-bucket.
+            // Files in the same immediate directory always merge together — no cap.
+            // Only apply the bucket cap when splitting ACROSS different sub-directories.
+            for (_sub_key, sub_indices) in &sub_buckets {
+                merge_group_indices(&groups, sub_indices, &mut result);
             }
         }
     }
@@ -443,6 +443,41 @@ fn merge_at_depth(groups: Vec<FlowGroup>, depth: usize) -> Vec<FlowGroup> {
     }
 
     result
+}
+
+/// Merge a set of group indices into one group and push to result.
+fn merge_group_indices(groups: &[FlowGroup], indices: &[usize], result: &mut Vec<FlowGroup>) {
+    if indices.is_empty() {
+        return;
+    }
+    if indices.len() == 1 {
+        result.push(groups[indices[0]].clone());
+        return;
+    }
+
+    let first = &groups[indices[0]];
+    let mut merged_files: Vec<FileChange> = Vec::new();
+    let mut merged_edges: Vec<crate::types::FlowEdge> = Vec::new();
+
+    for &idx in indices {
+        merged_files.extend(groups[idx].files.clone());
+        merged_edges.extend(groups[idx].edges.clone());
+    }
+
+    merged_files.sort_by(|a, b| a.path.cmp(&b.path));
+    for (i, f) in merged_files.iter_mut().enumerate() {
+        f.flow_position = i as u32;
+    }
+
+    result.push(FlowGroup {
+        id: first.id.clone(),
+        name: first.name.clone(),
+        entrypoint: first.entrypoint.clone(),
+        files: merged_files,
+        edges: merged_edges,
+        risk_score: 0.0,
+        review_order: 0,
+    });
 }
 
 /// BFS from an entrypoint using bidirectional traversal, returning file_path → minimum graph distance.
