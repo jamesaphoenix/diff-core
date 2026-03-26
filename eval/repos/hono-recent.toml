@@ -1,17 +1,44 @@
-# Typescript — hono recent, ~15 files
+# hono-recent
 [[repos]]
 name = "hono-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/hono"
 language = "typescript"
 range = "1be3a53ccbd40b85073fc05a1af1ddf4c7a83620..e1ae0eb0f5a2dc1001895523016db02141972695"
-notes = "SMALL. 10-commit range. ~15 files."
+notes = "SMALL. 10-commit range: client types, SSG fix, bearer-auth fix, CORS fix, parseBody fix. ~15 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.2
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 5
+group_count_min = 4
+group_count_max = 8
+same_group = [
+  ["src/client/types.ts", "src/client/client.test.ts"],
+  ["src/helper/ssg/ssg.ts", "src/helper/ssg/ssg.test.tsx"],
+  ["src/middleware/bearer-auth/index.ts", "src/middleware/bearer-auth/index.test.ts"],
+  ["src/middleware/cors/index.ts", "src/middleware/cors/index.test.ts"],
+  ["src/request.ts", "src/request.test.ts"],
+  ["src/utils/mime.ts", "src/utils/mime.test.ts"],
+]
+infrastructure = [
+  "package.json",
+]
+non_infrastructure = [
+  "src/adapter/service-worker/index.ts",
+  "src/client/client.test.ts",
+  "src/client/index.ts",
+  "src/client/types.ts",
+  "src/helper/ssg/ssg.test.tsx",
+  "src/helper/ssg/ssg.ts",
+  "src/middleware/bearer-auth/index.test.ts",
+  "src/middleware/bearer-auth/index.ts",
+  "src/middleware/cors/index.test.ts",
+  "src/middleware/cors/index.ts",
+  "src/request.test.ts",
+  "src/request.ts",
+  "src/utils/mime.test.ts",
+  "src/utils/mime.ts",
+]
