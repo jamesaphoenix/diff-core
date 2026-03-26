@@ -1,0 +1,18 @@
+# TypeScript — payload large range, ~294 files
+[[repos]]
+name = "payload-large-range"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/payload"
+language = "typescript"
+range = "a188556e99d94c96266671b2129e5c8cb05e46a5..1a0f4d028715e6ceae58acebca7884b268f298e7"
+notes = "LARGE. 20-commit range in headless CMS. ~294 files."
+
+[repos.thresholds]
+max_groups = 100
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.50
+
+[repos.expectations]
+group_count_min = 5
+group_count_max = 90
+

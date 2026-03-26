@@ -1,0 +1,26 @@
+# MEDIUM DIFFS (50-120 files) — good balance of coverage and speed
+# ===========================================================================
+
+# TypeScript — payload LLM eval suite, 113 files
+# NOTE: Currently 91 groups (84 singletons!). Extreme singleton explosion. Only 6 infra files.
+[[repos]]
+name = "payload-eval-suite"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/payload"
+language = "typescript"
+range = "0d15620d903f152cc2197e7c2a1b801217a66c2d..db4b00ecf7b5d88eeb8937e5ce366c1b019378c8"
+notes = "MEDIUM. LLM eval suite. 113 files. Currently 91 groups (84 singletons)."
+
+[repos.thresholds]
+max_groups = 60
+max_infra_ratio = 0.15
+max_singleton_ratio = 0.95
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 50
+# Table components should be in the same group
+same_group = [
+  ["test/evals/components/EvalDashboard/CompareTable.tsx", "test/evals/components/EvalDashboard/ResultsTable.tsx"],
+]
+

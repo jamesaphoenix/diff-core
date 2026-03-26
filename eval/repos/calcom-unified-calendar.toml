@@ -1,0 +1,21 @@
+# SMALL DIFFS (20-50 files) — fast iteration, detailed golden coverage
+# ===========================================================================
+
+# TypeScript — cal.com unified calendar API, 23 files
+[[repos]]
+name = "calcom-unified-calendar"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/cal.com"
+language = "typescript"
+range = "fa20f19e54b5747632017dafcc2cd735dc7d70d4..72acf09ff20bdaa50173fcabceeb00825397668c"
+notes = "SMALL. Unified calendar API: CRUD, freebusy, list connections. 23 files."
+
+[repos.thresholds]
+max_groups = 20
+max_infra_ratio = 0.30
+max_singleton_ratio = 0.50
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 12
+

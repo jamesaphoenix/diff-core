@@ -9,6 +9,7 @@
 
 pub mod fixtures;
 pub mod report;
+pub mod repos;
 pub mod scoring;
 
 use fixtures::{

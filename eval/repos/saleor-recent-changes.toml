@@ -1,0 +1,18 @@
+# Python — saleor recent changes, ~92 files
+[[repos]]
+name = "saleor-recent-changes"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/saleor"
+language = "python"
+range = "d9a482b8e613981549efa23df12ebe86d4caf88f..e3a6bae82a312b1eed2c51a7f6daee5458c788f6"
+notes = "MEDIUM. Recent 10-commit range with mixed features/fixes. ~92 files."
+
+[repos.thresholds]
+max_groups = 40
+max_infra_ratio = 0.40
+max_singleton_ratio = 0.50
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 35
+

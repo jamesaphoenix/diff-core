@@ -1,0 +1,67 @@
+# Go — gitea recent changes, ~102 files
+[[repos]]
+name = "gitea-recent-changes"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea"
+language = "go"
+range = "c96cc701445cfe31fce65dc4ff667ab49f218857..d5a89805d90d31465ac10fdf3d1a9119b669e8be"
+notes = "MEDIUM. Recent 10-commit range. ~102 files."
+
+[repos.thresholds]
+max_groups = 45
+max_infra_ratio = 0.40
+max_singleton_ratio = 0.50
+
+[repos.expectations]
+group_count_min = 5
+group_count_max = 15
+# CLI command refactoring: all cmd/*.go files are part of one var-to-func migration
+same_group = [
+  ["cmd/actions.go", "cmd/admin.go"],
+  ["cmd/admin.go", "cmd/dump.go"],
+  ["cmd/dump.go", "cmd/web.go"],
+  # Actions artifact v4: model + router + integration test
+  ["models/actions/artifact.go", "routers/api/actions/artifactsv4.go"],
+  ["routers/api/actions/artifactsv4.go", "tests/integration/api_actions_artifact_v4_test.go"],
+  # HTTP content serving refactor: core module + new file + test
+  ["modules/httplib/serve.go", "modules/httplib/content_disposition.go"],
+  ["modules/httplib/content_disposition.go", "modules/httplib/content_disposition_test.go"],
+  # Package routers all changed together (serve header refactor ripple)
+  ["routers/api/packages/helper/helper.go", "routers/api/packages/alpine/alpine.go"],
+  # Org edit: struct + service + test
+  ["modules/structs/org.go", "services/org/org.go"],
+  ["services/org/org.go", "services/org/org_test.go"],
+  # Repo visibility: service + template + test
+  ["services/repository/repository.go", "services/repository/repository_test.go"],
+  ["services/repository/repository.go", "tests/integration/repo_visibility_test.go"],
+  # Frontend actions log: component + test
+  ["web_src/js/components/ActionRunView.ts", "web_src/js/components/ActionRunView.test.ts"],
+  # Permission parser + test
+  ["services/actions/permission_parser.go", "services/actions/permission_parser_test.go"],
+]
+separate_group = [
+  # CLI refactoring is separate from artifact API
+  ["cmd/main.go", "routers/api/actions/artifactsv4.go"],
+  # CLI refactoring is separate from HTTP serve refactor
+  ["cmd/main.go", "modules/httplib/serve.go"],
+  # Artifact v4 is separate from org edit
+  ["routers/api/actions/artifactsv4.go", "modules/structs/org.go"],
+  # Frontend CSS is separate from backend artifact API
+  ["web_src/css/themes/theme-gitea-dark.css", "routers/api/actions/artifactsv4.go"],
+]
+non_infrastructure = [
+  "models/actions/artifact.go",
+  "modules/httplib/serve.go",
+  "modules/httplib/content_disposition.go",
+  "modules/structs/org.go",
+  "routers/api/actions/artifactsv4.go",
+  "services/repository/repository.go",
+  "services/org/org.go",
+  "cmd/main.go",
+  "services/actions/permission_parser.go",
+]
+infrastructure = [
+  "options/locale/locale_en-US.json",
+  "options/locale/locale_ga-IE.json",
+]
+

@@ -1,0 +1,27 @@
+# TypeScript — octospark-services (existing, ~3484 files)
+[[repos]]
+name = "octospark-services-large-history"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/octospark-services"
+language = "typescript"
+range = "2ef8528c4a5d60c045251ce5a270ec4993607327..884272b11751fea85e9703cf276114837e592147"
+notes = "VERY LARGE. Pinned historical diff. ~3484 files. Cassette/VCR merge heuristics target."
+
+[repos.thresholds]
+max_groups = 200
+max_infra_ratio = 0.92
+max_singleton_ratio = 0.35
+
+[repos.expectations]
+group_count_max = 200
+same_group = [
+  [
+    "packages/services/evaluation-framework/src/vcr/cassette-invalidation.test.ts",
+    "packages/services/evaluation-framework/src/vcr/cassette.test.ts",
+  ],
+]
+non_infrastructure = [
+  "packages/services/evaluation-framework/src/vcr/cassette-invalidation.test.ts",
+  "packages/services/evaluation-framework/src/vcr/cassette.test.ts",
+]
+

@@ -1,0 +1,29 @@
+# Go — alertmanager distributed tracing, 32 files
+# NOTE: Currently 13 singleton groups (all test/route entrypoints). Core tracing files in infra.
+[[repos]]
+name = "alertmanager-tracing"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/alertmanager"
+language = "go"
+range = "757619f3bf16acba321d78a109832dbb6cbee37a..18939cee8f7da2321795916c26dfbc6777c197a8"
+notes = "SMALL. Distributed tracing across API/notify/dispatch/silence. 32 files. 13 singleton groups."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.65
+max_singleton_ratio = 1.0
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 15
+# Tracing test and the tracing impl should be in the same semantic group
+same_group = [
+  ["tracing/tracing_test.go", "tracing/tracing.go"],
+]
+# Core tracing feature files should be in semantic groups, not infra
+non_infrastructure = [
+  "tracing/tracing_test.go",
+  "cmd/alertmanager/main.go",
+  "api/api.go",
+]
+

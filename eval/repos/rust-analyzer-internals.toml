@@ -1,0 +1,24 @@
+# Rust — rust-analyzer internals, 68 files
+# NOTE: Currently 4 singleton groups, 94% infra. Rust repos lack entrypoint detection.
+[[repos]]
+name = "rust-analyzer-internals"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/rust-analyzer"
+language = "rust"
+range = "f69d83e5f9280371d5c8544f293f67fe45aadc4e..c2bb9474976b6963f70b7f228e4f1270f553a1a9"
+notes = "MEDIUM. Internal refactors across hir-ty/syntax/ide. 68 files. 4 groups (all singletons), 94% infra."
+
+[repos.thresholds]
+max_groups = 35
+max_infra_ratio = 0.95
+max_singleton_ratio = 1.0
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 30
+# Test files that ARE detected should be non-infra
+non_infrastructure = [
+  "crates/ide-assists/src/tests/generated.rs",
+  "crates/rust-analyzer/src/cli/run_tests.rs",
+]
+

@@ -1,0 +1,18 @@
+# flowdiff autoresearch corpus
+#
+# Per-repo configs live in eval/repos/*.toml (one file per repo).
+# This file sets shared defaults and points at the repo directory.
+#
+# Each repo file has a `type` field:
+#   - "real"      — cloned from a real OSS project on GitHub
+#   - "synthetic" — generated programmatically to exercise specific edge cases
+#
+# Run:
+#   cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format text
+
+include_dir = "repos"
+
+[defaults]
+max_groups = 200
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60

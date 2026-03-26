@@ -1,0 +1,18 @@
+# Go — gitea large range, ~251 files
+[[repos]]
+name = "gitea-large-range"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea"
+language = "go"
+range = "068d7a513aef1d9b037122b99ded889b1774aa8e..d5a89805d90d31465ac10fdf3d1a9119b669e8be"
+notes = "LARGE. 30-commit range in Go git forge. ~251 files."
+
+[repos.thresholds]
+max_groups = 90
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.50
+
+[repos.expectations]
+group_count_min = 5
+group_count_max = 80
+

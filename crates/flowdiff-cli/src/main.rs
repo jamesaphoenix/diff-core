@@ -158,6 +158,11 @@ struct EvalArgs {
     #[arg(long)]
     fixture: Option<String>,
 
+    /// Path to a repo eval manifest (TOML). When provided, runs repo-based eval
+    /// instead of synthetic fixtures.
+    #[arg(long)]
+    manifest: Option<PathBuf>,
+
     /// Output format: "text", "json", or "html"
     #[arg(long, default_value = "text")]
     format: String,
@@ -636,6 +641,28 @@ fn run_eval_command(args: EvalArgs) {
         "html" => eval::EvalFormat::Html,
         _ => eval::EvalFormat::Text,
     };
+
+    // If --manifest is provided, run repo-based eval
+    if let Some(ref manifest_path) = args.manifest {
+        match eval::repos::run_repo_eval(manifest_path, args.min_score, format) {
+            Ok(result) => {
+                let mut stdout = std::io::stdout().lock();
+                use std::io::Write;
+                if let Err(e) = stdout.write_all(result.report.as_bytes()) {
+                    error!("Failed to write report: {}", e);
+                    process::exit(1);
+                }
+                if !result.passed {
+                    process::exit(1);
+                }
+            }
+            Err(e) => {
+                error!("Repo eval error: {}", e);
+                process::exit(1);
+            }
+        }
+        return;
+    }
 
     let config = eval::EvalConfig {
         fixture_filter: args.fixture,

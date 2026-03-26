@@ -1,0 +1,25 @@
+# Go — gitea Actions permissions, 57 files
+# NOTE: Currently 13 groups (all singletons). 77% infra. Route/model/service files scattered.
+[[repos]]
+name = "gitea-actions-permissions"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea"
+language = "go"
+range = "b22123ef862247f36baec556f25872d04c7cfbcd..45809c8f5479e167ac79221c7480b2d7b94ff03d"
+notes = "MEDIUM. Actions permissions feature. 57 files. 13 singleton groups, 77% infra."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.80
+max_singleton_ratio = 1.0
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 25
+# Route files should be in semantic groups
+non_infrastructure = [
+  "routers/web/web.go",
+  "routers/web/repo/githttp.go",
+  "services/actions/permission_parser_test.go",
+]
+

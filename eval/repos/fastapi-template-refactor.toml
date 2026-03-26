@@ -1,0 +1,29 @@
+# Python — fastapi-template test refactor, 22 files
+# NOTE: Currently 10 groups, all singletons. Backend and frontend routes should cluster.
+[[repos]]
+name = "fastapi-template-refactor"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/full-stack-fastapi-template"
+language = "python"
+range = "43fac49a1439236c1fac404b5ef6ca198c3810b2..51295d09b70a64ccd0a6005f004e240ca9d4e395"
+notes = "SMALL. Test refactor, Sentry/FastAPI upgrade, meta titles. 22 files. Currently 10 singleton groups."
+
+[repos.thresholds]
+max_groups = 20
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.80
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 12
+# Backend API routes should cluster together
+same_group = [
+  ["backend/app/api/routes/items.py", "backend/app/api/routes/users.py"],
+]
+# Core route files should be in semantic groups
+non_infrastructure = [
+  "backend/app/api/routes/items.py",
+  "backend/app/api/routes/users.py",
+  "frontend/src/routes/_layout/items.tsx",
+]
+
