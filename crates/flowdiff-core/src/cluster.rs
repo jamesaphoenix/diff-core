@@ -65,10 +65,12 @@ pub fn cluster_files(
                         ext,
                         "go" | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "java" | "kt"
                             | "rb" | "php" | "cs" | "swift" | "scala" | "vue" | "svelte"
-                            | "tmpl" | "html" | "css" | "scss"
+                            | "tmpl" | "html" | "css" | "scss" | "md" | "mdx" | "rst"
                     );
-                    if is_source {
+                    if is_source && !is_top_level_doc(file) {
                         source_files.push(file.clone());
+                    } else if is_source {
+                        true_infra.push(file.clone());
                     } else {
                         true_infra.push(file.clone());
                     }
@@ -473,9 +475,9 @@ fn rescue_non_infra_files(
                         ext,
                         "go" | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "java" | "kt"
                             | "rb" | "php" | "cs" | "swift" | "scala" | "vue" | "svelte"
-                            | "tmpl" | "html" | "css" | "scss"
+                            | "tmpl" | "html" | "css" | "scss" | "md" | "mdx" | "rst"
                     );
-                    if is_source {
+                    if is_source && !is_top_level_doc(file) {
                         if let Some(largest_idx) = groups
                             .iter()
                             .enumerate()
@@ -581,6 +583,31 @@ fn is_config_like_filename(path: &str) -> bool {
 
     // Migration test files (tests inside migration directories)
     if lower.contains("/migrations/") {
+        return true;
+    }
+
+    false
+}
+
+/// Check if a file is a top-level documentation file that should stay in infrastructure.
+/// Files like README.md, CHANGELOG.md at the root are infra. Nested docs/content/*.md are features.
+fn is_top_level_doc(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    let filename = lower.rsplit('/').next().unwrap_or(&lower);
+    let depth = path.matches('/').count();
+
+    // Root-level docs
+    if depth == 0 && matches!(
+        filename,
+        "readme.md" | "changelog.md" | "contributing.md" | "license.md"
+            | "security.md" | "authors.md" | "code_of_conduct.md"
+            | "changes.rst" | "history.md" | "releases.md"
+    ) {
+        return true;
+    }
+
+    // CHANGELOG/README at any depth
+    if filename == "readme.md" || filename == "changelog.md" {
         return true;
     }
 
