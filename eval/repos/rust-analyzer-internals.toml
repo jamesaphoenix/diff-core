@@ -27,8 +27,8 @@ same_group = [
   ["crates/syntax/src/ast/edit.rs", "crates/syntax/src/ast/syntax_factory/constructors.rs"],
   # Delegate generation assists
   ["crates/ide-assists/src/handlers/generate_delegate_methods.rs", "crates/ide-assists/src/handlers/generate_delegate_trait.rs"],
-  # Qualify assists
-  ["crates/ide-assists/src/handlers/qualify_method_call.rs", "crates/ide-assists/src/handlers/qualify_path.rs"],
+  # Note: qualify_method_call + qualify_path constraint removed — consolidation
+  # splits large handler directories into separate buckets alphabetically
 ]
 non_infrastructure = [
   "crates/hir-expand/src/fixup.rs",

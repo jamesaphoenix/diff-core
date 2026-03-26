@@ -118,6 +118,11 @@ non_infrastructure = [
   # CSV export
   "saleor/csv/utils/products_data.py",
   "saleor/csv/tests/export/products_data/utils.py",
+  # App config files (BFS-reachable from features)
+  "saleor/__init__.py",
+  "saleor/celeryconf.py",
+  "saleor/settings.py",
+  "saleor/tests/settings.py",
   # Shared test infra
   "saleor/tests/fixtures.py",
   "saleor/tests/utils.py",
@@ -130,10 +135,6 @@ infrastructure = [
   "package-lock.json",
   "package.json",
   "pyproject.toml",
-  "saleor/__init__.py",
-  "saleor/celeryconf.py",
-  "saleor/settings.py",
-  "saleor/tests/settings.py",
   "saleor/urls.py",
   "uv.lock",
   # Django migrations

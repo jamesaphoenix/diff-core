@@ -40,6 +40,8 @@ non_infrastructure = [
   "saleor/core/editorjs/utils.py",
   "saleor/core/utils/editorjs.py",
   # Core EditorJS tests
+  "saleor/core/editorjs/__init__.py",
+  "saleor/core/editorjs/tests/__init__.py",
   "saleor/core/editorjs/tests/conftest.py",
   "saleor/core/editorjs/tests/test_editorjs.py",
   "saleor/core/editorjs/tests/test_lists.py",
@@ -97,6 +99,4 @@ infrastructure = [
   "saleor/product/migrations/0178_fix_description_plaintext_field.py",
   "saleor/shipping/migrations/0030_auto_20210415_1001.py",
   # Package init files
-  "saleor/core/editorjs/__init__.py",
-  "saleor/core/editorjs/tests/__init__.py",
 ]
