@@ -83,7 +83,7 @@ pub fn cluster_files(
                 source_files.push(file.clone());
             }
         }
-        let rescued: Vec<(usize, String)> = Vec::new(); // unused but needed for type compatibility
+        let _rescued: Vec<(usize, String)> = Vec::new(); // unused but needed for type compatibility
 
         if source_files.is_empty() {
             // All files are truly infrastructure
