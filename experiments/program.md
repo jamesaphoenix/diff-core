@@ -132,6 +132,13 @@ LOOP FOREVER:
    - `avg_golden` — average golden score (the metric we care about most)
    - `repos_passing` — count of repos meeting all thresholds
 8. **Record**: Append one JSON line to `experiments/experiments.jsonl` (see formats below). NOTE: do not commit experiments.jsonl — leave it untracked.
+   Every Phase 2/3 experiment MUST include `"optimization_scope": "local"` or `"optimization_scope": "global"`:
+   - **LOCAL**: Hardcoded heuristics targeting specific repos/patterns (config filename lists, extension checks, threshold constants, specific entrypoint patterns). Quick wins but risk overfitting.
+   - **GLOBAL**: Generic approaches that improve grouping broadly without repo-specific logic (embeddings, graph algorithms, import resolution via LSP, learned weights, architectural changes like the rescue mechanism). Slower but more durable.
+
+   After 3 consecutive LOCAL experiments, do at least 1 GLOBAL. This prevents the algorithm from becoming a pile of special cases.
+
+   When reviewing experiment history, compare avg improvement per LOCAL vs GLOBAL experiment to see which approach delivers more value.
 9. **Decide**:
    - If avg_overall improved (or golden coverage increased) and no repo regressed more than 0.05: **keep** — advance the branch.
    - If avg_overall is equal or worse: **discard** — `git reset --hard HEAD~1` to revert.
@@ -166,6 +173,7 @@ Each experiment gets one JSON line. Format depends on experiment type:
   "old_value": "3",
   "new_value": "5",
   "type": "deterministic",
+  "optimization_scope": "local",
   "results": {
     "octospark": {"groups": 145, "infra_ratio": 0.917, "singleton_ratio": 0.241, "golden_score": 1.0, "overall": 1.0},
     "starship": {"groups": 12, "infra_ratio": 0.15, "singleton_ratio": 0.08, "golden_score": 1.0, "overall": 0.95}
