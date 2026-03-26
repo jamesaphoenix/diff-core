@@ -337,10 +337,102 @@ pub fn cluster_files(
         })
     };
 
+    // Step 6: Merge groups that share test+impl pairs by bare stem.
+    // After all prior grouping, test files may end up in different groups than their
+    // implementations (e.g., packages/X/src/Foo.ts in group A, packages/X/test/Foo.test.ts
+    // in group B). Merge the smaller group into the larger one.
+    groups = merge_groups_by_stem(groups);
+
     ClusterResult {
         groups,
         infrastructure,
     }
+}
+
+/// Merge groups that contain test+impl pairs sharing a bare filename stem.
+/// If a test file in group A has a matching impl in group B (by bare stem),
+/// merge the smaller group into the larger one.
+fn merge_groups_by_stem(mut groups: Vec<FlowGroup>) -> Vec<FlowGroup> {
+    let mut merged = true;
+    while merged {
+        merged = false;
+        // Build: bare_stem → list of (group_idx, is_test)
+        let mut stem_locations: HashMap<String, Vec<(usize, bool)>> = HashMap::new();
+        for (g_idx, group) in groups.iter().enumerate() {
+            for fc in &group.files {
+                let is_test = is_test_file_name(&fc.path);
+                let stem = bare_stem(&fc.path);
+                if !stem.is_empty() {
+                    stem_locations
+                        .entry(stem)
+                        .or_default()
+                        .push((g_idx, is_test));
+                }
+            }
+        }
+
+        // Find stems that appear in multiple groups with both test and impl
+        let mut best_merge: Option<(usize, usize)> = None;
+        for (_stem, locations) in &stem_locations {
+            let group_indices: HashSet<usize> = locations.iter().map(|(g, _)| *g).collect();
+            if group_indices.len() < 2 {
+                continue;
+            }
+            let has_test = locations.iter().any(|(_, t)| *t);
+            let has_impl = locations.iter().any(|(_, t)| !*t);
+            if has_test && has_impl {
+                // Find the test group and impl group
+                let impl_group = locations.iter().find(|(_, t)| !*t).map(|(g, _)| *g);
+                let test_group = locations.iter().find(|(_, t)| *t).map(|(g, _)| *g);
+                if let (Some(ig), Some(tg)) = (impl_group, test_group) {
+                    if ig != tg {
+                        // Merge smaller into larger
+                        let (keep, donor) = if groups[ig].files.len() >= groups[tg].files.len() {
+                            (ig, tg)
+                        } else {
+                            (tg, ig)
+                        };
+                        best_merge = Some((keep, donor));
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some((keep_idx, donor_idx)) = best_merge {
+            let donor = groups.remove(donor_idx);
+            // Adjust keep_idx if donor was before it
+            let keep_idx = if donor_idx < keep_idx {
+                keep_idx - 1
+            } else {
+                keep_idx
+            };
+            let receiver = &mut groups[keep_idx];
+            for fc in donor.files {
+                let pos = receiver.files.len() as u32;
+                receiver.files.push(FileChange {
+                    flow_position: pos,
+                    ..fc
+                });
+            }
+            receiver.edges.extend(donor.edges);
+            merged = true;
+        }
+    }
+    groups
+}
+
+/// Extract bare filename stem (no directory, no extension, no test suffix).
+fn bare_stem(path: &str) -> String {
+    let filename = path.rsplit('/').next().unwrap_or(path);
+    let base = filename
+        .replace(".test.", ".")
+        .replace(".spec.", ".")
+        .replace("_test.", ".")
+        .replace(".e2e.", ".");
+    let stem = base.rsplit_once('.').map(|(s, _)| s).unwrap_or(&base);
+    let stem = stem.strip_prefix("test_").unwrap_or(stem);
+    stem.to_lowercase()
 }
 
 /// Move test files to the same group as their corresponding implementation files.
