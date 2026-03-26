@@ -547,6 +547,11 @@ fn is_config_like_filename(path: &str) -> bool {
             | "tailwind.config.js"
             | "postcss.config.js"
             | "postcss.config.ts"
+            | "build.ts"
+            | "build.js"
+            | "build.mjs"
+            | "tsup.config.ts"
+            | "esbuild.config.ts"
     ) {
         return true;
     }
