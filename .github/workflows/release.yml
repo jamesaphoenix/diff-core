@@ -62,7 +62,17 @@ jobs:
 
       - name: Verify code signing
         run: |
-          APP_PATH=$(find target/aarch64-apple-darwin/release/bundle/macos -name "*.app" -maxdepth 1 | head -1)
+          echo "::group::Locate .app bundle"
+          APP_PATH=$(find target/aarch64-apple-darwin/release/bundle -name "*.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found in bundle dir, mounting DMG to verify..."
+            DMG_PATH=$(find target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+            MOUNT_DIR=$(mktemp -d)
+            hdiutil attach "$DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+            APP_PATH=$(find "$MOUNT_DIR" -name "*.app" -type d -maxdepth 1 | head -1)
+          fi
+          echo "Found app at: $APP_PATH"
+          echo "::endgroup::"
           echo "::group::Verify app signature"
           codesign -dvvv "$APP_PATH"
           echo "::endgroup::"
