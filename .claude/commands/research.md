@@ -30,10 +30,33 @@ The linter checks that every file in each diff appears in either `infrastructure
 
 ### Step 4: Decide what to do
 
-Based on the experiment history and lint results, pick the highest-priority phase.
+Based on the experiment history and lint results, first determine your **state**, then pick the phase.
+
+**State machine — two states:**
+
+```
+GROWING_DATA → when corpus < required size for the current optimization round
+OPTIMISING   → when corpus ≥ required size AND all repos have 100% golden coverage
+```
+
+Check state:
+```bash
+REPO_COUNT=$(ls eval/repos/*.toml | wc -l)
+echo "Repos: $REPO_COUNT (need ≥47 for next OPTIMISING round)"
+```
+
+- **Round 1 OPTIMISING** (experiments #3-#36): 17 repos, avg 0.82→0.98. COMPLETE.
+- **Round 2 requires**: ≥47 repos (17 existing + 30 new). State: **GROWING_DATA** until met.
+- **Round 3 will require**: ≥77 repos (47 + 30 new). And so on.
+
+**If state = GROWING_DATA:** Only Phase 0 (expand corpus) and Phase 1 (golden generation) are allowed. No Phase 2 parameter tuning — that's local optimization on insufficient data.
+
+**If state = OPTIMISING:** All phases are allowed.
+
+Print the state at the start of every experiment: `STATE: GROWING_DATA (17/47 repos)` or `STATE: OPTIMISING (47/47 repos)`.
 
 **GATE: Corpus expansion required before further optimization.**
-After each round of deterministic tuning (when avg_overall plateaus), you MUST add at least 30 new repos before continuing Phase 2/3 optimization. This prevents local optimization — tuning on 17 repos risks overfitting to their specific structure. Current corpus: 17 repos. Next optimization round requires ≥47 repos total. If the corpus is below the required size, Phase 0 is MANDATORY.
+After each optimization round (when avg_overall plateaus), add at least 30 new repos before continuing. This prevents local optimization — tuning on 17 repos risks overfitting to their structure. Current: 17 repos. Next round needs ≥47.
 
 Count repos: `ls eval/repos/*.toml | wc -l`
 
