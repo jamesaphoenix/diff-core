@@ -1,17 +1,39 @@
-# Python — httpx recent, ~13 files
+# Python — HTTPX HTTP client, ~13 files
+# 10-commit range: FunctionAuth public API, SSL docs restructure, dep bumps.
 [[repos]]
 name = "httpx-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/httpx"
 language = "python"
 range = "b55d4635701d9dc22928ee647880c76b078ba3f2..b5addb64f0161ff6bfe94c124ef76f6a1fba5254"
-notes = "SMALL. 10-commit range. ~13 files."
+notes = "SMALL. 10-commit range: FunctionAuth export, docs, dep bumps. ~13 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.50
 max_singleton_ratio = 0.60
 
 [repos.expectations]
 group_count_min = 2
 group_count_max = 5
+same_group = [
+  ["httpx/__init__.py", "httpx/_auth.py"],
+  ["docs/advanced/ssl.md", "docs/environment_variables.md"],
+]
+infrastructure = [
+  ".github/workflows/publish.yml",
+  ".github/workflows/test-suite.yml",
+  "pyproject.toml",
+  "requirements.txt",
+]
+non_infrastructure = [
+  "CHANGELOG.md",
+  "docs/advanced/ssl.md",
+  "docs/compatibility.md",
+  "docs/environment_variables.md",
+  "docs/logging.md",
+  "docs/quickstart.md",
+  "httpx/__init__.py",
+  "httpx/_auth.py",
+  "tests/models/test_responses.py",
+]
