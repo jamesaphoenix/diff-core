@@ -51,13 +51,109 @@ pub fn cluster_files(
     };
 
     if entrypoints.is_empty() {
-        return ClusterResult {
-            groups: vec![],
-            infrastructure: Some(InfrastructureGroup {
-                files: changed_set,
-                sub_groups: vec![],
+        // No entrypoints detected — but don't dump everything to infra.
+        // Classify files directly: source files go to directory groups, infra stays.
+        let mut true_infra = Vec::new();
+        let mut source_files = Vec::new();
+        for file in &changed_set {
+            let category = classify_by_convention(file);
+            if category != InfraCategory::Unclassified && category != InfraCategory::DirectoryGroup {
+                if !is_config_like_filename(file) {
+                    // Check extension-based rescue
+                    let ext = file.rsplit('.').next().unwrap_or("");
+                    let is_source = matches!(
+                        ext,
+                        "go" | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "java" | "kt"
+                            | "rb" | "php" | "cs" | "swift" | "scala" | "vue" | "svelte"
+                            | "tmpl" | "html" | "css" | "scss"
+                    );
+                    if is_source {
+                        source_files.push(file.clone());
+                    } else {
+                        true_infra.push(file.clone());
+                    }
+                } else {
+                    true_infra.push(file.clone());
+                }
+            } else if is_config_like_filename(file) {
+                true_infra.push(file.clone());
+            } else {
+                source_files.push(file.clone());
+            }
+        }
+        let rescued: Vec<(usize, String)> = Vec::new(); // unused but needed for type compatibility
+
+        if source_files.is_empty() {
+            // All files are truly infrastructure
+            return ClusterResult {
+                groups: vec![],
+                infrastructure: if true_infra.is_empty() {
+                    None
+                } else {
+                    Some(InfrastructureGroup {
+                        files: true_infra,
+                        sub_groups: vec![],
+                        reason: "Not reachable from any detected entrypoint".to_string(),
+                    })
+                },
+            };
+        }
+
+        // Create groups from source files by directory clustering
+        let mut dir_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for file in &source_files {
+            let dir = file.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+            dir_groups.entry(dir).or_default().push(file.clone());
+        }
+
+        let mut groups: Vec<FlowGroup> = dir_groups
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (dir, files))| {
+                let name = if dir.is_empty() {
+                    "root".to_string()
+                } else {
+                    dir.rsplit('/').next().unwrap_or(&dir).to_string()
+                };
+                FlowGroup {
+                    id: format!("group_{}", idx + 1),
+                    name: format!("{} (directory)", name),
+                    entrypoint: None,
+                    files: files
+                        .iter()
+                        .enumerate()
+                        .map(|(pos, path)| FileChange {
+                            path: path.clone(),
+                            flow_position: pos as u32,
+                            role: infer_file_role(path),
+                            changes: ChangeStats { additions: 0, deletions: 0 },
+                            symbols_changed: vec![],
+                        })
+                        .collect(),
+                    edges: vec![],
+                    risk_score: 0.0,
+                    review_order: 0,
+                }
+            })
+            .collect();
+
+        // Consolidate the directory groups
+        groups = consolidate_small_groups(groups);
+
+        let infrastructure = if true_infra.is_empty() {
+            None
+        } else {
+            let sub_groups = sub_cluster_infra_files(&true_infra, graph);
+            Some(InfrastructureGroup {
+                files: true_infra,
+                sub_groups,
                 reason: "Not reachable from any detected entrypoint".to_string(),
-            }),
+            })
+        };
+
+        return ClusterResult {
+            groups,
+            infrastructure,
         };
     }
 
