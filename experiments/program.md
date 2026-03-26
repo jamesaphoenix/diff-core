@@ -64,7 +64,18 @@ Configurable via `.flowdiff.toml` or CLI flags:
 
 ### 4. Golden expectations
 
-In `eval/repositories.research.toml`, you can add/update per-repo goldens:
+Per-repo golden files live in `eval/repos/<name>.toml`. Each file must classify ALL changed files:
+
+**Required (100% coverage enforced by `lint-goldens`):**
+- `infrastructure = ["file"]` - config, deps, CI, generated files, lockfiles, docs
+- `non_infrastructure = ["file"]` - feature code, business logic, tests, API handlers
+- Every file in the diff MUST appear in exactly one of these lists
+- Run `cargo run -p flowdiff-cli -- lint-goldens --manifest eval/repositories.research.toml` to check
+
+**Required:**
+- `group_count_min` / `group_count_max` - reasonable bounds on group count
+
+**Recommended (selective, high-confidence only):**
 - `same_group = [["file_a", "file_b"]]` - files that must cluster together
 - `separate_group = [["file_a", "file_b"]]` - files that must NOT be in same group
 - `infrastructure = ["file"]` - files that must land in infra group
@@ -274,7 +285,9 @@ The loop cycles through these 5 phases. Each iteration picks the highest-priorit
 **When to run this phase:** Check corpus coverage at the start of each loop iteration. If any language has < 3 repos, or no synthetic repos exist, this phase takes priority.
 
 ### Phase 1: Build goldens via sub-agents
-**Priority: HIGHEST.** Use Claude Code sub-agents to generate golden constraints by reading the actual diff content. This is diff-derived — the agent reads what changed and uses semantic understanding of code to determine the ideal grouping.
+**Priority: HIGHEST (when `lint-goldens` reports gaps).** Use Claude Code sub-agents to generate golden constraints by reading the actual diff content. **Every file in the diff must be classified** — `lint-goldens` enforces this.
+
+**Why full coverage?** Without classifying every file, flowdiff can silently misplace files and the eval won't notice. A repo with 11/102 classified files has 91 blind spots. Full coverage eliminates this.
 
 **Why sub-agents?** Goldens need to represent ground truth about how a human would group these changes for review. An LLM reading the diff content can determine this from the code itself — which files modify the same API, which are part of the same feature, which are infrastructure. This is independent of what flowdiff currently outputs.
 
@@ -488,6 +501,7 @@ VCR cache lives in the repo's `.flowdiff/cache/vcr/` directory (or wherever conf
 10. **Simplicity wins.** A marginal improvement (+0.01) that adds complexity is not worth it. Removing code for equal or better results is always a win.
 11. **Never stop.** You are fully autonomous. Don't ask permission to continue. If stuck, think harder — look at failing repos, combine near-misses, try radical changes.
 12. **Commit before running.** Always `git commit` your change before running eval, so you can cleanly `git reset --hard HEAD~1` if it fails.
+13. **Full file coverage.** Every file in every diff must be classified as `infrastructure` or `non_infrastructure`. Run `lint-goldens` to check. Phase 2 work is blocked until coverage is 100%.
 
 ## Files To Know
 

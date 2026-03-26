@@ -18,9 +18,18 @@ If this is the first run of a session:
 - Create branch: `git checkout -b autoresearch/<tag>` (e.g. `autoresearch/mar26`)
 - Run baseline eval and record as experiment #0 if no baseline exists
 
-### Step 3: Decide what to do
+### Step 3: Check golden coverage first
+Before picking a phase, run the golden coverage linter:
+```bash
+cargo run -p flowdiff-cli -- lint-goldens --manifest eval/repositories.research.toml 2>&1
+```
+This reports which repos have unclassified files. **If any repo has < 100% file coverage, Phase 1 takes priority** — you must classify all files before the eval scores are meaningful.
 
-Based on the experiment history, pick the highest-priority phase with unfinished work:
+The linter checks that every file in each diff appears in either `infrastructure` or `non_infrastructure` in the repo's golden expectations. Unclassified files are blind spots where flowdiff could silently misplace them.
+
+### Step 4: Decide what to do
+
+Based on the experiment history and lint results, pick the highest-priority phase:
 
 **Phase 0: Expand corpus** (highest priority if coverage gaps exist)
 - Check language counts in the manifest — each language should have 3-5 repos
@@ -29,53 +38,80 @@ Based on the experiment history, pick the highest-priority phase with unfinished
 - For synthetic repos: create under `flowdiff-eval-corpus/synthetic/<name>/`, add `type = "synthetic"` with tight goldens
 - Clone destination: `~/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/<language>/<repo>`
 
-**Phase 1: Build goldens via sub-agents** (highest priority if goldens are sparse)
-Use Claude Code sub-agents to generate golden constraints from diff content. For each repo that lacks goldens:
+**Phase 1: Build goldens via sub-agents** (highest priority if lint-goldens reports gaps)
+Use Claude Code sub-agents to generate golden constraints from diff content. **Every file in the diff must be classified as infrastructure or non_infrastructure** — this is enforced by `lint-goldens`.
 
-1. Get the diff content:
+For each repo that has unclassified files:
+
+1. Get the diff file list and the unclassified paths from `lint-goldens` output.
+
+2. Get the diff content:
    ```bash
    git -C <repo_path> diff <base>..<head> --stat > /tmp/fd-<name>-stat.txt
    git -C <repo_path> diff <base>..<head> > /tmp/fd-<name>-diff.txt
    ```
 
-2. Spawn a sub-agent (Agent tool) with this prompt:
+3. Spawn a sub-agent (Agent tool) with this prompt:
    ```
    You are analyzing a git diff to determine ideal semantic groupings for code review.
 
-   Read the diff output at /tmp/fd-<name>-diff.txt (or the diff content below).
-   Also read the file list to understand the scope.
+   Read the diff output at /tmp/fd-<name>-diff.txt.
+   Also read the file list at /tmp/fd-<name>-stat.txt.
 
-   For each changed file, determine:
+   You MUST classify EVERY file in the diff as either infrastructure or non_infrastructure.
+   Then additionally identify strong grouping relationships.
+
+   For EVERY changed file, determine:
+   - Is this file infrastructure (config, deps, CI, generated files, lockfiles, docs)
+     or non_infrastructure (feature code, business logic, tests, API handlers)?
    - What feature/module/API does this change belong to?
    - Which other changed files are part of the same logical change?
-   - Is this file infrastructure/boilerplate (config, deps, CI) or a semantic change?
 
    Output golden constraints in this exact format:
-   same_group = [
-     ["path/to/file_a", "path/to/file_b"],  # reason: both part of X feature
-   ]
-   separate_group = [
-     ["path/to/file_x", "path/to/file_y"],  # reason: unrelated changes
-   ]
+
+   # REQUIRED: classify every single file
    infrastructure = [
-     "path/to/config_file",  # reason: CI/config boilerplate
+     "path/to/config_file",        # CI/config/generated
+     "path/to/lockfile",           # dependency lock
    ]
    non_infrastructure = [
-     "path/to/feature_file",  # reason: core feature logic
+     "path/to/feature_file",       # core feature logic
+     "path/to/test_file",          # test for feature
    ]
-   group_count_min = N  # minimum reasonable groups
-   group_count_max = N  # maximum reasonable groups
 
-   Be conservative: only assert constraints you're confident about from reading the code.
-   Focus on the strongest signals: files that import each other, files that modify the same
-   API/schema/feature, test files paired with their implementation.
+   # REQUIRED: reasonable group bounds
+   group_count_min = N
+   group_count_max = N
+
+   # RECOMMENDED: strong grouping relationships
+   same_group = [
+     ["path/to/impl.go", "path/to/impl_test.go"],   # test+impl pair
+   ]
+   separate_group = [
+     ["path/to/feature_a", "path/to/feature_b"],    # unrelated features
+   ]
+
+   Rules:
+   - EVERY file must appear in exactly one of infrastructure or non_infrastructure
+   - Be conservative with same_group/separate_group — only confident pairs
+   - Focus on: test+impl pairs, API+handler, schema+migration
+   - Use relative paths from repo root
    ```
 
-3. Review the sub-agent's output, add constraints to the repo's file in `eval/repos/<name>.toml`
-4. Run eval to verify: `cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format text 2>&1`
-5. If a golden constraint fails, check whether the constraint is wrong (remove it) or flowdiff is wrong (keep it — that's what we're trying to improve)
+4. Review the sub-agent's output, add constraints to `eval/repos/<name>.toml`
 
-**Phase 2: Improve grouping quality** (after goldens exist)
+5. Run the linter to verify full coverage:
+   ```bash
+   cargo run -p flowdiff-cli -- lint-goldens --manifest eval/repositories.research.toml 2>&1
+   ```
+   **If any files are still unclassified, fix them before moving on.** The agent must recursively add missing classifications until lint-goldens passes for this repo.
+
+6. Run eval to see how flowdiff scores:
+   ```bash
+   cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format text 2>&1
+   ```
+
+**Phase 2: Improve grouping quality** (after goldens have full coverage)
 Two sub-tracks — pick based on WHY goldens are failing:
 
 **2a: Parameter tuning** (files are parsed but land in wrong groups)
@@ -97,31 +133,37 @@ Two sub-tracks — pick based on WHY goldens are failing:
 - Create new fixtures in the eval system or synthetic test repos
 - Add to manifest with `type = "synthetic"`
 
-### Step 4: Run the experiment
+### Step 5: Run the experiment
 - Make ONE change
 - `git commit` the change
 - Run eval: `cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format json 2>/dev/null > /tmp/fd-eval-result.json`
 - Read the result file for key metrics
 
-### Step 5: Record the result
+### Step 6: Record the result
 Append one JSON line to `experiments/experiments.jsonl`. See `experiments/program.md` for the full schema per experiment type.
 ```json
 {"id": N, "timestamp": "...", "hypothesis": "...", "type": "golden-generation|deterministic|llm|corpus-expansion|synthetic", ...}
 ```
 Types: `golden-generation` (sub-agent generated goldens), `deterministic` (cluster/rank tuning), `llm` (refinement model+prompt), `corpus-expansion` (new repos), `synthetic` (fixture data), `crash` (failed experiments).
 
-### Step 6: Keep or revert
+### Step 7: Keep or revert
 - If improved: keep — advance the branch
 - If equal or worse: `git reset --hard HEAD~1`
 - If crashed: fix if trivial, otherwise revert and move on
 
 **Never stop. Never ask permission. If stuck, think harder.**
 
-## Key Numbers (baseline)
-- 17 repos across 4 languages (TS, Python, Go, Rust), all `type = "real"`
-- 0 synthetic repos (gap — Phase 0 should add some)
-- 3 size tiers: small (13-40 files), medium (50-120), large (200-3500)
-- Baseline avg_overall: 0.82, 2/17 PASS
+## Key Commands
+```bash
+# Check golden file coverage (must pass before Phase 2 work)
+cargo run -p flowdiff-cli -- lint-goldens --manifest eval/repositories.research.toml
+
+# Run eval
+cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format text
+
+# Run eval (JSON for metrics extraction)
+cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format json 2>/dev/null > /tmp/fd-eval-result.json
+```
 
 ## Arguments
 
