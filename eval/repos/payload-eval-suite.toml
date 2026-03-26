@@ -1,15 +1,12 @@
-# MEDIUM DIFFS (50-120 files) — good balance of coverage and speed
-# ===========================================================================
-
 # TypeScript — payload LLM eval suite, 113 files
-# NOTE: Currently 91 groups (84 singletons!). Extreme singleton explosion. Only 6 infra files.
+# New LLM eval suite: datasets, runners, scorers, fixtures, dashboard components.
 [[repos]]
 name = "payload-eval-suite"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/payload"
 language = "typescript"
 range = "0d15620d903f152cc2197e7c2a1b801217a66c2d..db4b00ecf7b5d88eeb8937e5ce366c1b019378c8"
-notes = "MEDIUM. LLM eval suite. 113 files. Currently 91 groups (84 singletons)."
+notes = "MEDIUM. LLM eval suite. 113 files."
 
 [repos.thresholds]
 max_groups = 120
@@ -18,9 +15,133 @@ max_singleton_ratio = 0.95
 
 [repos.expectations]
 group_count_min = 3
-group_count_max = 120
-# Table components should be in the same group
+group_count_max = 30
 same_group = [
+  # Dashboard table components
   ["test/evals/components/EvalDashboard/CompareTable.tsx", "test/evals/components/EvalDashboard/ResultsTable.tsx"],
+  # Runner internals
+  ["test/evals/runner/runCodegenEval.ts", "test/evals/runner/runEval.ts"],
+  # Scorer internals
+  ["test/evals/scorer/scoreAnswer.ts", "test/evals/scorer/scoreConfigChange.ts"],
+  # Collection datasets: codegen + qa
+  ["test/evals/datasets/collections/codegen.ts", "test/evals/datasets/collections/qa.ts"],
+  # Field datasets: codegen + qa
+  ["test/evals/datasets/fields/codegen.ts", "test/evals/datasets/fields/qa.ts"],
 ]
-
+non_infrastructure = [
+  "test/evals/.gitignore",
+  "test/evals/cache.ts",
+  "test/evals/components/DashboardInfo/index.tsx",
+  "test/evals/components/EvalDashboard/CompareTable.tsx",
+  "test/evals/components/EvalDashboard/NavLink.tsx",
+  "test/evals/components/EvalDashboard/ResultsTable.tsx",
+  "test/evals/components/EvalDashboard/audience.ts",
+  "test/evals/components/EvalDashboard/index.tsx",
+  "test/evals/config.ts",
+  "test/evals/datasets/collections/codegen.ts",
+  "test/evals/datasets/collections/qa.ts",
+  "test/evals/datasets/config/codegen.ts",
+  "test/evals/datasets/config/qa.ts",
+  "test/evals/datasets/conventions/qa.ts",
+  "test/evals/datasets/fields/codegen.ts",
+  "test/evals/datasets/fields/qa.ts",
+  "test/evals/datasets/graphql/collections/qa.ts",
+  "test/evals/datasets/local-api/collections/qa.ts",
+  "test/evals/datasets/negative/codegen.ts",
+  "test/evals/datasets/negative/qa.ts",
+  "test/evals/datasets/plugins/codegen.ts",
+  "test/evals/datasets/plugins/official/codegen.ts",
+  "test/evals/datasets/plugins/official/qa.ts",
+  "test/evals/datasets/plugins/qa.ts",
+  "test/evals/datasets/rest-api/crud/qa.ts",
+  "test/evals/eval.building-plugins.spec.ts",
+  "test/evals/eval.collections.spec.ts",
+  "test/evals/eval.config.spec.ts",
+  "test/evals/eval.conventions.spec.ts",
+  "test/evals/eval.fields.spec.ts",
+  "test/evals/eval.graphql.spec.ts",
+  "test/evals/eval.local-api.spec.ts",
+  "test/evals/eval.negative.spec.ts",
+  "test/evals/eval.official-plugins.spec.ts",
+  "test/evals/eval.rest-api.spec.ts",
+  "test/evals/evalReportHandler.ts",
+  "test/evals/fixtures/collections/codegen/beforechange-hook/payload.config.ts",
+  "test/evals/fixtures/collections/codegen/categories-relationship/payload.config.ts",
+  "test/evals/fixtures/collections/codegen/comments-relationships/payload.config.ts",
+  "test/evals/fixtures/collections/codegen/media-access-control/payload.config.ts",
+  "test/evals/fixtures/collections/codegen/posts-title-content/payload.config.ts",
+  "test/evals/fixtures/config/codegen/admin-components/payload.config.ts",
+  "test/evals/fixtures/config/codegen/cors-serverurl/payload.config.ts",
+  "test/evals/fixtures/config/codegen/localization/payload.config.ts",
+  "test/evals/fixtures/config/codegen/oninit-admin-user/payload.config.ts",
+  "test/evals/fixtures/config/codegen/seo-plugin/payload.config.ts",
+  "test/evals/fixtures/fields/codegen/array-images/payload.config.ts",
+  "test/evals/fixtures/fields/codegen/blocks-layout/payload.config.ts",
+  "test/evals/fixtures/fields/codegen/checkbox-ispublished/payload.config.ts",
+  "test/evals/fixtures/fields/codegen/group-seo/payload.config.ts",
+  "test/evals/fixtures/fields/codegen/number-price/payload.config.ts",
+  "test/evals/fixtures/fields/codegen/select-status/payload.config.ts",
+  "test/evals/fixtures/negative/codegen/invalid-access-return/payload.config.ts",
+  "test/evals/fixtures/negative/codegen/invalid-field-type/payload.config.ts",
+  "test/evals/fixtures/negative/codegen/missing-beforechange-return/payload.config.ts",
+  "test/evals/fixtures/plugins/codegen/enabled-option/payload.config.ts",
+  "test/evals/fixtures/plugins/codegen/oninit-logging/payload.config.ts",
+  "test/evals/fixtures/plugins/codegen/tenant-relationship/payload.config.ts",
+  "test/evals/fixtures/plugins/codegen/with-timestamps/payload.config.ts",
+  "test/evals/fixtures/plugins/official/codegen/ecommerce/payload.config.ts",
+  "test/evals/fixtures/plugins/official/codegen/form-builder/payload.config.ts",
+  "test/evals/fixtures/plugins/official/codegen/import-export/payload.config.ts",
+  "test/evals/fixtures/plugins/official/codegen/mcp/payload.config.ts",
+  "test/evals/fixtures/plugins/official/codegen/multi-tenant/payload.config.ts",
+  "test/evals/fixtures/plugins/official/codegen/nested-docs/payload.config.ts",
+  "test/evals/fixtures/plugins/official/codegen/redirects/payload.config.ts",
+  "test/evals/fixtures/plugins/official/codegen/search/payload.config.ts",
+  "test/evals/fixtures/plugins/official/codegen/sentry/payload.config.ts",
+  "test/evals/fixtures/plugins/official/codegen/seo/payload.config.ts",
+  "test/evals/fixtures/plugins/official/codegen/stripe/payload.config.ts",
+  "test/evals/fixtures/tsconfig.json",
+  "test/evals/globalSetup.ts",
+  "test/evals/icons/FlaskIcon.tsx",
+  "test/evals/icons/ListIcon.tsx",
+  "test/evals/models.ts",
+  "test/evals/payload-types.ts",
+  "test/evals/runCodegenDataset.ts",
+  "test/evals/runDataset.ts",
+  "test/evals/runner/index.ts",
+  "test/evals/runner/runCodegenEval.ts",
+  "test/evals/runner/runEval.ts",
+  "test/evals/runner/systemPrompts.ts",
+  "test/evals/schemas.ts",
+  "test/evals/scorer/index.ts",
+  "test/evals/scorer/scoreAnswer.ts",
+  "test/evals/scorer/scoreConfigChange.ts",
+  "test/evals/suites/building-plugins.ts",
+  "test/evals/suites/collections.ts",
+  "test/evals/suites/config.ts",
+  "test/evals/suites/conventions.ts",
+  "test/evals/suites/fields.ts",
+  "test/evals/suites/graphql.ts",
+  "test/evals/suites/index.ts",
+  "test/evals/suites/local-api.ts",
+  "test/evals/suites/negative.ts",
+  "test/evals/suites/official-plugins.ts",
+  "test/evals/suites/rest-api.ts",
+  "test/evals/suites/types.ts",
+  "test/evals/thresholds.ts",
+  "test/evals/types.ts",
+  "test/evals/utils/accuracySummary.ts",
+  "test/evals/utils/caseFailureMessage.ts",
+  "test/evals/utils/failureMessage.ts",
+  "test/evals/utils/index.ts",
+  "test/evals/utils/writeFailedAssertion.ts",
+  "test/evals/validate.ts",
+  "test/evals/variantOptions.ts",
+]
+infrastructure = [
+  ".gitignore",
+  "eslint.config.js",
+  "package.json",
+  "pnpm-lock.yaml",
+  "tsconfig.base.json",
+  "vitest.config.ts",
+]
