@@ -26,6 +26,7 @@ infrastructure = [
   "crates/nu-test-support/Cargo.toml",
   "crates/nu_plugin_query/Cargo.toml",
   "devdocs/HOWTOS.md",
+  "crates/nu-mcp/src/instructions.md",
 ]
 non_infrastructure = [
   "crates/nu-cli/src/commands/commandline/get_cursor.rs",
@@ -428,7 +429,6 @@ non_infrastructure = [
   "crates/nu-lsp/src/notification.rs",
   "crates/nu-mcp/src/evaluation.rs",
   "crates/nu-mcp/src/history.rs",
-  "crates/nu-mcp/src/instructions.md",
   "crates/nu-mcp/src/lib.rs",
   "crates/nu-mcp/src/server.rs",
   "crates/nu-parser/src/known_external.rs",

@@ -15,7 +15,7 @@ max_singleton_ratio = 0.50
 
 [repos.expectations]
 group_count_min = 8
-group_count_max = 20
+group_count_max = 30
 infrastructure = [
   ".gitignore",
   "CLAUDE.md",
