@@ -91,26 +91,45 @@ Ideas queued for testing in the autoresearch loop. Move items to `experiments.js
 
 ## Micro/Macro Experiment Queue (alternate between them)
 
-**Counter: next = MACRO #1** (after 3 consecutive LOCAL: #59, #60, #61)
+**Schedule: 10 MACRO → 10 MICRO → 10 GROWING_DATA → repeat**
 
-### Micro (LOCAL) — targeted heuristics
+**Current phase: MACRO (1/10)** — experiment #62 (diff-based embeddings)
+
+### Macro (GLOBAL) — 10 experiments, generic approaches
+1. [x] **Diff-based embeddings** — embed change hunks not full content (#62, running)
+2. [ ] **Graph community detection (Louvain)** — community detection on symbol graph
+3. [ ] **Co-change mining** — `git log --name-only` co-change frequencies
+4. [ ] **Multi-signal fusion** — weighted similarity matrix (graph + embeddings + dir + name)
+5. [ ] **Learned merge policy** — train on 47 golden repos, learn optimal merges
+6. [ ] **Path-component embedding** — embed directory structure as a signal
+7. [ ] **Filename stem clustering** — group files with matching stems across directories
+8. [ ] **Import chain depth weighting** — weight graph edges by import chain length
+9. [ ] **Embedding-based infra detection** — train a classifier on golden infra/non-infra labels
+10. [ ] **Hybrid BFS + embedding** — use embeddings to break ties in BFS assignment
+
+### Micro (LOCAL) — 10 experiments, targeted heuristics
 1. [ ] `.changeset/` directory → infra (Effect.ts repos)
-2. [ ] `version.go` / `version.ts` → `is_config_like_filename` (auto-bumped constants)
+2. [ ] `version.go` / `version.ts` → `is_config_like_filename`
 3. [ ] `__init__.py` context-aware — only config if <10 lines or non-test dir
 4. [ ] Cross-directory stem match: `django/forms/fields.py` ↔ `tests/forms_tests/*/test_*.py`
 5. [ ] `go.mod` + `go.sum` always same group (post-processing merge)
+6. [ ] `lib.rs` / `mod.rs` → infra when it's just re-exports
+7. [ ] `.tmpl` / `.gohtml` → same group as Go handler by path stem
+8. [ ] `coverage-final.json` / `*.snap` → infra (test artifacts)
+9. [ ] `examples/` directory → feature code (not infra)
+10. [ ] `testscripts/` / `__test__` → same group as matching source
 
-### Macro (GLOBAL) — generic approaches
-1. [ ] **Diff-based embeddings** — embed change hunks not full content, cluster by change similarity
-2. [ ] **Graph community detection (Louvain)** — community detection on symbol graph via petgraph
-3. [ ] **Co-change mining** — `git log --name-only` co-change frequencies as grouping signal
-4. [ ] **Multi-signal fusion** — weighted similarity matrix (graph + embeddings + directory + name)
-5. [ ] **Learned merge policy** — train on 47 golden repos, extract pairwise features, learn merges
+### Growing Data — 10 experiments (add ~20-30 repos)
+- Add Java repos (Spring Boot, Micronaut)
+- Add C# repos (.NET, ASP.NET)
+- Add more Python repos (FastAPI monorepos, Django apps)
+- Add Swift/Kotlin mobile repos
+- Re-classify octospark via sub-agents (fix 1894 non-infra failures)
 
-### Alternation rule
-- Pick from Macro list first (counter says MACRO), then switch to Micro, etc.
-- After testing an item, mark it `[x]` and update the counter line.
-- If an item is blocked (e.g., needs API keys), skip to next in same list.
+### Schedule rule
+- Complete all experiments in current phase before moving to next.
+- If an item is blocked, skip it and move to the next.
+- After GROWING_DATA: return to MACRO with fresh repo data.
 
 ## Phase 0: Corpus Expansion Ideas
 
