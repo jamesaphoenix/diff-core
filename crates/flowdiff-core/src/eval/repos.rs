@@ -463,7 +463,10 @@ fn run_repo_target(
     let cluster_result =
         cluster::cluster_files(&graph, &entrypoints, &changed_files);
 
-    // Optionally refine clustering with embedding similarity (requires `embeddings` feature)
+    // Optionally refine clustering with embedding similarity (requires `embeddings` feature).
+    // Uses diff-based embeddings: embeds what CHANGED (added/removed lines) rather than
+    // full file content. This captures change semantics — files with similar changes
+    // (both adding auth logic) cluster together even if their content is very different.
     #[cfg(feature = "embeddings")]
     let cluster_result = {
         let file_diffs_for_embed: Vec<(String, String)> = diff_result
@@ -471,8 +474,11 @@ fn run_repo_target(
             .iter()
             .filter_map(|fd| {
                 let path = fd.new_path.as_deref().or(fd.old_path.as_deref())?;
-                let content = fd.new_content.as_deref().or(fd.old_content.as_deref())?;
-                Some((path.to_string(), content.to_string()))
+                let diff_text = compute_diff_text(fd);
+                if diff_text.is_empty() {
+                    return None;
+                }
+                Some((path.to_string(), diff_text))
             })
             .collect();
         cluster::refine_with_embeddings(cluster_result, &file_diffs_for_embed)
@@ -541,6 +547,45 @@ fn run_repo_target(
         golden,
         passed,
     })
+}
+
+/// Compute a diff-text representation for embedding: only the lines that changed.
+/// For new files, uses the full new content. For modified files, extracts added lines
+/// (lines in new but not old). This captures change semantics rather than file identity.
+#[cfg(feature = "embeddings")]
+fn compute_diff_text(fd: &crate::git::FileDiff) -> String {
+    use std::collections::HashSet;
+
+    let path = fd.new_path.as_deref().or(fd.old_path.as_deref()).unwrap_or("unknown");
+
+    match (&fd.old_content, &fd.new_content) {
+        (None, Some(new)) => {
+            // New file — use full content (the entire file is "the change")
+            format!("// NEW FILE: {}\n{}", path, new)
+        }
+        (Some(_old), None) => {
+            // Deleted file — the change is the deletion
+            format!("// DELETED FILE: {}", path)
+        }
+        (Some(old), Some(new)) => {
+            // Modified file — extract added lines (in new but not old)
+            let old_lines: HashSet<&str> = old.lines().collect();
+            let added: Vec<&str> = new.lines().filter(|l| !old_lines.contains(l)).collect();
+            let removed_count = old.lines().filter(|l| !new.lines().collect::<HashSet<_>>().contains(l)).count();
+            if added.is_empty() {
+                format!("// MODIFIED: {} (-{} lines)", path, removed_count)
+            } else {
+                format!(
+                    "// MODIFIED: {} (+{} -{} lines)\n{}",
+                    path,
+                    added.len(),
+                    removed_count,
+                    added.join("\n")
+                )
+            }
+        }
+        (None, None) => String::new(),
+    }
 }
 
 fn extract_diff_for_target(
