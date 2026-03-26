@@ -217,6 +217,9 @@ fn rescue_non_infra_files(
         // Everything else (Infrastructure, Schema, Migration, etc.) stays in infra
         if category != InfraCategory::Unclassified && category != InfraCategory::DirectoryGroup {
             true_infra.push(file.clone());
+        } else if is_config_like_filename(file) {
+            // Config-like filenames stay in infra even if classify_by_convention says Unclassified
+            true_infra.push(file.clone());
         } else {
             // This looks like source code — assign to nearest group by directory
             match find_nearest_group_by_directory(file, groups) {
@@ -227,6 +230,68 @@ fn rescue_non_infra_files(
     }
 
     (true_infra, rescued)
+}
+
+/// Check if a filename looks like infrastructure/config even though it has a source extension.
+/// Examples: settings.py, __init__.py, celeryconf.py, seed.ts, biome.json, urls.py
+fn is_config_like_filename(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    let filename = lower.rsplit('/').next().unwrap_or(&lower);
+
+    // Python/Django config files
+    if matches!(
+        filename,
+        "__init__.py"
+            | "settings.py"
+            | "celeryconf.py"
+            | "urls.py"
+            | "wsgi.py"
+            | "asgi.py"
+            | "conftest.py"
+            | "manage.py"
+            | "setup.py"
+            | "setup.cfg"
+    ) {
+        return true;
+    }
+
+    // JS/TS config files with source extensions
+    if matches!(
+        filename,
+        "seed.ts"
+            | "seed.js"
+            | "biome.json"
+            | "vitest.config.ts"
+            | "jest.config.ts"
+            | "jest.config.js"
+            | "webpack.config.ts"
+            | "webpack.config.js"
+            | "rollup.config.ts"
+            | "rollup.config.js"
+            | "vite.config.ts"
+            | "vite.config.js"
+            | "next.config.ts"
+            | "next.config.js"
+            | "next.config.mjs"
+            | "tailwind.config.ts"
+            | "tailwind.config.js"
+            | "postcss.config.js"
+            | "postcss.config.ts"
+    ) {
+        return true;
+    }
+
+    // Files in test fixtures directories
+    if lower.contains("/fixtures/") && !lower.contains("/src/") {
+        return true;
+    }
+
+    // Scripts directory
+    if lower.starts_with("scripts/") {
+        return true;
+    }
+
+    false
 }
 
 /// Find the group that shares the longest directory prefix with the given file.
