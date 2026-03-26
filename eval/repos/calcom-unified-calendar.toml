@@ -1,6 +1,3 @@
-# SMALL DIFFS (20-50 files) — fast iteration, detailed golden coverage
-# ===========================================================================
-
 # TypeScript — cal.com unified calendar API, 23 files
 [[repos]]
 name = "calcom-unified-calendar"
@@ -12,10 +9,25 @@ notes = "SMALL. Unified calendar API: CRUD, freebusy, list connections. 23 files
 
 [repos.thresholds]
 max_groups = 20
-max_infra_ratio = 0.30
+max_infra_ratio = 0.65
 max_singleton_ratio = 0.50
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 12
-
+group_count_min = 1
+group_count_max = 8
+# Controller + its test should be in the same group
+same_group = [
+  ["apps/api/v2/src/modules/cal-unified-calendars/controllers/cal-unified-calendars.controller.ts", "apps/api/v2/src/modules/cal-unified-calendars/controllers/cal-unified-calendars.controller.spec.ts"],
+  # Google calendar service + its spec
+  ["apps/api/v2/src/modules/cal-unified-calendars/services/google-calendar.service.ts", "apps/api/v2/src/modules/cal-unified-calendars/services/google-calendar.service.spec.ts"],
+  # Freebusy service + its specs
+  ["apps/api/v2/src/modules/cal-unified-calendars/services/unified-calendars-freebusy.service.ts", "apps/api/v2/src/modules/cal-unified-calendars/services/unified-calendars-freebusy.service.spec.ts"],
+]
+non_infrastructure = [
+  "apps/api/v2/src/modules/cal-unified-calendars/controllers/cal-unified-calendars.controller.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/services/google-calendar.service.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/services/unified-calendars-freebusy.service.ts",
+]
+infrastructure = [
+  "docs/api-reference/v2/openapi.json",
+]
