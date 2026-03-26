@@ -156,6 +156,29 @@ pub fn cluster_files(
         });
     }
 
+    // Step 4.5: Rescue non-infrastructure files from the infra bucket.
+    // Files unreachable from any entrypoint go to infra by default. But many of these
+    // are source/test files that the import graph couldn't connect — not true infrastructure.
+    // Assign non-infra-looking files to the nearest group by shared directory prefix.
+    let (true_infra, rescued) = rescue_non_infra_files(&infra_files, &groups);
+    let infra_files = true_infra;
+    // Add rescued files to their assigned groups
+    for (group_idx, file_path) in rescued {
+        if let Some(group) = groups.get_mut(group_idx) {
+            let pos = group.files.len() as u32;
+            group.files.push(FileChange {
+                path: file_path,
+                flow_position: pos,
+                role: infer_file_role(""),
+                changes: ChangeStats {
+                    additions: 0,
+                    deletions: 0,
+                },
+                symbols_changed: vec![],
+            });
+        }
+    }
+
     // Step 5: Consolidate small groups by directory.
     // Merge singleton/small groups (≤ SMALL_GROUP_THRESHOLD files) that share a common
     // directory prefix. This reduces singleton explosion where each entrypoint in the
@@ -177,6 +200,61 @@ pub fn cluster_files(
         groups,
         infrastructure,
     }
+}
+
+/// Separate truly infrastructure files from source files that just couldn't be reached
+/// by the import graph. Returns (true_infra_files, rescued_files_with_group_assignment).
+fn rescue_non_infra_files(
+    infra_files: &[String],
+    groups: &[FlowGroup],
+) -> (Vec<String>, Vec<(usize, String)>) {
+    let mut true_infra = Vec::new();
+    let mut rescued: Vec<(usize, String)> = Vec::new();
+
+    for file in infra_files {
+        let category = classify_by_convention(file);
+        // Only rescue files that are Unclassified (source code) or DirectoryGroup
+        // Everything else (Infrastructure, Schema, Migration, etc.) stays in infra
+        if category != InfraCategory::Unclassified && category != InfraCategory::DirectoryGroup {
+            true_infra.push(file.clone());
+        } else {
+            // This looks like source code — assign to nearest group by directory
+            match find_nearest_group_by_directory(file, groups) {
+                Some(group_idx) => rescued.push((group_idx, file.clone())),
+                None => true_infra.push(file.clone()), // No group to assign to
+            }
+        }
+    }
+
+    (true_infra, rescued)
+}
+
+/// Find the group that shares the longest directory prefix with the given file.
+fn find_nearest_group_by_directory(file: &str, groups: &[FlowGroup]) -> Option<usize> {
+    let file_parts: Vec<&str> = file.split('/').collect();
+    let mut best_match: Option<(usize, usize)> = None; // (group_idx, shared_depth)
+
+    for (idx, group) in groups.iter().enumerate() {
+        for group_file in &group.files {
+            let group_parts: Vec<&str> = group_file.path.split('/').collect();
+            let shared = file_parts
+                .iter()
+                .zip(group_parts.iter())
+                .take_while(|(a, b)| a == b)
+                .count();
+            if shared > 0 {
+                match best_match {
+                    None => best_match = Some((idx, shared)),
+                    Some((_, best_depth)) if shared > best_depth => {
+                        best_match = Some((idx, shared));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    best_match.map(|(idx, _)| idx)
 }
 
 /// Maximum number of files for a group to be considered "small" and eligible for merging.
