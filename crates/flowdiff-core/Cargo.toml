@@ -39,11 +39,15 @@ tree-sitter-swift = "0.7.1"
 tree-sitter-c = "0.24.1"
 tree-sitter-cpp = "0.23.4"
 tree-sitter-scala = "0.25.0"
+fastembed = { version = "4", optional = true }
 
 [features]
 ## Enables test-only APIs like `with_base_url` on LLM provider structs.
 ## Integration tests should enable this feature; production builds must not.
 test-support = []
+## Enables local code embeddings via fastembed (ONNX Runtime + Jina Code model).
+## Used for semantic similarity between file diffs in clustering.
+embeddings = ["dep:fastembed"]
 
 # Enable test-support feature automatically when running tests
 # (dev-dependencies trigger `cfg(test)` in unit tests but not integration tests,

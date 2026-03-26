@@ -48,6 +48,10 @@ enum Commands {
     /// Check that every file in each repo's diff is classified in the golden expectations.
     /// Exits with code 1 if any repo has unclassified files.
     LintGoldens(LintGoldensArgs),
+    /// Embed file diffs using local code embeddings and show pairwise similarity.
+    /// Requires the `embeddings` feature flag.
+    #[cfg(feature = "embeddings")]
+    EmbedDiff(EmbedDiffArgs),
 }
 
 #[derive(Parser)]
@@ -190,6 +194,30 @@ struct LintGoldensArgs {
     min_coverage: f64,
 }
 
+#[cfg(feature = "embeddings")]
+#[derive(Parser)]
+struct EmbedDiffArgs {
+    /// Path to the git repository
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    /// Base ref (e.g., commit SHA)
+    #[arg(long)]
+    base: String,
+
+    /// Head ref (e.g., commit SHA)
+    #[arg(long)]
+    head: String,
+
+    /// Similarity threshold for clustering (0.0–1.0)
+    #[arg(long, default_value = "0.75")]
+    threshold: f32,
+
+    /// Output format: "text" or "json"
+    #[arg(long, default_value = "text")]
+    format: String,
+}
+
 fn main() {
     env_logger::init();
     let cli = Cli::parse();
@@ -212,6 +240,13 @@ fn main() {
         }
         Commands::LintGoldens(args) => {
             run_lint_goldens(args);
+        }
+        #[cfg(feature = "embeddings")]
+        Commands::EmbedDiff(args) => {
+            if let Err(e) = run_embed_diff(args) {
+                error!("Error: {}", e);
+                process::exit(1);
+            }
         }
     }
 }
@@ -748,6 +783,75 @@ fn run_lint_goldens(args: LintGoldensArgs) {
             process::exit(1);
         }
     }
+}
+
+#[cfg(feature = "embeddings")]
+fn run_embed_diff(args: EmbedDiffArgs) -> Result<(), Box<dyn std::error::Error>> {
+    use flowdiff_core::embeddings::{embed_file_diffs, pairwise_similarities, cluster_by_similarity};
+
+    let repo = Repository::open(&args.repo)?;
+    let diff = git::diff_range(&repo, &format!("{}..{}", args.base, args.head))?;
+
+    // Collect per-file diffs — use new_content (post-change) as embedding input
+    let file_diffs: Vec<(String, String)> = diff
+        .files
+        .iter()
+        .filter_map(|fd| {
+            let path = fd.new_path.as_deref()
+                .or(fd.old_path.as_deref())?;
+            // Use new content if available, fall back to old content for deletions
+            let content = fd.new_content.as_deref()
+                .or(fd.old_content.as_deref())
+                .unwrap_or("");
+            if content.is_empty() {
+                None
+            } else {
+                Some((path.to_string(), content.to_string()))
+            }
+        })
+        .collect();
+
+    println!("Embedding {} files...", file_diffs.len());
+    let embeddings = embed_file_diffs(&file_diffs)?;
+    println!("Embedded {} files ({} dimensions)", embeddings.len(),
+        embeddings.first().map(|e| e.vector.len()).unwrap_or(0));
+
+    // Show pairwise similarities
+    let sims = pairwise_similarities(&embeddings);
+    println!("\n--- Pairwise Similarities (top 20) ---");
+    for sim in sims.iter().take(20) {
+        println!("  {:.3}  {} <-> {}", sim.similarity, sim.file_a, sim.file_b);
+    }
+
+    // Cluster by threshold
+    let clusters = cluster_by_similarity(&embeddings, args.threshold);
+    println!("\n--- Clusters (threshold={:.2}) ---", args.threshold);
+    for (i, cluster) in clusters.iter().enumerate() {
+        println!("  Group {}: {} files", i + 1, cluster.len());
+        for path in cluster {
+            println!("    - {}", path);
+        }
+    }
+
+    if args.format == "json" {
+        let output = serde_json::json!({
+            "files": file_diffs.len(),
+            "dimensions": embeddings.first().map(|e| e.vector.len()).unwrap_or(0),
+            "threshold": args.threshold,
+            "similarities": sims.iter().map(|s| serde_json::json!({
+                "file_a": s.file_a,
+                "file_b": s.file_b,
+                "similarity": s.similarity,
+            })).collect::<Vec<_>>(),
+            "clusters": clusters.iter().enumerate().map(|(i, c)| serde_json::json!({
+                "group": i + 1,
+                "files": c,
+            })).collect::<Vec<_>>(),
+        });
+        println!("\n{}", serde_json::to_string_pretty(&output)?);
+    }
+
+    Ok(())
 }
 
 fn write_output(

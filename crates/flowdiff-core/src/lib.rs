@@ -9,6 +9,7 @@
 
 pub mod ast;
 pub mod cache;
+pub mod embeddings;
 pub mod eval;
 pub mod cluster;
 pub mod config;
