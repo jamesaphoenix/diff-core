@@ -264,7 +264,7 @@ pub fn cluster_files(
     // are source/test files that the import graph couldn't connect — not true infrastructure.
     // Assign non-infra-looking files to the nearest group by shared directory prefix.
     let (true_infra, rescued) = rescue_non_infra_files(&infra_files, &groups);
-    let infra_files = true_infra;
+    let mut infra_files = true_infra;
     // Add rescued files to their assigned groups
     for (group_idx, file_path) in rescued {
         if let Some(group) = groups.get_mut(group_idx) {
@@ -287,6 +287,44 @@ pub fn cluster_files(
     // directory prefix. This reduces singleton explosion where each entrypoint in the
     // same directory creates its own tiny group.
     groups = consolidate_small_groups(groups);
+
+    // Step 5.5: Coalesce test files from infra into groups.
+    // If a test file is in infra (unreachable from entrypoints) but its implementation
+    // is in a semantic group, move the test to that group.
+    let mut infra_rescued: Vec<(usize, String)> = Vec::new();
+    {
+        // Build stem->group_idx lookup from all group files
+        let mut impl_by_stem: HashMap<String, usize> = HashMap::new();
+        for (g_idx, group) in groups.iter().enumerate() {
+            for fc in &group.files {
+                if !is_test_file_name(&fc.path) {
+                    let stem = test_impl_stem(&fc.path);
+                    impl_by_stem.insert(stem, g_idx);
+                }
+            }
+        }
+        for file in &infra_files {
+            if is_test_file_name(file) {
+                let stem = test_impl_stem(file);
+                if let Some(&g_idx) = impl_by_stem.get(&stem) {
+                    infra_rescued.push((g_idx, file.clone()));
+                }
+            }
+        }
+    }
+    for (g_idx, file_path) in &infra_rescued {
+        infra_files.retain(|f| f != file_path);
+        if let Some(group) = groups.get_mut(*g_idx) {
+            let pos = group.files.len() as u32;
+            group.files.push(FileChange {
+                path: file_path.clone(),
+                flow_position: pos,
+                role: FileRole::Test,
+                changes: ChangeStats { additions: 0, deletions: 0 },
+                symbols_changed: vec![],
+            });
+        }
+    }
 
     let infrastructure = if infra_files.is_empty() {
         None
