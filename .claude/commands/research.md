@@ -41,6 +41,18 @@ Based on the experiment history and lint results, pick the highest-priority phas
 **Phase 1: Build goldens via sub-agents** (highest priority if lint-goldens reports gaps)
 Use Claude Code sub-agents to generate golden constraints from diff content. **Every file in the diff must be classified as infrastructure or non_infrastructure** — this is enforced by `lint-goldens`.
 
+**Sizing strategy:**
+- **Small repos (< 100 files):** Classify directly or with one sub-agent
+- **Medium repos (100-300 files):** One sub-agent with the file list
+- **Large repos (300+ files):** Use **divide-and-conquer** — split files into chunks of ~50-100, send each chunk to a separate sub-agent in parallel, then merge all results. This avoids context overflow.
+
+**Divide-and-conquer for large repos:**
+1. Get the file list: `git diff --name-only > /tmp/fd-<name>-names.txt`
+2. Split into N chunks: `split -l 80 /tmp/fd-<name>-names.txt /tmp/fd-<name>-chunk-`
+3. Launch N sub-agents in parallel, each classifying their chunk
+4. Merge all sub-agent results into the TOML file
+5. Run `lint-goldens` to verify — fix any gaps recursively
+
 For each repo that has unclassified files:
 
 1. Get the diff file list and the unclassified paths from `lint-goldens` output.
@@ -48,7 +60,7 @@ For each repo that has unclassified files:
 2. Get the diff content:
    ```bash
    git -C <repo_path> diff <base>..<head> --stat > /tmp/fd-<name>-stat.txt
-   git -C <repo_path> diff <base>..<head> > /tmp/fd-<name>-diff.txt
+   git -C <repo_path> diff <base>..<head> --name-only > /tmp/fd-<name>-names.txt
    ```
 
 3. Spawn a sub-agent (Agent tool) with this prompt:
