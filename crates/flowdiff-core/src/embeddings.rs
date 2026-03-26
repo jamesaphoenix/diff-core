@@ -220,8 +220,13 @@ pub fn embed_file_diffs_with_cache(
         .iter()
         .map(|&i| {
             let (path, diff) = &file_diffs[i];
-            let truncated = if diff.len() > 16000 {
-                &diff[..16000]
+            let max_bytes = 16000;
+            let truncated = if diff.len() > max_bytes {
+                let mut end = max_bytes;
+                while end > 0 && !diff.is_char_boundary(end) {
+                    end -= 1;
+                }
+                &diff[..end]
             } else {
                 diff.as_str()
             };
@@ -229,17 +234,22 @@ pub fn embed_file_diffs_with_cache(
         })
         .collect();
 
-    let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-    let vectors = model
-        .embed(text_refs, None)
-        .map_err(|e| EmbeddingError::Inference(e.to_string()))?;
+    // Embed in batches of 64 to avoid ONNX memory blowup on large repos.
+    const BATCH_SIZE: usize = 64;
+    let mut all_vectors: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
+    for chunk in texts.chunks(BATCH_SIZE) {
+        let refs: Vec<&str> = chunk.iter().map(|s| s.as_str()).collect();
+        let batch_vecs = model
+            .embed(refs, None)
+            .map_err(|e| EmbeddingError::Inference(e.to_string()))?;
+        all_vectors.extend(batch_vecs);
+    }
 
     // Fill in results and cache
     for (vec_idx, &file_idx) in uncached_indices.iter().enumerate() {
         let (path, content) = &file_diffs[file_idx];
-        let vector = &vectors[vec_idx];
+        let vector = &all_vectors[vec_idx];
 
-        // Cache the result
         cache.put(path, content, vector);
 
         results[file_idx] = Some(FileEmbedding {
