@@ -1,12 +1,12 @@
 # Go — minikube flock refactor, 13 files
-# NOTE: Currently 2 groups (both test singletons). Lock impl is in infra.
+# Replace juju/mutex with internal flock-based locking across the codebase.
 [[repos]]
 name = "minikube-flock-refactor"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/minikube"
 language = "go"
 range = "b8af7ff858f9106a955f5e440f070b6db3417631..98364c31346ee162afe2ff886beb4262d18875d3"
-notes = "SMALL. Replace juju/mutex with internal flock-based locking. 13 files. 2 singleton groups."
+notes = "SMALL. Replace juju/mutex with internal flock-based locking. 13 files."
 
 [repos.thresholds]
 max_groups = 15
@@ -19,10 +19,25 @@ group_count_max = 8
 # Lock implementation and its test should cluster
 same_group = [
   ["pkg/util/lock/lock.go", "pkg/util/lock/lock_test.go"],
+  # Network test uses the new lock
+  ["pkg/network/network.go", "pkg/network/network_test.go"],
 ]
 # Lock files should be in semantic groups, not infra
 non_infrastructure = [
   "pkg/util/lock/lock_test.go",
   "pkg/util/lock/lock.go",
+  # Callers that switched to new lock API
+  "pkg/minikube/bootstrapper/certs.go",
+  "pkg/minikube/download/download.go",
+  "pkg/minikube/download/iso.go",
+  "pkg/minikube/driver/auxdriver/install.go",
+  "pkg/minikube/image/cache.go",
+  "pkg/minikube/kubeconfig/settings.go",
+  "pkg/minikube/machine/start.go",
+  "pkg/network/network.go",
+  "pkg/network/network_test.go",
 ]
-
+infrastructure = [
+  "go.mod",
+  "go.sum",
+]

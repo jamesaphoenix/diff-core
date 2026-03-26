@@ -1,12 +1,12 @@
 # Python — fastapi-template test refactor, 22 files
-# NOTE: Currently 10 groups, all singletons. Backend and frontend routes should cluster.
+# Mixed changes: test refactor, Sentry/FastAPI upgrade, meta titles.
 [[repos]]
 name = "fastapi-template-refactor"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/full-stack-fastapi-template"
 language = "python"
 range = "43fac49a1439236c1fac404b5ef6ca198c3810b2..51295d09b70a64ccd0a6005f004e240ca9d4e395"
-notes = "SMALL. Test refactor, Sentry/FastAPI upgrade, meta titles. 22 files. Currently 10 singleton groups."
+notes = "SMALL. Test refactor, Sentry/FastAPI upgrade, meta titles. 22 files."
 
 [repos.thresholds]
 max_groups = 20
@@ -20,10 +20,33 @@ group_count_max = 12
 same_group = [
   ["backend/app/api/routes/items.py", "backend/app/api/routes/users.py"],
 ]
-# Core route files should be in semantic groups
 non_infrastructure = [
+  # Backend API routes
   "backend/app/api/routes/items.py",
   "backend/app/api/routes/users.py",
+  # Frontend routes
   "frontend/src/routes/_layout/items.tsx",
+  "frontend/src/routes/_layout/index.tsx",
+  "frontend/src/routes/_layout/settings.tsx",
+  "frontend/src/routes/_layout/admin.tsx",
+  "frontend/src/routes/login.tsx",
+  "frontend/src/routes/recover-password.tsx",
+  "frontend/src/routes/reset-password.tsx",
+  "frontend/src/routes/signup.tsx",
+  # Backend migration
+  "backend/app/alembic/env.py",
+  # Generated client types
+  "frontend/src/client/schemas.gen.ts",
+  "frontend/src/client/types.gen.ts",
 ]
-
+infrastructure = [
+  ".pre-commit-config.yaml",
+  "CONTRIBUTING.md",
+  "release-notes.md",
+  "backend/pyproject.toml",
+  "bun.lock",
+  "uv.lock",
+  "frontend/Dockerfile.playwright",
+  "frontend/biome.json",
+  "frontend/package.json",
+]
