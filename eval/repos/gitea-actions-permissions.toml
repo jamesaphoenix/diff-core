@@ -1,12 +1,12 @@
 # Go — gitea Actions permissions, 57 files
-# NOTE: Currently 13 groups (all singletons). 77% infra. Route/model/service files scattered.
+# Adding GitHub-compatible Actions token permissions across the codebase.
 [[repos]]
 name = "gitea-actions-permissions"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea"
 language = "go"
 range = "b22123ef862247f36baec556f25872d04c7cfbcd..45809c8f5479e167ac79221c7480b2d7b94ff03d"
-notes = "MEDIUM. Actions permissions feature. 57 files. 13 singleton groups, 77% infra."
+notes = "MEDIUM. Actions permissions feature. 57 files."
 
 [repos.thresholds]
 max_groups = 30
@@ -14,12 +14,82 @@ max_infra_ratio = 0.80
 max_singleton_ratio = 1.0
 
 [repos.expectations]
-group_count_min = 3
-group_count_max = 25
-# Route files should be in semantic groups
-non_infrastructure = [
-  "routers/web/web.go",
-  "routers/web/repo/githttp.go",
-  "services/actions/permission_parser_test.go",
+group_count_min = 4
+group_count_max = 12
+same_group = [
+  # impl + test: permission parser
+  ["services/actions/permission_parser.go", "services/actions/permission_parser_test.go"],
+  # impl + test: actions repo permission
+  ["models/perm/access/repo_permission.go", "models/perm/access/actions_repo_permission_test.go"],
+  # repo settings actions: router + template
+  ["routers/web/repo/setting/actions.go", "templates/repo/settings/actions_general.tmpl"],
+  # frontend JS: new permissions module + registration
+  ["web_src/js/features/common-actions-permissions.ts", "web_src/js/index-domready.ts"],
+  # user settings model pair
+  ["models/user/setting.go", "models/user/setting_options.go"],
+  # actions config + run job (both add permission fields)
+  ["models/actions/config.go", "models/actions/run_job.go"],
+  # integration tests for the core feature
+  ["tests/integration/actions_job_token_test.go", "tests/integration/actions_runner_test.go"],
 ]
-
+non_infrastructure = [
+  "cmd/hook.go",
+  "models/actions/config.go",
+  "models/actions/run_job.go",
+  "models/actions/token_permissions.go",
+  "models/perm/access/actions_repo_permission_test.go",
+  "models/perm/access/repo_permission.go",
+  "models/repo/pull_request_default_test.go",
+  "models/repo/repo_list.go",
+  "models/repo/repo_unit.go",
+  "models/repo/repo_unit_actions.go",
+  "models/repo/repo_unit_test.go",
+  "models/user/setting.go",
+  "models/user/setting_options.go",
+  "modules/private/hook.go",
+  "modules/repository/env.go",
+  "modules/util/util.go",
+  "routers/private/hook_pre_receive.go",
+  "routers/web/admin/runners.go",
+  "routers/web/misc/misc.go",
+  "routers/web/org/setting/runners.go",
+  "routers/web/repo/actions/view.go",
+  "routers/web/repo/githttp.go",
+  "routers/web/repo/setting/actions.go",
+  "routers/web/shared/actions/general.go",
+  "routers/web/shared/actions/runners.go",
+  "routers/web/user/setting/runner.go",
+  "routers/web/web.go",
+  "services/actions/permission_parser.go",
+  "services/actions/permission_parser_test.go",
+  "services/actions/run.go",
+  "services/actions/workflow.go",
+  "services/doctor/fix16961.go",
+  "services/pull/update_test.go",
+  "services/repository/transfer.go",
+  "templates/org/settings/actions_general.tmpl",
+  "templates/org/settings/navbar.tmpl",
+  "templates/repo/settings/actions_general.tmpl",
+  "templates/shared/actions/owner_general_settings.tmpl",
+  "templates/shared/actions/permission_mode_select.tmpl",
+  "templates/shared/actions/permissions_table.tmpl",
+  "templates/shared/actions/permissions_table_unit.tmpl",
+  "templates/user/settings/actions_general.tmpl",
+  "templates/user/settings/navbar.tmpl",
+  "tests/integration/actions_job_token_test.go",
+  "tests/integration/actions_runner_test.go",
+  "tests/integration/api_issue_dependency_test.go",
+  "tests/integration/integration_test.go",
+  "tests/integration/pull_update_test.go",
+  "web_src/css/base.css",
+  "web_src/css/modules/list.css",
+  "web_src/js/features/common-actions-permissions.ts",
+  "web_src/js/features/comp/SearchRepoBox.ts",
+  "web_src/js/index-domready.ts",
+]
+infrastructure = [
+  "models/migrations/migrations.go",
+  "models/migrations/v1_26/v328.go",
+  "options/locale/locale_en-US.json",
+  "services/actions/token_permission_design.md",
+]

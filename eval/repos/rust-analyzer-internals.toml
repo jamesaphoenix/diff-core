@@ -1,24 +1,104 @@
 # Rust — rust-analyzer internals, 68 files
-# NOTE: Currently 4 singleton groups, 94% infra. Rust repos lack entrypoint detection.
+# Internal refactors across hir-ty/syntax/ide crates + load-cargo API change.
 [[repos]]
 name = "rust-analyzer-internals"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/rust-analyzer"
 language = "rust"
 range = "f69d83e5f9280371d5c8544f293f67fe45aadc4e..c2bb9474976b6963f70b7f228e4f1270f553a1a9"
-notes = "MEDIUM. Internal refactors across hir-ty/syntax/ide. 68 files. 4 groups (all singletons), 94% infra."
+notes = "MEDIUM. Internal refactors across hir-ty/syntax/ide. 68 files."
 
 [repos.thresholds]
 max_groups = 35
-max_infra_ratio = 0.95
+max_infra_ratio = 0.55
 max_singleton_ratio = 1.0
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 30
-# Test files that ARE detected should be non-infra
-non_infrastructure = [
-  "crates/ide-assists/src/tests/generated.rs",
-  "crates/rust-analyzer/src/cli/run_tests.rs",
+group_count_min = 5
+group_count_max = 20
+same_group = [
+  # ide-completion fn_param: impl + tests
+  ["crates/ide-completion/src/completions/fn_param.rs", "crates/ide-completion/src/tests/fn_param.rs"],
+  # ide-completion context: impl + tests
+  ["crates/ide-completion/src/context/analysis.rs", "crates/ide-completion/src/context/tests.rs"],
+  # ide-assists utility module
+  ["crates/ide-assists/src/utils.rs", "crates/ide-assists/src/utils/ref_field_expr.rs"],
+  # Syntax node construction
+  ["crates/syntax/src/ast/edit.rs", "crates/syntax/src/ast/syntax_factory/constructors.rs"],
+  # Delegate generation assists
+  ["crates/ide-assists/src/handlers/generate_delegate_methods.rs", "crates/ide-assists/src/handlers/generate_delegate_trait.rs"],
+  # Qualify assists
+  ["crates/ide-assists/src/handlers/qualify_method_call.rs", "crates/ide-assists/src/handlers/qualify_path.rs"],
 ]
-
+non_infrastructure = [
+  "crates/hir-expand/src/fixup.rs",
+  "crates/hir-ty/src/consteval.rs",
+  "crates/hir-ty/src/diagnostics/decl_check.rs",
+  "crates/hir-ty/src/lower/path.rs",
+  "crates/hir-ty/src/mir.rs",
+  "crates/hir-ty/src/mir/lower.rs",
+  "crates/hir-ty/src/mir/lower/as_place.rs",
+  "crates/hir-ty/src/mir/lower/pattern_matching.rs",
+  "crates/hir-ty/src/next_solver/ir_print.rs",
+  "crates/hir/src/diagnostics.rs",
+  "crates/ide-assists/src/handlers/add_braces.rs",
+  "crates/ide-assists/src/handlers/add_label_to_loop.rs",
+  "crates/ide-assists/src/handlers/add_missing_match_arms.rs",
+  "crates/ide-assists/src/handlers/convert_closure_to_fn.rs",
+  "crates/ide-assists/src/handlers/convert_for_to_while_let.rs",
+  "crates/ide-assists/src/handlers/convert_from_to_tryfrom.rs",
+  "crates/ide-assists/src/handlers/convert_to_guarded_return.rs",
+  "crates/ide-assists/src/handlers/convert_while_to_loop.rs",
+  "crates/ide-assists/src/handlers/destructure_struct_binding.rs",
+  "crates/ide-assists/src/handlers/desugar_try_expr.rs",
+  "crates/ide-assists/src/handlers/extract_expressions_from_format_string.rs",
+  "crates/ide-assists/src/handlers/extract_variable.rs",
+  "crates/ide-assists/src/handlers/generate_delegate_methods.rs",
+  "crates/ide-assists/src/handlers/generate_delegate_trait.rs",
+  "crates/ide-assists/src/handlers/generate_trait_from_impl.rs",
+  "crates/ide-assists/src/handlers/inline_local_variable.rs",
+  "crates/ide-assists/src/handlers/inline_type_alias.rs",
+  "crates/ide-assists/src/handlers/invert_if.rs",
+  "crates/ide-assists/src/handlers/merge_imports.rs",
+  "crates/ide-assists/src/handlers/move_guard.rs",
+  "crates/ide-assists/src/handlers/qualify_method_call.rs",
+  "crates/ide-assists/src/handlers/qualify_path.rs",
+  "crates/ide-assists/src/handlers/replace_is_method_with_if_let_method.rs",
+  "crates/ide-assists/src/handlers/replace_let_with_if_let.rs",
+  "crates/ide-assists/src/handlers/replace_method_eager_lazy.rs",
+  "crates/ide-assists/src/handlers/unwrap_tuple.rs",
+  "crates/ide-assists/src/handlers/wrap_unwrap_cfg_attr.rs",
+  "crates/ide-assists/src/tests/generated.rs",
+  "crates/ide-assists/src/utils.rs",
+  "crates/ide-assists/src/utils/ref_field_expr.rs",
+  "crates/ide-completion/src/completions/fn_param.rs",
+  "crates/ide-completion/src/completions/postfix.rs",
+  "crates/ide-completion/src/context/analysis.rs",
+  "crates/ide-completion/src/context/tests.rs",
+  "crates/ide-completion/src/render/function.rs",
+  "crates/ide-completion/src/tests/fn_param.rs",
+  "crates/ide-diagnostics/src/handlers/incorrect_case.rs",
+  "crates/ide-diagnostics/src/handlers/incorrect_generics_len.rs",
+  "crates/ide-diagnostics/src/handlers/no_such_field.rs",
+  "crates/ide-diagnostics/src/handlers/remove_unnecessary_else.rs",
+  "crates/load-cargo/src/lib.rs",
+  "crates/proc-macro-srv/src/lib.rs",
+  "crates/rust-analyzer/src/cli/analysis_stats.rs",
+  "crates/rust-analyzer/src/cli/diagnostics.rs",
+  "crates/rust-analyzer/src/cli/flags.rs",
+  "crates/rust-analyzer/src/cli/lsif.rs",
+  "crates/rust-analyzer/src/cli/prime_caches.rs",
+  "crates/rust-analyzer/src/cli/run_tests.rs",
+  "crates/rust-analyzer/src/cli/rustc_tests.rs",
+  "crates/rust-analyzer/src/cli/scip.rs",
+  "crates/rust-analyzer/src/cli/ssr.rs",
+  "crates/rust-analyzer/src/cli/unresolved_references.rs",
+  "crates/rust-analyzer/src/integrated_benchmarks.rs",
+  "crates/rust-analyzer/src/main_loop.rs",
+  "crates/syntax/src/ast/edit.rs",
+  "crates/syntax/src/ast/syntax_factory/constructors.rs",
+]
+infrastructure = [
+  "README.md",
+  "editors/code/package-lock.json",
+]
