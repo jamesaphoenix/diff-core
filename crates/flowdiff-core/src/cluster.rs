@@ -375,7 +375,7 @@ fn find_nearest_group_by_directory(file: &str, groups: &[FlowGroup]) -> Option<u
 }
 
 /// Maximum number of files for a group to be considered "small" and eligible for merging.
-const SMALL_GROUP_THRESHOLD: usize = 3;
+const SMALL_GROUP_THRESHOLD: usize = 5;
 
 /// Maximum number of small groups that can merge in a single directory bucket.
 /// Prevents collapsing 15+ singletons into one mega-group.
