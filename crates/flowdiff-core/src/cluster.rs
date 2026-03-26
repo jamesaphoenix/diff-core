@@ -387,8 +387,8 @@ const MAX_MERGE_BUCKET_SIZE: usize = 12;
 /// share that directory prefix and have ≤ SMALL_GROUP_THRESHOLD files get merged
 /// into one group. The merged group takes the name of the first group.
 fn consolidate_small_groups(mut groups: Vec<FlowGroup>) -> Vec<FlowGroup> {
-    // Try merging at progressively shallower depths: 4, 3, 2, 1
-    for depth in (1..=4).rev() {
+    // Try merging at progressively shallower depths: 6, 5, 4, 3, 2, 1
+    for depth in (1..=6).rev() {
         groups = merge_at_depth(groups, depth);
     }
     groups
