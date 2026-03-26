@@ -217,12 +217,24 @@ fn coalesce_test_impl_pairs(
     group_map: &mut BTreeMap<usize, Vec<(String, usize)>>,
     assignments: &BTreeMap<String, (usize, usize)>,
 ) {
-    // Build a lookup: filename stem → (file_path, group_idx)
+    // Build lookups: stem → (file_path, group_idx)
+    // Use both full context stem and bare filename stem for flexible matching
     let mut impl_lookup: HashMap<String, (String, usize)> = HashMap::new();
+    let mut impl_bare_lookup: HashMap<String, (String, usize)> = HashMap::new();
     for (file, (ep_idx, _)) in assignments {
         if !is_test_file_name(file) {
             let stem = test_impl_stem(file);
             impl_lookup.insert(stem, (file.clone(), *ep_idx));
+            // Also index by bare filename stem (no directory context)
+            let bare = file
+                .rsplit('/')
+                .next()
+                .unwrap_or(file)
+                .rsplit_once('.')
+                .map(|(s, _)| s)
+                .unwrap_or(file)
+                .to_string();
+            impl_bare_lookup.insert(bare, (file.clone(), *ep_idx));
         }
     }
 
@@ -231,9 +243,26 @@ fn coalesce_test_impl_pairs(
     for (file, (ep_idx, _)) in assignments.iter() {
         if is_test_file_name(file) {
             let stem = test_impl_stem(file);
-            if let Some((_, impl_group)) = impl_lookup.get(&stem) {
-                if impl_group != ep_idx {
-                    moves.push((file.clone(), *ep_idx, *impl_group));
+            // Try full context match first, then bare stem match
+            let impl_group = impl_lookup
+                .get(&stem)
+                .or_else(|| {
+                    let bare = file
+                        .rsplit('/')
+                        .next()
+                        .unwrap_or(file)
+                        .rsplit_once('.')
+                        .map(|(s, _)| s)
+                        .unwrap_or(file)
+                        .replace(".test", "")
+                        .replace(".spec", "")
+                        .replace("_test", "")
+                        .replace("test_", "");
+                    impl_bare_lookup.get(&bare)
+                });
+            if let Some((_, impl_grp)) = impl_group {
+                if impl_grp != ep_idx {
+                    moves.push((file.clone(), *ep_idx, *impl_grp));
                 }
             }
         }
@@ -250,17 +279,34 @@ fn coalesce_test_impl_pairs(
     }
 }
 
-/// Check if a filename looks like a test file.
+/// Check if a file is a test file — by filename pattern OR directory.
 fn is_test_file_name(path: &str) -> bool {
     let lower = path.to_lowercase();
     let filename = lower.rsplit('/').next().unwrap_or(&lower);
-    filename.contains(".test.")
+
+    // Filename patterns
+    if filename.contains(".test.")
         || filename.contains(".spec.")
         || filename.contains("_test.")
         || filename.starts_with("test_")
         || filename.contains(".e2e.")
         || filename.contains(".integration-test.")
         || filename.contains("_bench_test.")
+    {
+        return true;
+    }
+
+    // Directory patterns: files in tests/, test/, __tests__/ directories
+    if lower.contains("/tests/")
+        || lower.contains("/test/")
+        || lower.contains("/__tests__/")
+        || lower.starts_with("tests/")
+        || lower.starts_with("test/")
+    {
+        return true;
+    }
+
+    false
 }
 
 /// Extract the "stem" that a test file and its impl share.
