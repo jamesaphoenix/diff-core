@@ -1,17 +1,60 @@
-# Rust — ruff recent, ~34 files
+# ruff-recent
 [[repos]]
 name = "ruff-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/ruff"
 language = "rust"
 range = "4704c2a4ff3dde2fd29324346720e9516b4fe387..0cfec2268c5eb15949c9f822ef0018c987168883"
-notes = "SMALL. 10-commit range. ~34 files."
+notes = "SMALL. 10-commit range: final attribute validation, lambda inference, narrowing, IDE fix. ~34 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.5
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 11
+group_count_min = 3
+group_count_max = 6
+same_group = [
+  ["crates/ty_python_semantic/resources/mdtest/type_qualifiers/final.md", "crates/ty_python_semantic/src/types/infer/builder/final_attribute.rs"],
+  ["crates/ty_python_semantic/resources/mdtest/bidirectional.md", "crates/ty_python_semantic/src/semantic_index/scope.rs"],
+  ["crates/ty_python_semantic/src/semantic_index/builder.rs", "crates/ty_python_semantic/resources/mdtest/narrow/post_if_statement.md"],
+]
+infrastructure = [
+  ".github/workflows/publish-docs.yml",
+  ".github/workflows/publish-versions.yml",
+  ".github/workflows/publish-wasm.yml",
+  "CHANGELOG.md",
+  "Cargo.lock",
+  "README.md",
+  "crates/ruff/Cargo.toml",
+  "crates/ruff_linter/Cargo.toml",
+  "crates/ruff_wasm/Cargo.toml",
+  "docs/formatter.md",
+  "docs/integrations.md",
+  "docs/tutorial.md",
+  "pyproject.toml",
+  "scripts/benchmarks/pyproject.toml",
+]
+non_infrastructure = [
+  "crates/ruff_benchmark/benches/ty.rs",
+  "crates/ruff_linter/src/rules/ruff/rules/fstring_percent_format.rs",
+  "crates/ruff_linter/src/rules/ruff/rules/unnecessary_if.rs",
+  "crates/ruff_linter/src/rules/ruff/rules/useless_finally.rs",
+  "crates/ty_ide/src/completion.rs",
+  "crates/ty_python_semantic/resources/corpus/cyclic_lambdas.py",
+  "crates/ty_python_semantic/resources/mdtest/attributes.md",
+  "crates/ty_python_semantic/resources/mdtest/bidirectional.md",
+  "crates/ty_python_semantic/resources/mdtest/cycle.md",
+  "crates/ty_python_semantic/resources/mdtest/expression/lambda.md",
+  "crates/ty_python_semantic/resources/mdtest/narrow/post_if_statement.md",
+  "crates/ty_python_semantic/resources/mdtest/snapshots/final.md_-_`typing.Final`_-_Full_diagnostics_(174fdd8134fb325b).snap",
+  "crates/ty_python_semantic/resources/mdtest/type_qualifiers/final.md",
+  "crates/ty_python_semantic/src/semantic_index/builder.rs",
+  "crates/ty_python_semantic/src/semantic_index/scope.rs",
+  "crates/ty_python_semantic/src/types.rs",
+  "crates/ty_python_semantic/src/types/function.rs",
+  "crates/ty_python_semantic/src/types/infer/builder.rs",
+  "crates/ty_python_semantic/src/types/infer/builder/final_attribute.rs",
+  "crates/ty_python_semantic/src/types/infer/builder/type_expression.rs",
+]

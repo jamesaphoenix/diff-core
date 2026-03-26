@@ -1,17 +1,123 @@
-# Typescript — effect recent, ~96 files
+# effect-recent
 [[repos]]
 name = "effect-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/effect"
 language = "typescript"
 range = "041dd22de07235de08b75f0bc29e206e3c27942b..6c39a34c6145811f5c41292f03bf7939cfa8e70d"
-notes = "MEDIUM. 10-commit range. ~96 files."
+notes = "MEDIUM. 10-commit range: Cron.prev, Layer types, RcMap TTL, span fix, resolver defect, PgClient listen. ~96 files."
 
 [repos.thresholds]
-max_groups = 60
-max_infra_ratio = 0.60
+max_groups = 30
+max_infra_ratio = 0.85
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 32
+group_count_min = 5
+group_count_max = 8
+same_group = [
+  ["packages/effect/src/Cron.ts", "packages/effect/test/Cron.test.ts"],
+  ["packages/effect/src/Layer.ts", "packages/effect/dtslint/Layer.tst.ts"],
+  ["packages/effect/src/RcMap.ts", "packages/effect/src/internal/rcMap.ts", "packages/effect/test/RcMap.test.ts"],
+  ["packages/sql-pg/src/PgClient.ts", "packages/sql-pg/test/Client.test.ts"],
+]
+infrastructure = [
+  ".changeset/fix-batched-resolver-defect-hang.md",
+  ".changeset/fix-equal-null-guard.md",
+  ".changeset/fix-openrouter-referer-header.md",
+  ".changeset/flat-wombats-smile.md",
+  ".changeset/huge-peaches-jump.md",
+  ".changeset/slow-hands-draw.md",
+  "package.json",
+  "packages/ai/ai/CHANGELOG.md",
+  "packages/ai/ai/package.json",
+  "packages/ai/amazon-bedrock/CHANGELOG.md",
+  "packages/ai/amazon-bedrock/package.json",
+  "packages/ai/anthropic/CHANGELOG.md",
+  "packages/ai/anthropic/package.json",
+  "packages/ai/google/CHANGELOG.md",
+  "packages/ai/google/package.json",
+  "packages/ai/openai/CHANGELOG.md",
+  "packages/ai/openai/package.json",
+  "packages/ai/openrouter/CHANGELOG.md",
+  "packages/ai/openrouter/package.json",
+  "packages/cli/CHANGELOG.md",
+  "packages/cli/package.json",
+  "packages/cluster/CHANGELOG.md",
+  "packages/cluster/package.json",
+  "packages/effect/CHANGELOG.md",
+  "packages/effect/package.json",
+  "packages/effect/src/internal/version.ts",
+  "packages/experimental/CHANGELOG.md",
+  "packages/experimental/package.json",
+  "packages/opentelemetry/CHANGELOG.md",
+  "packages/opentelemetry/package.json",
+  "packages/platform-browser/CHANGELOG.md",
+  "packages/platform-browser/package.json",
+  "packages/platform-bun/CHANGELOG.md",
+  "packages/platform-bun/package.json",
+  "packages/platform-node-shared/CHANGELOG.md",
+  "packages/platform-node-shared/package.json",
+  "packages/platform-node/CHANGELOG.md",
+  "packages/platform-node/package.json",
+  "packages/platform/CHANGELOG.md",
+  "packages/platform/package.json",
+  "packages/printer-ansi/CHANGELOG.md",
+  "packages/printer-ansi/package.json",
+  "packages/printer/CHANGELOG.md",
+  "packages/printer/package.json",
+  "packages/rpc/CHANGELOG.md",
+  "packages/rpc/package.json",
+  "packages/sql-clickhouse/CHANGELOG.md",
+  "packages/sql-clickhouse/package.json",
+  "packages/sql-d1/CHANGELOG.md",
+  "packages/sql-d1/package.json",
+  "packages/sql-drizzle/CHANGELOG.md",
+  "packages/sql-drizzle/package.json",
+  "packages/sql-kysely/CHANGELOG.md",
+  "packages/sql-kysely/package.json",
+  "packages/sql-libsql/CHANGELOG.md",
+  "packages/sql-libsql/package.json",
+  "packages/sql-mssql/CHANGELOG.md",
+  "packages/sql-mssql/package.json",
+  "packages/sql-mysql2/CHANGELOG.md",
+  "packages/sql-mysql2/package.json",
+  "packages/sql-pg/CHANGELOG.md",
+  "packages/sql-pg/package.json",
+  "packages/sql-sqlite-bun/CHANGELOG.md",
+  "packages/sql-sqlite-bun/package.json",
+  "packages/sql-sqlite-do/CHANGELOG.md",
+  "packages/sql-sqlite-do/package.json",
+  "packages/sql-sqlite-node/CHANGELOG.md",
+  "packages/sql-sqlite-node/package.json",
+  "packages/sql-sqlite-react-native/CHANGELOG.md",
+  "packages/sql-sqlite-react-native/package.json",
+  "packages/sql-sqlite-wasm/CHANGELOG.md",
+  "packages/sql-sqlite-wasm/package.json",
+  "packages/sql/CHANGELOG.md",
+  "packages/sql/package.json",
+  "packages/typeclass/CHANGELOG.md",
+  "packages/typeclass/package.json",
+  "packages/vitest/CHANGELOG.md",
+  "packages/vitest/package.json",
+  "packages/workflow/CHANGELOG.md",
+  "packages/workflow/package.json",
+]
+non_infrastructure = [
+  "packages/ai/openrouter/src/OpenRouterClient.ts",
+  "packages/effect/dtslint/Layer.tst.ts",
+  "packages/effect/src/Cron.ts",
+  "packages/effect/src/Effect.ts",
+  "packages/effect/src/Layer.ts",
+  "packages/effect/src/RcMap.ts",
+  "packages/effect/src/internal/core-effect.ts",
+  "packages/effect/src/internal/fiberRuntime.ts",
+  "packages/effect/src/internal/rcMap.ts",
+  "packages/effect/test/Cron.test.ts",
+  "packages/effect/test/Effect/query-defect.test.ts",
+  "packages/effect/test/RcMap.test.ts",
+  "packages/opentelemetry/test/Tracer.test.ts",
+  "packages/sql-pg/src/PgClient.ts",
+  "packages/sql-pg/test/Client.test.ts",
+  "packages/sql-pg/test/utils.ts",
+]

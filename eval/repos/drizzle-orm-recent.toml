@@ -1,17 +1,93 @@
-# Typescript — drizzle-orm recent, ~66 files
+# drizzle-orm-recent
 [[repos]]
 name = "drizzle-orm-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/drizzle-orm"
 language = "typescript"
 range = "e31c65f526ab5253ffc2b08fdd1b266b7679d030..4aa6ecfee4b4728dadf6f77f071a149878a3c6c0"
-notes = "MEDIUM. 10-commit range. ~66 files."
+notes = "MEDIUM. 10-commit range: subquery select, $onUpdate fix, tsx migration, D1/PGlite studio. ~66 files."
 
 [repos.thresholds]
-max_groups = 60
-max_infra_ratio = 0.60
+max_groups = 30
+max_infra_ratio = 0.4
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 22
+group_count_min = 4
+group_count_max = 7
+same_group = [
+  ["drizzle-orm/src/operations.ts", "drizzle-orm/src/query-builders/select.types.ts"],
+  ["drizzle-orm/src/mysql-core/indexes.ts", "drizzle-orm/src/singlestore-core/indexes.ts"],
+  ["drizzle-orm/src/pg-core/columns/date.ts", "drizzle-orm/src/pg-core/columns/timestamp.ts"],
+  ["drizzle-kit/src/api.ts", "drizzle-kit/src/cli/connections.ts"],
+]
+infrastructure = [
+  ".github/workflows/release-feature-branch.yaml",
+  ".github/workflows/release-latest.yaml",
+  ".github/workflows/router.yaml",
+  "README.md",
+  "changelogs/drizzle-kit/0.31.10.md",
+  "changelogs/drizzle-kit/0.31.6.md",
+  "changelogs/drizzle-kit/0.31.7.md",
+  "changelogs/drizzle-kit/0.31.8.md",
+  "changelogs/drizzle-kit/0.31.9.md",
+  "changelogs/drizzle-orm/0.44.7.md",
+  "changelogs/drizzle-orm/0.45.0.md",
+  "changelogs/drizzle-orm/0.45.1.md",
+  "drizzle-kit/build.ts",
+  "drizzle-kit/package.json",
+  "drizzle-orm/package.json",
+  "pnpm-lock.yaml",
+]
+non_infrastructure = [
+  "drizzle-kit/src/api.ts",
+  "drizzle-kit/src/cli/commands/pgIntrospect.ts",
+  "drizzle-kit/src/cli/commands/sqliteIntrospect.ts",
+  "drizzle-kit/src/cli/commands/utils.ts",
+  "drizzle-kit/src/cli/connections.ts",
+  "drizzle-kit/src/cli/schema.ts",
+  "drizzle-kit/src/cli/views.ts",
+  "drizzle-kit/src/migrationPreparator.ts",
+  "drizzle-kit/src/serializer/mysqlImports.ts",
+  "drizzle-kit/src/serializer/mysqlSerializer.ts",
+  "drizzle-kit/src/serializer/pgImports.ts",
+  "drizzle-kit/src/serializer/pgSerializer.ts",
+  "drizzle-kit/src/serializer/singlestoreImports.ts",
+  "drizzle-kit/src/serializer/singlestoreSerializer.ts",
+  "drizzle-kit/src/serializer/sqliteImports.ts",
+  "drizzle-kit/src/serializer/studio.ts",
+  "drizzle-kit/tests/introspect/gel.ext.test.ts",
+  "drizzle-orm/src/bun-sql/session.ts",
+  "drizzle-orm/src/durable-sqlite/session.ts",
+  "drizzle-orm/src/gel-core/db.ts",
+  "drizzle-orm/src/gel-core/dialect.ts",
+  "drizzle-orm/src/mysql-core/db.ts",
+  "drizzle-orm/src/mysql-core/dialect.ts",
+  "drizzle-orm/src/mysql-core/indexes.ts",
+  "drizzle-orm/src/node-postgres/session.ts",
+  "drizzle-orm/src/operations.ts",
+  "drizzle-orm/src/pg-core/columns/date.ts",
+  "drizzle-orm/src/pg-core/columns/timestamp.ts",
+  "drizzle-orm/src/pg-core/db.ts",
+  "drizzle-orm/src/pg-core/dialect.ts",
+  "drizzle-orm/src/query-builders/select.types.ts",
+  "drizzle-orm/src/singlestore-core/db.ts",
+  "drizzle-orm/src/singlestore-core/dialect.ts",
+  "drizzle-orm/src/singlestore-core/indexes.ts",
+  "drizzle-orm/src/sqlite-core/db.ts",
+  "drizzle-orm/src/sqlite-core/dialect.ts",
+  "drizzle-orm/src/utils.ts",
+  "drizzle-orm/type-tests/mysql/subquery.ts",
+  "drizzle-orm/type-tests/mysql/tables.ts",
+  "drizzle-orm/type-tests/pg/subquery.ts",
+  "drizzle-orm/type-tests/singlestore/tables.ts",
+  "drizzle-orm/type-tests/sqlite/subquery.ts",
+  "integration-tests/tests/bun/bun-sql.test.ts",
+  "integration-tests/tests/gel/createInstance.ts",
+  "integration-tests/tests/gel/gel.test.ts",
+  "integration-tests/tests/mysql/mysql-common.ts",
+  "integration-tests/tests/pg/pg-common.ts",
+  "integration-tests/tests/singlestore/singlestore-common.ts",
+  "integration-tests/tests/sqlite/sqlite-common.ts",
+  "integration-tests/tests/utils/is-config.test.ts",
+]
