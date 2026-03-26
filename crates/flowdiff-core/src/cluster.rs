@@ -1370,6 +1370,197 @@ fn infer_file_role(path: &str) -> FileRole {
 }
 
 // ---------------------------------------------------------------------------
+// Embedding-based refinement (optional, behind `embeddings` feature)
+// ---------------------------------------------------------------------------
+
+/// Minimum cosine similarity for an infra file to be rescued to a semantic group
+/// via embedding similarity. Higher = more conservative (fewer rescues).
+#[cfg(feature = "embeddings")]
+const EMBEDDING_RESCUE_THRESHOLD: f32 = 0.70;
+
+/// Minimum cosine similarity for two groups to be merged via embedding similarity.
+#[cfg(feature = "embeddings")]
+const EMBEDDING_MERGE_THRESHOLD: f32 = 0.75;
+
+/// Refine clustering using embedding similarity.
+///
+/// This post-processing pass improves grouping by using semantic similarity
+/// between file contents (computed via local code embeddings) to:
+/// 1. Rescue files from infrastructure that are semantically similar to a semantic group
+/// 2. Merge small groups whose files have high pairwise embedding similarity
+///
+/// `file_diffs` is a slice of `(file_path, content)` tuples for all changed files.
+#[cfg(feature = "embeddings")]
+pub fn refine_with_embeddings(
+    mut result: ClusterResult,
+    file_diffs: &[(String, String)],
+) -> ClusterResult {
+    use crate::embeddings::{cosine_similarity, EmbeddingCache};
+
+    if file_diffs.is_empty() {
+        return result;
+    }
+
+    let cache = EmbeddingCache::default_cache();
+    let embeddings = match crate::embeddings::embed_file_diffs_with_cache(file_diffs, &cache) {
+        Ok(e) => e,
+        Err(e) => {
+            log::warn!("Embedding computation failed, skipping refinement: {}", e);
+            return result;
+        }
+    };
+
+    // Build lookup: file_path -> embedding vector
+    let embed_map: HashMap<String, &[f32]> = embeddings
+        .iter()
+        .map(|e| (e.file_path.clone(), e.vector.as_slice()))
+        .collect();
+
+    // Step 1: Rescue infra files that are semantically similar to a semantic group.
+    if let Some(ref mut infra) = result.infrastructure {
+        let mut rescued: Vec<(usize, String)> = Vec::new();
+
+        for infra_file in &infra.files {
+            if let Some(infra_vec) = embed_map.get(infra_file.as_str()) {
+                // Compute similarity to each group's centroid (average embedding)
+                let mut best_group: Option<(usize, f32)> = None;
+
+                for (g_idx, group) in result.groups.iter().enumerate() {
+                    if group.files.is_empty() {
+                        continue;
+                    }
+                    // Compute average similarity to all files in this group
+                    let mut total_sim = 0.0_f32;
+                    let mut count = 0u32;
+                    for gf in &group.files {
+                        if let Some(gf_vec) = embed_map.get(gf.path.as_str()) {
+                            total_sim += cosine_similarity(infra_vec, gf_vec);
+                            count += 1;
+                        }
+                    }
+                    if count > 0 {
+                        let avg_sim = total_sim / count as f32;
+                        if avg_sim >= EMBEDDING_RESCUE_THRESHOLD {
+                            match best_group {
+                                None => best_group = Some((g_idx, avg_sim)),
+                                Some((_, best_sim)) if avg_sim > best_sim => {
+                                    best_group = Some((g_idx, avg_sim));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+
+                if let Some((g_idx, _sim)) = best_group {
+                    rescued.push((g_idx, infra_file.clone()));
+                }
+            }
+        }
+
+        // Move rescued files
+        for (g_idx, file_path) in &rescued {
+            infra.files.retain(|f| f != file_path);
+            if let Some(group) = result.groups.get_mut(*g_idx) {
+                let pos = group.files.len() as u32;
+                group.files.push(FileChange {
+                    path: file_path.clone(),
+                    flow_position: pos,
+                    role: infer_file_role(file_path),
+                    changes: ChangeStats {
+                        additions: 0,
+                        deletions: 0,
+                    },
+                    symbols_changed: vec![],
+                });
+            }
+        }
+
+        // Clean up infra sub_groups for removed files
+        let remaining: HashSet<&str> = infra.files.iter().map(|s| s.as_str()).collect();
+        infra.sub_groups.retain(|sg| {
+            sg.files.iter().any(|f| remaining.contains(f.as_str()))
+        });
+        for sg in &mut infra.sub_groups {
+            sg.files.retain(|f| remaining.contains(f.as_str()));
+        }
+    }
+
+    // Remove infra entirely if empty
+    if result
+        .infrastructure
+        .as_ref()
+        .map_or(false, |i| i.files.is_empty())
+    {
+        result.infrastructure = None;
+    }
+
+    // Step 2: Merge small groups with high embedding similarity.
+    if result.groups.len() > 1 {
+        let mut merged = true;
+        while merged {
+            merged = false;
+            let n = result.groups.len();
+            let mut best_merge: Option<(usize, usize, f32)> = None;
+
+            for i in 0..n {
+                if result.groups[i].files.len() > SMALL_GROUP_THRESHOLD {
+                    continue;
+                }
+                for j in (i + 1)..n {
+                    if result.groups[j].files.len() > SMALL_GROUP_THRESHOLD {
+                        continue;
+                    }
+                    // Average pairwise similarity between groups
+                    let mut total = 0.0_f32;
+                    let mut pairs = 0u32;
+                    for fi in &result.groups[i].files {
+                        for fj in &result.groups[j].files {
+                            if let (Some(vi), Some(vj)) = (
+                                embed_map.get(fi.path.as_str()),
+                                embed_map.get(fj.path.as_str()),
+                            ) {
+                                total += cosine_similarity(vi, vj);
+                                pairs += 1;
+                            }
+                        }
+                    }
+                    if pairs > 0 {
+                        let avg = total / pairs as f32;
+                        if avg >= EMBEDDING_MERGE_THRESHOLD {
+                            match best_merge {
+                                None => best_merge = Some((i, j, avg)),
+                                Some((_, _, best_avg)) if avg > best_avg => {
+                                    best_merge = Some((i, j, avg));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Some((i, j, _)) = best_merge {
+                // Merge j into i
+                let donor = result.groups.remove(j);
+                let receiver = &mut result.groups[i];
+                for fc in donor.files {
+                    let pos = receiver.files.len() as u32;
+                    receiver.files.push(FileChange {
+                        flow_position: pos,
+                        ..fc
+                    });
+                }
+                receiver.edges.extend(donor.edges);
+                merged = true;
+            }
+        }
+    }
+
+    result
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

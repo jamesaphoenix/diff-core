@@ -463,6 +463,21 @@ fn run_repo_target(
     let cluster_result =
         cluster::cluster_files(&graph, &entrypoints, &changed_files);
 
+    // Optionally refine clustering with embedding similarity (requires `embeddings` feature)
+    #[cfg(feature = "embeddings")]
+    let cluster_result = {
+        let file_diffs_for_embed: Vec<(String, String)> = diff_result
+            .files
+            .iter()
+            .filter_map(|fd| {
+                let path = fd.new_path.as_deref().or(fd.old_path.as_deref())?;
+                let content = fd.new_content.as_deref().or(fd.old_content.as_deref())?;
+                Some((path.to_string(), content.to_string()))
+            })
+            .collect();
+        cluster::refine_with_embeddings(cluster_result, &file_diffs_for_embed)
+    };
+
     let rank_inputs: Vec<GroupRankInput> = cluster_result
         .groups
         .iter()
