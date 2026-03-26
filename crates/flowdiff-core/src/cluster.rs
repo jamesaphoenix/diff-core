@@ -428,8 +428,10 @@ fn bare_stem(path: &str) -> String {
     let base = filename
         .replace(".test.", ".")
         .replace(".spec.", ".")
+        .replace(".vitest.", ".")
         .replace("_test.", ".")
-        .replace(".e2e.", ".");
+        .replace(".e2e.", ".")
+        .replace(".integration-test.", ".");
     let stem = base.rsplit_once('.').map(|(s, _)| s).unwrap_or(&base);
     let stem = stem.strip_prefix("test_").unwrap_or(stem);
     stem.to_lowercase()
@@ -515,6 +517,7 @@ fn is_test_file_name(path: &str) -> bool {
     // Filename patterns
     if filename.contains(".test.")
         || filename.contains(".spec.")
+        || filename.contains(".vitest.")
         || filename.contains("_test.")
         || filename.starts_with("test_")
         || filename.contains(".e2e.")
@@ -552,6 +555,7 @@ fn test_impl_stem(path: &str) -> String {
     let base = filename
         .replace(".test.", ".")
         .replace(".spec.", ".")
+        .replace(".vitest.", ".")
         .replace("_test.", ".")
         .replace(".e2e.", ".")
         .replace(".integration-test.", ".")
