@@ -1,12 +1,12 @@
 # Go — alertmanager distributed tracing, 32 files
-# NOTE: Currently 13 singleton groups (all test/route entrypoints). Core tracing files in infra.
+# Adding OpenTelemetry tracing across API, dispatch, inhibit, notify, silence.
 [[repos]]
 name = "alertmanager-tracing"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/alertmanager"
 language = "go"
 range = "757619f3bf16acba321d78a109832dbb6cbee37a..18939cee8f7da2321795916c26dfbc6777c197a8"
-notes = "SMALL. Distributed tracing across API/notify/dispatch/silence. 32 files. 13 singleton groups."
+notes = "SMALL. Distributed tracing across API/notify/dispatch/silence. 32 files."
 
 [repos.thresholds]
 max_groups = 30
@@ -19,11 +19,54 @@ group_count_max = 15
 # Tracing test and the tracing impl should be in the same semantic group
 same_group = [
   ["tracing/tracing_test.go", "tracing/tracing.go"],
+  # Inhibit impl + tests
+  ["inhibit/inhibit.go", "inhibit/inhibit_test.go"],
+  # Dispatch impl + test
+  ["dispatch/dispatch.go", "dispatch/dispatch_test.go"],
 ]
-# Core tracing feature files should be in semantic groups, not infra
 non_infrastructure = [
+  # Core tracing module
+  "tracing/tracing.go",
   "tracing/tracing_test.go",
+  "tracing/http.go",
+  "tracing/testdata/ca.cer",
+  # Tracing config
+  "config/tracing.go",
+  "config/config.go",
+  # Main entrypoint wiring tracing
   "cmd/alertmanager/main.go",
+  # API layer adding trace spans
   "api/api.go",
+  "api/v2/api.go",
+  "api/v2/api_test.go",
+  "api/v2/compat.go",
+  # Dispatch adding trace spans
+  "dispatch/dispatch.go",
+  "dispatch/dispatch_test.go",
+  # Inhibit adding trace spans
+  "inhibit/inhibit.go",
+  "inhibit/inhibit_test.go",
+  "inhibit/inhibit_bench_test.go",
+  "inhibit/metric.go",
+  "inhibit/metric_test.go",
+  # Notify adding trace spans
+  "notify/notify.go",
+  "notify/notify_test.go",
+  "notify/util.go",
+  # Provider adding trace spans
+  "provider/provider.go",
+  "provider/mem/mem.go",
+  "provider/mem/mem_test.go",
+  # Silence adding trace spans
+  "silence/silence.go",
+  "silence/silence_test.go",
+  "silence/silence_bench_test.go",
+  # Types
+  "types/types.go",
 ]
-
+infrastructure = [
+  "go.mod",
+  "go.sum",
+  "doc/examples/simple.yml",
+  "docs/configuration.md",
+]

@@ -24,9 +24,35 @@ same_group = [
   ["apps/api/v2/src/modules/cal-unified-calendars/services/unified-calendars-freebusy.service.ts", "apps/api/v2/src/modules/cal-unified-calendars/services/unified-calendars-freebusy.service.spec.ts"],
 ]
 non_infrastructure = [
+  # Controllers
   "apps/api/v2/src/modules/cal-unified-calendars/controllers/cal-unified-calendars.controller.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/controllers/cal-unified-calendars.controller.spec.ts",
+  # Module definition
+  "apps/api/v2/src/modules/cal-unified-calendars/cal-unified-calendars.module.ts",
+  # Input DTOs
+  "apps/api/v2/src/modules/cal-unified-calendars/inputs/create-unified-calendar-event.input.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/inputs/freebusy-unified.input.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/inputs/list-unified-calendar-events.input.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/inputs/update-unified-calendar-event.input.ts",
+  # Output DTOs
+  "apps/api/v2/src/modules/cal-unified-calendars/outputs/get-unified-calendar-event.output.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/outputs/list-connections.output.ts",
+  # Pipes
+  "apps/api/v2/src/modules/cal-unified-calendars/pipes/get-calendar-event-details-output-pipe.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/pipes/get-calendar-event-details-output-pipe.spec.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/pipes/google-calendar-event-input-pipe.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/pipes/google-calendar-event-input.pipe.spec.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/pipes/parse-connection-id.pipe.ts",
+  # Services
   "apps/api/v2/src/modules/cal-unified-calendars/services/google-calendar.service.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/services/google-calendar.service.spec.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/services/unified-calendar.service.ts",
   "apps/api/v2/src/modules/cal-unified-calendars/services/unified-calendars-freebusy.service.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/services/unified-calendars-freebusy.service.spec.ts",
+  "apps/api/v2/src/modules/cal-unified-calendars/services/unified-calendars-freebusy.integration.spec.ts",
+  # Related module changes
+  "apps/api/v2/src/ee/calendars/services/calendars.service.ts",
+  "apps/api/v2/src/modules/credentials/credentials.repository.ts",
 ]
 infrastructure = [
   "docs/api-reference/v2/openapi.json",
