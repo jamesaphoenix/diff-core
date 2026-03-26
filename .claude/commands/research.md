@@ -69,6 +69,7 @@ Count repos: `ls eval/repos/*.toml | wc -l`
 - For synthetic repos: create under `flowdiff-eval-corpus/synthetic/<name>/`, add `type = "synthetic"` with tight goldens
 - Clone destination: `~/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/<language>/<repo>`
 - Every new repo must have 100% file coverage (lint-goldens verified)
+- **Max 500 files per diff.** Reject repos/ranges with >500 changed files — golden generation cost scales linearly. Check with `git diff --stat <base>..<head> | tail -1` before adding.
 
 **Phase 1: Build goldens via sub-agents** (highest priority if lint-goldens reports gaps)
 Use Claude Code sub-agents to generate golden constraints from diff content. **Every file in the diff must be classified as infrastructure or non_infrastructure** — this is enforced by `lint-goldens`.
