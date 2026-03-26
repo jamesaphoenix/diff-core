@@ -224,7 +224,31 @@ fn rescue_non_infra_files(
             // This looks like source code — assign to nearest group by directory
             match find_nearest_group_by_directory(file, groups) {
                 Some(group_idx) => rescued.push((group_idx, file.clone())),
-                None => true_infra.push(file.clone()), // No group to assign to
+                None => {
+                    // No directory match. Only use fallback (largest group) for files
+                    // with clear source code extensions — not for config-like files.
+                    let ext = file.rsplit('.').next().unwrap_or("");
+                    let is_source = matches!(
+                        ext,
+                        "go" | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "java" | "kt"
+                            | "rb" | "php" | "cs" | "swift" | "scala" | "vue" | "svelte"
+                            | "tmpl" | "html" | "css" | "scss"
+                    );
+                    if is_source {
+                        if let Some(largest_idx) = groups
+                            .iter()
+                            .enumerate()
+                            .max_by_key(|(_, g)| g.files.len())
+                            .map(|(idx, _)| idx)
+                        {
+                            rescued.push((largest_idx, file.clone()));
+                        } else {
+                            true_infra.push(file.clone());
+                        }
+                    } else {
+                        true_infra.push(file.clone());
+                    }
+                }
             }
         }
     }
