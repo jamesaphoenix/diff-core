@@ -93,7 +93,7 @@ Ideas queued for testing in the autoresearch loop. Move items to `experiments.js
 
 **Schedule: 10 MACRO → 10 MICRO → 10 GROWING_DATA → repeat**
 
-**Current phase: MACRO (1/10)** — experiment #62 (diff-based embeddings)
+**Current phase: MACRO (2/10)** — next: graph community detection
 
 ### Macro (GLOBAL) — 10 experiments, generic approaches
 1. [x] **Diff-based embeddings** — embed change hunks not full content (#62, running)
