@@ -1,17 +1,36 @@
-# Go — Gin web framework recent, ~12 files
+# gin-recent
 [[repos]]
 name = "gin-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gin"
 language = "go"
 range = "052d1a79aafe3f04078a2716f8e77d4340308383..d3ffc9985281dcf4d3bef604cce4e662b1a327a6"
-notes = "SMALL. 10-commit range. ~12 files."
+notes = "SMALL. 10-commit range: test fixes, dep bumps, docs reorg. ~12 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.85
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 2
-group_count_max = 8
+group_count_min = 1
+group_count_max = 3
+same_group = [
+  ["gin_test.go", "test_helpers.go"],
+]
+infrastructure = [
+  ".github/workflows/gin.yml",
+  ".github/workflows/trivy-scan.yml",
+  "AUTHORS.md",
+  "BENCHMARKS.md",
+  "LICENSE",
+  "Makefile",
+  "README.md",
+  "docs/doc.md",
+  "go.mod",
+  "go.sum",
+]
+non_infrastructure = [
+  "gin_test.go",
+  "test_helpers.go",
+]

@@ -1,17 +1,38 @@
-# Rust — serde recent, ~14 files
+# serde-recent
 [[repos]]
 name = "serde-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/serde"
 language = "rust"
 range = "d17902059e77e371d8a7f83ff403f9e760b70f45..fa7da4a93567ed347ad0735c28e439fca688ef26"
-notes = "SMALL. 10-commit range. ~14 files."
+notes = "SMALL. 10-commit range: MSRV bump, iterator-to-loop refactor. ~14 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.6
 max_singleton_ratio = 0.60
 
 [repos.expectations]
 group_count_min = 2
-group_count_max = 5
+group_count_max = 3
+same_group = [
+  ["serde_derive/src/de.rs", "serde_derive/src/ser.rs"],
+]
+infrastructure = [
+  ".github/workflows/ci.yml",
+  "README.md",
+  "serde/build.rs",
+  "serde/src/lib.rs",
+  "serde_core/build.rs",
+  "serde_derive/Cargo.toml",
+  "serde_derive_internals/Cargo.toml",
+]
+non_infrastructure = [
+  "serde_derive/src/bound.rs",
+  "serde_derive/src/de.rs",
+  "serde_derive/src/de/enum_adjacently.rs",
+  "serde_derive/src/internals/ast.rs",
+  "serde_derive/src/internals/ctxt.rs",
+  "serde_derive/src/pretend.rs",
+  "serde_derive/src/ser.rs",
+]

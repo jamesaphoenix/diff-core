@@ -1,17 +1,39 @@
-# Rust — reqwest recent, ~14 files
+# reqwest-recent
 [[repos]]
 name = "reqwest-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/reqwest"
 language = "rust"
 range = "23eb7d4fab2252a3620bf38b48aa10e468bda30e..c5e50f004de3ac0914369a08f3e7fd33c3ebc17e"
-notes = "SMALL. 10-commit range. ~14 files."
+notes = "SMALL. 10-commit range: H3 STOP_SENDING fix, JSON content-type, hickory-dns fallback. ~14 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.5
 max_singleton_ratio = 0.60
 
 [repos.expectations]
 group_count_min = 2
-group_count_max = 5
+group_count_max = 4
+same_group = [
+  ["src/async_impl/h3_client/pool.rs", "tests/http3.rs"],
+  ["src/async_impl/request.rs", "src/blocking/request.rs", "src/wasm/request.rs"],
+]
+infrastructure = [
+  ".github/workflows/ci.yml",
+  "CHANGELOG.md",
+  "Cargo.toml",
+  "src/connect.rs",
+  "src/lib.rs",
+  "src/util.rs",
+]
+non_infrastructure = [
+  "src/async_impl/h3_client/pool.rs",
+  "src/async_impl/request.rs",
+  "src/blocking/request.rs",
+  "src/dns/hickory.rs",
+  "src/wasm/request.rs",
+  "tests/http3.rs",
+  "tests/support/server.rs",
+  "tests/wasm_simple.rs",
+]
