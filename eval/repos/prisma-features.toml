@@ -1,11 +1,12 @@
 # TypeScript — Prisma ORM features, ~71 files
+# 20-commit range: postgres link command, MariaDB adapter, Studio overhaul, PG statement names, cache fix.
 [[repos]]
 name = "prisma-features"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/prisma"
 language = "typescript"
 range = "de1c376e2746019b1cff3c58ac168142fe9d1569..5fece0a97ca3f7a05a7ae6691d49728d19b795a4"
-notes = "MEDIUM. 20-commit range: postgres link, mariadb, statement names. ~71 files."
+notes = "MEDIUM. 20-commit range: postgres link, MariaDB, Studio, PG adapter. ~71 files."
 
 [repos.thresholds]
 max_groups = 40
@@ -13,5 +14,98 @@ max_infra_ratio = 0.50
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 3
-group_count_max = 30
+group_count_min = 6
+group_count_max = 14
+same_group = [
+  # MariaDB adapter + tests
+  ["packages/adapter-mariadb/src/mariadb.ts", "packages/adapter-mariadb/src/mariadb.test.ts"],
+  # PG adapter + tests
+  ["packages/adapter-pg/src/pg.ts", "packages/adapter-pg/src/__tests__/pg.test.ts"],
+  ["packages/adapter-pg/src/errors.ts", "packages/adapter-pg/src/__tests__/errors.test.ts"],
+  # Studio overhaul
+  ["packages/cli/src/Studio.ts", "packages/cli/src/__tests__/Studio.vitest.ts"],
+  ["packages/cli/src/studio-server.ts", "packages/cli/src/__tests__/studio-server.vitest.ts"],
+  # Postgres link command
+  ["packages/cli/src/postgres/link/Link.ts", "packages/cli/src/postgres/link/__tests__/Link.vitest.ts"],
+  ["packages/cli/src/postgres/link/local-setup.ts", "packages/cli/src/postgres/link/__tests__/local-setup.vitest.ts"],
+  ["packages/cli/src/postgres/link/management-api.ts", "packages/cli/src/postgres/link/__tests__/management-api.vitest.ts"],
+  # Query plan cache bloat fix + test
+  ["packages/client/src/runtime/core/engines/client/ClientEngine.ts", "packages/client/tests/functional/issues/29331-query-plan-cache-bloat/tests.ts"],
+]
+infrastructure = [
+  "AGENTS.md",
+  "packages/adapter-pg/package.json",
+  "packages/cli/helpers/build.ts",
+  "packages/cli/package.json",
+  "packages/cli/vitest.config.ts",
+  "packages/cli/src/__tests__/Init.test.ts",
+  "packages/cli/src/__tests__/__snapshots__/Init.test.ts.snap",
+  "packages/cli/src/__tests__/Init.vitest.ts",
+  "packages/cli/src/__tests__/__snapshots__/Init.vitest.ts.snap",
+  "packages/client-generator-js/package.json",
+  "packages/client-generator-ts/package.json",
+  "packages/client/package.json",
+  "packages/client/tests/e2e/_utils/standard.dockerfile",
+  "packages/client/tests/e2e/large-schema-generation/package.json",
+  "packages/client/tests/e2e/large-schema-generation/tsconfig.json",
+  "packages/client/tests/e2e/large-schema-generation/readme.md",
+  "packages/client/tests/e2e/large-schema-generation/prisma/schema.prisma",
+  "packages/client/tests/e2e/large-schema-generation/prisma.config.ts",
+  "packages/config/package.json",
+  "packages/engines/package.json",
+  "packages/fetch-engine/package.json",
+  "packages/internals/package.json",
+  "packages/migrate/package.json",
+  "packages/schema-files-loader/package.json",
+  "pnpm-lock.yaml",
+  "scripts/run-studio.ts",
+]
+non_infrastructure = [
+  "packages/adapter-mariadb/src/credentials.test.ts",
+  "packages/adapter-mariadb/src/mariadb.test.ts",
+  "packages/adapter-mariadb/src/mariadb.ts",
+  "packages/adapter-pg/src/__tests__/errors.test.ts",
+  "packages/adapter-pg/src/__tests__/pg.test.ts",
+  "packages/adapter-pg/src/errors.ts",
+  "packages/adapter-pg/src/pg.ts",
+  "packages/cli/src/CLI.ts",
+  "packages/cli/src/Generate.ts",
+  "packages/cli/src/Init.ts",
+  "packages/cli/src/Studio.ts",
+  "packages/cli/src/__tests__/Studio.vitest.ts",
+  "packages/cli/src/__tests__/studio-server.vitest.ts",
+  "packages/cli/src/bin.ts",
+  "packages/cli/src/postgres/PostgresCommand.ts",
+  "packages/cli/src/postgres/__tests__/PostgresCommand.vitest.ts",
+  "packages/cli/src/postgres/link/Link.ts",
+  "packages/cli/src/postgres/link/__tests__/Link.vitest.ts",
+  "packages/cli/src/postgres/link/__tests__/local-setup.vitest.ts",
+  "packages/cli/src/postgres/link/__tests__/management-api.vitest.ts",
+  "packages/cli/src/postgres/link/completion-output.ts",
+  "packages/cli/src/postgres/link/local-setup.ts",
+  "packages/cli/src/postgres/link/management-api.ts",
+  "packages/cli/src/studio-entry.ts",
+  "packages/cli/src/studio-frontend-shared.ts",
+  "packages/cli/src/studio-server.ts",
+  "packages/cli/src/utils/checkpoint.ts",
+  "packages/client-engine-runtime/src/interpreter/generators.ts",
+  "packages/client-generator-js/src/generator.ts",
+  "packages/client-generator-js/src/utils/types/dmmfToTypes.ts",
+  "packages/client-generator-ts/src/TSClient/Model.ts",
+  "packages/client/src/runtime/core/engines/client/ClientEngine.ts",
+  "packages/client/src/utils/getTestClient.ts",
+  "packages/client/tests/e2e/large-schema-generation/_steps.ts",
+  "packages/client/tests/e2e/large-schema-generation/src/generate-schema.ts",
+  "packages/client/tests/functional/issues/29331-query-plan-cache-bloat/_matrix.ts",
+  "packages/client/tests/functional/issues/29331-query-plan-cache-bloat/prisma/_schema.ts",
+  "packages/client/tests/functional/issues/29331-query-plan-cache-bloat/tests.ts",
+  "packages/get-platform/src/test-utils/jestContext.ts",
+  "packages/internals/src/__tests__/getGenerators/getGenerators.test.ts",
+  "packages/internals/src/built-in-provider.ts",
+  "packages/internals/src/cli/getGeneratorSuccessMessage.ts",
+  "packages/internals/src/engine-commands/getDmmf.ts",
+  "packages/internals/src/index.ts",
+  "packages/internals/src/utils/extractPreviewFeatures.ts",
+  "packages/internals/src/utils/missingGeneratorMessage.ts",
+  "packages/query-plan-executor/src/server/server.ts",
+]
