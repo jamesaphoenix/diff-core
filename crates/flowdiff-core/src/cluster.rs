@@ -992,7 +992,13 @@ pub fn classify_by_convention(path: &str) -> InfraCategory {
     // But packages/docs/content/ (nested under a package) is still documentation.
     let is_site_content = lower.starts_with("docs/content/")
         || lower.starts_with("www/docs/");
+    // .md files inside src/docs/ directories are inline API documentation
+    // tied to source code (e.g., axum/src/docs/routing/with_state.md).
+    // Also exempt resources/mdtest/ (ruff test specs written as .md).
+    let is_inline_doc = matches!(ext, "md" | "mdx")
+        && (lower.contains("/src/docs/") || lower.contains("/resources/mdtest/"));
     if !is_site_content
+        && !is_inline_doc
         && (matches!(ext, "md" | "mdx" | "rst" | "txt")
             || lower.contains("/docs/")
             || lower.starts_with("docs/")
