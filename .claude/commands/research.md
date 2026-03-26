@@ -51,7 +51,13 @@ echo "Repos: $REPO_COUNT (need ≥47 for next OPTIMISING round)"
 
 **If state = GROWING_DATA:** Only Phase 0 (expand corpus) and Phase 1 (golden generation) are allowed. No Phase 2 parameter tuning — that's local optimization on insufficient data.
 
-**If state = OPTIMISING:** All phases are allowed.
+**If state = OPTIMISING:** All phases are allowed. Alternate between GLOBAL and LOCAL optimization:
+
+**Optimization types (alternate every 3-5 experiments):**
+- **LOCAL**: Hardcoded heuristics targeting specific failure patterns (config filename lists, extension checks, threshold tuning). Quick wins but risk overfitting.
+- **GLOBAL**: Generic approaches that improve grouping broadly (embeddings, graph algorithms, import resolution, learned weights). Slower but more durable.
+
+Track each experiment as `optimization_type: "local"` or `optimization_type: "global"` in experiments.jsonl. After 3 consecutive LOCAL experiments, switch to at least 1 GLOBAL before continuing. This prevents the algorithm from becoming a pile of special cases.
 
 Print the state at the start of every experiment: `STATE: GROWING_DATA (17/47 repos)` or `STATE: OPTIMISING (47/47 repos)`.
 

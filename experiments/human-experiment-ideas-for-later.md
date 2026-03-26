@@ -55,6 +55,33 @@ Ideas queued for testing in the autoresearch loop. Move items to `experiments.js
 - Latency < 60s per repo
 - No regression on repos that already PASS
 
+## Global Optimization Ideas (generic approaches, not hardcoded heuristics)
+
+### 1. Embeddings + Cosine Similarity for file grouping
+- Use open-source code embeddings (e.g., `jina-embeddings-v3`, `voyage-code-3`, `CodeBERT`, `UniXcoder`) to embed each file's diff
+- Compute pairwise cosine similarity between file diffs
+- Cluster files with high similarity into the same group
+- **Why:** This is a generic signal that doesn't need language-specific heuristics — semantically similar diffs naturally cluster
+- **Open-source options:** `sentence-transformers` (Python), `fastembed` (Rust), Ollama local models
+- **Experiment:** Compare embedding-based grouping vs current deterministic grouping vs LLM refinement
+- **Cost:** Local embeddings are free; API embeddings are cheap ($0.001/1K tokens)
+
+### 2. Compiler API / Language Server Protocol for IR
+- Use TypeScript's `tsserver` / `tsc --declaration` for precise import resolution
+- Use `rust-analyzer` LSP for Rust `use crate::` path resolution
+- Use `gopls` for Go same-package implicit imports
+- **Why:** Compiler APIs give exact import graphs — no heuristic guessing. This replaces our `.scm` tree-sitter queries with ground-truth resolution.
+- **Experiment:** For TS repos, run `tsserver` to get the import graph, compare golden scores vs tree-sitter-only
+- **Integration:** Modify IR layer to accept LSP-sourced edges alongside tree-sitter edges
+
+### 3. Generic optimization approaches (vs hardcoded heuristics)
+- Current algorithm is a stack of hardcoded heuristics (SMALL_GROUP_THRESHOLD, MAX_MERGE_BUCKET_SIZE, is_config_like_filename, etc.)
+- Each heuristic helps some repos but may hurt others
+- **Alternative approaches:**
+  - Learned weights: use the golden corpus to learn optimal weights for different signals
+  - Graph-based: treat the diff as a weighted graph (import edges, directory proximity, file stem similarity, embedding similarity) and use community detection (Louvain, spectral clustering)
+  - Multi-signal fusion: combine tree-sitter graph, embeddings, directory proximity, naming conventions into a single similarity matrix, then cluster
+
 ## Phase 2b: Import Graph Ideas
 
 - Rust `use crate::` path resolution → file paths
