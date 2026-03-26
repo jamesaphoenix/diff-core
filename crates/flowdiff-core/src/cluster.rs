@@ -285,6 +285,9 @@ fn is_config_like_filename(path: &str) -> bool {
         "seed.ts"
             | "seed.js"
             | "biome.json"
+            | "eslint.config.js"
+            | "eslint.config.ts"
+            | "eslint.config.mjs"
             | "vitest.config.ts"
             | "jest.config.ts"
             | "jest.config.js"
@@ -305,13 +308,38 @@ fn is_config_like_filename(path: &str) -> bool {
         return true;
     }
 
-    // Files in test fixtures directories
+    // Generic *.config.ts/js pattern (catches updates.config.ts, etc.)
+    if filename.contains(".config.") {
+        return true;
+    }
+
+    // Swagger/OpenAPI generated templates
+    if lower.contains("/swagger/") || lower.contains("/openapi/") {
+        return true;
+    }
+
+    // CSS theme files (infrastructure, not feature code)
+    if lower.contains("/themes/") && filename.starts_with("theme-") {
+        return true;
+    }
+
+    // Proto files (generated protobuf definitions)
+    if filename.ends_with(".proto") || filename.ends_with(".pb.go") {
+        return true;
+    }
+
+    // Files in test fixtures directories (not under src/)
     if lower.contains("/fixtures/") && !lower.contains("/src/") {
         return true;
     }
 
     // Scripts directory
     if lower.starts_with("scripts/") {
+        return true;
+    }
+
+    // Migration test files (tests inside migration directories)
+    if lower.contains("/migrations/") {
         return true;
     }
 
