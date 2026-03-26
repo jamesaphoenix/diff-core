@@ -30,14 +30,22 @@ The linter checks that every file in each diff appears in either `infrastructure
 
 ### Step 4: Decide what to do
 
-Based on the experiment history and lint results, pick the highest-priority phase:
+Based on the experiment history and lint results, pick the highest-priority phase.
 
-**Phase 0: Expand corpus** (highest priority if coverage gaps exist)
-- Check language counts in the manifest — each language should have 3-5 repos
-- Check if any synthetic repos exist — if not, create one
+**GATE: Corpus expansion required before further optimization.**
+After each round of deterministic tuning (when avg_overall plateaus), you MUST add at least 30 new repos before continuing Phase 2/3 optimization. This prevents local optimization — tuning on 17 repos risks overfitting to their specific structure. Current corpus: 17 repos. Next optimization round requires ≥47 repos total. If the corpus is below the required size, Phase 0 is MANDATORY.
+
+Count repos: `ls eval/repos/*.toml | wc -l`
+
+**Phase 0: Expand corpus** (MANDATORY if corpus < required size for current optimization round)
+- Target: add 30 repos to reach ≥47 total before next Phase 2 work
+- Mix of languages: TS, Python, Go, Rust, Java, C#
+- Mix of sizes: small (10-50 files), medium (50-200), large (200+)
+- Include synthetic repos for edge cases
 - For real repos: clone from GitHub, find interesting diff range, pin with full SHAs, add `type = "real"`
 - For synthetic repos: create under `flowdiff-eval-corpus/synthetic/<name>/`, add `type = "synthetic"` with tight goldens
 - Clone destination: `~/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/<language>/<repo>`
+- Every new repo must have 100% file coverage (lint-goldens verified)
 
 **Phase 1: Build goldens via sub-agents** (highest priority if lint-goldens reports gaps)
 Use Claude Code sub-agents to generate golden constraints from diff content. **Every file in the diff must be classified as infrastructure or non_infrastructure** — this is enforced by `lint-goldens`.
