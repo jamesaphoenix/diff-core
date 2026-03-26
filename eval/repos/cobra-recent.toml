@@ -1,17 +1,34 @@
-# Go — cobra recent, ~9 files
+# cobra-recent golden
 [[repos]]
 name = "cobra-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/cobra"
 language = "go"
 range = "3f3b81882534a51628f3286e93c6842d9b2e29ea..61968e893eee2f27696c2fbc8e34fa5c4afaf7c4"
-notes = "SMALL. 10-commit range. ~9 files."
+notes = "SMALL. 10-commit range: shell completion fixes, API cleanup, YAML dep migration. ~9 files."
 
 [repos.thresholds]
 max_groups = 30
-max_infra_ratio = 0.60
+max_infra_ratio = 0.6
 max_singleton_ratio = 0.60
 
 [repos.expectations]
 group_count_min = 2
 group_count_max = 5
+same_group = [
+  ["bash_completionsV2.go", "fish_completions.go"],
+  ["go.mod", "go.sum"],
+]
+infrastructure = [
+  ".github/workflows/test.yml",
+  ".golangci.yml",
+  "go.mod",
+  "go.sum",
+]
+non_infrastructure = [
+  "bash_completionsV2.go",
+  "command.go",
+  "doc/yaml_docs.go",
+  "fish_completions.go",
+  "site/content/user_guide.md",
+]
