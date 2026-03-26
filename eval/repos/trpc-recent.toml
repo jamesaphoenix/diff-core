@@ -1,17 +1,89 @@
-# Typescript — trpc recent, ~64 files
+# trpc-recent
 [[repos]]
 name = "trpc-recent"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/trpc"
 language = "typescript"
 range = "e39a654b306d0c75730a9c546e77333f9d1dca8c..f6e839f2b127b394fa1e9eb26bfe0c75c47fcbf2"
-notes = "MEDIUM. 10-commit range. ~64 files."
+notes = "MEDIUM. 10-commit range: maxBatchSize feature, version bumps. ~64 files."
 
 [repos.thresholds]
-max_groups = 60
-max_infra_ratio = 0.60
+max_groups = 30
+max_infra_ratio = 0.9
 max_singleton_ratio = 0.60
 
 [repos.expectations]
 group_count_min = 2
-group_count_max = 21
+group_count_max = 5
+same_group = [
+  ["packages/server/src/unstable-core-do-not-import/http/contentType.ts", "packages/server/src/unstable-core-do-not-import/http/resolveResponse.ts"],
+  ["packages/tests/server/adapters/standalone.test.ts", "www/docs/client/links/httpBatchLink.md"],
+]
+infrastructure = [
+  ".github/workflows/check-skills.yml",
+  ".github/workflows/notify-intent.yml",
+  ".github/workflows/validate-skills.yml",
+  ".superset/config.json",
+  "examples/.experimental/next-app-dir/package.json",
+  "examples/.test/diagnostics-big-router/package.json",
+  "examples/.test/internal-types-export/package.json",
+  "examples/.test/monotest-api-router01/package.json",
+  "examples/.test/monotest-api/package.json",
+  "examples/.test/monotest-app/package.json",
+  "examples/.test/monotest-trpc/package.json",
+  "examples/.test/monotest-tsconfig/package.json",
+  "examples/.test/ssg-infinite-serialization/package.json",
+  "examples/.test/ssg/package.json",
+  "examples/bun/package.json",
+  "examples/cloudflare-workers/package.json",
+  "examples/express-minimal/package.json",
+  "examples/express-server/package.json",
+  "examples/fastify-server/package.json",
+  "examples/lambda-api-gateway-streaming/package.json",
+  "examples/lambda-api-gateway/package.json",
+  "examples/lambda-url/package.json",
+  "examples/lazy-load/package.json",
+  "examples/minimal-content-types/client/package.json",
+  "examples/minimal-content-types/package.json",
+  "examples/minimal-content-types/server/package.json",
+  "examples/minimal-react/client/package.json",
+  "examples/minimal-react/package.json",
+  "examples/minimal-react/server/package.json",
+  "examples/minimal/package.json",
+  "examples/next-big-router/package.json",
+  "examples/next-edge-runtime/package.json",
+  "examples/next-formdata/package.json",
+  "examples/next-minimal-starter/package.json",
+  "examples/next-prisma-starter/package.json",
+  "examples/next-prisma-todomvc/package.json",
+  "examples/next-prisma-websockets-starter/package.json",
+  "examples/next-sse-chat/package.json",
+  "examples/next-websockets-encoder/package.json",
+  "examples/openapi-codegen/package.json",
+  "examples/soa/package.json",
+  "examples/standalone-server/package.json",
+  "examples/vercel-edge-runtime/package.json",
+  "lerna.json",
+  "package.json",
+  "packages/client/package.json",
+  "packages/next/package.json",
+  "packages/openapi/package.json",
+  "packages/react-query/package.json",
+  "packages/server/package.json",
+  "packages/tanstack-react-query/package.json",
+  "packages/tests/package.json",
+  "packages/upgrade/package.json",
+  "pnpm-lock.yaml",
+  "www/og-image/package.json",
+  "www/package.json",
+]
+non_infrastructure = [
+  "packages/server/src/unstable-core-do-not-import/http/contentType.ts",
+  "packages/server/src/unstable-core-do-not-import/http/resolveResponse.ts",
+  "packages/server/src/unstable-core-do-not-import/http/types.ts",
+  "packages/tests/server/adapters/standalone.test.ts",
+  "www/docs/client/links/httpBatchLink.md",
+  "www/docs/client/nextjs/app-router/server-actions.mdx",
+  "www/docs/server/context.md",
+  "www/src/components/sponsors/SponsorBubbles.jsx",
+]
