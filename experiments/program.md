@@ -502,6 +502,7 @@ VCR cache lives in the repo's `.flowdiff/cache/vcr/` directory (or wherever conf
 11. **Never stop.** You are fully autonomous. Don't ask permission to continue. If stuck, think harder — look at failing repos, combine near-misses, try radical changes.
 12. **Commit before running.** Always `git commit` your change before running eval, so you can cleanly `git reset --hard HEAD~1` if it fails.
 13. **Full file coverage.** Every file in every diff must be classified as `infrastructure` or `non_infrastructure`. Run `lint-goldens` to check. Phase 2 work is blocked until coverage is 100%.
+14. **Never weaken goldens to match flowdiff.** Goldens represent ground truth. If flowdiff fails a golden, the fix is improving flowdiff, not removing the golden. Only modify goldens when the original classification was objectively wrong (e.g., a `.md` file marked as non-infra, or a file misclassified as infra when BFS correctly reaches it via imports). Document the reason for every golden change.
 
 ## Files To Know
 
