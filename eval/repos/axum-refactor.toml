@@ -1,17 +1,162 @@
-# Rust — Axum web framework, ~121 files
+# Rust — Axum web framework, ~122 files
+# 50-commit range: IntoResponseFailed, Content-Disposition fix, serve() type change, multipart, WebSocket, routing.
 [[repos]]
 name = "axum-refactor"
 type = "real"
 path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/axum"
 language = "rust"
 range = "e3b32f48b5bc94b47459a039eef8c58800036982..7c7a03927af82ccd4c7d71a1603b7e4ec094ea58"
-notes = "MEDIUM. 50-commit range: examples, deps, refactors. ~121 files."
+notes = "MEDIUM. 50-commit range: response types, security fix, serve API, routing. ~122 files."
 
 [repos.thresholds]
 max_groups = 60
-max_infra_ratio = 0.50
+max_infra_ratio = 0.30
 max_singleton_ratio = 0.60
 
 [repos.expectations]
-group_count_min = 3
-group_count_max = 40
+group_count_min = 5
+group_count_max = 12
+same_group = [
+  # Content-Disposition filename escaping security fix
+  ["axum-extra/src/response/content_disposition.rs", "axum-extra/src/response/attachment.rs"],
+  # Multipart body limit error
+  ["axum/src/extract/multipart.rs", "axum-extra/src/extract/multipart.rs"],
+  # Router internals: validate_nest_path + path_router
+  ["axum/src/routing/mod.rs", "axum/src/routing/path_router.rs"],
+  # Router tests
+  ["axum/src/routing/tests/mod.rs", "axum/src/routing/tests/nest.rs"],
+  # MethodRouter + route_with_tsr
+  ["axum/src/routing/method_routing.rs", "axum-extra/src/routing/mod.rs"],
+  # Host rejection removal
+  ["axum-extra/src/extract/mod.rs", "axum-extra/src/extract/rejection.rs"],
+  # State docs
+  ["axum/src/extract/state.rs", "axum/src/docs/routing/with_state.md"],
+  # axum-macros TypedPath + trybuild updates
+  ["axum-macros/src/typed_path.rs", "axum-macros/src/lib.rs"],
+]
+infrastructure = [
+  ".github/workflows/CI.yml",
+  "Cargo.lock",
+  "Cargo.toml",
+  "ECOSYSTEM.md",
+  "axum-core/Cargo.toml",
+  "axum-extra/CHANGELOG.md",
+  "axum-extra/Cargo.toml",
+  "axum-macros/CHANGELOG.md",
+  "axum-macros/Cargo.toml",
+  "axum/CHANGELOG.md",
+  "axum/Cargo.toml",
+  "axum/README.md",
+  "contrib/ide/vscode/settings.json",
+  "examples/Cargo.lock",
+  "examples/diesel-async-postgres/Cargo.toml",
+  "examples/graceful-shutdown/Cargo.toml",
+  "examples/mongodb/Cargo.toml",
+  "examples/reqwest-response/Cargo.toml",
+  "examples/sse/Cargo.toml",
+  "examples/testing-websockets/Cargo.toml",
+  "examples/tls-graceful-shutdown/Cargo.toml",
+  "examples/tls-rustls/Cargo.toml",
+  "examples/websockets-http2/Cargo.toml",
+  "examples/websockets/Cargo.toml",
+]
+non_infrastructure = [
+  "axum-core/src/extract/from_ref.rs",
+  "axum-core/src/response/into_response.rs",
+  "axum-core/src/response/into_response_parts.rs",
+  "axum-core/src/response/mod.rs",
+  "axum-extra/src/extract/mod.rs",
+  "axum-extra/src/extract/multipart.rs",
+  "axum-extra/src/extract/rejection.rs",
+  "axum-extra/src/protobuf.rs",
+  "axum-extra/src/response/attachment.rs",
+  "axum-extra/src/response/content_disposition.rs",
+  "axum-extra/src/response/erased_json.rs",
+  "axum-extra/src/response/error_response.rs",
+  "axum-extra/src/response/file_stream.rs",
+  "axum-extra/src/response/mod.rs",
+  "axum-extra/src/routing/mod.rs",
+  "axum-macros/src/lib.rs",
+  "axum-macros/src/typed_path.rs",
+  "axum-macros/tests/debug_handler/fail/output_tuple_too_many.stderr",
+  "axum-macros/tests/debug_handler/fail/too_many_extractors.stderr",
+  "axum-macros/tests/from_request/fail/generic_without_via.stderr",
+  "axum-macros/tests/from_request/fail/generic_without_via_rejection.stderr",
+  "axum-macros/tests/from_request/fail/override_rejection_on_enum_without_via.stderr",
+  "axum/benches/benches.rs",
+  "axum/src/docs/middleware.md",
+  "axum/src/docs/routing/fallback.md",
+  "axum/src/docs/routing/into_make_service_with_connect_info.md",
+  "axum/src/docs/routing/method_not_allowed_fallback.md",
+  "axum/src/docs/routing/with_state.md",
+  "axum/src/extract/connect_info.rs",
+  "axum/src/extract/multipart.rs",
+  "axum/src/extract/path/mod.rs",
+  "axum/src/extract/state.rs",
+  "axum/src/extract/ws.rs",
+  "axum/src/form.rs",
+  "axum/src/handler/mod.rs",
+  "axum/src/handler/service.rs",
+  "axum/src/json.rs",
+  "axum/src/lib.rs",
+  "axum/src/response/mod.rs",
+  "axum/src/response/redirect.rs",
+  "axum/src/routing/method_routing.rs",
+  "axum/src/routing/mod.rs",
+  "axum/src/routing/path_router.rs",
+  "axum/src/routing/tests/merge.rs",
+  "axum/src/routing/tests/mod.rs",
+  "axum/src/routing/tests/nest.rs",
+  "axum/src/serve/listener.rs",
+  "axum/src/serve/mod.rs",
+  "axum/src/test_helpers/test_client.rs",
+  "examples/anyhow-error-response/src/main.rs",
+  "examples/auto-reload/src/main.rs",
+  "examples/chat/src/main.rs",
+  "examples/compression/src/main.rs",
+  "examples/consume-body-in-extractor-or-middleware/src/main.rs",
+  "examples/cors/src/main.rs",
+  "examples/customize-extractor-error/src/main.rs",
+  "examples/customize-path-rejection/src/main.rs",
+  "examples/dependency-injection/src/main.rs",
+  "examples/diesel-async-postgres/src/main.rs",
+  "examples/diesel-postgres/src/main.rs",
+  "examples/error-handling/src/main.rs",
+  "examples/form/src/main.rs",
+  "examples/global-404-handler/src/main.rs",
+  "examples/graceful-shutdown/src/main.rs",
+  "examples/handle-head-request/src/main.rs",
+  "examples/hello-world/src/main.rs",
+  "examples/jwt/src/main.rs",
+  "examples/key-value-store/src/main.rs",
+  "examples/mongodb/src/main.rs",
+  "examples/multipart-form/src/main.rs",
+  "examples/oauth/src/main.rs",
+  "examples/parse-body-based-on-content-type/src/main.rs",
+  "examples/print-request-response/src/main.rs",
+  "examples/prometheus-metrics/src/main.rs",
+  "examples/readme/src/main.rs",
+  "examples/request-id/src/main.rs",
+  "examples/reqwest-response/src/main.rs",
+  "examples/reverse-proxy/src/main.rs",
+  "examples/routes-and-handlers-close-together/src/main.rs",
+  "examples/simple-router-wasm/src/main.rs",
+  "examples/sqlx-postgres/src/main.rs",
+  "examples/sse/src/main.rs",
+  "examples/static-file-server/src/main.rs",
+  "examples/stream-to-file/src/main.rs",
+  "examples/templates-minijinja/src/main.rs",
+  "examples/templates/src/main.rs",
+  "examples/testing-websockets/src/main.rs",
+  "examples/testing/src/main.rs",
+  "examples/tls-graceful-shutdown/src/main.rs",
+  "examples/tls-rustls/src/main.rs",
+  "examples/todos/src/main.rs",
+  "examples/tokio-postgres/src/main.rs",
+  "examples/tokio-redis/src/main.rs",
+  "examples/tracing-aka-logging/src/main.rs",
+  "examples/unix-domain-socket/src/main.rs",
+  "examples/validator/src/main.rs",
+  "examples/versioning/src/main.rs",
+  "examples/websockets/src/main.rs",
+]
