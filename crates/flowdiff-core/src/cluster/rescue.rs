@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::types::FlowGroup;
 
 use super::classify::{classify_by_convention, is_config_like_filename, is_top_level_doc};
+use super::has_semantic_source_extension;
 use super::stem::{bare_stem, is_test_file_name, test_impl_stem};
 use crate::types::InfraCategory;
 
@@ -62,33 +63,7 @@ pub(super) fn rescue_non_infra_files(
                 None => {
                     // No directory match. Only use fallback (largest group) for files
                     // with clear source code extensions — not for config-like files.
-                    let ext = file.rsplit('.').next().unwrap_or("");
-                    let is_source = matches!(
-                        ext,
-                        "go" | "rs"
-                            | "ts"
-                            | "tsx"
-                            | "js"
-                            | "jsx"
-                            | "py"
-                            | "java"
-                            | "kt"
-                            | "rb"
-                            | "php"
-                            | "cs"
-                            | "swift"
-                            | "scala"
-                            | "vue"
-                            | "svelte"
-                            | "tmpl"
-                            | "html"
-                            | "css"
-                            | "scss"
-                            | "md"
-                            | "mdx"
-                            | "rst"
-                    );
-                    if is_source && !is_top_level_doc(file) {
+                    if has_semantic_source_extension(file) && !is_top_level_doc(file) {
                         if let Some(largest_idx) = groups
                             .iter()
                             .enumerate()
@@ -374,6 +349,23 @@ mod tests {
     fn root_docs_pages_need_batch_context() {
         assert!(!is_semantic_doc_candidate("docs/quickstart.md", 1));
         assert!(is_semantic_doc_candidate("docs/quickstart.md", 3));
+    }
+
+    #[test]
+    fn rescue_non_infra_files_treats_c_and_headers_as_source_like() {
+        let groups = vec![group_with_file("src/module.c")];
+        let infra_files = vec!["src/cluster.c".to_string(), "src/stream.h".to_string()];
+
+        let (true_infra, rescued) = rescue_non_infra_files(&infra_files, &groups);
+
+        assert!(true_infra.is_empty());
+        assert_eq!(
+            rescued,
+            vec![
+                (0, "src/cluster.c".to_string()),
+                (0, "src/stream.h".to_string())
+            ]
+        );
     }
 }
 

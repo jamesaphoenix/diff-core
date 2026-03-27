@@ -57,6 +57,43 @@ const MAX_MERGE_BUCKET_SIZE: usize = 12;
 /// This is intentionally gated so it does not perturb the normal-sized eval corpus.
 const LARGE_DIFF_PARTITION_THRESHOLD: usize = 2000;
 
+pub(super) fn has_semantic_source_extension(path: &str) -> bool {
+    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+
+    matches!(
+        ext.as_str(),
+        "go" | "rs"
+            | "ts"
+            | "tsx"
+            | "js"
+            | "jsx"
+            | "py"
+            | "java"
+            | "kt"
+            | "rb"
+            | "php"
+            | "cs"
+            | "swift"
+            | "scala"
+            | "vue"
+            | "svelte"
+            | "tmpl"
+            | "html"
+            | "css"
+            | "scss"
+            | "md"
+            | "mdx"
+            | "rst"
+            | "c"
+            | "h"
+            | "cc"
+            | "cpp"
+            | "cxx"
+            | "hh"
+            | "hpp"
+    )
+}
+
 /// Result of semantic clustering.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClusterResult {
@@ -118,33 +155,7 @@ fn cluster_files_internal(
             {
                 // Soft infrastructure (docs, schemas, migrations, etc.) — rescue if source extension
                 if !is_config_like_filename(file) {
-                    let ext = file.rsplit('.').next().unwrap_or("");
-                    let is_source = matches!(
-                        ext,
-                        "go" | "rs"
-                            | "ts"
-                            | "tsx"
-                            | "js"
-                            | "jsx"
-                            | "py"
-                            | "java"
-                            | "kt"
-                            | "rb"
-                            | "php"
-                            | "cs"
-                            | "swift"
-                            | "scala"
-                            | "vue"
-                            | "svelte"
-                            | "tmpl"
-                            | "html"
-                            | "css"
-                            | "scss"
-                            | "md"
-                            | "mdx"
-                            | "rst"
-                    );
-                    if is_source && !is_top_level_doc(file) {
+                    if has_semantic_source_extension(file) && !is_top_level_doc(file) {
                         source_files.push(file.clone());
                     } else {
                         true_infra.push(file.clone());
