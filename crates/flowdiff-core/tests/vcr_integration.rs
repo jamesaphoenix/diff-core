@@ -1,4 +1,10 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! VCR integration tests.
 //!
 //! Tests the VCR caching layer with real LLM providers (when API keys are available)
@@ -303,10 +309,7 @@ async fn test_auto_mode_records_on_first_call_replays_on_second() {
     assert_eq!(r1, r2);
 
     // Different request type (Pass 2): cache miss → calls provider
-    let r3 = vcr
-        .annotate_group(&sample_pass2_request())
-        .await
-        .unwrap();
+    let r3 = vcr.annotate_group(&sample_pass2_request()).await.unwrap();
     assert_eq!(call_count.load(Ordering::SeqCst), 2);
     assert_eq!(r3.flow_narrative, "counted");
 }

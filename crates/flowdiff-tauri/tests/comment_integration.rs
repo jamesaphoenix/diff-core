@@ -67,9 +67,24 @@ fn save_multiple_comments_preserves_order() {
     let (_tmp, repo_path) = create_test_repo();
     let hash = "abc123".to_string();
 
-    save_comment(repo_path.clone(), hash.clone(), make_comment("c1", "code", "First")).unwrap();
-    save_comment(repo_path.clone(), hash.clone(), make_comment("c2", "file", "Second")).unwrap();
-    save_comment(repo_path.clone(), hash.clone(), make_comment("c3", "group", "Third")).unwrap();
+    save_comment(
+        repo_path.clone(),
+        hash.clone(),
+        make_comment("c1", "code", "First"),
+    )
+    .unwrap();
+    save_comment(
+        repo_path.clone(),
+        hash.clone(),
+        make_comment("c2", "file", "Second"),
+    )
+    .unwrap();
+    save_comment(
+        repo_path.clone(),
+        hash.clone(),
+        make_comment("c3", "group", "Third"),
+    )
+    .unwrap();
 
     let loaded = load_comments(repo_path, hash).unwrap();
     assert_eq!(loaded.len(), 3);
@@ -91,7 +106,10 @@ fn load_with_wrong_hash_returns_empty() {
 
     // Loading with a different hash should return empty (fresh analysis)
     let loaded = load_comments(repo_path, "hash_b".to_string()).unwrap();
-    assert!(loaded.is_empty(), "Different hash should yield empty comments");
+    assert!(
+        loaded.is_empty(),
+        "Different hash should yield empty comments"
+    );
 }
 
 #[test]
@@ -110,9 +128,24 @@ fn delete_removes_specific_comment() {
     let (_tmp, repo_path) = create_test_repo();
     let hash = "abc123".to_string();
 
-    save_comment(repo_path.clone(), hash.clone(), make_comment("c1", "code", "Keep")).unwrap();
-    save_comment(repo_path.clone(), hash.clone(), make_comment("c2", "code", "Delete me")).unwrap();
-    save_comment(repo_path.clone(), hash.clone(), make_comment("c3", "code", "Keep too")).unwrap();
+    save_comment(
+        repo_path.clone(),
+        hash.clone(),
+        make_comment("c1", "code", "Keep"),
+    )
+    .unwrap();
+    save_comment(
+        repo_path.clone(),
+        hash.clone(),
+        make_comment("c2", "code", "Delete me"),
+    )
+    .unwrap();
+    save_comment(
+        repo_path.clone(),
+        hash.clone(),
+        make_comment("c3", "code", "Keep too"),
+    )
+    .unwrap();
 
     delete_comment(repo_path.clone(), hash.clone(), "c2".to_string()).unwrap();
 
@@ -127,10 +160,20 @@ fn delete_nonexistent_comment_is_noop() {
     let (_tmp, repo_path) = create_test_repo();
     let hash = "abc123".to_string();
 
-    save_comment(repo_path.clone(), hash.clone(), make_comment("c1", "code", "Only one")).unwrap();
+    save_comment(
+        repo_path.clone(),
+        hash.clone(),
+        make_comment("c1", "code", "Only one"),
+    )
+    .unwrap();
 
     // Deleting a comment that doesn't exist should succeed (no-op)
-    delete_comment(repo_path.clone(), hash.clone(), "nonexistent_id".to_string()).unwrap();
+    delete_comment(
+        repo_path.clone(),
+        hash.clone(),
+        "nonexistent_id".to_string(),
+    )
+    .unwrap();
 
     let loaded = load_comments(repo_path, hash).unwrap();
     assert_eq!(loaded.len(), 1);
@@ -141,8 +184,18 @@ fn delete_all_comments_leaves_empty_list() {
     let (_tmp, repo_path) = create_test_repo();
     let hash = "abc123".to_string();
 
-    save_comment(repo_path.clone(), hash.clone(), make_comment("c1", "code", "One")).unwrap();
-    save_comment(repo_path.clone(), hash.clone(), make_comment("c2", "code", "Two")).unwrap();
+    save_comment(
+        repo_path.clone(),
+        hash.clone(),
+        make_comment("c1", "code", "One"),
+    )
+    .unwrap();
+    save_comment(
+        repo_path.clone(),
+        hash.clone(),
+        make_comment("c2", "code", "Two"),
+    )
+    .unwrap();
 
     delete_comment(repo_path.clone(), hash.clone(), "c1".to_string()).unwrap();
     delete_comment(repo_path.clone(), hash.clone(), "c2".to_string()).unwrap();

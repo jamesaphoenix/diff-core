@@ -7,7 +7,9 @@
 //! Run with:
 //!   cargo test --test repo_integration
 
-use flowdiff_tauri::commands::{get_repo_info, list_branches, list_worktrees, get_branch_status, get_file_diff_uncached};
+use flowdiff_tauri::commands::{
+    get_branch_status, get_file_diff_uncached, get_repo_info, list_branches, list_worktrees,
+};
 use git2::{Repository, Signature};
 
 /// Create a temporary git repo with TypeScript files and two branches.
@@ -18,7 +20,11 @@ fn create_test_repo_with_branch() -> (tempfile::TempDir, String) {
 
     // Write initial files
     std::fs::write(
-        tmp.path().join("src").join("main.ts").to_str().unwrap_or(""),
+        tmp.path()
+            .join("src")
+            .join("main.ts")
+            .to_str()
+            .unwrap_or(""),
         "",
     )
     .ok();
@@ -218,11 +224,11 @@ fn file_diff_returns_content_for_changed_file() {
     let diff = get_file_diff_uncached(
         repo_path,
         "src/main.ts".to_string(),
-        Some("main".to_string()),  // base
-        None,                       // head (defaults to HEAD)
-        None,                       // range
-        false,                      // staged
-        false,                      // unstaged
+        Some("main".to_string()), // base
+        None,                     // head (defaults to HEAD)
+        None,                     // range
+        false,                    // staged
+        false,                    // unstaged
     )
     .unwrap();
 

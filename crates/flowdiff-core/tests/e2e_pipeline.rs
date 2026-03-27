@@ -1,4 +1,10 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! End-to-end integration tests for the full flowdiff analysis pipeline.
 //!
 //! These tests create real git repositories with known file structures,
@@ -58,7 +64,10 @@ export function getHealthStatus(): string {
 }
 "#,
     );
-    rb.write_file("package.json", r#"{"name": "test-app", "version": "1.0.0"}"#);
+    rb.write_file(
+        "package.json",
+        r#"{"name": "test-app", "version": "1.0.0"}"#,
+    );
     rb.commit("Initial commit: health endpoint");
     rb.create_branch("main");
 
@@ -513,7 +522,10 @@ fn test_e2e_deterministic() {
     let json1 = output::to_json(&output1).unwrap();
     let json2 = output::to_json(&output2).unwrap();
 
-    assert_eq!(json1, json2, "two runs should produce identical JSON output");
+    assert_eq!(
+        json1, json2,
+        "two runs should produce identical JSON output"
+    );
 }
 
 /// Test: New file additions (no old content) are handled correctly.
@@ -926,10 +938,7 @@ func Insert(user *User) *User {
             ep.entrypoint_type == flowdiff_core::types::EntrypointType::CliCommand
         })
     });
-    assert!(
-        has_cli_ep,
-        "should detect func main() as CLI entrypoint"
-    );
+    assert!(has_cli_ep, "should detect func main() as CLI entrypoint");
 
     // Verify Mermaid graph is valid
     assert_valid_mermaid(&result);
@@ -1162,13 +1171,8 @@ pub struct User {
     );
 
     // Verify entrypoint detection (fn main or HTTP routes)
-    let has_entrypoint = result.groups.iter().any(|g| {
-        g.entrypoint.is_some()
-    });
-    assert!(
-        has_entrypoint,
-        "should detect at least one entrypoint"
-    );
+    let has_entrypoint = result.groups.iter().any(|g| g.entrypoint.is_some());
+    assert!(has_entrypoint, "should detect at least one entrypoint");
 
     // Verify HTTP route detection (axum Router patterns)
     let has_http_ep = result.groups.iter().any(|g| {
@@ -1176,10 +1180,7 @@ pub struct User {
             ep.entrypoint_type == flowdiff_core::types::EntrypointType::HttpRoute
         })
     });
-    assert!(
-        has_http_ep,
-        "should detect axum HTTP route entrypoints"
-    );
+    assert!(has_http_ep, "should detect axum HTTP route entrypoints");
 
     // Verify framework detection (Axum)
     let has_axum = result
@@ -1187,7 +1188,11 @@ pub struct User {
         .frameworks_detected
         .iter()
         .any(|f| f.contains("Axum") || f.contains("axum"));
-    assert!(has_axum, "should detect Axum framework; detected: {:?}", result.summary.frameworks_detected);
+    assert!(
+        has_axum,
+        "should detect Axum framework; detected: {:?}",
+        result.summary.frameworks_detected
+    );
 
     // Verify Mermaid graph is valid
     assert_valid_mermaid(&result);
@@ -1445,10 +1450,7 @@ public class User {
 
     // Verify entrypoint detection (main or HTTP routes)
     let has_entrypoint = result.groups.iter().any(|g| g.entrypoint.is_some());
-    assert!(
-        has_entrypoint,
-        "should detect at least one entrypoint"
-    );
+    assert!(has_entrypoint, "should detect at least one entrypoint");
 
     // Verify Spring Boot framework detection
     let has_spring = result
@@ -1730,10 +1732,7 @@ namespace MyApp.Models
 
     // Verify entrypoint detection (Main or HTTP routes)
     let has_entrypoint = result.groups.iter().any(|g| g.entrypoint.is_some());
-    assert!(
-        has_entrypoint,
-        "should detect at least one entrypoint"
-    );
+    assert!(has_entrypoint, "should detect at least one entrypoint");
 
     // Verify ASP.NET Core framework detection
     let has_aspnet = result
@@ -2131,7 +2130,10 @@ fn test_e2e_ruby_rails_api() {
     let rb = RepoBuilder::new();
 
     // Initial commit
-    rb.write_file("Gemfile", "source 'https://rubygems.org'\ngem 'rails', '~> 7.1'\n");
+    rb.write_file(
+        "Gemfile",
+        "source 'https://rubygems.org'\ngem 'rails', '~> 7.1'\n",
+    );
     rb.commit("Initial commit: Gemfile");
     rb.create_branch("main");
 
@@ -2611,7 +2613,10 @@ fn test_e2e_swift_vapor_api() {
     let rb = RepoBuilder::new();
 
     // Initial commit
-    rb.write_file("Package.swift", "// swift-tools-version:5.9\nimport PackageDescription\n");
+    rb.write_file(
+        "Package.swift",
+        "// swift-tools-version:5.9\nimport PackageDescription\n",
+    );
     rb.commit("Initial commit: Package.swift");
     rb.create_branch("main");
 
@@ -2872,7 +2877,10 @@ fn test_e2e_cpp_http_server() {
     let rb = RepoBuilder::new();
 
     // Initial commit
-    rb.write_file("CMakeLists.txt", "cmake_minimum_required(VERSION 3.14)\nproject(myapp)\n");
+    rb.write_file(
+        "CMakeLists.txt",
+        "cmake_minimum_required(VERSION 3.14)\nproject(myapp)\n",
+    );
     rb.commit("Initial commit: CMakeLists.txt");
     rb.create_branch("main");
 
@@ -3111,7 +3119,11 @@ int main() {
     assert!(
         has_test_entrypoint,
         "should detect test file entrypoint; groups: {:?}",
-        result.groups.iter().map(|g| (&g.name, &g.entrypoint)).collect::<Vec<_>>()
+        result
+            .groups
+            .iter()
+            .map(|g| (&g.name, &g.entrypoint))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -3122,7 +3134,10 @@ int main() {
 fn test_e2e_scala_akka_http_api() {
     let rb = RepoBuilder::new();
 
-    rb.write_file("build.sbt", "name := \"akka-api\"\nscalaVersion := \"2.13.12\"\n");
+    rb.write_file(
+        "build.sbt",
+        "name := \"akka-api\"\nscalaVersion := \"2.13.12\"\n",
+    );
     rb.commit("Initial commit");
     rb.create_branch("main");
 
@@ -3227,7 +3242,9 @@ type UserId = String
     // Verify framework detected
     let frameworks = &result.summary.frameworks_detected;
     assert!(
-        frameworks.iter().any(|f| f.contains("Akka") || f.contains("Slick")),
+        frameworks
+            .iter()
+            .any(|f| f.contains("Akka") || f.contains("Slick")),
         "should detect Akka HTTP or Slick framework; got: {:?}",
         frameworks
     );
@@ -3502,7 +3519,9 @@ fn test_e2e_50_file_diff() {
             } else {
                 format!(
                     "export function fn{}_{}() {{ return {{ value: {} }}; }}\n",
-                    group, depth, group * 10 + depth
+                    group,
+                    depth,
+                    group * 10 + depth
                 )
             };
             rb.write_file(&file, &content);
@@ -3570,7 +3589,9 @@ fn test_e2e_100_file_diff() {
             } else {
                 format!(
                     "export function f{}_{}() {{ return {{ v: {} }}; }}\n",
-                    group, depth, group * 10 + depth
+                    group,
+                    depth,
+                    group * 10 + depth
                 )
             };
             rb.write_file(&file, &content);
@@ -3616,10 +3637,7 @@ fn test_e2e_staged_changes() {
         "src/service.ts",
         "export function serve() { return 'v1'; }\n",
     );
-    rb.write_file(
-        "src/utils.ts",
-        "export function util() { return 'v1'; }\n",
-    );
+    rb.write_file("src/utils.ts", "export function util() { return 'v1'; }\n");
     rb.commit("Initial commit");
 
     // Modify all three files in the working directory

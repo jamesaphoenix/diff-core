@@ -141,10 +141,7 @@ tokio::task_local! {
     static ACTIVITY_CALLBACK: ActivityCallback;
 }
 
-pub async fn with_activity_callback<F, T>(
-    callback: ActivityCallback,
-    future: F,
-) -> T
+pub async fn with_activity_callback<F, T>(callback: ActivityCallback, future: F) -> T
 where
     F: Future<Output = T>,
 {
@@ -166,7 +163,11 @@ pub(crate) fn current_activity_callback() -> Option<ActivityCallback> {
 /// We therefore search common install locations and fall back to a login shell.
 pub(crate) fn resolve_cli_executable(binary: &str) -> Option<PathBuf> {
     find_binary_in_path(binary)
-        .or_else(|| candidate_cli_paths(binary).into_iter().find(|path| is_executable_file(path)))
+        .or_else(|| {
+            candidate_cli_paths(binary)
+                .into_iter()
+                .find(|path| is_executable_file(path))
+        })
         .or_else(|| resolve_via_login_shell(binary))
 }
 

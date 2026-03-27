@@ -75,9 +75,7 @@ impl EmbeddingCache {
 
     /// Default cache location: `~/.cache/flowdiff/embeddings/`
     pub fn default_cache() -> Self {
-        let dir = dirs_fallback()
-            .join("flowdiff")
-            .join("embeddings");
+        let dir = dirs_fallback().join("flowdiff").join("embeddings");
         Self::new(&dir)
     }
 
@@ -110,10 +108,7 @@ impl EmbeddingCache {
     pub fn put(&self, file_path: &str, content: &str, vector: &[f32]) {
         let key = Self::cache_key(file_path, content);
         let path = self.cache_dir.join(&key);
-        let data: Vec<u8> = vector
-            .iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
+        let data: Vec<u8> = vector.iter().flat_map(|f| f.to_le_bytes()).collect();
         if let Err(e) = std::fs::write(&path, &data) {
             log::warn!("Failed to write embedding cache entry: {}", e);
         }

@@ -9,8 +9,8 @@
 #![deny(clippy::print_stdout)]
 #![deny(clippy::print_stderr)]
 
-mod commands;
 mod activity_stream;
+mod commands;
 
 use commands::AppState;
 

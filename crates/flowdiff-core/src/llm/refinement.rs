@@ -12,9 +12,7 @@ use crate::types::{
     ChangeStats, FileChange, FileRole, FlowGroup, InfraSubGroup, InfrastructureGroup,
 };
 
-use super::schema::{
-    RefinementGroupInput, RefinementRequest, RefinementResponse, RefinementSplit,
-};
+use super::schema::{RefinementGroupInput, RefinementRequest, RefinementResponse, RefinementSplit};
 
 /// Errors that can occur during refinement application.
 #[derive(Debug, thiserror::Error)]
@@ -192,12 +190,7 @@ pub fn apply_refinement(
         );
 
         if let Some(fc) = file_change {
-            add_file_to_group_or_infra(
-                &mut refined_groups,
-                &mut infra,
-                &reclass.to_group_id,
-                fc,
-            );
+            add_file_to_group_or_infra(&mut refined_groups, &mut infra, &reclass.to_group_id, fc);
         }
     }
 
@@ -213,7 +206,10 @@ pub fn apply_refinement(
     let mut new_groups_from_splits: Vec<FlowGroup> = Vec::new();
 
     for split in &response.splits {
-        if let Some(source) = refined_groups.iter().find(|g| g.id == split.source_group_id) {
+        if let Some(source) = refined_groups
+            .iter()
+            .find(|g| g.id == split.source_group_id)
+        {
             let split_groups = apply_split(source, split, new_groups_from_splits.len());
             new_groups_from_splits.extend(split_groups);
         }
@@ -230,7 +226,10 @@ pub fn apply_refinement(
         let mut merged_edges = Vec::new();
         let mut first_entrypoint = None;
 
-        for group in refined_groups.iter().filter(|g| merge_ids.contains(g.id.as_str())) {
+        for group in refined_groups
+            .iter()
+            .filter(|g| merge_ids.contains(g.id.as_str()))
+        {
             merged_files.extend(group.files.clone());
             merged_edges.extend(group.edges.clone());
             if first_entrypoint.is_none() {
@@ -263,10 +262,7 @@ pub fn apply_refinement(
 
     // 4. Apply re-ranks
     for re_rank in &response.re_ranks {
-        if let Some(group) = refined_groups
-            .iter_mut()
-            .find(|g| g.id == re_rank.group_id)
-        {
+        if let Some(group) = refined_groups.iter_mut().find(|g| g.id == re_rank.group_id) {
             group.review_order = re_rank.new_position;
         }
     }
@@ -376,11 +372,7 @@ fn add_file_to_group_or_infra(
                 ig.files.sort();
                 ig.files.dedup();
                 // Add to matching sub-group or create one
-                if let Some(sg) = ig
-                    .sub_groups
-                    .iter_mut()
-                    .find(|sg| sg.category == category)
-                {
+                if let Some(sg) = ig.sub_groups.iter_mut().find(|sg| sg.category == category) {
                     sg.files.push(path);
                     sg.files.sort();
                     sg.files.dedup();
@@ -419,16 +411,9 @@ fn add_file_to_group_or_infra(
     }
 }
 
-fn apply_split(
-    source: &FlowGroup,
-    split: &RefinementSplit,
-    offset: usize,
-) -> Vec<FlowGroup> {
-    let file_map: HashMap<&str, &FileChange> = source
-        .files
-        .iter()
-        .map(|f| (f.path.as_str(), f))
-        .collect();
+fn apply_split(source: &FlowGroup, split: &RefinementSplit, offset: usize) -> Vec<FlowGroup> {
+    let file_map: HashMap<&str, &FileChange> =
+        source.files.iter().map(|f| (f.path.as_str(), f)).collect();
 
     split
         .new_groups
@@ -482,14 +467,20 @@ fn apply_split(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
     use crate::llm::schema::{
         RefinementMerge, RefinementNewGroup, RefinementReRank, RefinementReclassify,
         RefinementSplit,
     };
-    use crate::types::{Entrypoint, EntrypointType, FlowEdge, EdgeType, InfraCategory};
+    use crate::types::{EdgeType, Entrypoint, EntrypointType, FlowEdge, InfraCategory};
 
     fn make_file(path: &str, pos: u32) -> FileChange {
         FileChange {
@@ -547,7 +538,10 @@ mod tests {
             ..empty_refinement()
         };
         let result = validate_refinement(&response, &groups, None);
-        assert!(matches!(result, Err(RefinementError::UnknownSplitSource(_))));
+        assert!(matches!(
+            result,
+            Err(RefinementError::UnknownSplitSource(_))
+        ));
     }
 
     #[test]
@@ -778,7 +772,10 @@ mod tests {
 
         let (result, _) = apply_refinement(&groups, None, &response).unwrap();
         assert_eq!(result.len(), 2); // Merged group + unrelated
-        let merged = result.iter().find(|g| g.name == "Combined refactor").unwrap();
+        let merged = result
+            .iter()
+            .find(|g| g.name == "Combined refactor")
+            .unwrap();
         assert_eq!(merged.files.len(), 2);
         let unrelated = result.iter().find(|g| g.name == "Unrelated").unwrap();
         assert_eq!(unrelated.files.len(), 1);
@@ -871,7 +868,11 @@ mod tests {
     #[test]
     fn test_apply_reclassify_between_groups() {
         let groups = vec![
-            make_group("g1", "Group 1", vec![make_file("a.ts", 0), make_file("shared.ts", 1)]),
+            make_group(
+                "g1",
+                "Group 1",
+                vec![make_file("a.ts", 0), make_file("shared.ts", 1)],
+            ),
             make_group("g2", "Group 2", vec![make_file("b.ts", 0)]),
         ];
         let response = RefinementResponse {
@@ -1100,11 +1101,16 @@ mod tests {
         assert!(!ig.files.contains(&"token.ts".to_string()));
         // File removed from sub_groups — Unclassified sub-group should be gone (was its only file)
         assert!(
-            !ig.sub_groups.iter().any(|sg| sg.category == InfraCategory::Unclassified),
+            !ig.sub_groups
+                .iter()
+                .any(|sg| sg.category == InfraCategory::Unclassified),
             "Empty Unclassified sub-group should be removed"
         );
         // Dockerfile sub-group still exists
-        assert!(ig.sub_groups.iter().any(|sg| sg.files.contains(&"Dockerfile".to_string())));
+        assert!(ig
+            .sub_groups
+            .iter()
+            .any(|sg| sg.files.contains(&"Dockerfile".to_string())));
     }
 
     #[test]
@@ -1162,8 +1168,7 @@ mod tests {
             ..empty_refinement()
         };
 
-        let (_, infra_out) =
-            apply_refinement(&groups, Some(&existing_infra), &response).unwrap();
+        let (_, infra_out) = apply_refinement(&groups, Some(&existing_infra), &response).unwrap();
         let ig = infra_out.unwrap();
         // Should be added to the existing Infrastructure sub-group, not create a new one
         let infra_sgs: Vec<_> = ig
@@ -1171,10 +1176,16 @@ mod tests {
             .iter()
             .filter(|sg| sg.category == InfraCategory::Infrastructure)
             .collect();
-        assert_eq!(infra_sgs.len(), 1, "Should have exactly one Infrastructure sub-group");
+        assert_eq!(
+            infra_sgs.len(),
+            1,
+            "Should have exactly one Infrastructure sub-group"
+        );
         assert_eq!(infra_sgs[0].files.len(), 2);
         assert!(infra_sgs[0].files.contains(&"Dockerfile".to_string()));
-        assert!(infra_sgs[0].files.contains(&"docker-compose.yml".to_string()));
+        assert!(infra_sgs[0]
+            .files
+            .contains(&"docker-compose.yml".to_string()));
     }
 
     #[test]
@@ -1201,7 +1212,9 @@ mod tests {
             .iter()
             .find(|sg| sg.category == InfraCategory::Schema)
             .expect("Should have Schema sub-group");
-        assert!(schema_sg.files.contains(&"schemas/user.schema.ts".to_string()));
+        assert!(schema_sg
+            .files
+            .contains(&"schemas/user.schema.ts".to_string()));
     }
 
     #[test]
@@ -1261,7 +1274,11 @@ mod tests {
         // All sub_group files should be a subset of ig.files
         let all_sg_files: Vec<&String> = ig.sub_groups.iter().flat_map(|sg| &sg.files).collect();
         for f in &all_sg_files {
-            assert!(ig.files.contains(f), "Sub-group file {:?} not in infra.files", f);
+            assert!(
+                ig.files.contains(f),
+                "Sub-group file {:?} not in infra.files",
+                f
+            );
         }
     }
 
@@ -1272,8 +1289,7 @@ mod tests {
         use proptest::prelude::*;
 
         fn file_path_strategy() -> impl Strategy<Value = String> {
-            "[a-z]{1,5}"
-                .prop_map(|name| format!("src/{}.ts", name))
+            "[a-z]{1,5}".prop_map(|name| format!("src/{}.ts", name))
         }
 
         /// Strategy that generates classifiable infra file paths
@@ -1308,11 +1324,7 @@ mod tests {
                         .enumerate()
                         .map(|(i, path)| make_file(&path, i as u32))
                         .collect();
-                    make_group(
-                        &format!("g_{}", name),
-                        &name,
-                        files,
-                    )
+                    make_group(&format!("g_{}", name), &name, files)
                 })
         }
 

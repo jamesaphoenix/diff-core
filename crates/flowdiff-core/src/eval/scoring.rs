@@ -392,7 +392,10 @@ mod tests {
                     path: "a.ts".to_string(),
                     flow_position: 0,
                     role: FileRole::Utility,
-                    changes: ChangeStats { additions: 5, deletions: 2 },
+                    changes: ChangeStats {
+                        additions: 5,
+                        deletions: 2,
+                    },
                     symbols_changed: vec![],
                 }],
                 edges: vec![],
@@ -431,7 +434,10 @@ mod tests {
                     path: "a.ts".to_string(),
                     flow_position: 0,
                     role: FileRole::Utility,
-                    changes: ChangeStats { additions: 5, deletions: 2 },
+                    changes: ChangeStats {
+                        additions: 5,
+                        deletions: 2,
+                    },
                     symbols_changed: vec![],
                 }],
                 edges: vec![],

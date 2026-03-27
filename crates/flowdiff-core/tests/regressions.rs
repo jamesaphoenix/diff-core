@@ -516,10 +516,7 @@ fn regression_004_monorepo_shared_dep_not_lost() {
         "package.json",
         r#"{"name": "mono2", "workspaces": ["packages/*"]}"#,
     );
-    rb.write_file(
-        "packages/core/package.json",
-        r#"{"name": "@m/core"}"#,
-    );
+    rb.write_file("packages/core/package.json", r#"{"name": "@m/core"}"#);
     rb.write_file(
         "packages/app/package.json",
         r#"{"name": "@m/app", "dependencies": {"@m/core": "1.0.0"}}"#,
@@ -561,10 +558,7 @@ fn regression_005_file_rename_chain() {
     let rb = RepoBuilder::new();
 
     rb.write_file("package.json", r#"{"name": "rename-test"}"#);
-    rb.write_file(
-        "src/oldName.ts",
-        "export function helper() { return 1; }\n",
-    );
+    rb.write_file("src/oldName.ts", "export function helper() { return 1; }\n");
     rb.write_file(
         "src/anotherOld.ts",
         "export function anotherHelper() { return 2; }\n",
@@ -585,10 +579,7 @@ export function consume() { return helper() + anotherHelper(); }
 
     // Rename oldName.ts → newName.ts (delete old, create new)
     std::fs::remove_file(rb.path().join("src/oldName.ts")).unwrap();
-    rb.write_file(
-        "src/newName.ts",
-        "export function helper() { return 1; }\n",
-    );
+    rb.write_file("src/newName.ts", "export function helper() { return 1; }\n");
 
     // Rename anotherOld.ts → anotherNew.ts
     std::fs::remove_file(rb.path().join("src/anotherOld.ts")).unwrap();

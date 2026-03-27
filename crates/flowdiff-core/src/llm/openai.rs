@@ -10,9 +10,8 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use super::schema::{
-    JudgeResponse, Pass1Response, Pass2Response, RefinementResponse,
-    pass1_json_schema, pass2_json_schema, judge_json_schema, refinement_json_schema,
-    flatten_json_schema,
+    flatten_json_schema, judge_json_schema, pass1_json_schema, pass2_json_schema,
+    refinement_json_schema, JudgeResponse, Pass1Response, Pass2Response, RefinementResponse,
 };
 use super::{
     judge_system_prompt, judge_user_prompt, pass1_system_prompt, pass1_user_prompt,
@@ -171,9 +170,7 @@ impl OpenAIProvider {
         }
 
         if status == 401 {
-            return Err(LlmError::AuthError(
-                "Invalid OpenAI API key".to_string(),
-            ));
+            return Err(LlmError::AuthError("Invalid OpenAI API key".to_string()));
         }
 
         if status == 408 || status == 504 {
@@ -270,10 +267,7 @@ impl LlmProvider for OpenAIProvider {
         parse_json_response::<Pass2Response>(&response_text)
     }
 
-    async fn evaluate_quality(
-        &self,
-        request: &JudgeRequest,
-    ) -> Result<JudgeResponse, LlmError> {
+    async fn evaluate_quality(&self, request: &JudgeRequest) -> Result<JudgeResponse, LlmError> {
         let system = judge_system_prompt();
         let user = judge_user_prompt(request);
         let response_text = self
@@ -289,7 +283,12 @@ impl LlmProvider for OpenAIProvider {
         let system = refinement_system_prompt();
         let user = refinement_user_prompt(request);
         let response_text = self
-            .send_structured_message(&system, &user, refinement_json_schema(), "refinement_response")
+            .send_structured_message(
+                &system,
+                &user,
+                refinement_json_schema(),
+                "refinement_response",
+            )
             .await?;
         parse_json_response::<RefinementResponse>(&response_text)
     }
@@ -392,7 +391,13 @@ struct OpenAIUsage {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
@@ -437,7 +442,10 @@ mod tests {
         assert_eq!(parsed["max_tokens"], 4096);
         // Verify response_format
         assert_eq!(parsed["response_format"]["type"], "json_schema");
-        assert_eq!(parsed["response_format"]["json_schema"]["name"], "pass1_response");
+        assert_eq!(
+            parsed["response_format"]["json_schema"]["name"],
+            "pass1_response"
+        );
         assert_eq!(parsed["response_format"]["json_schema"]["strict"], true);
         assert!(parsed["response_format"]["json_schema"]["schema"].is_object());
     }
@@ -555,22 +563,14 @@ mod tests {
         assert!(
             OpenAIProvider::new("k".to_string(), "o1-preview".to_string()).is_reasoning_model()
         );
-        assert!(
-            OpenAIProvider::new("k".to_string(), "o3-mini".to_string()).is_reasoning_model()
-        );
+        assert!(OpenAIProvider::new("k".to_string(), "o3-mini".to_string()).is_reasoning_model());
         assert!(OpenAIProvider::new("k".to_string(), "o3".to_string()).is_reasoning_model());
-        assert!(
-            OpenAIProvider::new("k".to_string(), "o4-mini".to_string()).is_reasoning_model()
-        );
-        assert!(
-            OpenAIProvider::new("k".to_string(), "gpt-5.4".to_string()).is_reasoning_model()
-        );
+        assert!(OpenAIProvider::new("k".to_string(), "o4-mini".to_string()).is_reasoning_model());
+        assert!(OpenAIProvider::new("k".to_string(), "gpt-5.4".to_string()).is_reasoning_model());
         assert!(
             OpenAIProvider::new("k".to_string(), "gpt-5.4-mini".to_string()).is_reasoning_model()
         );
-        assert!(
-            !OpenAIProvider::new("k".to_string(), "gpt-4.1".to_string()).is_reasoning_model()
-        );
+        assert!(!OpenAIProvider::new("k".to_string(), "gpt-4.1".to_string()).is_reasoning_model());
         assert!(
             !OpenAIProvider::new("k".to_string(), "gpt-4-turbo".to_string()).is_reasoning_model()
         );
@@ -580,12 +580,23 @@ mod tests {
 
     #[test]
     fn test_supports_structured_outputs() {
-        assert!(OpenAIProvider::new("k".to_string(), "gpt-4.1".to_string()).supports_structured_outputs());
-        assert!(OpenAIProvider::new("k".to_string(), "gpt-4o-2024-08-06".to_string()).supports_structured_outputs());
-        assert!(OpenAIProvider::new("k".to_string(), "o1".to_string()).supports_structured_outputs());
-        assert!(OpenAIProvider::new("k".to_string(), "o3-mini".to_string()).supports_structured_outputs());
-        assert!(!OpenAIProvider::new("k".to_string(), "gpt-4-turbo".to_string()).supports_structured_outputs());
-        assert!(!OpenAIProvider::new("k".to_string(), "gpt-4".to_string()).supports_structured_outputs());
+        assert!(OpenAIProvider::new("k".to_string(), "gpt-4.1".to_string())
+            .supports_structured_outputs());
+        assert!(
+            OpenAIProvider::new("k".to_string(), "gpt-4o-2024-08-06".to_string())
+                .supports_structured_outputs()
+        );
+        assert!(
+            OpenAIProvider::new("k".to_string(), "o1".to_string()).supports_structured_outputs()
+        );
+        assert!(OpenAIProvider::new("k".to_string(), "o3-mini".to_string())
+            .supports_structured_outputs());
+        assert!(
+            !OpenAIProvider::new("k".to_string(), "gpt-4-turbo".to_string())
+                .supports_structured_outputs()
+        );
+        assert!(!OpenAIProvider::new("k".to_string(), "gpt-4".to_string())
+            .supports_structured_outputs());
     }
 
     // ── Context Window Tests ──

@@ -165,7 +165,17 @@ pub fn parse_file(path: &str, source: &str) -> Result<ParsedFile, AstError> {
         Language::TypeScript | Language::JavaScript => parse_typescript(path, source, language),
         Language::Python => parse_python(path, source),
         Language::Go => parse_go(path, source),
-        Language::Rust | Language::Java | Language::CSharp | Language::Php | Language::Ruby | Language::Kotlin | Language::Swift | Language::C | Language::Cpp | Language::Scala | Language::Unknown => Ok(ParsedFile {
+        Language::Rust
+        | Language::Java
+        | Language::CSharp
+        | Language::Php
+        | Language::Ruby
+        | Language::Kotlin
+        | Language::Swift
+        | Language::C
+        | Language::Cpp
+        | Language::Scala
+        | Language::Unknown => Ok(ParsedFile {
             path: path.to_string(),
             language,
             definitions: vec![],
@@ -243,7 +253,17 @@ pub fn extract_data_flow_info(path: &str, source: &str) -> Result<DataFlowInfo, 
         Language::TypeScript | Language::JavaScript => extract_ts_data_flow(source),
         Language::Python => extract_python_data_flow(source),
         Language::Go => extract_go_data_flow(source),
-        Language::Rust | Language::Java | Language::CSharp | Language::Php | Language::Ruby | Language::Kotlin | Language::Swift | Language::C | Language::Cpp | Language::Scala | Language::Unknown => Ok(DataFlowInfo {
+        Language::Rust
+        | Language::Java
+        | Language::CSharp
+        | Language::Php
+        | Language::Ruby
+        | Language::Kotlin
+        | Language::Swift
+        | Language::C
+        | Language::Cpp
+        | Language::Scala
+        | Language::Unknown => Ok(DataFlowInfo {
             assignments: vec![],
             calls_with_args: vec![],
         }),
@@ -309,30 +329,24 @@ fn parse_typescript(path: &str, source: &str, lang: Language) -> Result<ParsedFi
                 extract_ts_export(&child, src, &mut exports, &mut definitions);
             }
             "function_declaration" | "generator_function_declaration" => {
-                if let Some(def) =
-                    extract_definition_with_name(&child, src, SymbolKind::Function)
-                {
+                if let Some(def) = extract_definition_with_name(&child, src, SymbolKind::Function) {
                     definitions.push(def);
                 }
             }
             "class_declaration" | "abstract_class_declaration" => {
-                if let Some(def) =
-                    extract_definition_with_name(&child, src, SymbolKind::Class)
-                {
+                if let Some(def) = extract_definition_with_name(&child, src, SymbolKind::Class) {
                     definitions.push(def);
                 }
                 extract_ts_methods(&child, src, &mut definitions);
             }
             "interface_declaration" => {
-                if let Some(def) =
-                    extract_definition_with_name(&child, src, SymbolKind::Interface)
+                if let Some(def) = extract_definition_with_name(&child, src, SymbolKind::Interface)
                 {
                     definitions.push(def);
                 }
             }
             "type_alias_declaration" => {
-                if let Some(def) =
-                    extract_definition_with_name(&child, src, SymbolKind::TypeAlias)
+                if let Some(def) = extract_definition_with_name(&child, src, SymbolKind::TypeAlias)
                 {
                     definitions.push(def);
                 }
@@ -362,9 +376,7 @@ fn extract_ts_import(node: &Node, source: &[u8]) -> Option<ImportInfo> {
         .child_by_field_name("source")
         .or_else(|| {
             let mut c = node.walk();
-            let found = node
-                .named_children(&mut c)
-                .find(|ch| ch.kind() == "string");
+            let found = node.named_children(&mut c).find(|ch| ch.kind() == "string");
             found
         })
         .and_then(|s| extract_string_content(&s, source))?;
@@ -503,8 +515,7 @@ fn extract_ts_export(
     if let Some(decl) = node.child_by_field_name("declaration") {
         match decl.kind() {
             "function_declaration" | "generator_function_declaration" => {
-                if let Some(def) =
-                    extract_definition_with_name(&decl, source, SymbolKind::Function)
+                if let Some(def) = extract_definition_with_name(&decl, source, SymbolKind::Function)
                 {
                     let name = def.name.clone();
                     definitions.push(def);
@@ -518,9 +529,7 @@ fn extract_ts_export(
                 }
             }
             "class_declaration" | "abstract_class_declaration" => {
-                if let Some(def) =
-                    extract_definition_with_name(&decl, source, SymbolKind::Class)
-                {
+                if let Some(def) = extract_definition_with_name(&decl, source, SymbolKind::Class) {
                     let name = def.name.clone();
                     definitions.push(def);
                     extract_ts_methods(&decl, source, definitions);
@@ -622,20 +631,14 @@ fn extract_ts_methods(class_node: &Node, source: &[u8], definitions: &mut Vec<De
     let mut cursor = body.walk();
     for child in body.named_children(&mut cursor) {
         if child.kind() == "method_definition" {
-            if let Some(def) =
-                extract_definition_with_name(&child, source, SymbolKind::Function)
-            {
+            if let Some(def) = extract_definition_with_name(&child, source, SymbolKind::Function) {
                 definitions.push(def);
             }
         }
     }
 }
 
-fn extract_ts_variable_defs(
-    node: &Node,
-    source: &[u8],
-    definitions: &mut Vec<Definition>,
-) {
+fn extract_ts_variable_defs(node: &Node, source: &[u8], definitions: &mut Vec<Definition>) {
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         if child.kind() == "variable_declarator" {
@@ -692,16 +695,12 @@ fn parse_python(path: &str, source: &str) -> Result<ParsedFile, AstError> {
                 }
             }
             "function_definition" => {
-                if let Some(def) =
-                    extract_definition_with_name(&child, src, SymbolKind::Function)
-                {
+                if let Some(def) = extract_definition_with_name(&child, src, SymbolKind::Function) {
                     definitions.push(def);
                 }
             }
             "class_definition" => {
-                if let Some(def) =
-                    extract_definition_with_name(&child, src, SymbolKind::Class)
-                {
+                if let Some(def) = extract_definition_with_name(&child, src, SymbolKind::Class) {
                     definitions.push(def);
                 }
                 extract_python_methods(&child, src, &mut definitions);
@@ -710,20 +709,16 @@ fn parse_python(path: &str, source: &str) -> Result<ParsedFile, AstError> {
                 if let Some(inner) = child.child_by_field_name("definition") {
                     match inner.kind() {
                         "function_definition" => {
-                            if let Some(def) = extract_definition_with_name(
-                                &inner,
-                                src,
-                                SymbolKind::Function,
-                            ) {
+                            if let Some(def) =
+                                extract_definition_with_name(&inner, src, SymbolKind::Function)
+                            {
                                 definitions.push(def);
                             }
                         }
                         "class_definition" => {
-                            if let Some(def) = extract_definition_with_name(
-                                &inner,
-                                src,
-                                SymbolKind::Class,
-                            ) {
+                            if let Some(def) =
+                                extract_definition_with_name(&inner, src, SymbolKind::Class)
+                            {
                                 definitions.push(def);
                             }
                             extract_python_methods(&inner, src, &mut definitions);
@@ -842,11 +837,7 @@ fn extract_python_import_from(node: &Node, source: &[u8]) -> Option<ImportInfo> 
     })
 }
 
-fn extract_python_methods(
-    class_node: &Node,
-    source: &[u8],
-    definitions: &mut Vec<Definition>,
-) {
+fn extract_python_methods(class_node: &Node, source: &[u8], definitions: &mut Vec<Definition>) {
     let body = match class_node.child_by_field_name("body") {
         Some(b) => b,
         None => return,
@@ -1170,9 +1161,7 @@ fn collect_python_data_flow(
                     "call" => extract_callee(&right, source),
                     "await" => {
                         let mut c = right.walk();
-                        let call_node = right
-                            .named_children(&mut c)
-                            .find(|ch| ch.kind() == "call");
+                        let call_node = right.named_children(&mut c).find(|ch| ch.kind() == "call");
                         call_node.and_then(|call| extract_callee(&call, source))
                     }
                     _ => None,
@@ -1261,9 +1250,7 @@ fn parse_go(path: &str, source: &str) -> Result<ParsedFile, AstError> {
     for child in root.named_children(&mut cursor) {
         match child.kind() {
             "function_declaration" => {
-                if let Some(def) =
-                    extract_definition_with_name(&child, src, SymbolKind::Function)
-                {
+                if let Some(def) = extract_definition_with_name(&child, src, SymbolKind::Function) {
                     if def.name.chars().next().map_or(false, |c| c.is_uppercase()) {
                         exports.push(ExportInfo {
                             name: def.name.clone(),
@@ -1508,11 +1495,7 @@ fn extract_go_const_defs(
     }
 }
 
-fn extract_go_var_defs(
-    node: &Node,
-    source: &[u8],
-    definitions: &mut Vec<Definition>,
-) {
+fn extract_go_var_defs(node: &Node, source: &[u8], definitions: &mut Vec<Definition>) {
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         match child.kind() {
@@ -1619,12 +1602,9 @@ fn collect_go_data_flow(
                             let first_val = right.named_child(0);
                             if let Some(first_val) = first_val {
                                 if first_val.kind() == "call_expression" {
-                                    if let Some(callee) =
-                                        extract_callee(&first_val, source)
-                                    {
+                                    if let Some(callee) = extract_callee(&first_val, source) {
                                         assignments.push(VarCallAssignment {
-                                            variable: node_text(&first_id, source)
-                                                .to_string(),
+                                            variable: node_text(&first_id, source).to_string(),
                                             callee,
                                             line: node.start_position().row + 1,
                                             containing_function: effective.clone(),
@@ -1681,7 +1661,13 @@ fn extract_go_argument_texts(call_node: &Node, source: &[u8]) -> Vec<String> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
@@ -1720,10 +1706,7 @@ import { foo as bar } from './utils';
         // Aliased import
         assert_eq!(result.imports[3].source, "./utils");
         assert_eq!(result.imports[3].names[0].name, "foo");
-        assert_eq!(
-            result.imports[3].names[0].alias,
-            Some("bar".to_string())
-        );
+        assert_eq!(result.imports[3].names[0].alias, Some("bar".to_string()));
     }
 
     #[test]
@@ -1855,11 +1838,7 @@ class Calculator {
         assert_eq!(calc.kind, SymbolKind::Class);
 
         // methods
-        let add = result
-            .definitions
-            .iter()
-            .find(|d| d.name == "add")
-            .unwrap();
+        let add = result.definitions.iter().find(|d| d.name == "add").unwrap();
         assert_eq!(add.kind, SymbolKind::Function);
 
         let sub = result
@@ -1927,17 +1906,18 @@ function processUser(user: User) {
 "#;
         let result = parse_file("handler.ts", source).unwrap();
 
-        let call_names: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let call_names: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(call_names.contains(&"validateUser"));
         assert!(call_names.contains(&"db.save"));
         assert!(call_names.contains(&"notifyAdmin"));
 
         // All calls should be inside processUser
         for call in &result.call_sites {
-            assert_eq!(
-                call.containing_function,
-                Some("processUser".to_string())
-            );
+            assert_eq!(call.containing_function, Some("processUser".to_string()));
         }
     }
 
@@ -1950,15 +1930,16 @@ const handler = (req: Request) => {
 };
 "#;
         let result = parse_file("handler.ts", source).unwrap();
-        let call_names: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let call_names: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(call_names.contains(&"parseBody"));
         assert!(call_names.contains(&"respond"));
 
         for call in &result.call_sites {
-            assert_eq!(
-                call.containing_function,
-                Some("handler".to_string())
-            );
+            assert_eq!(call.containing_function, Some("handler".to_string()));
         }
     }
 
@@ -2235,12 +2216,10 @@ const VALUE = 42;
 
         // VALUE unchanged
         assert!(
-            !changes
-                .iter()
-                .any(|c| match c {
-                    SymbolChange::Added(d) | SymbolChange::Removed(d) => d.name == "VALUE",
-                    SymbolChange::Modified { old, .. } => old.name == "VALUE",
-                }),
+            !changes.iter().any(|c| match c {
+                SymbolChange::Added(d) | SymbolChange::Removed(d) => d.name == "VALUE",
+                SymbolChange::Modified { old, .. } => old.name == "VALUE",
+            }),
             "VALUE should be unchanged"
         );
     }
@@ -2278,19 +2257,11 @@ const VALUE = 42;
         let source = "function foo() {\n  return 1;\n}\n\nfunction bar() {\n  return 2;\n}\n";
         let result = parse_file("lib.ts", source).unwrap();
 
-        let foo = result
-            .definitions
-            .iter()
-            .find(|d| d.name == "foo")
-            .unwrap();
+        let foo = result.definitions.iter().find(|d| d.name == "foo").unwrap();
         assert_eq!(foo.start_line, 1);
         assert_eq!(foo.end_line, 3);
 
-        let bar = result
-            .definitions
-            .iter()
-            .find(|d| d.name == "bar")
-            .unwrap();
+        let bar = result.definitions.iter().find(|d| d.name == "bar").unwrap();
         assert_eq!(bar.start_line, 5);
         assert_eq!(bar.end_line, 7);
     }
@@ -2307,9 +2278,7 @@ const VALUE = 42;
             ));
         }
         for i in 0..500 {
-            source.push_str(&format!(
-                "const arrow_{i} = (x: number) => x + {i};\n"
-            ));
+            source.push_str(&format!("const arrow_{i} = (x: number) => x + {i};\n"));
         }
         for i in 0..100 {
             source.push_str(&format!(
@@ -2349,15 +2318,16 @@ def process(data):
     return result
 "#;
         let result = parse_file("handler.py", source).unwrap();
-        let call_names: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let call_names: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(call_names.contains(&"validate"));
         assert!(call_names.contains(&"db.save"));
 
         for call in &result.call_sites {
-            assert_eq!(
-                call.containing_function,
-                Some("process".to_string())
-            );
+            assert_eq!(call.containing_function, Some("process".to_string()));
         }
     }
 
@@ -2488,7 +2458,11 @@ function pipeline(input: any) {
 
         assert_eq!(info.assignments.len(), 3);
 
-        let vars: Vec<&str> = info.assignments.iter().map(|a| a.variable.as_str()).collect();
+        let vars: Vec<&str> = info
+            .assignments
+            .iter()
+            .map(|a| a.variable.as_str())
+            .collect();
         assert!(vars.contains(&"validated"));
         assert!(vars.contains(&"processed"));
         assert!(vars.contains(&"result"));
@@ -2654,7 +2628,11 @@ def pipeline(raw):
 
         assert_eq!(info.assignments.len(), 2);
 
-        let vars: Vec<&str> = info.assignments.iter().map(|a| a.variable.as_str()).collect();
+        let vars: Vec<&str> = info
+            .assignments
+            .iter()
+            .map(|a| a.variable.as_str())
+            .collect();
         assert!(vars.contains(&"validated"));
         assert!(vars.contains(&"processed"));
     }
@@ -2849,7 +2827,10 @@ function alsoValid() { return 2; }
 }"#;
         let result = parse_file("app.ts", source).unwrap();
         let app_export = result.exports.iter().find(|e| e.name == "App");
-        assert!(app_export.is_some(), "export default class should be captured");
+        assert!(
+            app_export.is_some(),
+            "export default class should be captured"
+        );
         assert!(app_export.unwrap().is_default);
     }
 
@@ -2864,8 +2845,14 @@ export type ID = string;
         let result = parse_file("types.ts", source).unwrap();
         assert!(result.exports.iter().any(|e| e.name == "Config"));
         assert!(result.exports.iter().any(|e| e.name == "ID"));
-        assert!(result.definitions.iter().any(|d| d.name == "Config" && d.kind == SymbolKind::Interface));
-        assert!(result.definitions.iter().any(|d| d.name == "ID" && d.kind == SymbolKind::TypeAlias));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "Config" && d.kind == SymbolKind::Interface));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "ID" && d.kind == SymbolKind::TypeAlias));
     }
 
     #[test]
@@ -2883,7 +2870,10 @@ class User:
         pass
 "#;
         let result = parse_file("models.py", source).unwrap();
-        assert!(result.definitions.iter().any(|d| d.name == "User" && d.kind == SymbolKind::Class));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "User" && d.kind == SymbolKind::Class));
         assert!(result.definitions.iter().any(|d| d.name == "greet"));
         assert!(result.definitions.iter().any(|d| d.name == "create"));
     }
@@ -2919,13 +2909,21 @@ function outer() {
 }
 "#;
         let result = parse_file("nested.ts", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"deepCall"));
         assert!(callees.contains(&"middleCall"));
         assert!(callees.contains(&"outerCall"));
 
         // Containing function resolution
-        let deep = result.call_sites.iter().find(|c| c.callee == "deepCall").unwrap();
+        let deep = result
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "deepCall")
+            .unwrap();
         assert_eq!(deep.containing_function, Some("inner".to_string()));
     }
 
@@ -2934,7 +2932,10 @@ function outer() {
         let source = "init();\nconfigure();\n";
         let result = parse_file("init.ts", source).unwrap();
         for call in &result.call_sites {
-            assert_eq!(call.containing_function, None, "top-level calls should have no containing function");
+            assert_eq!(
+                call.containing_function, None,
+                "top-level calls should have no containing function"
+            );
         }
     }
 
@@ -3120,10 +3121,18 @@ type Config struct {
 "#;
         let result = parse_file("models.go", source).unwrap();
 
-        let user = result.definitions.iter().find(|d| d.name == "User").unwrap();
+        let user = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "User")
+            .unwrap();
         assert_eq!(user.kind, SymbolKind::Class); // structs map to Class
 
-        let config = result.definitions.iter().find(|d| d.name == "Config").unwrap();
+        let config = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "Config")
+            .unwrap();
         assert_eq!(config.kind, SymbolKind::Class);
     }
 
@@ -3145,10 +3154,18 @@ type Repository interface {
 "#;
         let result = parse_file("service.go", source).unwrap();
 
-        let user_svc = result.definitions.iter().find(|d| d.name == "UserService").unwrap();
+        let user_svc = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "UserService")
+            .unwrap();
         assert_eq!(user_svc.kind, SymbolKind::Interface);
 
-        let repo = result.definitions.iter().find(|d| d.name == "Repository").unwrap();
+        let repo = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "Repository")
+            .unwrap();
         assert_eq!(repo.kind, SymbolKind::Interface);
     }
 
@@ -3177,8 +3194,14 @@ func (u User) String() string {
             .filter(|d| d.kind == SymbolKind::Function)
             .map(|d| d.name.as_str())
             .collect();
-        assert!(methods.contains(&"Greet"), "method Greet should be detected");
-        assert!(methods.contains(&"String"), "method String should be detected");
+        assert!(
+            methods.contains(&"Greet"),
+            "method Greet should be detected"
+        );
+        assert!(
+            methods.contains(&"String"),
+            "method String should be detected"
+        );
     }
 
     #[test]
@@ -3216,10 +3239,18 @@ type Handler func(w http.ResponseWriter, r *http.Request)
         let result = parse_file("types.go", source).unwrap();
 
         // UserID should be detected as TypeAlias (not struct/interface)
-        let user_id = result.definitions.iter().find(|d| d.name == "UserID").unwrap();
+        let user_id = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "UserID")
+            .unwrap();
         assert_eq!(user_id.kind, SymbolKind::TypeAlias);
 
-        let handler = result.definitions.iter().find(|d| d.name == "Handler").unwrap();
+        let handler = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "Handler")
+            .unwrap();
         assert_eq!(handler.kind, SymbolKind::TypeAlias);
     }
 
@@ -3238,7 +3269,11 @@ func process(data string) {
 "#;
         let result = parse_file("handler.go", source).unwrap();
 
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"validate"));
         assert!(callees.contains(&"db.Save"));
         assert!(callees.contains(&"fmt.Println"));
@@ -3261,7 +3296,11 @@ func (s *UserService) Create(data UserInput) (*User, error) {
 "#;
         let result = parse_file("service.go", source).unwrap();
 
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"s.validate"));
         assert!(callees.contains(&"s.repo.Save"));
 
@@ -3321,7 +3360,11 @@ func handler(req string) {
 
         assert_eq!(info.assignments.len(), 2);
 
-        let vars: Vec<&str> = info.assignments.iter().map(|a| a.variable.as_str()).collect();
+        let vars: Vec<&str> = info
+            .assignments
+            .iter()
+            .map(|a| a.variable.as_str())
+            .collect();
         assert!(vars.contains(&"data"));
         assert!(vars.contains(&"result"));
 
@@ -3345,7 +3388,10 @@ func getUser(id int) {
         assert_eq!(info.assignments.len(), 1);
         assert_eq!(info.assignments[0].variable, "user");
         assert_eq!(info.assignments[0].callee, "db.FindOne");
-        assert_eq!(info.assignments[0].containing_function, Some("getUser".to_string()));
+        assert_eq!(
+            info.assignments[0].containing_function,
+            Some("getUser".to_string())
+        );
     }
 
     #[test]
@@ -3394,7 +3440,11 @@ func startWorker() {
         let result = parse_file("worker.go", source).unwrap();
 
         // Goroutine calls should still be detected as call sites
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"processQueue"));
         assert!(callees.contains(&"handleMessages"));
     }
@@ -3448,7 +3498,11 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
         assert!(result.imports.iter().any(|i| i.source == "net/http"));
 
         // Verify call sites
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"http.HandleFunc"));
         assert!(callees.contains(&"http.ListenAndServe"));
     }

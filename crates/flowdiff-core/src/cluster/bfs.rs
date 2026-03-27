@@ -75,7 +75,10 @@ pub(super) fn bfs_pass(
 }
 
 /// Collect all graph edges where both endpoints belong to files in the group.
-pub(super) fn collect_internal_edges(graph: &SymbolGraph, group_files: &HashSet<&str>) -> Vec<FlowEdge> {
+pub(super) fn collect_internal_edges(
+    graph: &SymbolGraph,
+    group_files: &HashSet<&str>,
+) -> Vec<FlowEdge> {
     let mut edges: Vec<FlowEdge> = graph
         .edges()
         .into_iter()

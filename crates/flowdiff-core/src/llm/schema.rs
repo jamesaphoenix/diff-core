@@ -456,9 +456,11 @@ fn inline_refs(value: serde_json::Value, definitions: &serde_json::Value) -> ser
                 .collect();
             Value::Object(new_map)
         }
-        Value::Array(arr) => {
-            Value::Array(arr.into_iter().map(|v| inline_refs(v, definitions)).collect())
-        }
+        Value::Array(arr) => Value::Array(
+            arr.into_iter()
+                .map(|v| inline_refs(v, definitions))
+                .collect(),
+        ),
         other => other,
     }
 }
@@ -470,10 +472,7 @@ fn add_additional_properties_false(value: &mut serde_json::Value) {
     if let Some(obj) = value.as_object_mut() {
         // If this is an object type, add additionalProperties: false
         if obj.get("type").and_then(|t| t.as_str()) == Some("object") {
-            obj.insert(
-                "additionalProperties".to_string(),
-                Value::Bool(false),
-            );
+            obj.insert("additionalProperties".to_string(), Value::Bool(false));
         }
 
         // Recurse into all values
@@ -488,7 +487,13 @@ fn add_additional_properties_false(value: &mut serde_json::Value) {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
@@ -518,7 +523,8 @@ mod tests {
     fn test_pass2_response_roundtrip() {
         let response = Pass2Response {
             group_id: "group_1".to_string(),
-            flow_narrative: "Data enters at POST /auth/refresh, validated by middleware".to_string(),
+            flow_narrative: "Data enters at POST /auth/refresh, validated by middleware"
+                .to_string(),
             file_annotations: vec![Pass2FileAnnotation {
                 file: "src/handlers/auth.rs".to_string(),
                 role_in_flow: "Entrypoint — receives refresh token request".to_string(),
@@ -654,7 +660,10 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["groups"].as_array().unwrap().len(), 2);
-        assert_eq!(parsed["suggested_review_order"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            parsed["suggested_review_order"].as_array().unwrap().len(),
+            2
+        );
     }
 
     #[test]
@@ -911,10 +920,7 @@ mod tests {
         let json = serde_json::to_string(&split).unwrap();
         let deser: RefinementSplit = serde_json::from_str(&json).unwrap();
         assert_eq!(deser.new_groups.len(), 3);
-        assert_eq!(
-            deser.new_groups.iter().flat_map(|g| &g.files).count(),
-            5
-        );
+        assert_eq!(deser.new_groups.iter().flat_map(|g| &g.files).count(), 5);
     }
 
     #[test]
@@ -1184,8 +1190,7 @@ mod tests {
             "splits.items should be an inlined object, not a $ref"
         );
         // new_groups inside splits should also be inlined
-        let new_groups_items =
-            &splits_items["properties"]["new_groups"]["items"];
+        let new_groups_items = &splits_items["properties"]["new_groups"]["items"];
         assert_eq!(
             new_groups_items.get("type").and_then(|t| t.as_str()),
             Some("object"),

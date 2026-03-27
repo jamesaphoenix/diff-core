@@ -129,8 +129,24 @@ impl SymbolGraph {
             .par_iter()
             .map(|file| {
                 let mut edges = Vec::new();
-                collect_import_edges(file, files, &file_exports, &file_defs, &id_to_index, workspace_map, &mut edges);
-                collect_call_edges(file, files, &file_exports, &file_defs, &id_to_index, workspace_map, &mut edges);
+                collect_import_edges(
+                    file,
+                    files,
+                    &file_exports,
+                    &file_defs,
+                    &id_to_index,
+                    workspace_map,
+                    &mut edges,
+                );
+                collect_call_edges(
+                    file,
+                    files,
+                    &file_exports,
+                    &file_defs,
+                    &id_to_index,
+                    workspace_map,
+                    &mut edges,
+                );
                 collect_extends_edges(file, files, &file_defs, &id_to_index, &mut edges);
                 edges
             })
@@ -266,13 +282,7 @@ impl SymbolGraph {
                     workspace_map,
                     &mut edges,
                 );
-                collect_ir_extends_edges(
-                    file,
-                    files,
-                    &id_to_index,
-                    &known_paths,
-                    &mut edges,
-                );
+                collect_ir_extends_edges(file, files, &id_to_index, &known_paths, &mut edges);
                 edges
             })
             .collect();
@@ -307,9 +317,7 @@ impl SymbolGraph {
 
     /// Get the symbol node data for a given id.
     pub fn get_symbol(&self, id: &str) -> Option<&SymbolNode> {
-        self.id_to_index
-            .get(id)
-            .map(|idx| &self.graph[*idx])
+        self.id_to_index.get(id).map(|idx| &self.graph[*idx])
     }
 
     /// Get all node ids in the graph.
@@ -376,9 +384,13 @@ impl SymbolGraph {
             if let (Some(&src), Some(&tgt)) =
                 (id_to_index.get(&edge.from), id_to_index.get(&edge.to))
             {
-                graph.add_edge(src, tgt, GraphEdge {
-                    edge_type: edge.edge_type.clone(),
-                });
+                graph.add_edge(
+                    src,
+                    tgt,
+                    GraphEdge {
+                        edge_type: edge.edge_type.clone(),
+                    },
+                );
             }
         }
 
@@ -697,7 +709,12 @@ fn collect_import_edges(
     let known_paths: Vec<&str> = all_files.iter().map(|f| f.path.as_str()).collect();
 
     for import in &file.imports {
-        let resolved = match resolve_import_or_workspace(&import.source, &file.path, &known_paths, workspace_map) {
+        let resolved = match resolve_import_or_workspace(
+            &import.source,
+            &file.path,
+            &known_paths,
+            workspace_map,
+        ) {
             Some(p) => p,
             None => continue,
         };
@@ -740,13 +757,20 @@ fn collect_import_edges(
                 for export in exports {
                     if export.name == *target_name && export.is_reexport {
                         if let Some(ref reexport_source) = export.source {
-                            if let Some(reexport_resolved) =
-                                resolve_import_or_workspace(reexport_source, &resolved, &known_paths, workspace_map)
-                            {
+                            if let Some(reexport_resolved) = resolve_import_or_workspace(
+                                reexport_source,
+                                &resolved,
+                                &known_paths,
+                                workspace_map,
+                            ) {
                                 let reexport_sym_id =
                                     format!("{}::{}", reexport_resolved, target_name);
                                 if id_to_index.contains_key(&reexport_sym_id) {
-                                    edges.push((from_module_id.clone(), reexport_sym_id, EdgeType::Imports));
+                                    edges.push((
+                                        from_module_id.clone(),
+                                        reexport_sym_id,
+                                        EdgeType::Imports,
+                                    ));
                                 }
                             }
                         }
@@ -811,7 +835,11 @@ fn collect_call_edges(
         // Simple name (e.g., `validateUser`) — look up in import map or local defs.
         if let Some(target_id) = import_map.get(callee_name.as_str()) {
             if id_to_index.contains_key(target_id.as_str()) && resolved_caller_id != *target_id {
-                edges.push((resolved_caller_id.clone(), target_id.clone(), EdgeType::Calls));
+                edges.push((
+                    resolved_caller_id.clone(),
+                    target_id.clone(),
+                    EdgeType::Calls,
+                ));
             }
             continue;
         }
@@ -826,8 +854,14 @@ fn collect_call_edges(
                     edges.push((resolved_caller_id.clone(), method_id, EdgeType::Calls));
                     continue;
                 }
-                if id_to_index.contains_key(target_module.as_str()) && resolved_caller_id != *target_module {
-                    edges.push((resolved_caller_id.clone(), target_module.clone(), EdgeType::Calls));
+                if id_to_index.contains_key(target_module.as_str())
+                    && resolved_caller_id != *target_module
+                {
+                    edges.push((
+                        resolved_caller_id.clone(),
+                        target_module.clone(),
+                        EdgeType::Calls,
+                    ));
                     continue;
                 }
             }
@@ -853,7 +887,12 @@ fn build_import_resolution_map(
     let mut map = HashMap::new();
 
     for import in &file.imports {
-        let resolved = match resolve_import_or_workspace(&import.source, &file.path, known_paths, workspace_map) {
+        let resolved = match resolve_import_or_workspace(
+            &import.source,
+            &file.path,
+            known_paths,
+            workspace_map,
+        ) {
             Some(p) => p,
             None => continue,
         };
@@ -966,7 +1005,12 @@ fn collect_ir_import_edges(
     let from_id = file.path.clone();
 
     for import in &file.imports {
-        let resolved = match resolve_import_or_workspace(&import.source, &file.path, known_paths, workspace_map) {
+        let resolved = match resolve_import_or_workspace(
+            &import.source,
+            &file.path,
+            known_paths,
+            workspace_map,
+        ) {
             Some(p) => p,
             None => continue,
         };
@@ -999,13 +1043,20 @@ fn collect_ir_import_edges(
                         for export in exports {
                             if export.name == *name && export.is_reexport {
                                 if let Some(ref reexport_source) = export.source {
-                                    if let Some(reexport_resolved) =
-                                        resolve_import_or_workspace(reexport_source, &resolved, known_paths, workspace_map)
-                                    {
+                                    if let Some(reexport_resolved) = resolve_import_or_workspace(
+                                        reexport_source,
+                                        &resolved,
+                                        known_paths,
+                                        workspace_map,
+                                    ) {
                                         let reexport_sym_id =
                                             format!("{}::{}", reexport_resolved, name);
                                         if id_to_index.contains_key(&reexport_sym_id) {
-                                            edges.push((from_id.clone(), reexport_sym_id, EdgeType::Imports));
+                                            edges.push((
+                                                from_id.clone(),
+                                                reexport_sym_id,
+                                                EdgeType::Imports,
+                                            ));
                                         }
                                     }
                                 }
@@ -1047,7 +1098,12 @@ fn build_ir_import_resolution_map(
     let mut map = HashMap::new();
 
     for import in &file.imports {
-        let resolved = match resolve_import_or_workspace(&import.source, &file.path, known_paths, workspace_map) {
+        let resolved = match resolve_import_or_workspace(
+            &import.source,
+            &file.path,
+            known_paths,
+            workspace_map,
+        ) {
             Some(p) => p,
             None => continue,
         };
@@ -1097,7 +1153,8 @@ fn collect_ir_call_edges(
     workspace_map: &WorkspaceMap,
     edges: &mut Vec<(String, String, EdgeType)>,
 ) {
-    let import_map = build_ir_import_resolution_map(file, all_files, file_defs, known_paths, workspace_map);
+    let import_map =
+        build_ir_import_resolution_map(file, all_files, file_defs, known_paths, workspace_map);
 
     for call in &file.call_expressions {
         let caller_id = match &call.containing_function {
@@ -1119,7 +1176,11 @@ fn collect_ir_call_edges(
         // Simple name — look up in import map or local defs.
         if let Some(target_id) = import_map.get(callee_name.as_str()) {
             if id_to_index.contains_key(target_id.as_str()) && resolved_caller_id != *target_id {
-                edges.push((resolved_caller_id.clone(), target_id.clone(), EdgeType::Calls));
+                edges.push((
+                    resolved_caller_id.clone(),
+                    target_id.clone(),
+                    EdgeType::Calls,
+                ));
             }
             continue;
         }
@@ -1129,14 +1190,19 @@ fn collect_ir_call_edges(
             let receiver = &callee_name[..dot_pos];
             if let Some(target_module) = import_map.get(receiver) {
                 let method = &callee_name[dot_pos + 1..];
-                let method_id =
-                    format!("{}::{}", target_module.trim_end_matches("::*"), method);
+                let method_id = format!("{}::{}", target_module.trim_end_matches("::*"), method);
                 if id_to_index.contains_key(&method_id) && resolved_caller_id != method_id {
                     edges.push((resolved_caller_id.clone(), method_id, EdgeType::Calls));
                     continue;
                 }
-                if id_to_index.contains_key(target_module.as_str()) && resolved_caller_id != *target_module {
-                    edges.push((resolved_caller_id.clone(), target_module.clone(), EdgeType::Calls));
+                if id_to_index.contains_key(target_module.as_str())
+                    && resolved_caller_id != *target_module
+                {
+                    edges.push((
+                        resolved_caller_id.clone(),
+                        target_module.clone(),
+                        EdgeType::Calls,
+                    ));
                     continue;
                 }
             }
@@ -1203,7 +1269,13 @@ fn collect_ir_extends_edges(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
     use crate::ast::{self, ParsedFile};
@@ -1339,12 +1411,7 @@ import './polyfill';
         ]);
 
         assert!(
-            has_edge(
-                &graph,
-                "src/main.ts",
-                "src/polyfill.ts",
-                &EdgeType::Imports
-            ),
+            has_edge(&graph, "src/main.ts", "src/polyfill.ts", &EdgeType::Imports),
             "side-effect import should create module-to-module edge"
         );
     }
@@ -1752,10 +1819,8 @@ function login(user: User) {}
 
     #[test]
     fn test_unknown_language_no_crash() {
-        let graph = build_graph_from_sources(&[(
-            "src/main.rs",
-            r#"fn main() { println!("hello"); }"#,
-        )]);
+        let graph =
+            build_graph_from_sources(&[("src/main.rs", r#"fn main() { println!("hello"); }"#)]);
 
         // Should have module node only, no definitions from unknown language.
         assert_eq!(graph.node_count(), 1);
@@ -1962,9 +2027,12 @@ export class User extends BaseEntity {
         assert!(graph.node_count() >= 4, "should have module + class nodes");
 
         // Now test via IR path which DOES produce extends edges.
-        use crate::ir::{IrFile, IrTypeDef, IrImport, IrImportSpecifier, TypeDefKind, Span};
+        use crate::ir::{IrFile, IrImport, IrImportSpecifier, IrTypeDef, Span, TypeDefKind};
 
-        let empty_span = || Span { start_line: 0, end_line: 0 };
+        let empty_span = || Span {
+            start_line: 0,
+            end_line: 0,
+        };
 
         let base_file = IrFile {
             path: "src/base.ts".to_string(),
@@ -2013,7 +2081,12 @@ export class User extends BaseEntity {
 
         let ir_graph = SymbolGraph::build_from_ir(&[base_file, user_file]);
         assert!(
-            has_edge(&ir_graph, "src/user.ts::User", "src/base.ts::BaseEntity", &EdgeType::Extends),
+            has_edge(
+                &ir_graph,
+                "src/user.ts::User",
+                "src/base.ts::BaseEntity",
+                &EdgeType::Extends
+            ),
             "should have Extends edge from User to BaseEntity via IR path"
         );
     }
@@ -2255,16 +2328,8 @@ function handle() { validate({}); }
                 ),
             ]);
 
-            assert_eq!(
-                gp.node_count(),
-                gi.node_count(),
-                "node counts should match"
-            );
-            assert_eq!(
-                gp.edge_count(),
-                gi.edge_count(),
-                "edge counts should match"
-            );
+            assert_eq!(gp.node_count(), gi.node_count(), "node counts should match");
+            assert_eq!(gp.edge_count(), gi.edge_count(), "edge counts should match");
         }
 
         #[test]
@@ -2663,10 +2728,7 @@ function handlePost(req: any) { createUser(req.body); }
 
         #[test]
         fn test_normalize_path_multiple_dotdot() {
-            assert_eq!(
-                normalize_path("src/a/b/../../utils.ts"),
-                "src/utils.ts"
-            );
+            assert_eq!(normalize_path("src/a/b/../../utils.ts"), "src/utils.ts");
         }
 
         #[test]
@@ -2808,8 +2870,7 @@ function handlePost(req: any) { createUser(req.body); }
         #[test]
         fn test_resolve_import_parent_dir() {
             let known = vec!["src/utils.ts"];
-            let result =
-                resolve_import_path("../utils", "src/handlers/auth.ts", &known);
+            let result = resolve_import_path("../utils", "src/handlers/auth.ts", &known);
             assert_eq!(result, Some("src/utils.ts".to_string()));
         }
 
@@ -2823,8 +2884,7 @@ function handlePost(req: any) { createUser(req.body); }
         #[test]
         fn test_resolve_import_not_found() {
             let known = vec!["src/app.ts"];
-            let result =
-                resolve_import_path("./nonexistent", "src/main.ts", &known);
+            let result = resolve_import_path("./nonexistent", "src/main.ts", &known);
             assert_eq!(result, None);
         }
 
@@ -2856,7 +2916,10 @@ function handlePost(req: any) { createUser(req.body); }
         fn test_workspace_exact_package_match() {
             let known = vec!["packages/shared/src/index.ts"];
             let mut ws = WorkspaceMap::new();
-            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            ws.insert(
+                "@mono/shared".to_string(),
+                "packages/shared/src/index.ts".to_string(),
+            );
             let result = resolve_workspace_import("@mono/shared", &known, &ws);
             assert_eq!(result, Some("packages/shared/src/index.ts".to_string()));
         }
@@ -2865,7 +2928,10 @@ function handlePost(req: any) { createUser(req.body); }
         fn test_workspace_package_not_in_known_files() {
             let known: Vec<&str> = vec!["src/app.ts"];
             let mut ws = WorkspaceMap::new();
-            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            ws.insert(
+                "@mono/shared".to_string(),
+                "packages/shared/src/index.ts".to_string(),
+            );
             let result = resolve_workspace_import("@mono/shared", &known, &ws);
             assert_eq!(result, None);
         }
@@ -2875,7 +2941,10 @@ function handlePost(req: any) { createUser(req.body); }
             // @mono/shared/utils → packages/shared/utils.ts
             let known = vec!["packages/shared/utils.ts"];
             let mut ws = WorkspaceMap::new();
-            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            ws.insert(
+                "@mono/shared".to_string(),
+                "packages/shared/src/index.ts".to_string(),
+            );
             let result = resolve_workspace_import("@mono/shared/utils", &known, &ws);
             assert_eq!(result, Some("packages/shared/utils.ts".to_string()));
         }
@@ -2884,7 +2953,10 @@ function handlePost(req: any) { createUser(req.body); }
         fn test_workspace_deep_import_with_extension() {
             let known = vec!["packages/shared/models/user.ts"];
             let mut ws = WorkspaceMap::new();
-            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            ws.insert(
+                "@mono/shared".to_string(),
+                "packages/shared/src/index.ts".to_string(),
+            );
             let result = resolve_workspace_import("@mono/shared/models/user", &known, &ws);
             assert_eq!(result, Some("packages/shared/models/user.ts".to_string()));
         }
@@ -2893,7 +2965,10 @@ function handlePost(req: any) { createUser(req.body); }
         fn test_workspace_relative_import_skipped() {
             let known = vec!["packages/shared/src/index.ts"];
             let mut ws = WorkspaceMap::new();
-            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            ws.insert(
+                "@mono/shared".to_string(),
+                "packages/shared/src/index.ts".to_string(),
+            );
             let result = resolve_workspace_import("./utils", &known, &ws);
             assert_eq!(result, None);
         }
@@ -2911,8 +2986,14 @@ function handlePost(req: any) { createUser(req.body); }
             // @mono/shared/sub should match @mono/shared, not @mono
             let known = vec!["packages/shared/sub.ts"];
             let mut ws = WorkspaceMap::new();
-            ws.insert("@mono".to_string(), "packages/mono/src/index.ts".to_string());
-            ws.insert("@mono/shared".to_string(), "packages/shared/src/index.ts".to_string());
+            ws.insert(
+                "@mono".to_string(),
+                "packages/mono/src/index.ts".to_string(),
+            );
+            ws.insert(
+                "@mono/shared".to_string(),
+                "packages/shared/src/index.ts".to_string(),
+            );
             let result = resolve_workspace_import("@mono/shared/sub", &known, &ws);
             assert_eq!(result, Some("packages/shared/sub.ts".to_string()));
         }
@@ -2924,7 +3005,10 @@ function handlePost(req: any) { createUser(req.body); }
             // Relative import should still work, even with workspace map.
             let known = vec!["src/utils.ts", "packages/utils/src/index.ts"];
             let mut ws = WorkspaceMap::new();
-            ws.insert("utils".to_string(), "packages/utils/src/index.ts".to_string());
+            ws.insert(
+                "utils".to_string(),
+                "packages/utils/src/index.ts".to_string(),
+            );
             let result = resolve_import_or_workspace("./utils", "src/handler.ts", &known, &ws);
             assert_eq!(result, Some("src/utils.ts".to_string()));
         }
@@ -2933,7 +3017,10 @@ function handlePost(req: any) { createUser(req.body); }
         fn test_resolve_or_workspace_falls_back_to_workspace() {
             let known = vec!["packages/types/src/index.ts"];
             let mut ws = WorkspaceMap::new();
-            ws.insert("@app/types".to_string(), "packages/types/src/index.ts".to_string());
+            ws.insert(
+                "@app/types".to_string(),
+                "packages/types/src/index.ts".to_string(),
+            );
             let result = resolve_import_or_workspace("@app/types", "src/handler.ts", &known, &ws);
             assert_eq!(result, Some("packages/types/src/index.ts".to_string()));
         }
@@ -2946,9 +3033,7 @@ function handlePost(req: any) { createUser(req.body); }
     mod ir_extends_tests {
         use super::*;
         use crate::ast::Language;
-        use crate::ir::{
-            IrFile, IrImport, IrImportSpecifier, IrTypeDef, Span, TypeDefKind,
-        };
+        use crate::ir::{IrFile, IrImport, IrImportSpecifier, IrTypeDef, Span, TypeDefKind};
 
         fn empty_span() -> Span {
             Span::new(1, 1)
@@ -3205,8 +3290,7 @@ function handlePost(req: any) { createUser(req.body); }
                 decorators: vec![],
             });
 
-            let graph =
-                SymbolGraph::build_from_ir(&[file_a, file_b, file_c]);
+            let graph = SymbolGraph::build_from_ir(&[file_a, file_b, file_c]);
 
             assert!(has_edge(
                 &graph,
@@ -3230,11 +3314,11 @@ function handlePost(req: any) { createUser(req.body); }
     mod ir_node_type_tests {
         use super::*;
         use crate::ast::Language;
-        use crate::ir::{
-            IrConstant, IrFile, IrFunctionDef, IrImport, IrImportSpecifier,
-            IrTypeDef, Span, TypeDefKind,
-        };
         use crate::ir::FunctionKind;
+        use crate::ir::{
+            IrConstant, IrFile, IrFunctionDef, IrImport, IrImportSpecifier, IrTypeDef, Span,
+            TypeDefKind,
+        };
 
         fn empty_span() -> Span {
             Span::new(1, 1)
@@ -3581,18 +3665,14 @@ function handlePost(req: any) { createUser(req.body); }
         fn test_unicode_file_path() {
             let file = make_empty_ir("src/日本語/コンポーネント.ts");
             let graph = SymbolGraph::build_from_ir(&[file]);
-            assert!(graph
-                .get_node("src/日本語/コンポーネント.ts")
-                .is_some());
-            let sym = graph
-                .get_symbol("src/日本語/コンポーネント.ts")
-                .unwrap();
+            assert!(graph.get_node("src/日本語/コンポーネント.ts").is_some());
+            let sym = graph.get_symbol("src/日本語/コンポーネント.ts").unwrap();
             assert_eq!(sym.name, "コンポーネント");
         }
 
         #[test]
         fn test_unicode_symbol_name() {
-            use crate::ir::{IrFunctionDef, FunctionKind};
+            use crate::ir::{FunctionKind, IrFunctionDef};
             let mut file = make_empty_ir("src/utils.ts");
             file.functions.push(IrFunctionDef {
                 name: "überprüfen".to_string(),
@@ -3632,7 +3712,7 @@ function handlePost(req: any) { createUser(req.body); }
 
         #[test]
         fn test_many_files_scale() {
-            use crate::ir::{IrFunctionDef, FunctionKind};
+            use crate::ir::{FunctionKind, IrFunctionDef};
             let files: Vec<IrFile> = (0..50)
                 .map(|i| {
                     let mut f = make_empty_ir(&format!("src/file_{}.ts", i));
@@ -3664,7 +3744,7 @@ function handlePost(req: any) { createUser(req.body); }
 
         #[test]
         fn test_node_ids_contains_all() {
-            use crate::ir::{IrFunctionDef, FunctionKind};
+            use crate::ir::{FunctionKind, IrFunctionDef};
             let mut file = make_empty_ir("src/lib.ts");
             file.functions.push(IrFunctionDef {
                 name: "alpha".to_string(),
@@ -3783,10 +3863,7 @@ function handlePost(req: any) { createUser(req.body); }
                     edge_type: et.clone(),
                 })
                 .collect();
-            let sg = SerializableGraph {
-                nodes,
-                edges,
-            };
+            let sg = SerializableGraph { nodes, edges };
 
             let json = serde_json::to_string(&sg).unwrap();
             let restored: SerializableGraph = serde_json::from_str(&json).unwrap();
@@ -3796,7 +3873,7 @@ function handlePost(req: any) { createUser(req.body); }
 
         #[test]
         fn test_same_name_different_directories() {
-            use crate::ir::{IrFunctionDef, FunctionKind};
+            use crate::ir::{FunctionKind, IrFunctionDef};
             let mut file_a = make_empty_ir("src/auth/utils.ts");
             file_a.functions.push(IrFunctionDef {
                 name: "validate".to_string(),
@@ -3885,8 +3962,7 @@ function doB() { log("b"); }
         use super::*;
         use crate::ast::Language;
         use crate::ir::{
-            FunctionKind, IrConstant, IrFile, IrFunctionDef, IrTypeDef, Span,
-            TypeDefKind,
+            FunctionKind, IrConstant, IrFile, IrFunctionDef, IrTypeDef, Span, TypeDefKind,
         };
         use proptest::prelude::*;
 
@@ -4168,9 +4244,7 @@ export function handleRequest(user: User) { return validateUser(user); }
             let edges_no_ws = graph_no_ws.edges();
             let cross_pkg_edges: Vec<_> = edges_no_ws
                 .iter()
-                .filter(|(f, t, _)| {
-                    f.contains("backend") && t.contains("shared-types")
-                })
+                .filter(|(f, t, _)| f.contains("backend") && t.contains("shared-types"))
                 .collect();
             assert!(
                 cross_pkg_edges.is_empty(),
@@ -4187,9 +4261,7 @@ export function handleRequest(user: User) { return validateUser(user); }
             let edges_ws = graph_ws.edges();
             let cross_pkg_edges: Vec<_> = edges_ws
                 .iter()
-                .filter(|(f, t, _)| {
-                    f.contains("backend") && t.contains("shared-types")
-                })
+                .filter(|(f, t, _)| f.contains("backend") && t.contains("shared-types"))
                 .collect();
             assert!(
                 cross_pkg_edges.len() >= 2,
@@ -4199,9 +4271,9 @@ export function handleRequest(user: User) { return validateUser(user); }
 
             // Verify specific edges.
             assert!(
-                cross_pkg_edges.iter().any(|(_, t, et)| {
-                    t.contains("validateUser") && **et == EdgeType::Imports
-                }),
+                cross_pkg_edges
+                    .iter()
+                    .any(|(_, t, et)| { t.contains("validateUser") && **et == EdgeType::Imports }),
                 "should have import edge to validateUser"
             );
         }
@@ -4250,13 +4322,10 @@ export function handle(name: string) { return formatName(name); }
 
         #[test]
         fn test_workspace_empty_map_same_as_build() {
-            let files = vec![(
-                "src/handler.ts",
-                r#"import { foo } from './utils'; foo();"#,
-            ), (
-                "src/utils.ts",
-                r#"export function foo() {}"#,
-            )];
+            let files = vec![
+                ("src/handler.ts", r#"import { foo } from './utils'; foo();"#),
+                ("src/utils.ts", r#"export function foo() {}"#),
+            ];
 
             let parsed: Vec<ast::ParsedFile> = files
                 .iter()

@@ -1,4 +1,10 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! Live LLM integration tests.
 //!
 //! These tests hit real LLM APIs and are gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`.
@@ -141,10 +147,7 @@ async fn test_live_openai_pass1() {
     );
 
     let response_ids: Vec<&str> = response.groups.iter().map(|g| g.id.as_str()).collect();
-    assert!(
-        response_ids.contains(&"group_1"),
-        "Should annotate group_1"
-    );
+    assert!(response_ids.contains(&"group_1"), "Should annotate group_1");
 
     eprintln!("OpenAI Pass 1 response: {:?}", response);
 }
@@ -486,8 +489,10 @@ async fn test_live_gemini_invalid_key() {
         return;
     }
 
-    let provider =
-        GeminiProvider::new("invalid-gemini-key".to_string(), "gemini-2.5-flash".to_string());
+    let provider = GeminiProvider::new(
+        "invalid-gemini-key".to_string(),
+        "gemini-2.5-flash".to_string(),
+    );
     let request = sample_pass1_request();
     let result = provider.annotate_overview(&request).await;
 

@@ -88,11 +88,7 @@ fn run_full_pipeline(rb: &RepoBuilder, base: &str, head: &str) -> AnalysisOutput
                 ),
                 centrality: 0.5,
                 surface_area: rank::compute_surface_area(total_add, total_del, 1000),
-                uncertainty: if risk_flags.has_test_only {
-                    0.1
-                } else {
-                    0.5
-                },
+                uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
             }
         })
         .collect();
@@ -106,7 +102,13 @@ fn run_full_pipeline(rb: &RepoBuilder, base: &str, head: &str) -> AnalysisOutput
         diff_result.head_sha.as_deref(),
     );
 
-    build_analysis_output(&diff_result, diff_source, &parsed_files, &cluster_result, &ranked)
+    build_analysis_output(
+        &diff_result,
+        diff_source,
+        &parsed_files,
+        &cluster_result,
+        &ranked,
+    )
 }
 
 /// Same as run_full_pipeline but using the IR pipeline path (QueryEngine + IrFile)
@@ -171,11 +173,7 @@ fn run_ir_pipeline(rb: &RepoBuilder, base: &str, head: &str) -> AnalysisOutput {
                 ),
                 centrality: 0.5,
                 surface_area: rank::compute_surface_area(total_add, total_del, 1000),
-                uncertainty: if risk_flags.has_test_only {
-                    0.1
-                } else {
-                    0.5
-                },
+                uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
             }
         })
         .collect();
@@ -199,7 +197,13 @@ fn run_ir_pipeline(rb: &RepoBuilder, base: &str, head: &str) -> AnalysisOutput {
         diff_result.head_sha.as_deref(),
     );
 
-    build_analysis_output(&diff_result, diff_source, &parsed_files, &cluster_result, &ranked)
+    build_analysis_output(
+        &diff_result,
+        diff_source,
+        &parsed_files,
+        &cluster_result,
+        &ranked,
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -508,10 +512,7 @@ fn adversarial_repo_with_symlinks() {
     rb.checkout("feature/symlinks");
 
     // Create a real file
-    rb.write_file(
-        "src/real.ts",
-        "export function real() { return 42; }\n",
-    );
+    rb.write_file("src/real.ts", "export function real() { return 42; }\n");
 
     // Create a symlink to it
     let target = rb.path().join("src/real.ts");
@@ -554,10 +555,7 @@ fn adversarial_monorepo_50_packages() {
         let pkg = format!("packages/pkg-{:02}", i);
         rb.write_file(
             &format!("{}/src/index.ts", pkg),
-            &format!(
-                "export function pkg{}() {{ return 'package {}'; }}\n",
-                i, i
-            ),
+            &format!("export function pkg{}() {{ return 'package {}'; }}\n", i, i),
         );
         rb.write_file(
             &format!("{}/src/utils.ts", pkg),
@@ -810,10 +808,7 @@ fn adversarial_single_very_large_file() {
             i, i
         ));
         if i < 100 {
-            source.push_str(&format!(
-                "app.get('/route_{}', handler_{});\n",
-                i, i
-            ));
+            source.push_str(&format!("app.get('/route_{}', handler_{});\n", i, i));
         }
     }
     rb.write_file("src/mega.ts", &source);
@@ -883,10 +878,7 @@ fn adversarial_ir_pipeline_monorepo_scale() {
     for i in 0..15 {
         rb.write_file(
             &format!("src/ts/mod_{}.ts", i),
-            &format!(
-                "export function ts_fn_{}() {{ return {}; }}\n",
-                i, i
-            ),
+            &format!("export function ts_fn_{}() {{ return {}; }}\n", i, i),
         );
         rb.write_file(
             &format!("src/py/mod_{}.py", i),
@@ -1131,11 +1123,11 @@ fn adversarial_empty_and_whitespace_files() {
 
     rb.write_file("src/empty.ts", "");
     rb.write_file("src/whitespace.ts", "   \n\n\t\t\n   \n");
-    rb.write_file("src/comments_only.ts", "// just comments\n/* block comment */\n");
     rb.write_file(
-        "src/real.ts",
-        "export function real() { return 42; }\n",
+        "src/comments_only.ts",
+        "// just comments\n/* block comment */\n",
     );
+    rb.write_file("src/real.ts", "export function real() { return 42; }\n");
     rb.commit("empty and whitespace files");
 
     let output = run_full_pipeline(&rb, "main", "feature/empty");
@@ -1240,10 +1232,7 @@ fn adversarial_determinism_across_runs() {
     for i in 0..20 {
         rb.write_file(
             &format!("src/mod_{}.ts", i),
-            &format!(
-                "export function fn_{}() {{ return {}; }}\n",
-                i, i
-            ),
+            &format!("export function fn_{}() {{ return {}; }}\n", i, i),
         );
     }
     // Add some imports to create graph edges
@@ -1507,10 +1496,7 @@ def health():
     );
 
     // Deeply nested
-    rb.write_file(
-        "deep/a/b/c/d/e/leaf.ts",
-        "export const DEEP = 42;\n",
-    );
+    rb.write_file("deep/a/b/c/d/e/leaf.ts", "export const DEEP = 42;\n");
 
     // Empty and whitespace files
     rb.write_file("src/empty.ts", "");
@@ -1576,10 +1562,7 @@ fn adversarial_barrel_file_explosion() {
     for i in 0..50 {
         rb.write_file(
             &format!("src/utils/util_{}.ts", i),
-            &format!(
-                "export function util_{}() {{ return {}; }}\n",
-                i, i
-            ),
+            &format!("export function util_{}() {{ return {}; }}\n", i, i),
         );
     }
 
@@ -1614,11 +1597,7 @@ router.get('/barrel', handler);
     assert_valid_scores(&output);
     // The barrel file should not distort grouping — all files should end up
     // in groups, not be silently dropped.
-    let total_in_groups: usize = output
-        .groups
-        .iter()
-        .map(|g| g.files.len())
-        .sum::<usize>()
+    let total_in_groups: usize = output.groups.iter().map(|g| g.files.len()).sum::<usize>()
         + output
             .infrastructure_group
             .as_ref()
@@ -1704,10 +1683,7 @@ fn adversarial_deeply_nested_transitive_deps() {
     for i in (0..depth).rev() {
         let content = if i == depth - 1 {
             // Leaf — no imports
-            format!(
-                "export function layer_{}() {{ return 'leaf'; }}\n",
-                i
-            )
+            format!("export function layer_{}() {{ return 'leaf'; }}\n", i)
         } else {
             // Imports the next layer
             format!(

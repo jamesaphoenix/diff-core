@@ -259,84 +259,6 @@ fn renumber_groups(mut groups: Vec<FlowGroup>) -> Vec<FlowGroup> {
     groups
 }
 
-fn semantic_fixture_root(path: &str) -> Option<&str> {
-    let lower = path.to_ascii_lowercase();
-    let (root_end, rest_start) = if let Some(idx) = lower.find("/fixtures/") {
-        (idx + "/fixtures".len(), idx + "/fixtures/".len())
-    } else if lower.starts_with("fixtures/") {
-        ("fixtures".len(), "fixtures/".len())
-    } else {
-        return None;
-    };
-
-    let rest = &path[rest_start..];
-    if let Some((segment, _)) = rest.split_once('/') {
-        if segment.is_empty() {
-            None
-        } else {
-            Some(&path[..rest_start + segment.len()])
-        }
-    } else if rest.is_empty() {
-        None
-    } else {
-        Some(&path[..root_end])
-    }
-}
-
-fn has_semantic_fixture_source_extension(path: &str) -> bool {
-    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-
-    matches!(
-        ext.as_str(),
-        "go" | "rs"
-            | "ts"
-            | "tsx"
-            | "js"
-            | "jsx"
-            | "py"
-            | "java"
-            | "kt"
-            | "rb"
-            | "php"
-            | "cs"
-            | "swift"
-            | "scala"
-            | "vue"
-            | "svelte"
-            | "astro"
-            | "c"
-            | "h"
-            | "cc"
-            | "cpp"
-            | "cxx"
-            | "hh"
-            | "hpp"
-    )
-}
-
-fn is_semantic_fixture_source_candidate(path: &str) -> bool {
-    semantic_fixture_root(path).is_some() && has_semantic_fixture_source_extension(path)
-}
-
-fn is_semantic_fixture_project_config_candidate(path: &str) -> bool {
-    let Some(_) = semantic_fixture_root(path) else {
-        return false;
-    };
-
-    let lower = path.to_ascii_lowercase();
-    let filename = lower.rsplit('/').next().unwrap_or(&lower);
-
-    matches!(
-        filename,
-        ".gitignore"
-            | "package.json"
-            | "package-lock.json"
-            | "pnpm-lock.yaml"
-            | "yarn.lock"
-            | "turbo.json"
-    ) || (filename.starts_with("tsconfig") && filename.ends_with(".json"))
-}
-
 /// Result of semantic clustering.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClusterResult {
@@ -388,22 +310,7 @@ fn cluster_files_internal(
         // Classify files directly: source files go to directory groups, infra stays.
         let mut true_infra = Vec::new();
         let mut source_files = Vec::new();
-        let semantic_fixture_roots: HashSet<String> = changed_set
-            .iter()
-            .filter(|file| is_semantic_fixture_source_candidate(file))
-            .filter_map(|file| semantic_fixture_root(file).map(str::to_string))
-            .collect();
-
         for file in &changed_set {
-            if is_semantic_fixture_source_candidate(file)
-                || (is_semantic_fixture_project_config_candidate(file)
-                    && semantic_fixture_root(file)
-                        .is_some_and(|root| semantic_fixture_roots.contains(root)))
-            {
-                source_files.push(file.clone());
-                continue;
-            }
-
             let category = classify_by_convention(file);
             if category == InfraCategory::Infrastructure {
                 // Hard infrastructure (CI, Docker, package managers, .changeset/) — always infra
@@ -427,6 +334,8 @@ fn cluster_files_internal(
                 source_files.push(file.clone());
             }
         }
+        let _rescued: Vec<(usize, String)> = Vec::new(); // unused but needed for type compatibility
+
         if source_files.is_empty() {
             // All files are truly infrastructure
             return ClusterResult {
@@ -443,15 +352,52 @@ fn cluster_files_internal(
             };
         }
 
-        // With no runtime entrypoints, fall back to graph-connected source components
-        // before simple directory bucketing. This preserves library/test clusters
-        // that share imports/calls but would otherwise collapse into one directory group.
-        let (mut groups, isolated_files) =
-            build_no_entrypoint_component_groups(graph, &source_files);
-        let directory_groups =
-            consolidate_small_groups(build_no_entrypoint_directory_groups(&isolated_files));
-        groups.extend(directory_groups);
-        groups = renumber_groups(groups);
+        // Create groups from source files by directory clustering
+        let mut dir_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for file in &source_files {
+            let dir = file
+                .rsplit_once('/')
+                .map(|(d, _)| d.to_string())
+                .unwrap_or_default();
+            dir_groups.entry(dir).or_default().push(file.clone());
+        }
+
+        let mut groups: Vec<FlowGroup> = dir_groups
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (dir, files))| {
+                let name = if dir.is_empty() {
+                    "root".to_string()
+                } else {
+                    dir.rsplit('/').next().unwrap_or(&dir).to_string()
+                };
+                FlowGroup {
+                    id: format!("group_{}", idx + 1),
+                    name: format!("{} (directory)", name),
+                    entrypoint: None,
+                    files: files
+                        .iter()
+                        .enumerate()
+                        .map(|(pos, path)| FileChange {
+                            path: path.clone(),
+                            flow_position: pos as u32,
+                            role: infer_file_role(path),
+                            changes: ChangeStats {
+                                additions: 0,
+                                deletions: 0,
+                            },
+                            symbols_changed: vec![],
+                        })
+                        .collect(),
+                    edges: vec![],
+                    risk_score: 0.0,
+                    review_order: 0,
+                }
+            })
+            .collect();
+
+        // Consolidate the directory groups
+        groups = consolidate_small_groups(groups);
 
         let infrastructure = if true_infra.is_empty() {
             None

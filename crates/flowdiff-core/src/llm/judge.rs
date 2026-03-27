@@ -90,11 +90,23 @@ fn collect_recursive(root: &Path, dir: &Path, files: &mut Vec<(String, String)>)
             collect_recursive(root, &path, files);
         } else if path.is_file() {
             // Skip binary-looking files
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
-            if matches!(ext, "png" | "jpg" | "jpeg" | "gif" | "ico" | "woff" | "woff2" | "ttf" | "eot" | "exe" | "dll" | "so" | "dylib") {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if matches!(
+                ext,
+                "png"
+                    | "jpg"
+                    | "jpeg"
+                    | "gif"
+                    | "ico"
+                    | "woff"
+                    | "woff2"
+                    | "ttf"
+                    | "eot"
+                    | "exe"
+                    | "dll"
+                    | "so"
+                    | "dylib"
+            ) {
                 continue;
             }
 
@@ -117,7 +129,11 @@ pub fn validate_judge_response(response: &JudgeResponse) -> Vec<String> {
     let mut errors = Vec::new();
 
     // Check all 5 criteria are present
-    let criteria_names: Vec<&str> = response.criteria.iter().map(|c| c.criterion.as_str()).collect();
+    let criteria_names: Vec<&str> = response
+        .criteria
+        .iter()
+        .map(|c| c.criterion.as_str())
+        .collect();
     for expected in JUDGE_CRITERIA {
         if !criteria_names.contains(expected) {
             errors.push(format!("Missing criterion: {}", expected));
@@ -144,8 +160,12 @@ pub fn validate_judge_response(response: &JudgeResponse) -> Vec<String> {
 
     // Check overall score is approximately the average of criteria scores
     if !response.criteria.is_empty() {
-        let expected_avg =
-            response.criteria.iter().map(|c| c.score as f64).sum::<f64>() / response.criteria.len() as f64;
+        let expected_avg = response
+            .criteria
+            .iter()
+            .map(|c| c.score as f64)
+            .sum::<f64>()
+            / response.criteria.len() as f64;
         if (response.overall_score - expected_avg).abs() > 0.5 {
             errors.push(format!(
                 "Overall score {:.1} differs significantly from criteria average {:.1}",
@@ -155,13 +175,11 @@ pub fn validate_judge_response(response: &JudgeResponse) -> Vec<String> {
     }
 
     // Check that low scores have failure explanations
-    let low_scores: Vec<&JudgeCriterionScore> = response
-        .criteria
-        .iter()
-        .filter(|c| c.score < 3)
-        .collect();
+    let low_scores: Vec<&JudgeCriterionScore> =
+        response.criteria.iter().filter(|c| c.score < 3).collect();
     if !low_scores.is_empty() && response.failure_explanations.is_empty() {
-        errors.push("Criteria with scores below 3 but no failure_explanations provided".to_string());
+        errors
+            .push("Criteria with scores below 3 but no failure_explanations provided".to_string());
     }
 
     errors
@@ -270,7 +288,13 @@ pub fn format_judge_report(fixture_name: &str, response: &JudgeResponse) -> Stri
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
     use crate::types::*;
@@ -342,7 +366,8 @@ mod tests {
         vec![
             (
                 "src/routes/users.ts".to_string(),
-                "import { createUser } from '../services/userService';\nexport function POST() {}".to_string(),
+                "import { createUser } from '../services/userService';\nexport function POST() {}"
+                    .to_string(),
             ),
             (
                 "src/services/userService.ts".to_string(),
@@ -357,8 +382,7 @@ mod tests {
     fn test_build_judge_request() {
         let output = sample_output();
         let files = sample_source_files();
-        let request =
-            build_judge_request(&output, &files, "+ new line", "TS Express API").unwrap();
+        let request = build_judge_request(&output, &files, "+ new line", "TS Express API").unwrap();
 
         assert_eq!(request.fixture_name, "TS Express API");
         assert_eq!(request.source_files.len(), 2);
@@ -460,9 +484,7 @@ mod tests {
             strengths: vec![],
         };
         let errors = validate_judge_response(&response);
-        assert!(errors
-            .iter()
-            .any(|e| e.contains("failure_explanations")));
+        assert!(errors.iter().any(|e| e.contains("failure_explanations")));
     }
 
     #[test]

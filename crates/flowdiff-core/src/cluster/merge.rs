@@ -104,7 +104,8 @@ fn merge_at_depth(groups: Vec<FlowGroup>, depth: usize) -> Vec<FlowGroup> {
                         .map(|(dir, _)| dir.to_string())
                         .unwrap_or_else(|| ep.file.clone())
                 } else if let Some(first) = groups[idx].files.first() {
-                    first.path
+                    first
+                        .path
                         .rsplit_once('/')
                         .map(|(dir, _)| dir.to_string())
                         .unwrap_or_else(|| first.path.clone())

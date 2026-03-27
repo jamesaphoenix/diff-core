@@ -1,4 +1,10 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! LLM-as-judge integration tests.
 //!
 //! Tests the judge evaluator against synthetic fixture codebases.
@@ -95,10 +101,7 @@ fn build_express_fixture_and_analyze() -> (TempDir, AnalysisOutput, String) {
     let rb = RepoBuilder::new();
 
     // Base commit
-    rb.write_file(
-        "package.json",
-        r#"{"name":"test","version":"1.0.0"}"#,
-    );
+    rb.write_file("package.json", r#"{"name":"test","version":"1.0.0"}"#);
     rb.write_file(
         "src/app.ts",
         "import express from 'express';\nconst app = express();\nexport default app;",
@@ -269,11 +272,7 @@ async fn test_vcr_judge_record_replay() {
     // Replay with different mock
     let call_count2 = Arc::new(AtomicUsize::new(0));
     let mock2 = MockJudgeProvider::new(call_count2.clone());
-    let vcr2 = VcrProvider::new(
-        Box::new(mock2),
-        tmp.path().to_path_buf(),
-        VcrMode::Replay,
-    );
+    let vcr2 = VcrProvider::new(Box::new(mock2), tmp.path().to_path_buf(), VcrMode::Replay);
     let replayed = vcr2.evaluate_quality(&request).await.unwrap();
     assert_eq!(replayed.overall_score, 4.0);
     assert_eq!(
@@ -321,7 +320,9 @@ fn test_fixture_source_file_collection() {
         files.len()
     );
     assert!(files.iter().any(|(p, _)| p.contains("routes/users")));
-    assert!(files.iter().any(|(p, _)| p.contains("services/userService")));
+    assert!(files
+        .iter()
+        .any(|(p, _)| p.contains("services/userService")));
     assert!(files
         .iter()
         .any(|(p, _)| p.contains("repositories/userRepo")));
@@ -379,7 +380,10 @@ async fn test_live_anthropic_judge() {
     let response = provider.evaluate_quality(&request).await.unwrap();
 
     eprintln!("\n=== Live Anthropic Judge Response ===");
-    eprintln!("{}", flowdiff_core::llm::judge::format_judge_report("TS Express API", &response));
+    eprintln!(
+        "{}",
+        flowdiff_core::llm::judge::format_judge_report("TS Express API", &response)
+    );
 
     // Validate response structure
     let errors = validate_judge_response(&response);
@@ -438,14 +442,12 @@ async fn test_live_anthropic_judge_with_vcr() {
         "VCR should have cached at least one entry"
     );
     assert!(
-        entries
-            .iter()
-            .any(|p| p
-                .file_name()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .starts_with("judge_")),
+        entries.iter().any(|p| p
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("judge_")),
         "Should have a judge cache entry"
     );
 }

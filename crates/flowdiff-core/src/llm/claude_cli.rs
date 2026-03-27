@@ -3,8 +3,8 @@ use std::process::{Command as StdCommand, Stdio};
 
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
-use tokio::process::Command;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 
 use super::schema;
@@ -122,11 +122,15 @@ impl ClaudeCliProvider {
 
         let stdout = stdout_task
             .await
-            .map_err(|e| LlmError::CommandFailed(format!("Failed to join claude stdout task: {}", e)))?
+            .map_err(|e| {
+                LlmError::CommandFailed(format!("Failed to join claude stdout task: {}", e))
+            })?
             .map_err(|e| LlmError::CommandFailed(format!("Failed to read claude stdout: {}", e)))?;
         let stderr = stderr_task
             .await
-            .map_err(|e| LlmError::CommandFailed(format!("Failed to join claude stderr task: {}", e)))?
+            .map_err(|e| {
+                LlmError::CommandFailed(format!("Failed to join claude stderr task: {}", e))
+            })?
             .map_err(|e| LlmError::CommandFailed(format!("Failed to read claude stderr: {}", e)))?;
 
         if !status.success() {

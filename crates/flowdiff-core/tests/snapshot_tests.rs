@@ -476,13 +476,31 @@ fn snapshot_infrastructure_heavy() {
     rb.checkout("chore/infra-update");
 
     rb.write_file("Dockerfile", "FROM node:20-slim\nWORKDIR /app\nCOPY . .\nRUN npm install\nCMD [\"node\", \"index.js\"]\n");
-    rb.write_file("docker-compose.yml", "version: '3'\nservices:\n  app:\n    build: .\n    ports:\n      - '3000:3000'\n");
-    rb.write_file(".env.dev", "DATABASE_URL=postgres://localhost/dev\nREDIS_URL=redis://localhost\n");
-    rb.write_file("tsconfig.json", r#"{"compilerOptions": {"target": "es2020", "module": "commonjs"}}"#);
+    rb.write_file(
+        "docker-compose.yml",
+        "version: '3'\nservices:\n  app:\n    build: .\n    ports:\n      - '3000:3000'\n",
+    );
+    rb.write_file(
+        ".env.dev",
+        "DATABASE_URL=postgres://localhost/dev\nREDIS_URL=redis://localhost\n",
+    );
+    rb.write_file(
+        "tsconfig.json",
+        r#"{"compilerOptions": {"target": "es2020", "module": "commonjs"}}"#,
+    );
     rb.write_file(".github/workflows/ci.yml", "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n");
-    rb.write_file("scripts/deploy.sh", "#!/bin/bash\nnpm run build\nnpm run deploy\n");
-    rb.write_file("docs/setup.md", "# Setup\n\nInstall dependencies with `npm install`.\n");
-    rb.write_file("migrations/001_init.sql", "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);\n");
+    rb.write_file(
+        "scripts/deploy.sh",
+        "#!/bin/bash\nnpm run build\nnpm run deploy\n",
+    );
+    rb.write_file(
+        "docs/setup.md",
+        "# Setup\n\nInstall dependencies with `npm install`.\n",
+    );
+    rb.write_file(
+        "migrations/001_init.sql",
+        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);\n",
+    );
     rb.commit("Update infrastructure and config");
 
     let output = run_pipeline(rb.path(), "main", "chore/infra-update");

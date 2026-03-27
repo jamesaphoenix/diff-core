@@ -31,10 +31,7 @@ fn create_test_repo_with_config(ignore_paths: &[&str]) -> (tempfile::TempDir, St
     let (tmp, path) = create_test_repo();
 
     let paths_toml: Vec<String> = ignore_paths.iter().map(|p| format!("\"{}\"", p)).collect();
-    let config = format!(
-        "[ignore]\npaths = [{}]\n",
-        paths_toml.join(", ")
-    );
+    let config = format!("[ignore]\npaths = [{}]\n", paths_toml.join(", "));
     std::fs::write(tmp.path().join(".flowdiff.toml"), config).unwrap();
 
     (tmp, path)
@@ -76,7 +73,10 @@ fn get_returns_configured_paths() {
 #[test]
 fn get_with_none_repo_path_returns_defaults() {
     let paths = get_ignore_paths(None).unwrap();
-    assert!(paths.is_empty(), "No repo path should return default empty config");
+    assert!(
+        paths.is_empty(),
+        "No repo path should return default empty config"
+    );
 }
 
 // ── save_ignore_paths ────────────────────────────────────────────────
@@ -88,11 +88,7 @@ fn save_creates_config_file() {
     let config_path = PathBuf::from(&repo_path).join(".flowdiff.toml");
     assert!(!config_path.exists(), "Config should not exist before save");
 
-    save_ignore_paths(
-        repo_path,
-        vec!["build/**".to_string()],
-    )
-    .unwrap();
+    save_ignore_paths(repo_path, vec!["build/**".to_string()]).unwrap();
 
     assert!(config_path.exists(), "Config should be created after save");
 }
@@ -115,8 +111,7 @@ fn save_and_load_roundtrip() {
 
 #[test]
 fn save_overwrites_existing_paths() {
-    let (_tmp, repo_path) =
-        create_test_repo_with_config(&["old_pattern/**"]);
+    let (_tmp, repo_path) = create_test_repo_with_config(&["old_pattern/**"]);
 
     // Verify old pattern is present
     let paths = get_ignore_paths(Some(repo_path.clone())).unwrap();
@@ -135,8 +130,7 @@ fn save_overwrites_existing_paths() {
 
 #[test]
 fn save_empty_list_clears_paths() {
-    let (_tmp, repo_path) =
-        create_test_repo_with_config(&["dist/**", "build/**"]);
+    let (_tmp, repo_path) = create_test_repo_with_config(&["dist/**", "build/**"]);
 
     // Clear all paths
     save_ignore_paths(repo_path.clone(), vec![]).unwrap();
@@ -158,11 +152,7 @@ fn save_preserves_other_config_sections() {
     .unwrap();
 
     // Save new ignore paths
-    save_ignore_paths(
-        repo_path.clone(),
-        vec!["new/**".to_string()],
-    )
-    .unwrap();
+    save_ignore_paths(repo_path.clone(), vec!["new/**".to_string()]).unwrap();
 
     // Verify LLM section is preserved
     let content = std::fs::read_to_string(&config_path).unwrap();
@@ -209,10 +199,10 @@ fn save_and_load_various_glob_patterns() {
     let patterns = vec![
         "dist/**".to_string(),           // directory glob
         "**/*.generated.ts".to_string(), // extension glob with double star
-        "*.lock".to_string(),             // root-level wildcard
+        "*.lock".to_string(),            // root-level wildcard
         "migrations/**".to_string(),     // specific directory
         "src/**/*.test.ts".to_string(),  // nested with extension
-        ".env*".to_string(),              // dotfile pattern
+        ".env*".to_string(),             // dotfile pattern
     ];
 
     save_ignore_paths(repo_path.clone(), patterns.clone()).unwrap();
@@ -226,10 +216,7 @@ fn save_duplicate_patterns_preserved() {
     let (_tmp, repo_path) = create_test_repo();
 
     // The command doesn't deduplicate — that's the UI's job
-    let patterns = vec![
-        "dist/**".to_string(),
-        "dist/**".to_string(),
-    ];
+    let patterns = vec!["dist/**".to_string(), "dist/**".to_string()];
 
     save_ignore_paths(repo_path.clone(), patterns.clone()).unwrap();
     let loaded = get_ignore_paths(Some(repo_path)).unwrap();
@@ -249,7 +236,11 @@ fn multiple_saves_each_replace_previous() {
         vec!["a/**"]
     );
 
-    save_ignore_paths(repo_path.clone(), vec!["b/**".to_string(), "c/**".to_string()]).unwrap();
+    save_ignore_paths(
+        repo_path.clone(),
+        vec!["b/**".to_string(), "c/**".to_string()],
+    )
+    .unwrap();
     assert_eq!(
         get_ignore_paths(Some(repo_path.clone())).unwrap(),
         vec!["b/**", "c/**"]

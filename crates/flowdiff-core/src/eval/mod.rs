@@ -127,7 +127,10 @@ pub fn run_eval(config: &EvalConfig) -> EvalResult {
     let avg_overall = if fixture_results.is_empty() {
         0.0
     } else {
-        fixture_results.iter().map(|(_, _, s)| s.overall).sum::<f64>()
+        fixture_results
+            .iter()
+            .map(|(_, _, s)| s.overall)
+            .sum::<f64>()
             / fixture_results.len() as f64
     };
 
@@ -162,9 +165,8 @@ pub fn run_eval(config: &EvalConfig) -> EvalResult {
     // Check for regression
     let regression_warning = if let Some(ref history_path) = config.history_file {
         // Check regression before appending new entry
-        let warning = check_regression(history_path, avg_overall, 0.05).map(|(prev, delta)| {
-            format_regression_warning(prev, avg_overall, delta)
-        });
+        let warning = check_regression(history_path, avg_overall, 0.05)
+            .map(|(prev, delta)| format_regression_warning(prev, avg_overall, delta));
 
         // Append to history
         if let Err(e) = append_history(
@@ -292,8 +294,14 @@ mod tests {
                 overall: 1.0,
             },
         )];
-        report::append_history(&history_path, &fake_results, 1.0, true, "2026-03-18T12:00:00Z")
-            .unwrap();
+        report::append_history(
+            &history_path,
+            &fake_results,
+            1.0,
+            true,
+            "2026-03-18T12:00:00Z",
+        )
+        .unwrap();
 
         // Run eval — score will be lower than 1.0, triggering regression
         let config = EvalConfig {
@@ -304,7 +312,11 @@ mod tests {
         let result = run_eval(&config);
         // Regression should be detected since real score < 1.0
         assert!(result.regression_warning.is_some());
-        assert!(result.regression_warning.as_ref().unwrap().contains("REGRESSION"));
+        assert!(result
+            .regression_warning
+            .as_ref()
+            .unwrap()
+            .contains("REGRESSION"));
     }
 
     #[test]

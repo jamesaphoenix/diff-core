@@ -269,10 +269,7 @@ pub struct IrImport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IrImportSpecifier {
     /// Named import: `import { foo } from ...` or `import { foo as bar } from ...`
-    Named {
-        name: String,
-        alias: Option<String>,
-    },
+    Named { name: String, alias: Option<String> },
     /// Default import: `import Foo from ...`
     Default(String),
     /// Namespace import: `import * as ns from ...`
@@ -444,7 +441,15 @@ impl IrFile {
         let type_defs = parsed
             .definitions
             .iter()
-            .filter(|d| matches!(d.kind, SymbolKind::Class | SymbolKind::Interface | SymbolKind::TypeAlias | SymbolKind::Struct))
+            .filter(|d| {
+                matches!(
+                    d.kind,
+                    SymbolKind::Class
+                        | SymbolKind::Interface
+                        | SymbolKind::TypeAlias
+                        | SymbolKind::Struct
+                )
+            })
             .map(|d| IrTypeDef {
                 name: d.name.clone(),
                 kind: match d.kind {
@@ -747,7 +752,13 @@ fn revert_export(ir: &IrExport) -> ExportInfo {
 // ===========================================================================
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
     use crate::ast::{Definition, ImportedName};
@@ -1569,7 +1580,11 @@ mod tests {
         let ir = IrFile::from_parsed_file(&original);
         let roundtripped = ir.to_parsed_file();
         assert_eq!(roundtripped.call_sites.len(), original.call_sites.len());
-        for (orig, rt) in original.call_sites.iter().zip(roundtripped.call_sites.iter()) {
+        for (orig, rt) in original
+            .call_sites
+            .iter()
+            .zip(roundtripped.call_sites.iter())
+        {
             assert_eq!(rt.callee, orig.callee);
             assert_eq!(rt.line, orig.line);
             assert_eq!(rt.containing_function, orig.containing_function);
@@ -1732,7 +1747,10 @@ mod tests {
         for expr in &exprs {
             let json = serde_json::to_string(expr).expect("serialize");
             let deserialized: IrExpression = serde_json::from_str(&json).expect("deserialize");
-            assert_eq!(expr, &deserialized, "expression roundtrip failed for {expr:?}");
+            assert_eq!(
+                expr, &deserialized,
+                "expression roundtrip failed for {expr:?}"
+            );
         }
     }
 
@@ -2142,7 +2160,13 @@ mod tests {
 // ===========================================================================
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod proptests {
     use super::*;
     use proptest::prelude::*;
@@ -2167,29 +2191,32 @@ mod proptests {
                     // Object destructure
                     (
                         prop::collection::vec(
-                            (identifier_strategy(), inner.clone(), proptest::option::of(identifier_strategy())).prop_map(
-                                |(key, value, default_value)| DestructureProperty {
-                                    key,
-                                    value,
-                                    default_value,
-                                }
-                            ),
+                            (
+                                identifier_strategy(),
+                                inner.clone(),
+                                proptest::option::of(identifier_strategy())
+                            )
+                                .prop_map(
+                                    |(key, value, default_value)| DestructureProperty {
+                                        key,
+                                        value,
+                                        default_value,
+                                    }
+                                ),
                             0..=3,
                         ),
                         proptest::option::of(identifier_strategy()),
                     )
-                        .prop_map(|(properties, rest)| IrPattern::ObjectDestructure {
-                            properties,
-                            rest,
+                        .prop_map(|(properties, rest)| {
+                            IrPattern::ObjectDestructure { properties, rest }
                         }),
                     // Array destructure
                     (
                         prop::collection::vec(proptest::option::of(inner.clone()), 0..=3),
                         proptest::option::of(identifier_strategy()),
                     )
-                        .prop_map(|(elements, rest)| IrPattern::ArrayDestructure {
-                            elements,
-                            rest,
+                        .prop_map(|(elements, rest)| {
+                            IrPattern::ArrayDestructure { elements, rest }
                         }),
                     // Tuple destructure
                     prop::collection::vec(inner, 1..=3)

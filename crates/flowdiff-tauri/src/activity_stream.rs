@@ -206,10 +206,7 @@ impl JobHandle {
 }
 
 pub fn spawn_sse_server(manager: Arc<ActivityManager>) -> Result<String, std::io::Error> {
-    let listener = StdTcpListener::bind(SocketAddr::V4(SocketAddrV4::new(
-        Ipv4Addr::LOCALHOST,
-        0,
-    )))?;
+    let listener = StdTcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)))?;
     listener.set_nonblocking(true)?;
     let address = listener.local_addr()?;
 

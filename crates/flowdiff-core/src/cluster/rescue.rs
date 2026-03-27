@@ -5,11 +5,8 @@ use std::collections::{BTreeMap, HashMap};
 use crate::types::FlowGroup;
 
 use super::classify::{classify_by_convention, is_config_like_filename, is_top_level_doc};
+use super::has_semantic_source_extension;
 use super::stem::{bare_stem, is_test_file_name, test_impl_stem};
-use super::{
-    has_semantic_source_extension, is_semantic_fixture_project_config_candidate,
-    is_semantic_fixture_source_candidate, semantic_fixture_root,
-};
 use crate::types::InfraCategory;
 
 /// Separate truly infrastructure files from source files that just couldn't be reached
@@ -20,60 +17,18 @@ pub(super) fn rescue_non_infra_files(
 ) -> (Vec<String>, Vec<(usize, String)>) {
     let mut true_infra = Vec::new();
     let mut rescued: Vec<(usize, String)> = Vec::new();
-    let mut fixture_group_assignments: HashMap<String, usize> = HashMap::new();
     let root_docs_batch_count = infra_files
         .iter()
         .filter(|file| is_root_nonlocalized_docs_page(file))
         .count();
 
     for file in infra_files {
-        if !is_semantic_fixture_source_candidate(file) {
-            continue;
-        }
-
-        let target_group = semantic_fixture_root(file)
-            .and_then(|root| fixture_group_assignments.get(root).copied())
-            .or_else(|| find_group_by_fixture_root(file, groups))
-            .or_else(|| find_nearest_group_by_directory(file, groups))
-            .or_else(|| {
-                groups
-                    .iter()
-                    .enumerate()
-                    .max_by_key(|(_, g)| g.files.len())
-                    .map(|(idx, _)| idx)
-            });
-
-        if let Some(group_idx) = target_group {
-            rescued.push((group_idx, file.clone()));
-            if let Some(root) = semantic_fixture_root(file) {
-                fixture_group_assignments.insert(root.to_string(), group_idx);
-            }
-        } else {
-            true_infra.push(file.clone());
-        }
-    }
-
-    for file in infra_files {
-        if is_semantic_fixture_source_candidate(file) {
-            continue;
-        }
-
-        if is_semantic_fixture_project_config_candidate(file) {
-            if let Some(group_idx) = semantic_fixture_root(file)
-                .and_then(|root| fixture_group_assignments.get(root).copied())
-                .or_else(|| find_group_by_fixture_root(file, groups))
-            {
-                rescued.push((group_idx, file.clone()));
-                continue;
-            }
-        }
-
         let category = classify_by_convention(file);
         if category == InfraCategory::Documentation {
-            if let Some(group_idx) = find_group_by_topic_affinity(file, groups) {
-                rescued.push((group_idx, file.clone()));
-            } else if !is_semantic_doc_candidate(file, root_docs_batch_count) {
+            if !is_semantic_doc_candidate(file, root_docs_batch_count) {
                 true_infra.push(file.clone());
+            } else if let Some(group_idx) = find_group_by_topic_affinity(file, groups) {
+                rescued.push((group_idx, file.clone()));
             } else if is_semantic_doc_fallback_candidate(file, root_docs_batch_count) {
                 if let Some(largest_idx) = groups
                     .iter()
@@ -91,15 +46,6 @@ pub(super) fn rescue_non_infra_files(
             continue;
         }
 
-        if matches!(category, InfraCategory::Schema | InfraCategory::Generated) {
-            if let Some(group_idx) = find_group_by_topic_affinity(file, groups) {
-                rescued.push((group_idx, file.clone()));
-            } else {
-                true_infra.push(file.clone());
-            }
-            continue;
-        }
-
         // Only rescue files that are Unclassified (source code) or DirectoryGroup
         // Everything else (Infrastructure, Schema, Migration, etc.) stays in infra
         if category != InfraCategory::Unclassified && category != InfraCategory::DirectoryGroup {
@@ -109,9 +55,7 @@ pub(super) fn rescue_non_infra_files(
             true_infra.push(file.clone());
         } else {
             // This looks like source code — assign to nearest group by directory
-            match find_nearest_group_by_directory(file, groups)
-                .or_else(|| find_group_by_topic_affinity(file, groups))
-            {
+            match find_nearest_group_by_directory(file, groups) {
                 Some(group_idx) => rescued.push((group_idx, file.clone())),
                 None => {
                     // No directory match. Only use fallback (largest group) for files
@@ -136,47 +80,6 @@ pub(super) fn rescue_non_infra_files(
     }
 
     (true_infra, rescued)
-}
-
-fn find_group_by_fixture_root(file: &str, groups: &[FlowGroup]) -> Option<usize> {
-    let root = semantic_fixture_root(file)?;
-    let mut best: Option<(usize, usize)> = None;
-    let mut tied = false;
-
-    for (idx, group) in groups.iter().enumerate() {
-        let same_root_source_count = group
-            .files
-            .iter()
-            .filter(|group_file| {
-                semantic_fixture_root(&group_file.path) == Some(root)
-                    && is_semantic_fixture_source_candidate(&group_file.path)
-            })
-            .count();
-
-        if same_root_source_count == 0 {
-            continue;
-        }
-
-        match best {
-            None => {
-                best = Some((idx, same_root_source_count));
-                tied = false;
-            }
-            Some((_, best_count)) if same_root_source_count > best_count => {
-                best = Some((idx, same_root_source_count));
-                tied = false;
-            }
-            Some((_, best_count)) if same_root_source_count == best_count => {
-                tied = true;
-            }
-            _ => {}
-        }
-    }
-
-    match best {
-        Some((idx, _)) if !tied => Some(idx),
-        _ => None,
-    }
 }
 
 fn is_semantic_doc_candidate(path: &str, root_docs_batch_count: usize) -> bool {
@@ -213,6 +116,8 @@ fn is_semantic_doc_fallback_candidate(path: &str, root_docs_batch_count: usize) 
         || lower.contains("/content/docs/")
         || lower.starts_with("site/content/")
         || lower.contains("/site/content/")
+        || lower.starts_with("docs/tutorial/")
+        || lower.starts_with("docs/advanced/")
         || (is_root_nonlocalized_docs_page(path) && root_docs_batch_count >= 3)
 }
 
@@ -223,6 +128,13 @@ fn is_root_nonlocalized_docs_page(path: &str) -> bool {
         || !lower.starts_with("docs/")
         || lower.contains("/docs/")
     {
+        return false;
+    }
+
+    let Some(rest) = lower.strip_prefix("docs/") else {
+        return false;
+    };
+    if rest.contains('/') {
         return false;
     }
 
@@ -446,52 +358,20 @@ mod tests {
     }
 
     #[test]
-    fn rescue_non_infra_files_keeps_fixture_project_configs_with_semantic_fixture_sources() {
-        let groups = vec![group_with_file(
-            "packages/integrations/svelte/test/extract-generics.test.js",
-        )];
-        let infra_files = vec![
-            "packages/integrations/svelte/test/fixtures/prop-types/types/generics/pass.astro"
-                .to_string(),
-            "packages/integrations/svelte/test/fixtures/prop-types/tsconfig.generics-pass.json"
-                .to_string(),
-        ];
-
-        let (true_infra, rescued) = rescue_non_infra_files(&infra_files, &groups);
-
-        assert!(true_infra.is_empty());
-        assert_eq!(
-            rescued,
-            vec![
-                (
-                    0,
-                    "packages/integrations/svelte/test/fixtures/prop-types/types/generics/pass.astro"
-                        .to_string()
-                ),
-                (
-                    0,
-                    "packages/integrations/svelte/test/fixtures/prop-types/tsconfig.generics-pass.json"
-                        .to_string()
-                )
-            ]
-        );
+    fn nested_docs_trees_are_not_treated_as_root_docs_pages() {
+        assert!(!is_root_nonlocalized_docs_page("docs/user/advanced.rst"));
+        assert!(!is_root_nonlocalized_docs_page("docs/features/caching.md"));
+        assert!(is_root_nonlocalized_docs_page("docs/quickstart.md"));
     }
 
     #[test]
-    fn rescue_non_infra_files_leaves_non_project_fixture_assets_in_infra() {
-        let groups = vec![group_with_file(
-            "tests/fixtures/PackageSmoke/BlazorConsumer/Program.cs",
-        )];
-        let infra_files =
-            vec!["tests/fixtures/PackageSmoke/BlazorConsumer/Consumer.csproj.template".to_string()];
-
-        let (true_infra, rescued) = rescue_non_infra_files(&infra_files, &groups);
-
-        assert!(rescued.is_empty());
-        assert_eq!(
-            true_infra,
-            vec!["tests/fixtures/PackageSmoke/BlazorConsumer/Consumer.csproj.template".to_string()]
-        );
+    fn tutorial_and_advanced_docs_keep_semantic_fallback() {
+        assert!(is_semantic_doc_fallback_candidate("docs/tutorial/where.md", 0));
+        assert!(is_semantic_doc_fallback_candidate("docs/advanced/ssl.md", 0));
+        assert!(!is_semantic_doc_fallback_candidate(
+            "docs/user/advanced.rst",
+            3
+        ));
     }
 
     #[test]

@@ -12,12 +12,33 @@ pub fn classify_by_convention(path: &str) -> InfraCategory {
     let filename = lower.rsplit('/').next().unwrap_or(&lower);
     let ext = filename.rsplit('.').next().unwrap_or("");
 
+    // Spring-style app config and bundled seed/schema resources are infra.
+    if filename == "application.properties" {
+        return InfraCategory::Infrastructure;
+    }
+    if filename.ends_with(".sql")
+        && (lower.contains("/resources/db/") || lower.starts_with("db/"))
+    {
+        return InfraCategory::Migration;
+    }
+
     // Schemas/Types — but NOT source code files in /types/ directories
     // (Go, Rust, TS packages named "types" contain core application types, not infra)
     let is_source_ext = matches!(
         ext,
-        "go" | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "java" | "kt" | "rb" | "php"
-            | "cs" | "swift" | "scala"
+        "go" | "rs"
+            | "ts"
+            | "tsx"
+            | "js"
+            | "jsx"
+            | "py"
+            | "java"
+            | "kt"
+            | "rb"
+            | "php"
+            | "cs"
+            | "swift"
+            | "scala"
     );
     if (lower.contains("/schemas/")
         || lower.starts_with("schemas/")
@@ -140,7 +161,10 @@ pub(super) fn is_true_infrastructure(path: &str) -> bool {
     }
 
     // Docker
-    if filename.starts_with("dockerfile") || filename.starts_with("docker-compose") || filename == ".dockerignore" {
+    if filename.starts_with("dockerfile")
+        || filename.starts_with("docker-compose")
+        || filename == ".dockerignore"
+    {
         return true;
     }
 
@@ -249,7 +273,10 @@ pub(super) fn is_true_infrastructure(path: &str) -> bool {
     }
 
     // Git configs
-    if matches!(filename, ".gitignore" | ".gitattributes" | ".gitmodules") {
+    if matches!(
+        filename,
+        ".gitignore" | ".gitattributes" | ".gitmodules" | "codeowners"
+    ) {
         return true;
     }
 
@@ -281,13 +308,23 @@ pub(super) fn is_config_like_filename(path: &str) -> bool {
     }
 
     // PHP config tools (rector, phpstan, phpunit)
-    if matches!(filename, "rector.php" | "phpstan.neon" | "phpunit.xml" | "phpunit.xml.dist") {
+    if matches!(
+        filename,
+        "rector.php" | "phpstan.neon" | "phpunit.xml" | "phpunit.xml.dist"
+    ) {
         return true;
     }
 
     // Version constant files (auto-bumped, not feature code)
-    if matches!(filename, "version.go" | "version.ts" | "version.js" | "version.py" | "version.rb")
-        || filename == "version_current.go"
+    if matches!(
+        filename,
+        "version.go"
+            | "version.ts"
+            | "version.js"
+            | "version.py"
+            | "version.rb"
+            | "__version__.py"
+    ) || filename == "version_current.go"
     {
         return true;
     }
@@ -377,29 +414,61 @@ pub(super) fn is_config_like_filename(path: &str) -> bool {
     false
 }
 
-/// Check if a file is a top-level documentation file that should stay in infrastructure.
-/// Files like README.md, CHANGELOG.md at the root are infra. Nested docs/content/*.md are features.
+/// Check if a documentation file should stay in infrastructure.
+/// Files like README.md and CHANGELOG.md at the root are infra, as are direct
+/// landing pages in nested docs sections such as `docs/user/*.rst`.
 pub(super) fn is_top_level_doc(path: &str) -> bool {
     let lower = path.to_lowercase();
     let filename = lower.rsplit('/').next().unwrap_or(&lower);
     let depth = path.matches('/').count();
 
+    // Direct docs section landing pages are usually navigational/release docs,
+    // not semantic code-adjacent documentation bundles.
+    if matches!(lower.as_str(), "docs/api.md" | "docs/api.mdx" | "docs/api.rst" | "docs/api.txt")
+        || is_nested_docs_section_landing_page(&lower, "docs/user/")
+        || is_nested_docs_section_landing_page(&lower, "docs/community/")
+    {
+        return true;
+    }
+
     // Root-level docs
-    if depth == 0 && matches!(
-        filename,
-        "readme.md" | "changelog.md" | "contributing.md" | "license.md"
-            | "security.md" | "authors.md" | "code_of_conduct.md"
-            | "changes.rst" | "history.md" | "releases.md"
-    ) {
+    if depth == 0
+        && matches!(
+            filename,
+            "readme.md"
+                | "changelog.md"
+                | "changelog.rst"
+                | "contributing.md"
+                | "license.md"
+                | "security.md"
+                | "authors.md"
+                | "code_of_conduct.md"
+                | "changes.rst"
+                | "history.md"
+                | "releases.md"
+        )
+    {
         return true;
     }
 
     // CHANGELOG/README at any depth
-    if filename == "readme.md" || filename == "changelog.md" {
+    if matches!(filename, "readme.md" | "changelog.md" | "changelog.rst") {
         return true;
     }
 
     false
+}
+
+fn is_nested_docs_section_landing_page(lower: &str, prefix: &str) -> bool {
+    let Some(rest) = lower.strip_prefix(prefix) else {
+        return false;
+    };
+
+    !rest.contains('/')
+        && matches!(
+            rest.rsplit('.').next().unwrap_or(""),
+            "md" | "mdx" | "rst" | "txt"
+        )
 }
 
 /// Infer a file's role from its path using heuristic patterns.

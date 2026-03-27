@@ -47,8 +47,7 @@ use helpers::repo_builder::RepoBuilder;
 
 fn run_full_pipeline(rb: &RepoBuilder, base: &str, head: &str) -> AnalysisOutput {
     let repo = git2::Repository::open(rb.path()).expect("failed to open repo");
-    let diff_result =
-        flowdiff_core::git::diff_refs(&repo, base, head).expect("diff_refs failed");
+    let diff_result = flowdiff_core::git::diff_refs(&repo, base, head).expect("diff_refs failed");
 
     let mut parsed_files = Vec::new();
     for file_diff in &diff_result.files {
@@ -97,11 +96,7 @@ fn run_full_pipeline(rb: &RepoBuilder, base: &str, head: &str) -> AnalysisOutput
                 ),
                 centrality: 0.5,
                 surface_area: compute_surface_area(total_add, total_del, 1000),
-                uncertainty: if risk_flags.has_test_only {
-                    0.1
-                } else {
-                    0.5
-                },
+                uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
             }
         })
         .collect();
@@ -115,7 +110,13 @@ fn run_full_pipeline(rb: &RepoBuilder, base: &str, head: &str) -> AnalysisOutput
         diff_result.head_sha.as_deref(),
     );
 
-    build_analysis_output(&diff_result, diff_source, &parsed_files, &cluster_result, &ranked)
+    build_analysis_output(
+        &diff_result,
+        diff_source,
+        &parsed_files,
+        &cluster_result,
+        &ranked,
+    )
 }
 
 /// Build a refined AnalysisOutput by swapping groups and infrastructure.
@@ -237,17 +238,33 @@ fn print_comparison(results: &[ComparisonResult]) {
     eprintln!("\n  Per-criterion breakdown (average across all fixtures):");
     let n = results.len() as f64;
     let avg = |f: fn(&EvalScores) -> f64| -> (f64, f64) {
-        let det: f64 = results.iter().map(|r| f(&r.deterministic_scores)).sum::<f64>() / n;
+        let det: f64 = results
+            .iter()
+            .map(|r| f(&r.deterministic_scores))
+            .sum::<f64>()
+            / n;
         let ref_: f64 = results.iter().map(|r| f(&r.refined_scores)).sum::<f64>() / n;
         (det, ref_)
     };
 
-    fn coherence(s: &EvalScores) -> f64 { s.group_coherence }
-    fn entrypoint(s: &EvalScores) -> f64 { s.entrypoint_accuracy }
-    fn ordering(s: &EvalScores) -> f64 { s.review_ordering }
-    fn risk(s: &EvalScores) -> f64 { s.risk_reasonableness }
-    fn language(s: &EvalScores) -> f64 { s.language_detection }
-    fn accounting(s: &EvalScores) -> f64 { s.file_accounting }
+    fn coherence(s: &EvalScores) -> f64 {
+        s.group_coherence
+    }
+    fn entrypoint(s: &EvalScores) -> f64 {
+        s.entrypoint_accuracy
+    }
+    fn ordering(s: &EvalScores) -> f64 {
+        s.review_ordering
+    }
+    fn risk(s: &EvalScores) -> f64 {
+        s.risk_reasonableness
+    }
+    fn language(s: &EvalScores) -> f64 {
+        s.language_detection
+    }
+    fn accounting(s: &EvalScores) -> f64 {
+        s.file_accounting
+    }
 
     let criteria: &[(&str, fn(&EvalScores) -> f64)] = &[
         ("Group coherence  (25%)", coherence),
@@ -806,10 +823,7 @@ export function transformData(data: any) { return data; }
         }],
         expected_groups: vec![ExpectedGroup {
             label: "Data route through re-exports".to_string(),
-            must_contain: vec![
-                "routes/data".to_string(),
-                "core/dataService".to_string(),
-            ],
+            must_contain: vec!["routes/data".to_string(), "core/dataService".to_string()],
             must_not_contain: vec![],
         }],
         risk_ordering: vec![],
@@ -994,16 +1008,24 @@ fn adversarial_refinement_comparison() {
             degraded_count += 1;
             eprintln!(
                 "  WARNING: {} degraded by {:.4} (det={:.4}, ref={:.4})",
-                r.fixture_name, r.delta_overall, r.deterministic_scores.overall,
+                r.fixture_name,
+                r.delta_overall,
+                r.deterministic_scores.overall,
                 r.refined_scores.overall
             );
         }
     }
 
     // Aggregate: average refined score should not be catastrophically worse
-    let avg_det: f64 = results.iter().map(|r| r.deterministic_scores.overall).sum::<f64>()
+    let avg_det: f64 = results
+        .iter()
+        .map(|r| r.deterministic_scores.overall)
+        .sum::<f64>()
         / results.len() as f64;
-    let avg_ref: f64 = results.iter().map(|r| r.refined_scores.overall).sum::<f64>()
+    let avg_ref: f64 = results
+        .iter()
+        .map(|r| r.refined_scores.overall)
+        .sum::<f64>()
         / results.len() as f64;
 
     eprintln!(
@@ -1072,8 +1094,7 @@ fn adversarial_fixtures_deterministic_valid() {
         let json = serde_json::to_string(&output).unwrap();
         let parsed: AnalysisOutput = serde_json::from_str(&json).unwrap();
         assert_eq!(
-            parsed.summary.total_files_changed,
-            output.summary.total_files_changed,
+            parsed.summary.total_files_changed, output.summary.total_files_changed,
             "{}: JSON roundtrip changed file count",
             name
         );

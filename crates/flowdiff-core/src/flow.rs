@@ -248,7 +248,6 @@ const LOG_PATTERNS: &[&str] = &[
     "log.debug",
 ];
 
-
 // ---------------------------------------------------------------------------
 // Framework detection
 // ---------------------------------------------------------------------------
@@ -647,14 +646,68 @@ fn non_db_receiver_set() -> &'static HashSet<&'static str> {
     static SET: OnceLock<HashSet<&str>> = OnceLock::new();
     SET.get_or_init(|| {
         [
-            "array", "map", "set", "object", "string", "number", "promise", "json", "math",
-            "date", "regexp", "cache", "localstorage", "sessionstorage", "window", "document",
-            "navigator", "console", "process", "os", "path", "fs", "http", "https", "url",
-            "buffer", "stream", "crypto", "util", "events", "child_process", "cluster", "net",
-            "tls", "dns", "axios", "requests", "fetch", "httpx", "urllib", "list", "dict",
-            "tuple", "frozenset", "deque", "defaultdict", "items", "result", "results", "data",
-            "response", "request", "config", "env", "settings", "options", "args", "params",
-            "logger", "log", "logging", "console",
+            "array",
+            "map",
+            "set",
+            "object",
+            "string",
+            "number",
+            "promise",
+            "json",
+            "math",
+            "date",
+            "regexp",
+            "cache",
+            "localstorage",
+            "sessionstorage",
+            "window",
+            "document",
+            "navigator",
+            "console",
+            "process",
+            "os",
+            "path",
+            "fs",
+            "http",
+            "https",
+            "url",
+            "buffer",
+            "stream",
+            "crypto",
+            "util",
+            "events",
+            "child_process",
+            "cluster",
+            "net",
+            "tls",
+            "dns",
+            "axios",
+            "requests",
+            "fetch",
+            "httpx",
+            "urllib",
+            "list",
+            "dict",
+            "tuple",
+            "frozenset",
+            "deque",
+            "defaultdict",
+            "items",
+            "result",
+            "results",
+            "data",
+            "response",
+            "request",
+            "config",
+            "env",
+            "settings",
+            "options",
+            "args",
+            "params",
+            "logger",
+            "log",
+            "logging",
+            "console",
         ]
         .into_iter()
         .collect()
@@ -666,9 +719,30 @@ fn db_keyword_automaton() -> &'static AhoCorasick {
     static AC: OnceLock<AhoCorasick> = OnceLock::new();
     AC.get_or_init(|| {
         AhoCorasick::new([
-            "db", "database", "repo", "repository", "model", "store", "dao", "collection",
-            "prisma", "sequelize", "typeorm", "mongoose", "drizzle", "session", "connection",
-            "pool", "client", "table", "entity", "schema", "migration", "knex", "query", "sql",
+            "db",
+            "database",
+            "repo",
+            "repository",
+            "model",
+            "store",
+            "dao",
+            "collection",
+            "prisma",
+            "sequelize",
+            "typeorm",
+            "mongoose",
+            "drizzle",
+            "session",
+            "connection",
+            "pool",
+            "client",
+            "table",
+            "entity",
+            "schema",
+            "migration",
+            "knex",
+            "query",
+            "sql",
         ])
         .expect("valid patterns")
     })
@@ -715,10 +789,7 @@ fn sql_write_automaton() -> &'static AhoCorasick {
 fn sql_read_automaton() -> &'static AhoCorasick {
     static AC: OnceLock<AhoCorasick> = OnceLock::new();
     AC.get_or_init(|| {
-        let patterns: Vec<String> = SQL_READ_KEYWORDS
-            .iter()
-            .map(|k| k.to_lowercase())
-            .collect();
+        let patterns: Vec<String> = SQL_READ_KEYWORDS.iter().map(|k| k.to_lowercase()).collect();
         AhoCorasick::new(&patterns).expect("valid patterns")
     })
 }
@@ -953,7 +1024,10 @@ fn is_collection_method(callee: &str) -> bool {
 fn match_persistence(callee: &str) -> Option<FlowPattern> {
     // Must be a method call (has a dot) with a DB-like receiver
     if let Some(method) = callee.rsplit('.').next() {
-        if callee.contains('.') && db_write_suffix_set().contains(method) && has_db_like_receiver(callee) {
+        if callee.contains('.')
+            && db_write_suffix_set().contains(method)
+            && has_db_like_receiver(callee)
+        {
             return Some(FlowPattern::Persistence);
         }
     }
@@ -970,7 +1044,10 @@ fn match_persistence(callee: &str) -> Option<FlowPattern> {
 fn match_db_read(callee: &str) -> Option<FlowPattern> {
     // Must be a method call with a DB-like receiver
     if let Some(method) = callee.rsplit('.').next() {
-        if callee.contains('.') && db_read_suffix_set().contains(method) && has_db_like_receiver(callee) {
+        if callee.contains('.')
+            && db_read_suffix_set().contains(method)
+            && has_db_like_receiver(callee)
+        {
             return Some(FlowPattern::DatabaseRead);
         }
     }
@@ -992,7 +1069,11 @@ fn match_db_read(callee: &str) -> Option<FlowPattern> {
 fn has_db_like_receiver(callee: &str) -> bool {
     // Get the receiver (everything before the last method)
     let parts: Vec<&str> = callee.rsplitn(2, '.').collect();
-    let receiver = if parts.len() == 2 { parts[1] } else { return false };
+    let receiver = if parts.len() == 2 {
+        parts[1]
+    } else {
+        return false;
+    };
     let lower = receiver.to_lowercase();
 
     // Skip single-letter variable names (too ambiguous)
@@ -1056,7 +1137,11 @@ fn match_config_read(callee: &str) -> Option<FlowPattern> {
     for &pattern in CONFIG_PATTERNS {
         // Match exact, dot-prefix (member access), or bracket-prefix
         if callee == pattern
-            || callee.starts_with(pattern) && callee.as_bytes().get(pattern.len()).map_or(true, |&b| b == b'.' || b == b'[')
+            || callee.starts_with(pattern)
+                && callee
+                    .as_bytes()
+                    .get(pattern.len())
+                    .map_or(true, |&b| b == b'.' || b == b'[')
         {
             return Some(FlowPattern::ConfigRead);
         }
@@ -1180,7 +1265,10 @@ pub fn build_data_flow_edges(
         HashMap::new();
     for assignment in &info.assignments {
         let key = assignment.containing_function.as_deref();
-        assignments_by_scope.entry(key).or_default().push(assignment);
+        assignments_by_scope
+            .entry(key)
+            .or_default()
+            .push(assignment);
     }
 
     // For each call, check if any argument matches a variable assigned from another call.
@@ -1267,8 +1355,7 @@ pub fn build_data_flow_edges_from_ir(file: &IrFile) -> Vec<DataFlowEdge> {
 
     // Group assignments by containing function for scope-aware matching.
     // Each entry: (variable_name, callee_name, line)
-    let mut assignments_by_scope: HashMap<Option<&str>, Vec<(&str, &str, usize)>> =
-        HashMap::new();
+    let mut assignments_by_scope: HashMap<Option<&str>, Vec<(&str, &str, usize)>> = HashMap::new();
 
     for assignment in &file.assignments {
         if let (Some(var), Some(callee)) = (
@@ -1276,10 +1363,11 @@ pub fn build_data_flow_edges_from_ir(file: &IrFile) -> Vec<DataFlowEdge> {
             assignment.value.callee_name(),
         ) {
             let scope = assignment.containing_function.as_deref();
-            assignments_by_scope
-                .entry(scope)
-                .or_default()
-                .push((var, callee, assignment.span.start_line));
+            assignments_by_scope.entry(scope).or_default().push((
+                var,
+                callee,
+                assignment.span.start_line,
+            ));
         }
     }
 
@@ -1334,7 +1422,13 @@ pub fn trace_data_flow_ir(files: &[IrFile]) -> Vec<DataFlowEdge> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
     use crate::ast::{self, ParsedFile};
@@ -1492,7 +1586,10 @@ def create_user(data):
             .iter()
             .filter(|e| e.pattern == FlowPattern::Persistence)
             .collect();
-        assert!(persistence.len() >= 1, "should detect session.flush/execute");
+        assert!(
+            persistence.len() >= 1,
+            "should detect session.flush/execute"
+        );
     }
 
     #[test]
@@ -1557,10 +1654,7 @@ function listUsers() {
             .iter()
             .filter(|e| e.pattern == FlowPattern::DatabaseRead)
             .collect();
-        assert!(
-            !reads.is_empty(),
-            "should detect db.query as database read"
-        );
+        assert!(!reads.is_empty(), "should detect db.query as database read");
     }
 
     #[test]
@@ -1752,7 +1846,10 @@ def get_db_url():
             .iter()
             .filter(|e| e.pattern == FlowPattern::ConfigRead)
             .collect();
-        assert!(!configs.is_empty(), "should detect os.environ as config read");
+        assert!(
+            !configs.is_empty(),
+            "should detect os.environ as config read"
+        );
     }
 
     #[test]
@@ -2017,7 +2114,10 @@ function wrap(value: any) {
         );
 
         // Should not be detected as any pattern (Promise is filtered)
-        assert!(edges.is_empty(), "Promise.resolve should not trigger any pattern");
+        assert!(
+            edges.is_empty(),
+            "Promise.resolve should not trigger any pattern"
+        );
     }
 
     #[test]
@@ -2256,10 +2356,9 @@ func main() {
 
     #[test]
     fn test_detect_go_multiple_frameworks() {
-        let frameworks = detect_fw(&[
-            (
-                "main.go",
-                r#"
+        let frameworks = detect_fw(&[(
+            "main.go",
+            r#"
 package main
 
 import (
@@ -2272,8 +2371,7 @@ func main() {
     http.ListenAndServe(":8080", nil)
 }
 "#,
-            ),
-        ]);
+        )]);
         assert!(frameworks.contains(&"Go net/http".to_string()));
         assert!(frameworks.contains(&"Cobra".to_string()));
         assert!(frameworks.contains(&"GORM".to_string()));
@@ -2612,7 +2710,10 @@ export function funcB() { funcA(); }
     #[test]
     fn test_confidence_orm_specific_high() {
         let c = confidence_for_db_pattern("prisma.user.create");
-        assert!(c >= 0.9, "ORM-specific patterns should have high confidence");
+        assert!(
+            c >= 0.9,
+            "ORM-specific patterns should have high confidence"
+        );
     }
 
     #[test]
@@ -2624,10 +2725,7 @@ export function funcB() { funcA(); }
     #[test]
     fn test_confidence_repo_receiver_high() {
         let c = confidence_for_db_pattern("userRepo.save");
-        assert!(
-            c >= 0.9,
-            "repo.* patterns should have high confidence"
-        );
+        assert!(c >= 0.9, "repo.* patterns should have high confidence");
     }
 
     #[test]
@@ -2867,13 +2965,23 @@ function handler(req: any) {
         )]);
 
         // parseRequest → processData via "body"
-        let e1 = edges.iter().find(|e| e.producer == "parseRequest" && e.consumer == "processData");
-        assert!(e1.is_some(), "should trace parameter flow: parseRequest → processData via body");
+        let e1 = edges
+            .iter()
+            .find(|e| e.producer == "parseRequest" && e.consumer == "processData");
+        assert!(
+            e1.is_some(),
+            "should trace parameter flow: parseRequest → processData via body"
+        );
         assert_eq!(e1.unwrap().via, "body");
 
         // processData → sendResponse via "result"
-        let e2 = edges.iter().find(|e| e.producer == "processData" && e.consumer == "sendResponse");
-        assert!(e2.is_some(), "should trace parameter flow: processData → sendResponse via result");
+        let e2 = edges
+            .iter()
+            .find(|e| e.producer == "processData" && e.consumer == "sendResponse");
+        assert!(
+            e2.is_some(),
+            "should trace parameter flow: processData → sendResponse via result"
+        );
         assert_eq!(e2.unwrap().via, "result");
     }
 
@@ -3026,20 +3134,26 @@ export function funcD() { return 42; }
         // Depth 1: only direct callees (funcB)
         let depth1 = trace_call_chain(&graph, "src/a.ts::funcA", 1);
         assert!(depth1.contains(&"src/b.ts::funcB".to_string()));
-        assert!(!depth1.contains(&"src/c.ts::funcC".to_string()),
-            "depth=1 should NOT reach funcC");
+        assert!(
+            !depth1.contains(&"src/c.ts::funcC".to_string()),
+            "depth=1 should NOT reach funcC"
+        );
 
         // Depth 2: funcB and funcC
         let depth2 = trace_call_chain(&graph, "src/a.ts::funcA", 2);
         assert!(depth2.contains(&"src/b.ts::funcB".to_string()));
         assert!(depth2.contains(&"src/c.ts::funcC".to_string()));
-        assert!(!depth2.contains(&"src/d.ts::funcD".to_string()),
-            "depth=2 should NOT reach funcD");
+        assert!(
+            !depth2.contains(&"src/d.ts::funcD".to_string()),
+            "depth=2 should NOT reach funcD"
+        );
 
         // Depth 10: all reachable
         let deep = trace_call_chain(&graph, "src/a.ts::funcA", 10);
-        assert!(deep.contains(&"src/d.ts::funcD".to_string()),
-            "large depth should reach funcD");
+        assert!(
+            deep.contains(&"src/d.ts::funcD".to_string()),
+            "large depth should reach funcD"
+        );
     }
 
     // ========================================================================

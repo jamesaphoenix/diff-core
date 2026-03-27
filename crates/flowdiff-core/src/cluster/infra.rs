@@ -164,7 +164,10 @@ fn common_directory_prefix(files: &[String]) -> String {
     let first = &files[0];
     let mut prefix_len = 0;
     for (i, c) in first.char_indices() {
-        if files[1..].iter().all(|f| f.get(..=i).map_or(false, |s| s.ends_with(c) && s == &first[..=i])) {
+        if files[1..].iter().all(|f| {
+            f.get(..=i)
+                .map_or(false, |s| s.ends_with(c) && s == &first[..=i])
+        }) {
             if c == '/' {
                 prefix_len = i + 1;
             }

@@ -28,9 +28,20 @@ pub(super) fn bare_stem(path: &str) -> String {
     // to prevent cascade-merging in monorepos.
     if matches!(
         lower.as_str(),
-        "package" | "changelog" | "readme" | "license" | "index"
-            | "mod" | "lib" | "main" | "init" | "__init__"
-            | "version" | "setup" | "config" | "tsconfig"
+        "package"
+            | "changelog"
+            | "readme"
+            | "license"
+            | "index"
+            | "mod"
+            | "lib"
+            | "main"
+            | "init"
+            | "__init__"
+            | "version"
+            | "setup"
+            | "config"
+            | "tsconfig"
     ) {
         return String::new();
     }
@@ -103,7 +114,10 @@ pub(super) fn is_test_file_name(path: &str) -> bool {
     }
 
     // Java/PHP/C# convention: FooTest.java, FooTests.java, FooSpec.java
-    let stem = filename.rsplit_once('.').map(|(s, _)| s).unwrap_or(filename);
+    let stem = filename
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(filename);
     if stem.ends_with("test") || stem.ends_with("tests") || stem.ends_with("spec") {
         return true;
     }

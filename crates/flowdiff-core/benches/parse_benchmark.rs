@@ -282,12 +282,8 @@ fn bench_parse_dedup(c: &mut Criterion) {
                 .parse_tree_for_path("app/users.py", PY_SOURCE)
                 .unwrap()
                 .unwrap();
-            let _ = black_box(engine.parse_file_with_tree(
-                "app/users.py",
-                PY_SOURCE,
-                &tree,
-                language,
-            ));
+            let _ =
+                black_box(engine.parse_file_with_tree("app/users.py", PY_SOURCE, &tree, language));
             let _ = black_box(engine.extract_data_flow_with_tree(
                 "app/users.py",
                 PY_SOURCE,
@@ -467,23 +463,55 @@ fn bench_graph_building(c: &mut Criterion) {
 fn generate_parsed_files_for_flow(n: usize) -> Vec<ParsedFile> {
     let callees = [
         // DB writes
-        "db.save", "userRepo.insert", "model.create", "store.update", "repo.delete",
-        "prisma.user.upsert", "collection.bulkInsert",
+        "db.save",
+        "userRepo.insert",
+        "model.create",
+        "store.update",
+        "repo.delete",
+        "prisma.user.upsert",
+        "collection.bulkInsert",
         // DB reads
-        "db.find", "userRepo.findOne", "model.findById", "store.query", "repo.findAll",
+        "db.find",
+        "userRepo.findOne",
+        "model.findById",
+        "store.query",
+        "repo.findAll",
         // Event emission
-        "eventBus.emit", "channel.publish", "socket.send", "dispatcher.dispatch",
+        "eventBus.emit",
+        "channel.publish",
+        "socket.send",
+        "dispatcher.dispatch",
         // Event handling
-        "eventBus.on", "channel.subscribe", "socket.listen",
+        "eventBus.on",
+        "channel.subscribe",
+        "socket.listen",
         // HTTP calls
-        "fetch", "axios.get", "axios.post", "requests.get", "httpx.post",
+        "fetch",
+        "axios.get",
+        "axios.post",
+        "requests.get",
+        "httpx.post",
         // Logging
-        "console.log", "console.error", "logger.info", "logger.warn", "logging.debug",
+        "console.log",
+        "console.error",
+        "logger.info",
+        "logger.warn",
+        "logging.debug",
         // Config reads
-        "process.env.DATABASE_URL", "config.get", "os.environ",
+        "process.env.DATABASE_URL",
+        "config.get",
+        "os.environ",
         // Benign (should not match)
-        "arr.push", "arr.map", "arr.filter", "JSON.parse", "JSON.stringify",
-        "Object.assign", "Promise.resolve", "Math.floor", "str.split", "list.append",
+        "arr.push",
+        "arr.map",
+        "arr.filter",
+        "JSON.parse",
+        "JSON.stringify",
+        "Object.assign",
+        "Promise.resolve",
+        "Math.floor",
+        "str.split",
+        "list.append",
     ];
 
     (0..n)

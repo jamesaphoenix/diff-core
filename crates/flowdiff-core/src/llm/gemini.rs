@@ -11,9 +11,8 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use super::schema::{
-    JudgeResponse, Pass1Response, Pass2Response, RefinementResponse,
-    pass1_json_schema, pass2_json_schema, judge_json_schema, refinement_json_schema,
-    flatten_json_schema,
+    flatten_json_schema, judge_json_schema, pass1_json_schema, pass2_json_schema,
+    refinement_json_schema, JudgeResponse, Pass1Response, Pass2Response, RefinementResponse,
 };
 use super::{
     judge_system_prompt, judge_user_prompt, pass1_system_prompt, pass1_user_prompt,
@@ -60,10 +59,7 @@ impl GeminiProvider {
 
     /// Build the full endpoint URL for generateContent.
     fn endpoint_url(&self) -> String {
-        format!(
-            "{}/{}:generateContent",
-            self.base_url, self.model
-        )
+        format!("{}/{}:generateContent", self.base_url, self.model)
     }
 
     /// Build and send a generateContent request with schema-enforced JSON output.
@@ -172,7 +168,10 @@ impl GeminiProvider {
                         if reason == "SAFETY" || reason == "RECITATION" {
                             return Err(LlmError::ApiError {
                                 status: 200,
-                                message: format!("Content blocked by Gemini safety filter: {}", reason),
+                                message: format!(
+                                    "Content blocked by Gemini safety filter: {}",
+                                    reason
+                                ),
                             });
                         }
                     }
@@ -241,10 +240,7 @@ impl LlmProvider for GeminiProvider {
         parse_json_response::<Pass2Response>(&response_text)
     }
 
-    async fn evaluate_quality(
-        &self,
-        request: &JudgeRequest,
-    ) -> Result<JudgeResponse, LlmError> {
+    async fn evaluate_quality(&self, request: &JudgeRequest) -> Result<JudgeResponse, LlmError> {
         let system = judge_system_prompt();
         let user = judge_user_prompt(request);
         let response_text = self
@@ -363,7 +359,13 @@ struct GeminiUsageMetadata {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
@@ -371,7 +373,8 @@ mod tests {
 
     #[test]
     fn test_gemini_request_format_with_schema() {
-        let schema = serde_json::json!({"type": "object", "properties": {"result": {"type": "string"}}});
+        let schema =
+            serde_json::json!({"type": "object", "properties": {"result": {"type": "string"}}});
         let request = GeminiRequest {
             system_instruction: Some(GeminiContent {
                 parts: vec![GeminiPart::Text {
@@ -399,7 +402,10 @@ mod tests {
             parsed["system_instruction"]["parts"][0]["text"],
             "You are a reviewer"
         );
-        assert_eq!(parsed["contents"][0]["parts"][0]["text"], "Review this diff");
+        assert_eq!(
+            parsed["contents"][0]["parts"][0]["text"],
+            "Review this diff"
+        );
         assert_eq!(parsed["generationConfig"]["temperature"], 0.0);
         assert_eq!(parsed["generationConfig"]["maxOutputTokens"], 8192);
         assert_eq!(
@@ -677,10 +683,7 @@ mod tests {
             "http://localhost:8080".to_string(),
         );
         let url = provider.endpoint_url();
-        assert_eq!(
-            url,
-            "http://localhost:8080/gemini-2.5-pro:generateContent"
-        );
+        assert_eq!(url, "http://localhost:8080/gemini-2.5-pro:generateContent");
     }
 
     // ── Invalid Response Tests ──

@@ -50,7 +50,11 @@ async fn sse_endpoint_replays_history_and_streams_completion() {
     assert!(response.status().is_success());
     let body = response.text().await.unwrap();
 
-    assert!(body.contains("event: job_started"), "missing job_started event: {}", body);
+    assert!(
+        body.contains("event: job_started"),
+        "missing job_started event: {}",
+        body
+    );
     assert!(
         body.contains("Preparing overview request"),
         "missing initial activity: {}",
@@ -61,7 +65,11 @@ async fn sse_endpoint_replays_history_and_streams_completion() {
         "missing streamed activity: {}",
         body
     );
-    assert!(body.contains("event: completed"), "missing completed event: {}", body);
+    assert!(
+        body.contains("event: completed"),
+        "missing completed event: {}",
+        body
+    );
     assert!(
         body.contains("\"result_kind\":\"overview\""),
         "missing result payload: {}",

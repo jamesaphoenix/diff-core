@@ -2,9 +2,7 @@
 //!
 //! Shared across `llm_live.rs`, `vcr_integration.rs`, and `llm_judge.rs`.
 
-use flowdiff_core::llm::schema::{
-    Pass1GroupInput, Pass1Request, Pass2FileInput, Pass2Request,
-};
+use flowdiff_core::llm::schema::{Pass1GroupInput, Pass1Request, Pass2FileInput, Pass2Request};
 
 /// Check if live LLM tests should run.
 ///
@@ -21,14 +19,13 @@ pub fn should_run_live() -> bool {
 /// (does not override explicit env vars).
 pub fn load_env() {
     // Load from FLOWDIFF_ENV_FILE or fall back to .env in the repo root
-    let env_path = std::env::var("FLOWDIFF_ENV_FILE")
-        .unwrap_or_else(|_| {
-            let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            p.pop(); // crates/flowdiff-core -> crates
-            p.pop(); // crates -> repo root
-            p.push(".env");
-            p.to_string_lossy().to_string()
-        });
+    let env_path = std::env::var("FLOWDIFF_ENV_FILE").unwrap_or_else(|_| {
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.pop(); // crates/flowdiff-core -> crates
+        p.pop(); // crates -> repo root
+        p.push(".env");
+        p.to_string_lossy().to_string()
+    });
     if let Ok(contents) = std::fs::read_to_string(&env_path) {
         for line in contents.lines() {
             let line = line.trim();
@@ -101,7 +98,7 @@ pub fn sample_pass2_request() -> Pass2Request {
 +   const user = await createUser(validated);
 +   return Response.json(user, { status: 201 });
 + }"#
-                .to_string(),
+                    .to_string(),
                 new_content: None,
                 role: "Entrypoint".to_string(),
             },
@@ -114,7 +111,7 @@ pub fn sample_pass2_request() -> Pass2Request {
 +   if (existing) throw new Error('User already exists');
 +   return UserRepository.insert(data);
 + }"#
-                .to_string(),
+                    .to_string(),
                 new_content: None,
                 role: "Service".to_string(),
             },

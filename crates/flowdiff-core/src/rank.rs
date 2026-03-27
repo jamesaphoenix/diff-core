@@ -125,11 +125,23 @@ pub struct RiskPathResult {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
-    fn make_input(id: &str, risk: f64, centrality: f64, surface: f64, uncertainty: f64) -> GroupRankInput {
+    fn make_input(
+        id: &str,
+        risk: f64,
+        centrality: f64,
+        surface: f64,
+        uncertainty: f64,
+    ) -> GroupRankInput {
         GroupRankInput {
             group_id: id.to_string(),
             risk,
@@ -332,8 +344,10 @@ mod tests {
         ];
 
         let default_ranked = rank_groups(&inputs, &RankWeights::default());
-        assert_eq!(default_ranked[0].group_id, "high_risk",
-            "default weights should rank risk-heavy group first");
+        assert_eq!(
+            default_ranked[0].group_id, "high_risk",
+            "default weights should rank risk-heavy group first"
+        );
 
         // With custom weights that favor centrality over risk, order should flip.
         let custom_weights = RankWeights {
@@ -343,14 +357,26 @@ mod tests {
             uncertainty: 0.10,
         };
         let custom_ranked = rank_groups(&inputs, &custom_weights);
-        assert_eq!(custom_ranked[0].group_id, "high_centrality",
-            "custom weights favoring centrality should rank centrality-heavy group first");
+        assert_eq!(
+            custom_ranked[0].group_id, "high_centrality",
+            "custom weights favoring centrality should rank centrality-heavy group first"
+        );
 
         // Verify the scores actually differ.
-        let default_score_risk = default_ranked.iter().find(|r| r.group_id == "high_risk").unwrap().composite_score;
-        let custom_score_risk = custom_ranked.iter().find(|r| r.group_id == "high_risk").unwrap().composite_score;
-        assert!((default_score_risk - custom_score_risk).abs() > 0.01,
-            "different weights should produce meaningfully different scores");
+        let default_score_risk = default_ranked
+            .iter()
+            .find(|r| r.group_id == "high_risk")
+            .unwrap()
+            .composite_score;
+        let custom_score_risk = custom_ranked
+            .iter()
+            .find(|r| r.group_id == "high_risk")
+            .unwrap()
+            .composite_score;
+        assert!(
+            (default_score_risk - custom_score_risk).abs() > 0.01,
+            "different weights should produce meaningfully different scores"
+        );
     }
 
     /// §13.3: One group still gets a valid score.
@@ -426,25 +452,27 @@ mod tests {
                 score_component(),
                 score_component(),
             )
-                .prop_map(|(id, risk, centrality, surface_area, uncertainty)| GroupRankInput {
-                    group_id: id,
-                    risk,
-                    centrality,
-                    surface_area,
-                    uncertainty,
+                .prop_map(|(id, risk, centrality, surface_area, uncertainty)| {
+                    GroupRankInput {
+                        group_id: id,
+                        risk,
+                        centrality,
+                        surface_area,
+                        uncertainty,
+                    }
                 })
         }
 
         // Strategy for generating positive weights
         fn arb_weights() -> impl Strategy<Value = RankWeights> {
-            (0.01f64..=1.0, 0.01f64..=1.0, 0.01f64..=1.0, 0.01f64..=1.0).prop_map(
-                |(r, c, s, u)| RankWeights {
+            (0.01f64..=1.0, 0.01f64..=1.0, 0.01f64..=1.0, 0.01f64..=1.0).prop_map(|(r, c, s, u)| {
+                RankWeights {
                     risk: r,
                     centrality: c,
                     surface_area: s,
                     uncertainty: u,
-                },
-            )
+                }
+            })
         }
 
         proptest! {

@@ -32,7 +32,10 @@ fn repo_root() -> PathBuf {
 
 async fn capture_cli_activity(
     provider: Box<dyn LlmProvider>,
-) -> (flowdiff_core::llm::schema::Pass1Response, Vec<ActivityUpdate>) {
+) -> (
+    flowdiff_core::llm::schema::Pass1Response,
+    Vec<ActivityUpdate>,
+) {
     let updates: Arc<Mutex<Vec<ActivityUpdate>>> = Arc::new(Mutex::new(Vec::new()));
     let updates_for_callback = Arc::clone(&updates);
 
@@ -40,7 +43,12 @@ async fn capture_cli_activity(
         Arc::new(move |update| {
             updates_for_callback.lock().unwrap().push(update);
         }),
-        async move { provider.annotate_overview(&sample_pass1_request()).await.unwrap() },
+        async move {
+            provider
+                .annotate_overview(&sample_pass1_request())
+                .await
+                .unwrap()
+        },
     )
     .await;
 
@@ -112,7 +120,9 @@ async fn test_live_claude_cli_activity_stream() {
 
     let status = llm::claude_cli::detect_status();
     if !status.authenticated {
-        eprintln!("Skipping Claude Code activity test (Claude Code not installed or not logged in)");
+        eprintln!(
+            "Skipping Claude Code activity test (Claude Code not installed or not logged in)"
+        );
         return;
     }
 

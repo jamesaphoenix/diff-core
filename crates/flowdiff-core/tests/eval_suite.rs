@@ -1,4 +1,10 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! Synthetic Eval Suite (Phase 7) — validates the full flowdiff pipeline against
 //! known-good baselines for realistic fixture codebases.
 //!
@@ -22,8 +28,8 @@ use flowdiff_core::eval::scoring::score_output;
 use flowdiff_core::eval::{self, EvalConfig, EvalFormat};
 use flowdiff_core::output;
 use flowdiff_core::types::{
-    AnalysisOutput, ChangeStats, DiffSource, DiffType, AnalysisSummary,
-    FileChange, FileRole, FlowGroup, InfrastructureGroup,
+    AnalysisOutput, AnalysisSummary, ChangeStats, DiffSource, DiffType, FileChange, FileRole,
+    FlowGroup, InfrastructureGroup,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -241,7 +247,12 @@ fn test_eval_all_fixtures_risk_bounds() {
 /// Mermaid diagrams should be generated for all groups across all fixtures.
 #[test]
 fn test_eval_all_fixtures_mermaid() {
-    let fixture_names = &["ts-express", "python-fastapi", "nextjs-fullstack", "multi-language"];
+    let fixture_names = &[
+        "ts-express",
+        "python-fastapi",
+        "nextjs-fullstack",
+        "multi-language",
+    ];
 
     for &name in fixture_names {
         let (rb, baseline) = build_fixture(name).unwrap();
@@ -545,10 +556,6 @@ mod scoring_properties {
 #[test]
 fn test_eval_aggregate_report() {
     let result = eval::run_eval(&EvalConfig::default());
-    let report_text = report::format_text_report(
-        &result.fixture_results,
-        result.avg_overall,
-        0.50,
-    );
+    let report_text = report::format_text_report(&result.fixture_results, result.avg_overall, 0.50);
     eprintln!("{}", report_text);
 }

@@ -26,7 +26,11 @@ mod security {
         };
         let err = llm::resolve_api_key(&config, "anthropic").unwrap_err();
         let msg = format!("{}", err);
-        assert!(msg.contains("dangerous"), "Expected dangerous char error: {}", msg);
+        assert!(
+            msg.contains("dangerous"),
+            "Expected dangerous char error: {}",
+            msg
+        );
     }
 
     #[test]
@@ -103,7 +107,11 @@ mod security {
         let err = llm::resolve_api_key(&config, "anthropic").unwrap_err();
         // Should fail with execution error, NOT with dangerous char error
         let msg = format!("{}", err);
-        assert!(!msg.contains("dangerous"), "op read should be allowed: {}", msg);
+        assert!(
+            !msg.contains("dangerous"),
+            "op read should be allowed: {}",
+            msg
+        );
     }
 
     #[test]
@@ -122,7 +130,11 @@ mod security {
     fn redact_strips_anthropic_key_from_error_body() {
         let body = r#"Invalid API key: sk-ant-api03-ABCdef123456789xyz"#;
         let redacted = llm::redact_api_keys(body);
-        assert!(!redacted.contains("sk-ant-"), "Key should be redacted: {}", redacted);
+        assert!(
+            !redacted.contains("sk-ant-"),
+            "Key should be redacted: {}",
+            redacted
+        );
         assert!(redacted.contains("[REDACTED"));
     }
 
@@ -130,14 +142,22 @@ mod security {
     fn redact_strips_openai_key_from_error_body() {
         let body = r#"Incorrect key: sk-proj-ABCDEFghijklmnop1234"#;
         let redacted = llm::redact_api_keys(body);
-        assert!(!redacted.contains("sk-proj-"), "Key should be redacted: {}", redacted);
+        assert!(
+            !redacted.contains("sk-proj-"),
+            "Key should be redacted: {}",
+            redacted
+        );
     }
 
     #[test]
     fn redact_strips_gemini_key_from_error_body() {
         let body = r#"Bad key: AIzaXXtestfakekey00000000000000000000"#;
         let redacted = llm::redact_api_keys(body);
-        assert!(!redacted.contains("AIzaSy"), "Key should be redacted: {}", redacted);
+        assert!(
+            !redacted.contains("AIzaSy"),
+            "Key should be redacted: {}",
+            redacted
+        );
     }
 
     #[test]
@@ -163,7 +183,11 @@ mod security {
         };
         let err = llm::resolve_api_key(&config, "anthropic").unwrap_err();
         let msg = format!("{}", err);
-        assert!(!msg.contains("'false'"), "Error should not echo command: {}", msg);
+        assert!(
+            !msg.contains("'false'"),
+            "Error should not echo command: {}",
+            msg
+        );
     }
 
     #[test]
@@ -174,7 +198,11 @@ mod security {
         };
         let err = llm::resolve_api_key(&config, "anthropic").unwrap_err();
         let msg = format!("{}", err);
-        assert!(!msg.contains("printf"), "Error should not echo command: {}", msg);
+        assert!(
+            !msg.contains("printf"),
+            "Error should not echo command: {}",
+            msg
+        );
     }
 
     // ── Response body size limit ──

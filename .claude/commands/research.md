@@ -12,7 +12,7 @@ Read these files to understand current state:
 - `experiments/experiments.jsonl` — experiment history (what's been tried, what worked)
 - `experiments/human-experiment-ideas-for-later.md` — queued experiment ideas from the human (check for new ideas to test)
 - `eval/repositories.research.toml` — manifest index (defaults + `include_dir = "repos"`)
-- `eval/repos/*.toml` — one file per repo with config + goldens (edit these for golden changes)
+- `eval/repos/*.toml` — one file per eval target with config + goldens (edit these for golden changes)
 
 ### Step 2: Setup (first run only)
 If this is the first run of a session:
@@ -39,15 +39,20 @@ GROWING_DATA → when corpus < required size for the current optimization round
 OPTIMISING   → when corpus ≥ required size AND all repos have 100% golden coverage
 ```
 
+Important constraint:
+- Local storage is effectively exhausted. Do NOT keep cloning new OSS repos by default.
+- Corpus growth should now come primarily from mining additional pinned diff ranges from repos that already exist in `~/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/`.
+- Treat each `eval/repos/*.toml` file as one goldened eval target. Multiple targets may come from the same underlying repo.
+
 Check state:
 ```bash
-REPO_COUNT=$(ls eval/repos/*.toml | wc -l)
-echo "Repos: $REPO_COUNT (need ≥47 for next OPTIMISING round)"
+TARGET_COUNT=$(ls eval/repos/*.toml | wc -l)
+echo "Targets: $TARGET_COUNT (counting goldened diff ranges, not unique repos)"
 ```
 
-- **Round 1 OPTIMISING** (experiments #3-#36): 17 repos, avg 0.82→0.98. COMPLETE.
-- **Round 2 requires**: ≥47 repos (17 existing + 30 new). State: **GROWING_DATA** until met.
-- **Round 3 will require**: ≥77 repos (47 + 30 new). And so on.
+- **Round 1 OPTIMISING** (experiments #3-#36): 17 targets, avg 0.82→0.98. COMPLETE.
+- **Round 2 requires**: ≥47 targets. State: **GROWING_DATA** until met.
+- **Round 3 will require**: ≥77 targets. And so on.
 
 **If state = GROWING_DATA:** Only Phase 0 (expand corpus) and Phase 1 (golden generation) are allowed. No Phase 2 parameter tuning — that's local optimization on insufficient data.
 
@@ -59,30 +64,37 @@ Check `experiments/human-experiment-ideas-for-later.md` for the current queue an
 
 - **MACRO (GLOBAL)**: Generic approaches — embeddings, AST improvements, graph algorithms, CodeQL, LSP. Free/local only (no LLM API keys available).
 - **MICRO (LOCAL)**: Targeted heuristics — config filename lists, extension checks, threshold tuning.
-- **GROWING_DATA**: Expand corpus — add repos, generate goldens via sub-agents.
+- **GROWING_DATA**: Expand corpus — add new goldened diff targets, preferably mined from existing repos, and generate goldens via sub-agents.
 
 Track each experiment as `optimization_type: "local"` or `optimization_type: "global"` in experiments.jsonl.
 
-Print the state at the start of every experiment: `STATE: GROWING_DATA (17/47 repos)` or `STATE: OPTIMISING (47/47 repos)`.
+Print the state at the start of every experiment: `STATE: GROWING_DATA (100 targets)` or `STATE: OPTIMISING (100 targets)`.
 
 **GATE: Corpus expansion required before further optimization.**
-After each optimization round (when avg_overall plateaus), add at least 30 new repos before continuing. This prevents local optimization — tuning on 17 repos risks overfitting to their structure. Current: 17 repos. Next round needs ≥47.
+After each optimization round (when avg_overall plateaus), add at least 30 new eval targets before continuing. Prefer new pinned diff ranges from repos already on disk. This prevents local optimization — tuning on a fixed corpus risks overfitting to those exact diffs.
 
-Count repos: `ls eval/repos/*.toml | wc -l`
+Count targets: `ls eval/repos/*.toml | wc -l`
 
 **Phase 0: Expand corpus** (MANDATORY if corpus < required size for current optimization round)
-- Target: add 30 repos to reach ≥47 total before next Phase 2 work
+- Target: add 30 new eval targets before the next Phase 2 work
 - Mix of languages: TS, Python, Go, Rust, Java, C#
 - Mix of sizes: small (10-50 files), medium (50-200), large (200+)
 - Include synthetic repos for edge cases
-- For real repos: clone from GitHub, find interesting diff range, pin with full SHAs, add `type = "real"`
+- For real data: FIRST reuse an existing local clone, find another interesting diff range, pin with full SHAs, and add a new `eval/repos/*.toml` target with `type = "real"`
+- Do NOT clone a new OSS repo unless you are explicitly told to do so or the existing local corpus is clearly insufficient for the current coverage gap
 - For synthetic repos: create under `flowdiff-eval-corpus/synthetic/<name>/`, add `type = "synthetic"` with tight goldens
-- Clone destination: `~/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/<language>/<repo>`
-- Every new repo must have 100% file coverage (lint-goldens verified)
+- Every new target must have 100% file coverage (lint-goldens verified)
 - **Max 500 files per diff.** Reject repos/ranges with >500 changed files — golden generation cost scales linearly. Check with `git diff --stat <base>..<head> | tail -1` before adding.
+- Prefer adding multiple non-overlapping historical ranges from a strong repo over spending disk on another clone
 
 **Phase 1: Build goldens via sub-agents** (highest priority if lint-goldens reports gaps)
 Use Claude Code sub-agents to generate golden constraints from diff content. **Every file in the diff must be classified as infrastructure or non_infrastructure** — this is enforced by `lint-goldens`.
+
+ML dataset rule:
+- New and upgraded targets should be made **ML-ready** at the same time.
+- Keep existing `[repos.expectations]` fields for eval.
+- Add richer labels **additively** under `[repos.ml]`; do not replace the sparse eval constraints.
+- A target is ML-ready when every changed file appears in exactly one `[[repos.ml.groups]]` group.
 
 **IMPORTANT: NEVER use scripts or pattern-matching to classify files.** Goldens are semantic ground truth — they require understanding what each file does by reading the actual diff. A script that classifies by extension (`.go` → non-infra) produces wrong results (e.g., `config/tracing.go` IS feature code but a script might miss that, or `seed.ts` IS infra but has a source extension). Always use LLM sub-agents that read the diff content.
 
@@ -116,7 +128,7 @@ For each repo that has unclassified files:
    Also read the file list at /tmp/fd-<name>-stat.txt.
 
    You MUST classify EVERY file in the diff as either infrastructure or non_infrastructure.
-   Then additionally identify strong grouping relationships.
+   Then additionally identify strong grouping relationships and a full ML-ready semantic partition.
 
    For EVERY changed file, determine:
    - Is this file infrastructure (config, deps, CI, generated files, lockfiles, docs)
@@ -148,14 +160,31 @@ For each repo that has unclassified files:
      ["path/to/feature_a", "path/to/feature_b"],    # unrelated features
    ]
 
+   [repos.ml]
+   dataset_version = 1
+   underlying_repo = "<repo>"
+   range_id = "<stable-range-id>"
+   label_source = "sub-agent"
+   review_status = "draft"
+
+   [[repos.ml.groups]]
+   id = "feature-or-infra-cluster"
+   kind = "feature" # or infrastructure/refactor/release
+   files = [
+     "path/to/file_a",
+     "path/to/file_b",
+   ]
+
    Rules:
    - EVERY file must appear in exactly one of infrastructure or non_infrastructure
+   - EVERY file must also appear in exactly one [[repos.ml.groups]] files list
    - Be conservative with same_group/separate_group — only confident pairs
    - Focus on: test+impl pairs, API+handler, schema+migration
    - Use relative paths from repo root
+   - Preserve existing [repos.expectations] data; add [repos.ml] labels additively
    ```
 
-4. Review the sub-agent's output, add constraints to `eval/repos/<name>.toml`
+4. Review the sub-agent's output, add constraints and `[repos.ml]` labels to `eval/repos/<name>.toml`
 
 5. Run the linter to verify full coverage:
    ```bash
@@ -167,6 +196,8 @@ For each repo that has unclassified files:
    ```bash
    cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format text 2>&1
    ```
+
+7. If the target still lacks a full `repos.ml.groups` partition, finish that before moving on. Sparse eval constraints alone are not enough for the future ML dataset.
 
 **Phase 2: Improve grouping quality** (after goldens have full coverage)
 Two sub-tracks — pick based on WHY goldens are failing:
@@ -201,7 +232,7 @@ Append one JSON line to `experiments/experiments.jsonl`. See `experiments/progra
 ```json
 {"id": N, "timestamp": "...", "hypothesis": "...", "type": "golden-generation|deterministic|llm|corpus-expansion|synthetic", ...}
 ```
-Types: `golden-generation` (sub-agent generated goldens), `deterministic` (cluster/rank tuning), `llm` (refinement model+prompt), `corpus-expansion` (new repos), `synthetic` (fixture data), `crash` (failed experiments).
+Types: `golden-generation` (sub-agent generated goldens), `deterministic` (cluster/rank tuning), `llm` (refinement model+prompt), `corpus-expansion` (new eval targets or synthetic data), `synthetic` (fixture data), `crash` (failed experiments).
 
 ### Step 7: Keep or revert
 - If improved: keep — advance the branch

@@ -70,7 +70,10 @@ pub fn format_text_report(
 
     let _ = writeln!(buf);
     let _ = writeln!(buf, "\u{2554}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2557}");
-    let _ = writeln!(buf, "\u{2551}                    EVAL SUITE AGGREGATE REPORT                   \u{2551}");
+    let _ = writeln!(
+        buf,
+        "\u{2551}                    EVAL SUITE AGGREGATE REPORT                   \u{2551}"
+    );
     let _ = writeln!(buf, "\u{2560}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2563}");
     let _ = writeln!(
         buf,
@@ -122,14 +125,42 @@ pub fn format_fixture_report(fixture_name: &str, scores: &EvalScores) -> String 
     let _ = writeln!(buf, "\n\u{2554}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2557}");
     let _ = writeln!(buf, "\u{2551}  Eval: {:<33}\u{2551}", fixture_name);
     let _ = writeln!(buf, "\u{2560}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2563}");
-    let _ = writeln!(buf, "\u{2551}  Group coherence:    {:.2}                 \u{2551}", scores.group_coherence);
-    let _ = writeln!(buf, "\u{2551}  Entrypoint accuracy:{:.2}                 \u{2551}", scores.entrypoint_accuracy);
-    let _ = writeln!(buf, "\u{2551}  Review ordering:    {:.2}                 \u{2551}", scores.review_ordering);
-    let _ = writeln!(buf, "\u{2551}  Risk reasonableness:{:.2}                 \u{2551}", scores.risk_reasonableness);
-    let _ = writeln!(buf, "\u{2551}  Language detection:  {:.2}                \u{2551}", scores.language_detection);
-    let _ = writeln!(buf, "\u{2551}  File accounting:    {:.2}                 \u{2551}", scores.file_accounting);
+    let _ = writeln!(
+        buf,
+        "\u{2551}  Group coherence:    {:.2}                 \u{2551}",
+        scores.group_coherence
+    );
+    let _ = writeln!(
+        buf,
+        "\u{2551}  Entrypoint accuracy:{:.2}                 \u{2551}",
+        scores.entrypoint_accuracy
+    );
+    let _ = writeln!(
+        buf,
+        "\u{2551}  Review ordering:    {:.2}                 \u{2551}",
+        scores.review_ordering
+    );
+    let _ = writeln!(
+        buf,
+        "\u{2551}  Risk reasonableness:{:.2}                 \u{2551}",
+        scores.risk_reasonableness
+    );
+    let _ = writeln!(
+        buf,
+        "\u{2551}  Language detection:  {:.2}                \u{2551}",
+        scores.language_detection
+    );
+    let _ = writeln!(
+        buf,
+        "\u{2551}  File accounting:    {:.2}                 \u{2551}",
+        scores.file_accounting
+    );
     let _ = writeln!(buf, "\u{2560}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2563}");
-    let _ = writeln!(buf, "\u{2551}  OVERALL:            {:.2}                 \u{2551}", scores.overall);
+    let _ = writeln!(
+        buf,
+        "\u{2551}  OVERALL:            {:.2}                 \u{2551}",
+        scores.overall
+    );
     let _ = writeln!(buf, "\u{255a}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{255d}");
 
     buf
@@ -283,7 +314,9 @@ pub fn build_html_report(
     let mut buf = String::new();
 
     // ── HTML head ──────────────────────────────────────────────────────────
-    let _ = write!(buf, r#"<!DOCTYPE html>
+    let _ = write!(
+        buf,
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -423,10 +456,13 @@ svg {{ display: block; }}
 </style>
 </head>
 <body>
-"#);
+"#
+    );
 
     // ── Header ─────────────────────────────────────────────────────────────
-    let _ = write!(buf, r#"<div class="header">
+    let _ = write!(
+        buf,
+        r#"<div class="header">
 <div class="header-left">
 <h1>flowdiff Eval Dashboard</h1>
 <div class="timestamp">{}</div>
@@ -440,7 +476,9 @@ svg {{ display: block; }}
     );
 
     // ── Summary cards ──────────────────────────────────────────────────────
-    let _ = write!(buf, r#"<div class="summary-cards">
+    let _ = write!(
+        buf,
+        r#"<div class="summary-cards">
 <div class="card">
 <div class="label">Average Score</div>
 <div class="value" style="color: {}">{:.2}</div>
@@ -469,11 +507,14 @@ svg {{ display: block; }}
     // ── Diff against last run ──────────────────────────────────────────────
     if let Some(last) = history.last() {
         let _ = write!(buf, "<h2>Diff vs Last Run</h2>");
-        let _ = write!(buf, r#"<table>
+        let _ = write!(
+            buf,
+            r#"<table>
 <thead><tr>
 <th>Fixture</th><th>Previous</th><th>Current</th><th>Delta</th>
 </tr></thead><tbody>
-"#);
+"#
+        );
 
         for (name, display_name, scores) in fixture_results {
             let prev_score = last
@@ -522,11 +563,7 @@ svg {{ display: block; }}
             buf,
             r#"<tr style="font-weight:bold"><td>AVERAGE</td><td>{:.2}</td><td>{:.2}</td><td><span class="delta {}">{}{:.2}</span></td></tr>
 "#,
-            last.avg_overall,
-            avg_overall,
-            avg_class,
-            avg_sign,
-            avg_delta
+            last.avg_overall, avg_overall, avg_class, avg_sign, avg_delta
         );
 
         let _ = write!(buf, "</tbody></table>\n");
@@ -534,11 +571,14 @@ svg {{ display: block; }}
 
     // ── Per-fixture scores table ───────────────────────────────────────────
     let _ = write!(buf, "<h2>Per-Fixture Scores</h2>");
-    let _ = write!(buf, r#"<table>
+    let _ = write!(
+        buf,
+        r#"<table>
 <thead><tr>
 <th>Fixture</th><th>GrpCo</th><th>EntPt</th><th>Order</th><th>Risk</th><th>Lang</th><th>Files</th><th>Overall</th>
 </tr></thead><tbody>
-"#);
+"#
+    );
 
     for (_, display_name, scores) in fixture_results {
         let _ = write!(
@@ -555,13 +595,20 @@ svg {{ display: block; }}
 </tr>
 "#,
             html_escape(display_name),
-            score_color(scores.group_coherence), scores.group_coherence,
-            score_color(scores.entrypoint_accuracy), scores.entrypoint_accuracy,
-            score_color(scores.review_ordering), scores.review_ordering,
-            score_color(scores.risk_reasonableness), scores.risk_reasonableness,
-            score_color(scores.language_detection), scores.language_detection,
-            score_color(scores.file_accounting), scores.file_accounting,
-            score_color(scores.overall), scores.overall,
+            score_color(scores.group_coherence),
+            scores.group_coherence,
+            score_color(scores.entrypoint_accuracy),
+            scores.entrypoint_accuracy,
+            score_color(scores.review_ordering),
+            scores.review_ordering,
+            score_color(scores.risk_reasonableness),
+            scores.risk_reasonableness,
+            score_color(scores.language_detection),
+            scores.language_detection,
+            score_color(scores.file_accounting),
+            scores.file_accounting,
+            score_color(scores.overall),
+            scores.overall,
         );
     }
 
@@ -585,8 +632,14 @@ svg {{ display: block; }}
 <td style="color:{}">{:.2}</td>
 </tr>
 "#,
-            avg_gc, avg_ep, avg_or, avg_ri, avg_la, avg_fa,
-            score_color(avg_overall), avg_overall,
+            avg_gc,
+            avg_ep,
+            avg_or,
+            avg_ri,
+            avg_la,
+            avg_fa,
+            score_color(avg_overall),
+            avg_overall,
         );
     }
 
@@ -598,16 +651,24 @@ svg {{ display: block; }}
 
     let criteria: &[(&str, fn(&EvalScores) -> f64)] = &[
         ("Group Coherence", |s: &EvalScores| s.group_coherence),
-        ("Entrypoint Accuracy", |s: &EvalScores| s.entrypoint_accuracy),
+        ("Entrypoint Accuracy", |s: &EvalScores| {
+            s.entrypoint_accuracy
+        }),
         ("Review Ordering", |s: &EvalScores| s.review_ordering),
-        ("Risk Reasonableness", |s: &EvalScores| s.risk_reasonableness),
+        ("Risk Reasonableness", |s: &EvalScores| {
+            s.risk_reasonableness
+        }),
         ("Language Detection", |s: &EvalScores| s.language_detection),
         ("File Accounting", |s: &EvalScores| s.file_accounting),
     ];
 
     for (criterion_name, extractor) in criteria {
-        let _ = write!(buf, r#"<div class="criterion-card">
-<div class="name">{}</div>"#, criterion_name);
+        let _ = write!(
+            buf,
+            r#"<div class="criterion-card">
+<div class="name">{}</div>"#,
+            criterion_name
+        );
 
         for (_, display_name, scores) in fixture_results {
             let val = extractor(scores);
@@ -655,7 +716,11 @@ svg {{ display: block; }}
         let plot_h = chart_h - pad_t - pad_b;
 
         let n = trend_points.len();
-        let x_step = if n > 1 { plot_w / (n - 1) as f64 } else { plot_w };
+        let x_step = if n > 1 {
+            plot_w / (n - 1) as f64
+        } else {
+            plot_w
+        };
 
         // Y axis: 0.0 to 1.0
         let y_scale = |v: f64| -> f64 { pad_t + plot_h * (1.0 - v) };
@@ -739,7 +804,8 @@ svg {{ display: block; }}
                 ts.get(..10).unwrap_or(&fallback).to_string()
             };
             let label_y = chart_h - pad_b + 20.0;
-            let _ = write!(
+            let _ =
+                write!(
                 buf,
                 "<text x=\"{:.1}\" y=\"{:.1}\" fill=\"{}\" font-size=\"9\" text-anchor=\"middle\" \
                  transform=\"rotate(-30,{:.1},{:.1})\">{}</text>\n",
@@ -782,14 +848,20 @@ svg {{ display: block; }}
             }
         }
 
-        let colors = ["#89b4fa", "#a6e3a1", "#fab387", "#f38ba8", "#b4befe", "#94e2d5", "#f9e2af", "#89dceb"];
+        let colors = [
+            "#89b4fa", "#a6e3a1", "#fab387", "#f38ba8", "#b4befe", "#94e2d5", "#f9e2af", "#89dceb",
+        ];
 
         let grid_color = "#45475a";
         let label_color = "#a6adc8";
 
         // Build data: for each fixture, collect (index, score) across history + current
         let total_runs = history.len() + 1;
-        let x_step = if total_runs > 1 { plot_w / (total_runs - 1) as f64 } else { plot_w };
+        let x_step = if total_runs > 1 {
+            plot_w / (total_runs - 1) as f64
+        } else {
+            plot_w
+        };
         let y_scale = |v: f64| -> f64 { pad_t + plot_h * (1.0 - v) };
         let x_pos = |i: usize| -> f64 { pad_l + i as f64 * x_step };
 
@@ -820,7 +892,8 @@ svg {{ display: block; }}
                 }
             }
             // Current run
-            if let Some((_, _, scores)) = fixture_results.iter().find(|(n, _, _)| n == fixture_name) {
+            if let Some((_, _, scores)) = fixture_results.iter().find(|(n, _, _)| n == fixture_name)
+            {
                 points.push((x_pos(history.len()), y_scale(scores.overall)));
             }
 
@@ -855,11 +928,14 @@ svg {{ display: block; }}
     }
 
     // ── Footer ─────────────────────────────────────────────────────────────
-    let _ = write!(buf, r#"<div style="margin-top:2rem; padding-top:1rem; border-top:1px solid var(--overlay); color:var(--subtext); font-size:0.75rem">
+    let _ = write!(
+        buf,
+        r#"<div style="margin-top:2rem; padding-top:1rem; border-top:1px solid var(--overlay); color:var(--subtext); font-size:0.75rem">
 Generated by <strong>flowdiff eval --format html</strong>
 </div>
 </body>
-</html>"#);
+</html>"#
+    );
 
     buf
 }
@@ -1031,12 +1107,10 @@ mod tests {
             avg_overall: 0.89,
             passed: true,
             fixture_count: 5,
-            fixtures: vec![
-                FixtureHistoryEntry {
-                    name: "ts-express".to_string(),
-                    overall: 0.89,
-                },
-            ],
+            fixtures: vec![FixtureHistoryEntry {
+                name: "ts-express".to_string(),
+                overall: 0.89,
+            }],
         };
         let json = serde_json::to_string(&entry).unwrap();
         let parsed: ScoreHistoryEntry = serde_json::from_str(&json).unwrap();
@@ -1142,8 +1216,14 @@ mod tests {
             passed: true,
             fixture_count: 2,
             fixtures: vec![
-                FixtureHistoryEntry { name: "ts-express".to_string(), overall: 0.84 },
-                FixtureHistoryEntry { name: "python-fastapi".to_string(), overall: 0.86 },
+                FixtureHistoryEntry {
+                    name: "ts-express".to_string(),
+                    overall: 0.84,
+                },
+                FixtureHistoryEntry {
+                    name: "python-fastapi".to_string(),
+                    overall: 0.86,
+                },
             ],
         }];
         let html = build_html_report(&results, 0.90, 0.50, "2026-03-19T12:00:00Z", &history);
@@ -1163,8 +1243,14 @@ mod tests {
             passed: true,
             fixture_count: 2,
             fixtures: vec![
-                FixtureHistoryEntry { name: "ts-express".to_string(), overall: 0.80 },
-                FixtureHistoryEntry { name: "python-fastapi".to_string(), overall: 0.80 },
+                FixtureHistoryEntry {
+                    name: "ts-express".to_string(),
+                    overall: 0.80,
+                },
+                FixtureHistoryEntry {
+                    name: "python-fastapi".to_string(),
+                    overall: 0.80,
+                },
             ],
         }];
         let html = build_html_report(&results, 0.90, 0.50, "2026-03-19T12:00:00Z", &history);
@@ -1181,8 +1267,14 @@ mod tests {
             passed: true,
             fixture_count: 2,
             fixtures: vec![
-                FixtureHistoryEntry { name: "ts-express".to_string(), overall: 0.95 },
-                FixtureHistoryEntry { name: "python-fastapi".to_string(), overall: 0.95 },
+                FixtureHistoryEntry {
+                    name: "ts-express".to_string(),
+                    overall: 0.95,
+                },
+                FixtureHistoryEntry {
+                    name: "python-fastapi".to_string(),
+                    overall: 0.95,
+                },
             ],
         }];
         let html = build_html_report(&results, 0.90, 0.50, "2026-03-19T12:00:00Z", &history);
@@ -1199,7 +1291,10 @@ mod tests {
             fixture_count: 1,
             fixtures: vec![
                 // Only ts-express in history — python-fastapi is new
-                FixtureHistoryEntry { name: "ts-express".to_string(), overall: 0.84 },
+                FixtureHistoryEntry {
+                    name: "ts-express".to_string(),
+                    overall: 0.84,
+                },
             ],
         }];
         let html = build_html_report(&results, 0.90, 0.50, "2026-03-19T12:00:00Z", &history);
@@ -1254,8 +1349,14 @@ mod tests {
                 passed: true,
                 fixture_count: 2,
                 fixtures: vec![
-                    FixtureHistoryEntry { name: "ts-express".to_string(), overall: 0.78 },
-                    FixtureHistoryEntry { name: "python-fastapi".to_string(), overall: 0.82 },
+                    FixtureHistoryEntry {
+                        name: "ts-express".to_string(),
+                        overall: 0.78,
+                    },
+                    FixtureHistoryEntry {
+                        name: "python-fastapi".to_string(),
+                        overall: 0.82,
+                    },
                 ],
             },
             ScoreHistoryEntry {
@@ -1264,8 +1365,14 @@ mod tests {
                 passed: true,
                 fixture_count: 2,
                 fixtures: vec![
-                    FixtureHistoryEntry { name: "ts-express".to_string(), overall: 0.84 },
-                    FixtureHistoryEntry { name: "python-fastapi".to_string(), overall: 0.86 },
+                    FixtureHistoryEntry {
+                        name: "ts-express".to_string(),
+                        overall: 0.84,
+                    },
+                    FixtureHistoryEntry {
+                        name: "python-fastapi".to_string(),
+                        overall: 0.86,
+                    },
                 ],
             },
         ];
@@ -1285,8 +1392,14 @@ mod tests {
             passed: true,
             fixture_count: 2,
             fixtures: vec![
-                FixtureHistoryEntry { name: "ts-express".to_string(), overall: 0.84 },
-                FixtureHistoryEntry { name: "python-fastapi".to_string(), overall: 0.86 },
+                FixtureHistoryEntry {
+                    name: "ts-express".to_string(),
+                    overall: 0.84,
+                },
+                FixtureHistoryEntry {
+                    name: "python-fastapi".to_string(),
+                    overall: 0.86,
+                },
             ],
         }];
         let html = build_html_report(&results, 0.90, 0.50, "2026-03-19T12:00:00Z", &history);
@@ -1295,15 +1408,15 @@ mod tests {
 
     #[test]
     fn test_score_color_ranges() {
-        assert_eq!(score_color(1.0), "#a6e3a1");   // green
-        assert_eq!(score_color(0.95), "#a6e3a1");  // green
-        assert_eq!(score_color(0.90), "#a6e3a1");  // green
-        assert_eq!(score_color(0.89), "#f9e2af");  // yellow
-        assert_eq!(score_color(0.70), "#f9e2af");  // yellow
-        assert_eq!(score_color(0.69), "#fab387");  // peach
-        assert_eq!(score_color(0.50), "#fab387");  // peach
-        assert_eq!(score_color(0.49), "#f38ba8");  // red
-        assert_eq!(score_color(0.0), "#f38ba8");   // red
+        assert_eq!(score_color(1.0), "#a6e3a1"); // green
+        assert_eq!(score_color(0.95), "#a6e3a1"); // green
+        assert_eq!(score_color(0.90), "#a6e3a1"); // green
+        assert_eq!(score_color(0.89), "#f9e2af"); // yellow
+        assert_eq!(score_color(0.70), "#f9e2af"); // yellow
+        assert_eq!(score_color(0.69), "#fab387"); // peach
+        assert_eq!(score_color(0.50), "#fab387"); // peach
+        assert_eq!(score_color(0.49), "#f38ba8"); // red
+        assert_eq!(score_color(0.0), "#f38ba8"); // red
     }
 
     #[test]

@@ -270,14 +270,12 @@ pub fn list_worktrees(repo: &Repository) -> Result<Vec<WorktreeInfo>, GitError> 
         let wt_path = wt.path().to_string_lossy().to_string();
 
         // Try to open the worktree repo to get its branch
-        let branch = Repository::open(wt.path())
-            .ok()
-            .and_then(|wt_repo| {
-                wt_repo
-                    .head()
-                    .ok()
-                    .and_then(|h| h.shorthand().map(String::from))
-            });
+        let branch = Repository::open(wt.path()).ok().and_then(|wt_repo| {
+            wt_repo
+                .head()
+                .ok()
+                .and_then(|h| h.shorthand().map(String::from))
+        });
 
         result.push(WorktreeInfo {
             path: wt_path,
@@ -339,10 +337,7 @@ pub fn get_branch_status(repo: &Repository) -> Result<BranchStatus, GitError> {
 pub fn detect_default_branch(repo: &Repository) -> Result<String, GitError> {
     // Check for common default branch names
     for name in &["main", "master", "develop"] {
-        if repo
-            .find_branch(name, git2::BranchType::Local)
-            .is_ok()
-        {
+        if repo.find_branch(name, git2::BranchType::Local).is_ok() {
             return Ok(name.to_string());
         }
     }
@@ -384,14 +379,12 @@ pub fn diff_merge_base(
         .peel_to_commit()
         .map_err(|_| GitError::RefNotFound(format!("{head_ref} (not a commit)")))?;
 
-    let merge_base_oid = repo
-        .merge_base(base_oid, head_commit.id())
-        .map_err(|_| {
-            GitError::RefNotFound(format!(
-                "no merge base between {} and {}",
-                base_ref, head_ref
-            ))
-        })?;
+    let merge_base_oid = repo.merge_base(base_oid, head_commit.id()).map_err(|_| {
+        GitError::RefNotFound(format!(
+            "no merge base between {} and {}",
+            base_ref, head_ref
+        ))
+    })?;
 
     let merge_base_commit = repo.find_commit(merge_base_oid)?;
     let merge_base_tree = merge_base_commit.tree()?;
@@ -448,8 +441,9 @@ pub fn file_content_at_ref(
                 .to_object(repo)?
                 .into_blob()
                 .map_err(|_| GitError::Git(git2::Error::from_str("not a blob")))?;
-            let content = std::str::from_utf8(blob.content())
-                .map_err(|e| GitError::Git(git2::Error::from_str(&format!("invalid UTF-8: {e}"))))?;
+            let content = std::str::from_utf8(blob.content()).map_err(|e| {
+                GitError::Git(git2::Error::from_str(&format!("invalid UTF-8: {e}")))
+            })?;
             Ok(Some(content.to_string()))
         }
         Err(_) => Ok(None), // File doesn't exist at this ref
@@ -457,9 +451,7 @@ pub fn file_content_at_ref(
 }
 
 /// Apply rename detection to a diff.
-fn find_renames<'a>(
-    diff: &mut git2::Diff<'a>,
-) -> Result<(), GitError> {
+fn find_renames<'a>(diff: &mut git2::Diff<'a>) -> Result<(), GitError> {
     let mut find_opts = git2::DiffFindOptions::new();
     find_opts.renames(true);
     find_opts.copies(true);
@@ -468,10 +460,7 @@ fn find_renames<'a>(
 }
 
 /// Extract FileDiff structs from a git2::Diff.
-fn extract_file_diffs(
-    repo: &Repository,
-    diff: &git2::Diff<'_>,
-) -> Result<Vec<FileDiff>, GitError> {
+fn extract_file_diffs(repo: &Repository, diff: &git2::Diff<'_>) -> Result<Vec<FileDiff>, GitError> {
     let num_deltas = diff.deltas().len();
     let mut files: Vec<FileDiff> = Vec::with_capacity(num_deltas);
 
@@ -495,8 +484,14 @@ fn extract_file_diffs(
             _ => continue, // Skip unmodified, ignored, typechange, etc.
         };
 
-        let old_path = delta.old_file().path().map(|p| p.to_string_lossy().to_string());
-        let new_path = delta.new_file().path().map(|p| p.to_string_lossy().to_string());
+        let old_path = delta
+            .old_file()
+            .path()
+            .map(|p| p.to_string_lossy().to_string());
+        let new_path = delta
+            .new_file()
+            .path()
+            .map(|p| p.to_string_lossy().to_string());
 
         // Check binary at the blob level (before UTF-8 conversion)
         if is_blob_binary(repo, delta.old_file().id())
@@ -547,8 +542,14 @@ fn extract_file_diffs(
 
     diff.foreach(
         &mut |delta, _progress| {
-            let d_old = delta.old_file().path().map(|p| p.to_string_lossy().to_string());
-            let d_new = delta.new_file().path().map(|p| p.to_string_lossy().to_string());
+            let d_old = delta
+                .old_file()
+                .path()
+                .map(|p| p.to_string_lossy().to_string());
+            let d_new = delta
+                .new_file()
+                .path()
+                .map(|p| p.to_string_lossy().to_string());
             let d_status = match delta.status() {
                 Delta::Added => FileStatus::Added,
                 Delta::Deleted => FileStatus::Deleted,
@@ -623,7 +624,13 @@ fn is_blob_binary(repo: &Repository, oid: Oid) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
     use std::fs;
@@ -666,12 +673,7 @@ mod tests {
     }
 
     /// Helper: delete files and commit.
-    fn delete_files_and_commit(
-        repo: &Repository,
-        dir: &Path,
-        paths: &[&str],
-        msg: &str,
-    ) -> Oid {
+    fn delete_files_and_commit(repo: &Repository, dir: &Path, paths: &[&str], msg: &str) -> Oid {
         let mut index = repo.index().unwrap();
         for path in paths {
             let full_path = dir.join(path);
@@ -700,7 +702,10 @@ mod tests {
             dir.path(),
             &[
                 ("src/main.ts", "console.log('hello');"),
-                ("src/utils.ts", "export function add(a: number, b: number) { return a + b; }"),
+                (
+                    "src/utils.ts",
+                    "export function add(a: number, b: number) { return a + b; }",
+                ),
             ],
             "initial",
         );
@@ -727,14 +732,22 @@ mod tests {
         assert!(paths.contains(&"src/main.ts"));
         assert!(paths.contains(&"src/new-file.ts"));
 
-        let main_diff = result.files.iter().find(|f| f.path() == "src/main.ts").unwrap();
+        let main_diff = result
+            .files
+            .iter()
+            .find(|f| f.path() == "src/main.ts")
+            .unwrap();
         assert_eq!(main_diff.status, FileStatus::Modified);
         assert!(main_diff.old_content.is_some());
         assert!(main_diff.new_content.is_some());
         assert!(main_diff.additions > 0 || main_diff.deletions > 0);
         assert!(!main_diff.hunks.is_empty());
 
-        let new_diff = result.files.iter().find(|f| f.path() == "src/new-file.ts").unwrap();
+        let new_diff = result
+            .files
+            .iter()
+            .find(|f| f.path() == "src/new-file.ts")
+            .unwrap();
         assert_eq!(new_diff.status, FileStatus::Added);
         assert!(new_diff.old_content.is_none());
         assert!(new_diff.new_content.is_some());
@@ -801,7 +814,12 @@ mod tests {
     #[test]
     fn test_diff_staged_changes() {
         let (dir, repo) = init_repo();
-        commit_files(&repo, dir.path(), &[("file.ts", "original content")], "initial");
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("file.ts", "original content")],
+            "initial",
+        );
 
         // Modify and stage
         fs::write(dir.path().join("file.ts"), "modified content").unwrap();
@@ -904,12 +922,7 @@ mod tests {
     #[test]
     fn test_diff_binary_files_skipped() {
         let (dir, repo) = init_repo();
-        let base = commit_files(
-            &repo,
-            dir.path(),
-            &[("readme.txt", "hello")],
-            "initial",
-        );
+        let base = commit_files(&repo, dir.path(), &[("readme.txt", "hello")], "initial");
 
         let base_commit = repo.find_commit(base).unwrap();
         repo.branch("base", &base_commit, false).unwrap();
@@ -966,10 +979,7 @@ mod tests {
         let base = commit_files(
             &repo,
             dir.path(),
-            &[
-                ("keep.ts", "stays"),
-                ("remove.ts", "goes away"),
-            ],
+            &[("keep.ts", "stays"), ("remove.ts", "goes away")],
             "initial",
         );
 
@@ -1080,22 +1090,12 @@ mod tests {
     #[test]
     fn test_diff_old_and_new_content() {
         let (dir, repo) = init_repo();
-        let base = commit_files(
-            &repo,
-            dir.path(),
-            &[("file.ts", "const x = 1;")],
-            "initial",
-        );
+        let base = commit_files(&repo, dir.path(), &[("file.ts", "const x = 1;")], "initial");
 
         let base_commit = repo.find_commit(base).unwrap();
         repo.branch("base", &base_commit, false).unwrap();
 
-        commit_files(
-            &repo,
-            dir.path(),
-            &[("file.ts", "const x = 2;")],
-            "update",
-        );
+        commit_files(&repo, dir.path(), &[("file.ts", "const x = 2;")], "update");
 
         let result = diff_refs(&repo, "base", "HEAD").unwrap();
         assert_eq!(result.files[0].old_content.as_deref(), Some("const x = 1;"));
@@ -1110,11 +1110,7 @@ mod tests {
         let base = commit_files(
             &repo,
             dir.path(),
-            &[
-                ("src/a.ts", "a1"),
-                ("src/b.ts", "b1"),
-                ("src/c.ts", "c1"),
-            ],
+            &[("src/a.ts", "a1"), ("src/b.ts", "b1"), ("src/c.ts", "c1")],
             "initial",
         );
 
@@ -1140,14 +1136,17 @@ mod tests {
         let result = diff_refs(&repo, "base", "HEAD").unwrap();
         assert_eq!(result.files.len(), 3);
 
-        let statuses: Vec<(&str, &FileStatus)> = result
-            .files
+        let statuses: Vec<(&str, &FileStatus)> =
+            result.files.iter().map(|f| (f.path(), &f.status)).collect();
+        assert!(statuses
             .iter()
-            .map(|f| (f.path(), &f.status))
-            .collect();
-        assert!(statuses.iter().any(|(p, s)| *p == "src/a.ts" && **s == FileStatus::Modified));
-        assert!(statuses.iter().any(|(p, s)| *p == "src/b.ts" && **s == FileStatus::Deleted));
-        assert!(statuses.iter().any(|(p, s)| *p == "src/d.ts" && **s == FileStatus::Added));
+            .any(|(p, s)| *p == "src/a.ts" && **s == FileStatus::Modified));
+        assert!(statuses
+            .iter()
+            .any(|(p, s)| *p == "src/b.ts" && **s == FileStatus::Deleted));
+        assert!(statuses
+            .iter()
+            .any(|(p, s)| *p == "src/d.ts" && **s == FileStatus::Added));
     }
 
     // ── Ref Not Found Tests ──
@@ -1493,12 +1492,7 @@ mod tests {
     #[test]
     fn test_diff_additions_only() {
         let (dir, repo) = init_repo();
-        let base = commit_files(
-            &repo,
-            dir.path(),
-            &[("file.ts", "line1\n")],
-            "initial",
-        );
+        let base = commit_files(&repo, dir.path(), &[("file.ts", "line1\n")], "initial");
         let base_commit = repo.find_commit(base).unwrap();
         repo.branch("base", &base_commit, false).unwrap();
 
@@ -1548,11 +1542,7 @@ mod tests {
         let base = commit_files(
             &repo,
             dir.path(),
-            &[
-                ("src/a.ts", "a1"),
-                ("src/b.ts", "b1"),
-                ("src/c.ts", "c1"),
-            ],
+            &[("src/a.ts", "a1"), ("src/b.ts", "b1"), ("src/c.ts", "c1")],
             "initial",
         );
         let base_commit = repo.find_commit(base).unwrap();
@@ -1561,11 +1551,7 @@ mod tests {
         commit_files(
             &repo,
             dir.path(),
-            &[
-                ("src/a.ts", "a2"),
-                ("src/b.ts", "b2"),
-                ("src/c.ts", "c2"),
-            ],
+            &[("src/a.ts", "a2"), ("src/b.ts", "b2"), ("src/c.ts", "c2")],
             "modify all",
         );
 
@@ -1608,7 +1594,10 @@ mod tests {
 
         let result = diff_refs(&repo, "base", "HEAD").unwrap();
         for f in &result.files {
-            assert!(!f.is_binary, "Returned files should never be binary (binary is filtered)");
+            assert!(
+                !f.is_binary,
+                "Returned files should never be binary (binary is filtered)"
+            );
         }
     }
 
@@ -1701,14 +1690,12 @@ mod tests {
             new_path: Some("new.ts".into()),
             old_content: Some("const x = 1;".into()),
             new_content: Some("const x = 2;".into()),
-            hunks: vec![
-                DiffHunk {
-                    old_start: 1,
-                    old_lines: 1,
-                    new_start: 1,
-                    new_lines: 1,
-                },
-            ],
+            hunks: vec![DiffHunk {
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+            }],
             status: FileStatus::Modified,
             additions: 1,
             deletions: 1,
@@ -1878,12 +1865,7 @@ mod tests {
     #[test]
     fn test_diff_merge_base_diverged() {
         let (dir, repo) = init_repo();
-        let base = commit_files(
-            &repo,
-            dir.path(),
-            &[("shared.txt", "original")],
-            "initial",
-        );
+        let base = commit_files(&repo, dir.path(), &[("shared.txt", "original")], "initial");
 
         // Create a branch at the initial commit
         let base_commit = repo.find_commit(base).unwrap();
@@ -2092,8 +2074,7 @@ mod tests {
                 Just("file.ts".to_string()),
                 Just("src/index.ts".to_string()),
                 Just("a/b/c/d/e.py".to_string()),
-                "[a-z]{1,10}(\\.[a-z]{1,4})?"
-                    .prop_map(|s| format!("src/{s}")),
+                "[a-z]{1,10}(\\.[a-z]{1,4})?".prop_map(|s| format!("src/{s}")),
             ]
         }
 
@@ -2255,7 +2236,12 @@ mod tests {
         let head = repo.head().unwrap().peel_to_commit().unwrap();
         repo.branch("feature", &head, false).unwrap();
         repo.set_head("refs/heads/feature").unwrap();
-        commit_files(&repo, dir.path(), &[("f.ts", "on feature")], "feature change");
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("f.ts", "on feature")],
+            "feature change",
+        );
 
         let main_content = file_content_at_ref(&repo, "main", "f.ts").unwrap();
         assert_eq!(main_content, Some("on main".to_string()));
@@ -2284,7 +2270,8 @@ mod tests {
             "init",
         );
 
-        let result = file_content_at_ref(&repo, "HEAD", "packages/core/src/handlers/auth.ts").unwrap();
+        let result =
+            file_content_at_ref(&repo, "HEAD", "packages/core/src/handlers/auth.ts").unwrap();
         assert_eq!(result, Some(content.to_string()));
     }
 

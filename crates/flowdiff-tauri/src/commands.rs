@@ -79,7 +79,9 @@ impl AppState {
             .lock()
             .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?
             .clone()
-            .ok_or_else(|| CommandError::Io("Activity SSE server was not initialized".to_string()))?;
+            .ok_or_else(|| {
+                CommandError::Io("Activity SSE server was not initialized".to_string())
+            })?;
 
         let manager = Arc::clone(&self.activity_manager);
         let operation = operation.to_string();
@@ -93,12 +95,7 @@ impl AppState {
 
         let handle = tauri::async_runtime::block_on(async move {
             manager
-                .create_job(
-                    job_operation,
-                    job_provider,
-                    job_model,
-                    job_title,
-                )
+                .create_job(job_operation, job_provider, job_model, job_title)
                 .await
         });
 
@@ -459,7 +456,9 @@ pub fn get_file_diff_uncached(
     })
 }
 
-fn load_cached_analysis(state: &tauri::State<'_, AppState>) -> Result<AnalysisOutput, CommandError> {
+fn load_cached_analysis(
+    state: &tauri::State<'_, AppState>,
+) -> Result<AnalysisOutput, CommandError> {
     let last = state
         .last_analysis
         .lock()
@@ -590,7 +589,8 @@ fn make_activity_callback(
 }
 
 async fn emit_flowdiff_activity(job: &JobHandle, message: impl Into<String>) {
-    job.emit(ActivityEntry::info("flowdiff", message, None)).await;
+    job.emit(ActivityEntry::info("flowdiff", message, None))
+        .await;
 }
 
 fn provider_supports_tool_activity(provider: &str) -> bool {
@@ -633,19 +633,39 @@ fn refinement_operations_summary(response: &RefinementResponse) -> String {
     let mut parts = Vec::new();
 
     if !response.splits.is_empty() {
-        parts.push(format!("{} split{}", response.splits.len(), if response.splits.len() == 1 { "" } else { "s" }));
+        parts.push(format!(
+            "{} split{}",
+            response.splits.len(),
+            if response.splits.len() == 1 { "" } else { "s" }
+        ));
     }
     if !response.merges.is_empty() {
-        parts.push(format!("{} merge{}", response.merges.len(), if response.merges.len() == 1 { "" } else { "s" }));
+        parts.push(format!(
+            "{} merge{}",
+            response.merges.len(),
+            if response.merges.len() == 1 { "" } else { "s" }
+        ));
     }
     if !response.re_ranks.is_empty() {
-        parts.push(format!("{} re-rank{}", response.re_ranks.len(), if response.re_ranks.len() == 1 { "" } else { "s" }));
+        parts.push(format!(
+            "{} re-rank{}",
+            response.re_ranks.len(),
+            if response.re_ranks.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
+        ));
     }
     if !response.reclassifications.is_empty() {
         parts.push(format!(
             "{} reclassification{}",
             response.reclassifications.len(),
-            if response.reclassifications.len() == 1 { "" } else { "s" }
+            if response.reclassifications.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
         ));
     }
 
@@ -857,14 +877,7 @@ pub fn start_annotate_group(
 ) -> Result<AsyncLlmJobStart, CommandError> {
     let analysis = load_cached_analysis(&state)?;
     let request = build_pass2_request(
-        &analysis,
-        &group_id,
-        &repo_path,
-        base,
-        head,
-        range,
-        staged,
-        unstaged,
+        &analysis, &group_id, &repo_path, base, head, range, staged, unstaged,
     )?;
     let (mut config, workdir) = load_config_from_path(Some(&repo_path));
     if let Some(provider) = llm_provider {
@@ -965,12 +978,17 @@ pub fn start_refine_groups(
         state.create_llm_job("refinement", &provider_name, &model_name, "Refining groups")?;
 
     tauri::async_runtime::spawn(async move {
-        match run_refinement_with_activity(analysis, refinement_llm_config, workdir, job.clone()).await {
+        match run_refinement_with_activity(analysis, refinement_llm_config, workdir, job.clone())
+            .await
+        {
             Ok(response) => match serde_json::to_value(&response) {
                 Ok(value) => job.complete("refinement", value).await,
                 Err(error) => {
-                    job.fail(format!("Failed to serialize refinement response: {}", error))
-                        .await
+                    job.fail(format!(
+                        "Failed to serialize refinement response: {}",
+                        error
+                    ))
+                    .await
                 }
             },
             Err(error) => job.fail(error.to_string()).await,
@@ -1463,7 +1481,12 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
         }
     };
 
-    let configured_refinement_provider = config.llm.refinement.provider.as_deref().or(configured_provider);
+    let configured_refinement_provider = config
+        .llm
+        .refinement
+        .provider
+        .as_deref()
+        .or(configured_provider);
     let refinement_provider = preferred_provider_for_runtime(
         configured_refinement_provider,
         &codex_status,
@@ -2548,19 +2571,11 @@ mod tests {
     #[test]
     fn test_preferred_model_for_runtime_resets_to_provider_default_when_backend_changes() {
         assert_eq!(
-            preferred_model_for_runtime(
-                Some("gpt-5.4".to_string()),
-                Some("openai"),
-                "codex"
-            ),
+            preferred_model_for_runtime(Some("gpt-5.4".to_string()), Some("openai"), "codex"),
             "default"
         );
         assert_eq!(
-            preferred_model_for_runtime(
-                Some("default".to_string()),
-                Some("codex"),
-                "codex"
-            ),
+            preferred_model_for_runtime(Some("default".to_string()), Some("codex"), "codex"),
             "default"
         );
     }

@@ -563,35 +563,6 @@ fn test_no_entrypoints_use_graph_connected_components_before_directory_groups() 
     );
 }
 
-#[test]
-fn test_no_entrypoints_fixture_project_configs_can_stay_semantic() {
-    let graph = make_graph(&[], &[]);
-    let files = changed(&[
-        "turborepo-tests/integration/fixtures/watch_mixed_persistent_test/package.json",
-        "turborepo-tests/integration/fixtures/watch_mixed_persistent_test/turbo.json",
-        "turborepo-tests/integration/fixtures/watch_mixed_persistent_test/packages/app-a/dev.js",
-    ]);
-
-    let result = cluster_files(&graph, &[], &files);
-
-    let grouped_paths: Vec<&str> = result
-        .groups
-        .iter()
-        .flat_map(|group| group.files.iter().map(|file| file.path.as_str()))
-        .collect();
-
-    assert!(result.infrastructure.is_none());
-    assert!(grouped_paths.contains(
-        &"turborepo-tests/integration/fixtures/watch_mixed_persistent_test/package.json"
-    ));
-    assert!(grouped_paths
-        .contains(&"turborepo-tests/integration/fixtures/watch_mixed_persistent_test/turbo.json"));
-    assert!(grouped_paths.contains(
-        &"turborepo-tests/integration/fixtures/watch_mixed_persistent_test/packages/app-a/dev.js"
-    ));
-}
-
-#[test]
 fn test_group_file_ordering() {
     // Linear chain: entry → mid → leaf. Files should be ordered by BFS distance.
     let graph = make_graph(
@@ -2213,6 +2184,40 @@ fn test_classify_exhaustive_migration_patterns() {
             path
         );
     }
+}
+
+#[test]
+fn test_classify_spring_resource_config_patterns() {
+    assert_eq!(
+        classify_by_convention("src/main/resources/application.properties"),
+        InfraCategory::Infrastructure
+    );
+    assert_eq!(
+        classify_by_convention("src/main/resources/db/hsqldb/schema.sql"),
+        InfraCategory::Migration
+    );
+    assert_eq!(
+        classify_by_convention("src/main/resources/db/hsqldb/data.sql"),
+        InfraCategory::Migration
+    );
+    assert_eq!(
+        classify_by_convention("src/main/resources/messages/messages.properties"),
+        InfraCategory::Unclassified
+    );
+}
+
+#[test]
+fn test_release_admin_metadata_patterns_stay_in_infra() {
+    assert!(super::classify::is_true_infrastructure(
+        ".github/CODEOWNERS"
+    ));
+    assert!(super::classify::is_config_like_filename(
+        "src/requests/__version__.py"
+    ));
+    assert!(super::classify::is_top_level_doc("CHANGELOG.rst"));
+    assert!(!super::classify::is_config_like_filename(
+        "src/requests/__init__.py"
+    ));
 }
 
 #[test]

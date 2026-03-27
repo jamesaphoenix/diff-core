@@ -12,9 +12,7 @@ use crate::ast::{Language, ParsedFile};
 use crate::cluster::ClusterResult;
 use crate::git::DiffResult;
 use crate::rank::is_risk_path;
-use crate::types::{
-    AnalysisOutput, AnalysisSummary, DiffSource, DiffType, FlowGroup, RankedGroup,
-};
+use crate::types::{AnalysisOutput, AnalysisSummary, DiffSource, DiffType, FlowGroup, RankedGroup};
 
 /// Errors from output operations.
 #[derive(Debug, thiserror::Error)]
@@ -55,9 +53,7 @@ pub fn build_analysis_output(
         .groups
         .iter()
         .map(|group| {
-            let ranked = ranked_groups
-                .iter()
-                .find(|r| r.group_id == group.id);
+            let ranked = ranked_groups.iter().find(|r| r.group_id == group.id);
             FlowGroup {
                 risk_score: ranked.map_or(group.risk_score, |r| r.composite_score),
                 review_order: ranked.map_or(group.review_order, |r| r.review_order),
@@ -102,7 +98,11 @@ pub fn diff_source_branch(
 }
 
 /// Create a `DiffSource` for a commit range.
-pub fn diff_source_range(range: &str, base_sha: Option<&str>, head_sha: Option<&str>) -> DiffSource {
+pub fn diff_source_range(
+    range: &str,
+    base_sha: Option<&str>,
+    head_sha: Option<&str>,
+) -> DiffSource {
     DiffSource {
         diff_type: DiffType::CommitRange,
         base: Some(range.to_string()),
@@ -282,7 +282,13 @@ fn edge_type_label(edge_type: &crate::types::EdgeType) -> &'static str {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
     use crate::types::*;
@@ -497,9 +503,18 @@ mod tests {
             &sample_cluster_result(),
             &sample_ranked_groups(),
         );
-        assert!(output.summary.languages_detected.contains(&"typescript".to_string()));
-        assert!(output.summary.languages_detected.contains(&"python".to_string()));
-        assert!(!output.summary.languages_detected.contains(&"unknown".to_string()));
+        assert!(output
+            .summary
+            .languages_detected
+            .contains(&"typescript".to_string()));
+        assert!(output
+            .summary
+            .languages_detected
+            .contains(&"python".to_string()));
+        assert!(!output
+            .summary
+            .languages_detected
+            .contains(&"unknown".to_string()));
     }
 
     #[test]
@@ -623,13 +638,7 @@ mod tests {
             groups: vec![],
             infrastructure: None,
         };
-        let output = build_analysis_output(
-            &diff,
-            diff_source_staged(),
-            &[],
-            &cluster,
-            &[],
-        );
+        let output = build_analysis_output(&diff, diff_source_staged(), &[], &cluster, &[]);
         assert_eq!(output.summary.total_files_changed, 0);
         assert_eq!(output.summary.total_groups, 0);
         assert!(output.groups.is_empty());
@@ -878,14 +887,20 @@ mod tests {
                     path: "a.ts".to_string(),
                     flow_position: 0,
                     role: FileRole::Entrypoint,
-                    changes: ChangeStats { additions: 1, deletions: 0 },
+                    changes: ChangeStats {
+                        additions: 1,
+                        deletions: 0,
+                    },
                     symbols_changed: vec![],
                 },
                 FileChange {
                     path: "b.ts".to_string(),
                     flow_position: 1,
                     role: FileRole::Service,
-                    changes: ChangeStats { additions: 1, deletions: 0 },
+                    changes: ChangeStats {
+                        additions: 1,
+                        deletions: 0,
+                    },
                     symbols_changed: vec![],
                 },
             ],
@@ -907,7 +922,10 @@ mod tests {
         let mermaid = generate_mermaid(&group);
         // Both edges are between the same files, so only one Mermaid edge.
         let arrow_count = mermaid.matches("-->").count();
-        assert_eq!(arrow_count, 1, "duplicate file-level edges should be deduplicated");
+        assert_eq!(
+            arrow_count, 1,
+            "duplicate file-level edges should be deduplicated"
+        );
     }
 
     #[test]
@@ -920,7 +938,10 @@ mod tests {
                 path: "a.ts".to_string(),
                 flow_position: 0,
                 role: FileRole::Utility,
-                changes: ChangeStats { additions: 1, deletions: 0 },
+                changes: ChangeStats {
+                    additions: 1,
+                    deletions: 0,
+                },
                 symbols_changed: vec![],
             }],
             edges: vec![FlowEdge {
@@ -946,7 +967,10 @@ mod tests {
                 path: "src/handlers/auth.ts".to_string(),
                 flow_position: 0,
                 role: FileRole::Handler,
-                changes: ChangeStats { additions: 1, deletions: 0 },
+                changes: ChangeStats {
+                    additions: 1,
+                    deletions: 0,
+                },
                 symbols_changed: vec![],
             }],
             edges: vec![],
@@ -981,14 +1005,20 @@ mod tests {
                         path: "a.ts".to_string(),
                         flow_position: 0,
                         role: FileRole::Utility,
-                        changes: ChangeStats { additions: 1, deletions: 0 },
+                        changes: ChangeStats {
+                            additions: 1,
+                            deletions: 0,
+                        },
                         symbols_changed: vec![],
                     },
                     FileChange {
                         path: "b.ts".to_string(),
                         flow_position: 1,
                         role: FileRole::Utility,
-                        changes: ChangeStats { additions: 1, deletions: 0 },
+                        changes: ChangeStats {
+                            additions: 1,
+                            deletions: 0,
+                        },
                         symbols_changed: vec![],
                     },
                 ],
@@ -1042,10 +1072,7 @@ mod tests {
 
     #[test]
     fn test_risk_flags_test_only_false_mixed() {
-        let flags = compute_group_risk_flags(&[
-            "src/service.ts",
-            "src/__tests__/service.test.ts",
-        ]);
+        let flags = compute_group_risk_flags(&["src/service.ts", "src/__tests__/service.test.ts"]);
         assert!(!flags.has_test_only);
     }
 
@@ -1093,7 +1120,10 @@ mod tests {
         // Also verify it serializes as null in JSON
         let json = to_json(&output).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert!(parsed["annotations"].is_null(), "annotations should serialize as null");
+        assert!(
+            parsed["annotations"].is_null(),
+            "annotations should serialize as null"
+        );
     }
 
     /// §13.3: `-o` flag writes to file correctly.
@@ -1151,9 +1181,15 @@ mod tests {
         assert_eq!(parsed["version"], "1.0.0");
 
         // Should end with newline (for clean terminal output)
-        assert!(written.ends_with('\n'), "stdout output should end with newline");
+        assert!(
+            written.ends_with('\n'),
+            "stdout output should end with newline"
+        );
 
         // Should be pretty-printed (contains indentation)
-        assert!(written.contains("  "), "stdout output should be pretty-printed");
+        assert!(
+            written.contains("  "),
+            "stdout output should be pretty-printed"
+        );
     }
 }

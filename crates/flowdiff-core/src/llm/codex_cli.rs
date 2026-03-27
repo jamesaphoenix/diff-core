@@ -4,8 +4,8 @@ use std::process::{Command as StdCommand, Stdio};
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use tempfile::NamedTempFile;
-use tokio::process::Command;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 
 use super::schema;
@@ -107,21 +107,24 @@ impl CodexCliProvider {
         let mut child = command
             .spawn()
             .map_err(|e| LlmError::CommandFailed(format!("Failed to launch codex: {}", e)))?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            LlmError::CommandFailed("Failed to capture codex stdout".to_string())
-        })?;
-        let stderr = child.stderr.take().ok_or_else(|| {
-            LlmError::CommandFailed("Failed to capture codex stderr".to_string())
-        })?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| LlmError::CommandFailed("Failed to capture codex stdout".to_string()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| LlmError::CommandFailed("Failed to capture codex stderr".to_string()))?;
         let activity_callback = super::current_activity_callback();
 
         let stdout_activity_callback = activity_callback.clone();
         let stdout_task = tokio::spawn(async move {
             collect_codex_stream(stdout, "stdout", stdout_activity_callback).await
         });
-        let stderr_task = tokio::spawn(async move {
-            collect_codex_stream(stderr, "stderr", activity_callback).await
-        });
+        let stderr_task =
+            tokio::spawn(
+                async move { collect_codex_stream(stderr, "stderr", activity_callback).await },
+            );
 
         let timeout_sleep = sleep(Duration::from_secs(CLI_TIMEOUT_SECS));
         tokio::pin!(timeout_sleep);
@@ -136,11 +139,15 @@ impl CodexCliProvider {
 
         let stdout = stdout_task
             .await
-            .map_err(|e| LlmError::CommandFailed(format!("Failed to join codex stdout task: {}", e)))?
+            .map_err(|e| {
+                LlmError::CommandFailed(format!("Failed to join codex stdout task: {}", e))
+            })?
             .map_err(|e| LlmError::CommandFailed(format!("Failed to read codex stdout: {}", e)))?;
         let stderr = stderr_task
             .await
-            .map_err(|e| LlmError::CommandFailed(format!("Failed to join codex stderr task: {}", e)))?
+            .map_err(|e| {
+                LlmError::CommandFailed(format!("Failed to join codex stderr task: {}", e))
+            })?
             .map_err(|e| LlmError::CommandFailed(format!("Failed to read codex stderr: {}", e)))?;
 
         if !status.success() {
@@ -365,21 +372,23 @@ fn summarize_codex_item(
                 .and_then(serde_json::Value::as_str)
                 .or_else(|| item.get("file").and_then(serde_json::Value::as_str))
                 .map(truncate_for_activity);
-            let base_message = if other.contains("search") || other.contains("grep") || other.contains("find") {
-                if in_progress {
-                    "Searching the repo".to_string()
+            let base_message =
+                if other.contains("search") || other.contains("grep") || other.contains("find") {
+                    if in_progress {
+                        "Searching the repo".to_string()
+                    } else {
+                        "Finished searching the repo".to_string()
+                    }
+                } else if other.contains("read") || other.contains("open") || other.contains("view")
+                {
+                    if in_progress {
+                        "Inspecting a file".to_string()
+                    } else {
+                        "Finished inspecting a file".to_string()
+                    }
                 } else {
-                    "Finished searching the repo".to_string()
-                }
-            } else if other.contains("read") || other.contains("open") || other.contains("view") {
-                if in_progress {
-                    "Inspecting a file".to_string()
-                } else {
-                    "Finished inspecting a file".to_string()
-                }
-            } else {
-                format!("{} {}", verb, humanize_event_name(other))
-            };
+                    format!("{} {}", verb, humanize_event_name(other))
+                };
             let message = detail
                 .map(|detail| format!("{}: {}", base_message, detail))
                 .unwrap_or(base_message);

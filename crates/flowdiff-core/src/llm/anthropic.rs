@@ -10,8 +10,8 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use super::schema::{
-    JudgeResponse, Pass1Response, Pass2Response, RefinementResponse,
-    pass1_json_schema, pass2_json_schema, judge_json_schema, refinement_json_schema,
+    judge_json_schema, pass1_json_schema, pass2_json_schema, refinement_json_schema, JudgeResponse,
+    Pass1Response, Pass2Response, RefinementResponse,
 };
 use super::{
     judge_system_prompt, judge_user_prompt, pass1_system_prompt, pass1_user_prompt,
@@ -118,9 +118,7 @@ impl AnthropicProvider {
         }
 
         if status == 401 {
-            return Err(LlmError::AuthError(
-                "Invalid Anthropic API key".to_string(),
-            ));
+            return Err(LlmError::AuthError("Invalid Anthropic API key".to_string()));
         }
 
         if status == 408 || status == 504 {
@@ -149,10 +147,7 @@ impl AnthropicProvider {
         for block in &api_response.content {
             if let ContentBlock::ToolUse { input, .. } = block {
                 return serde_json::to_string(input).map_err(|e| {
-                    LlmError::ParseResponse(format!(
-                        "Failed to serialize tool_use input: {}",
-                        e
-                    ))
+                    LlmError::ParseResponse(format!("Failed to serialize tool_use input: {}", e))
                 });
             }
         }
@@ -182,7 +177,10 @@ impl AnthropicProvider {
 fn anthropic_context_window(model: &str) -> usize {
     if model.contains("claude-opus-4-6") || model.contains("claude-sonnet-4-6") {
         200_000
-    } else if model.contains("claude-haiku-4-5") || model.contains("claude-haiku-4") || model.contains("claude-3-5-haiku") {
+    } else if model.contains("claude-haiku-4-5")
+        || model.contains("claude-haiku-4")
+        || model.contains("claude-3-5-haiku")
+    {
         200_000
     } else if model.contains("claude-sonnet-4") || model.contains("claude-opus-4") {
         200_000
@@ -238,10 +236,7 @@ impl LlmProvider for AnthropicProvider {
         parse_json_response::<Pass2Response>(&response_text)
     }
 
-    async fn evaluate_quality(
-        &self,
-        request: &JudgeRequest,
-    ) -> Result<JudgeResponse, LlmError> {
+    async fn evaluate_quality(&self, request: &JudgeRequest) -> Result<JudgeResponse, LlmError> {
         let system = judge_system_prompt();
         let user = judge_user_prompt(request);
         let response_text = self
@@ -385,7 +380,13 @@ struct AnthropicUsage {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
@@ -650,8 +651,14 @@ mod tests {
     #[test]
     fn test_context_window_sonnet() {
         assert_eq!(anthropic_context_window("claude-sonnet-4-6"), 200_000);
-        assert_eq!(anthropic_context_window("claude-3-5-sonnet-20240620"), 200_000);
-        assert_eq!(anthropic_context_window("claude-3-7-sonnet-20250219"), 200_000);
+        assert_eq!(
+            anthropic_context_window("claude-3-5-sonnet-20240620"),
+            200_000
+        );
+        assert_eq!(
+            anthropic_context_window("claude-3-7-sonnet-20250219"),
+            200_000
+        );
     }
 
     #[test]
@@ -663,7 +670,10 @@ mod tests {
     #[test]
     fn test_context_window_haiku() {
         assert_eq!(anthropic_context_window("claude-haiku-4-5"), 200_000);
-        assert_eq!(anthropic_context_window("claude-3-5-haiku-20241022"), 200_000);
+        assert_eq!(
+            anthropic_context_window("claude-3-5-haiku-20241022"),
+            200_000
+        );
         assert_eq!(anthropic_context_window("claude-haiku-4-20250514"), 200_000);
     }
 

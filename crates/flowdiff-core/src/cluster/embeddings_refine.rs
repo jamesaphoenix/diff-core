@@ -95,7 +95,10 @@ pub fn refine_with_embeddings(
             let receiver = &mut result.groups[i];
             for fc in donor.files {
                 let pos = receiver.files.len() as u32;
-                receiver.files.push(FileChange { flow_position: pos, ..fc });
+                receiver.files.push(FileChange {
+                    flow_position: pos,
+                    ..fc
+                });
             }
             receiver.edges.extend(donor.edges);
             centroids[i] = compute_centroid(

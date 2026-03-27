@@ -26,9 +26,7 @@ use flowdiff_core::llm::schema::{
     Pass1GroupInput, Pass1Request, Pass2FileInput, Pass2Request, RefinementGroupInput,
     RefinementRequest,
 };
-use flowdiff_core::llm::{
-    estimate_tokens, truncate_to_token_budget, LlmError, LlmProvider,
-};
+use flowdiff_core::llm::{estimate_tokens, truncate_to_token_budget, LlmError, LlmProvider};
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -135,9 +133,7 @@ fn valid_gemini_pass1() -> String {
 async fn test_anthropic_rate_limit_with_retry_after() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(429).insert_header("retry-after", "30"),
-        )
+        .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "30"))
         .mount(&server)
         .await;
 
@@ -157,9 +153,7 @@ async fn test_anthropic_rate_limit_with_retry_after() {
 async fn test_openai_rate_limit_with_retry_after() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(429).insert_header("retry-after", "60"),
-        )
+        .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "60"))
         .mount(&server)
         .await;
 
@@ -183,11 +177,8 @@ async fn test_gemini_rate_limit_no_retry_header() {
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url(
-        "key".into(),
-        "gemini-2.5-flash".into(),
-        server.uri(),
-    );
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -222,9 +213,7 @@ async fn test_rate_limit_without_retry_after_header() {
 async fn test_rate_limit_with_non_numeric_retry_after() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(429).insert_header("retry-after", "not-a-number"),
-        )
+        .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "not-a-number"))
         .mount(&server)
         .await;
 
@@ -253,13 +242,20 @@ async fn test_anthropic_auth_error_401() {
         .mount(&server)
         .await;
 
-    let provider =
-        AnthropicProvider::with_base_url("bad-key".into(), "claude-sonnet-4-6".into(), server.uri());
+    let provider = AnthropicProvider::with_base_url(
+        "bad-key".into(),
+        "claude-sonnet-4-6".into(),
+        server.uri(),
+    );
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
         LlmError::AuthError(msg) => {
-            assert!(msg.contains("Anthropic"), "Expected Anthropic auth error, got: {}", msg);
+            assert!(
+                msg.contains("Anthropic"),
+                "Expected Anthropic auth error, got: {}",
+                msg
+            );
         }
         other => panic!("Expected AuthError, got: {:?}", other),
     }
@@ -278,7 +274,11 @@ async fn test_openai_auth_error_401() {
 
     match result.unwrap_err() {
         LlmError::AuthError(msg) => {
-            assert!(msg.contains("OpenAI"), "Expected OpenAI auth error, got: {}", msg);
+            assert!(
+                msg.contains("OpenAI"),
+                "Expected OpenAI auth error, got: {}",
+                msg
+            );
         }
         other => panic!("Expected AuthError, got: {:?}", other),
     }
@@ -292,12 +292,17 @@ async fn test_gemini_auth_error_401() {
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("bad-key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("bad-key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
         LlmError::AuthError(msg) => {
-            assert!(msg.contains("Gemini"), "Expected Gemini auth error, got: {}", msg);
+            assert!(
+                msg.contains("Gemini"),
+                "Expected Gemini auth error, got: {}",
+                msg
+            );
         }
         other => panic!("Expected AuthError, got: {:?}", other),
     }
@@ -311,7 +316,8 @@ async fn test_gemini_auth_error_403() {
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("bad-key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("bad-key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -369,7 +375,8 @@ async fn test_gemini_timeout_504() {
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -386,9 +393,7 @@ async fn test_gemini_timeout_504() {
 async fn test_anthropic_completely_invalid_json_body() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string("this is not json at all!!!"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string("this is not json at all!!!"))
         .mount(&server)
         .await;
 
@@ -408,9 +413,7 @@ async fn test_anthropic_completely_invalid_json_body() {
 async fn test_openai_completely_invalid_json_body() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string("garbage response {{{{"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string("garbage response {{{{"))
         .mount(&server)
         .await;
 
@@ -429,13 +432,12 @@ async fn test_openai_completely_invalid_json_body() {
 async fn test_gemini_completely_invalid_json_body() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string("<html>error page</html>"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string("<html>error page</html>"))
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -470,8 +472,7 @@ async fn test_openai_empty_choices_array() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_string(r#"{"choices": [], "model": "gpt-4.1"}"#),
+            ResponseTemplate::new(200).set_body_string(r#"{"choices": [], "model": "gpt-4.1"}"#),
         )
         .mount(&server)
         .await;
@@ -481,8 +482,11 @@ async fn test_openai_empty_choices_array() {
 
     match result.unwrap_err() {
         LlmError::ParseResponse(msg) => {
-            assert!(msg.contains("no text") || msg.contains("empty"),
-                "Expected empty response error: {}", msg);
+            assert!(
+                msg.contains("no text") || msg.contains("empty"),
+                "Expected empty response error: {}",
+                msg
+            );
         }
         other => panic!("Expected ParseResponse, got: {:?}", other),
     }
@@ -504,8 +508,11 @@ async fn test_openai_empty_content_in_choice() {
 
     match result.unwrap_err() {
         LlmError::ParseResponse(msg) => {
-            assert!(msg.contains("no text") || msg.contains("empty"),
-                "Expected empty content error: {}", msg);
+            assert!(
+                msg.contains("no text") || msg.contains("empty"),
+                "Expected empty content error: {}",
+                msg
+            );
         }
         other => panic!("Expected ParseResponse, got: {:?}", other),
     }
@@ -522,13 +529,17 @@ async fn test_gemini_no_candidates() {
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
         LlmError::ParseResponse(msg) => {
-            assert!(msg.contains("no text") || msg.contains("empty"),
-                "Expected empty response error: {}", msg);
+            assert!(
+                msg.contains("no text") || msg.contains("empty"),
+                "Expected empty response error: {}",
+                msg
+            );
         }
         other => panic!("Expected ParseResponse, got: {:?}", other),
     }
@@ -539,20 +550,24 @@ async fn test_gemini_safety_blocked_response() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_string(
-                r#"{"candidates": [{"finishReason": "SAFETY"}]}"#,
-            ),
+            ResponseTemplate::new(200)
+                .set_body_string(r#"{"candidates": [{"finishReason": "SAFETY"}]}"#),
         )
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
         LlmError::ApiError { status, message } => {
             assert_eq!(status, 200);
-            assert!(message.contains("SAFETY"), "Expected safety block: {}", message);
+            assert!(
+                message.contains("SAFETY"),
+                "Expected safety block: {}",
+                message
+            );
         }
         other => panic!("Expected ApiError with SAFETY, got: {:?}", other),
     }
@@ -563,20 +578,24 @@ async fn test_gemini_recitation_blocked_response() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_string(
-                r#"{"candidates": [{"finishReason": "RECITATION"}]}"#,
-            ),
+            ResponseTemplate::new(200)
+                .set_body_string(r#"{"candidates": [{"finishReason": "RECITATION"}]}"#),
         )
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
         LlmError::ApiError { status, message } => {
             assert_eq!(status, 200);
-            assert!(message.contains("RECITATION"), "Expected recitation block: {}", message);
+            assert!(
+                message.contains("RECITATION"),
+                "Expected recitation block: {}",
+                message
+            );
         }
         other => panic!("Expected ApiError with RECITATION, got: {:?}", other),
     }
@@ -591,9 +610,8 @@ async fn test_anthropic_tool_use_with_wrong_schema() {
     let server = MockServer::start().await;
     // Returns tool_use but with completely wrong fields
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(
-                r#"{
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"{
                     "content": [{
                         "type": "tool_use",
                         "id": "toolu_mock",
@@ -603,8 +621,7 @@ async fn test_anthropic_tool_use_with_wrong_schema() {
                     "model": "claude-sonnet-4-6",
                     "stop_reason": "tool_use"
                 }"#,
-            ),
-        )
+        ))
         .mount(&server)
         .await;
 
@@ -655,7 +672,8 @@ async fn test_gemini_response_with_partial_schema() {
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     // groups=[] is valid, but missing overall_summary and suggested_review_order
@@ -666,9 +684,8 @@ async fn test_gemini_response_with_partial_schema() {
 async fn test_anthropic_tool_use_with_null_input() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(
-                r#"{
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"{
                     "content": [{
                         "type": "tool_use",
                         "id": "toolu_mock",
@@ -678,8 +695,7 @@ async fn test_anthropic_tool_use_with_null_input() {
                     "model": "claude-sonnet-4-6",
                     "stop_reason": "tool_use"
                 }"#,
-            ),
-        )
+        ))
         .mount(&server)
         .await;
 
@@ -698,9 +714,7 @@ async fn test_anthropic_tool_use_with_null_input() {
 async fn test_anthropic_huge_diff_truncated_before_sending() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_anthropic_pass1_tool_use()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_anthropic_pass1_tool_use()))
         .mount(&server)
         .await;
 
@@ -724,16 +738,18 @@ async fn test_anthropic_huge_diff_truncated_before_sending() {
 
     // Should succeed — truncation happens before sending
     let result = provider.annotate_overview(&request).await;
-    assert!(result.is_ok(), "Should succeed after truncating: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should succeed after truncating: {:?}",
+        result.err()
+    );
 }
 
 #[tokio::test]
 async fn test_openai_huge_diff_truncated_before_sending() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_openai_pass1()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_openai_pass1()))
         .mount(&server)
         .await;
 
@@ -746,16 +762,18 @@ async fn test_openai_huge_diff_truncated_before_sending() {
 
     let provider = OpenAIProvider::with_base_url("key".into(), "gpt-4.1".into(), server.uri());
     let result = provider.annotate_overview(&request).await;
-    assert!(result.is_ok(), "Should succeed after truncating: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should succeed after truncating: {:?}",
+        result.err()
+    );
 }
 
 #[tokio::test]
 async fn test_gemini_huge_diff_truncated_before_sending() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_gemini_pass1()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_gemini_pass1()))
         .mount(&server)
         .await;
 
@@ -766,9 +784,14 @@ async fn test_gemini_huge_diff_truncated_before_sending() {
         graph_summary: String::new(),
     };
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&request).await;
-    assert!(result.is_ok(), "Should succeed after truncating: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should succeed after truncating: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -782,7 +805,10 @@ fn test_truncation_preserves_valid_text() {
 fn test_truncation_adds_marker() {
     let text = "x".repeat(1000);
     let result = truncate_to_token_budget(&text, 10); // ~40 chars
-    assert!(result.contains("truncated"), "Should contain truncation marker");
+    assert!(
+        result.contains("truncated"),
+        "Should contain truncation marker"
+    );
     assert!(result.len() < text.len(), "Should be shorter than input");
 }
 
@@ -810,7 +836,7 @@ fn test_truncation_multibyte_unicode_boundary_2byte() {
     // "é" is 2 bytes in UTF-8
     let text = "é".repeat(200); // 400 bytes
     let result = truncate_to_token_budget(&text, 3); // 12 byte budget
-    // 12 / 2 = 6 characters, aligns. But let's also test odd budgets.
+                                                     // 12 / 2 = 6 characters, aligns. But let's also test odd budgets.
     assert!(!result.is_empty());
 }
 
@@ -848,9 +874,7 @@ fn test_estimate_tokens_unicode() {
 async fn test_anthropic_unicode_in_diff_summary() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_anthropic_pass1_tool_use()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_anthropic_pass1_tool_use()))
         .mount(&server)
         .await;
 
@@ -875,16 +899,18 @@ async fn test_anthropic_unicode_in_diff_summary() {
     let provider =
         AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&request).await;
-    assert!(result.is_ok(), "Should handle unicode in request: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should handle unicode in request: {:?}",
+        result.err()
+    );
 }
 
 #[tokio::test]
 async fn test_openai_emoji_in_file_paths() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_openai_pass1()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_openai_pass1()))
         .mount(&server)
         .await;
 
@@ -932,9 +958,14 @@ async fn test_gemini_unicode_in_refinement_request() {
         }],
     };
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.refine_groups(&request).await;
-    assert!(result.is_ok(), "Should handle unicode in refinement: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should handle unicode in refinement: {:?}",
+        result.err()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -945,11 +976,9 @@ async fn test_gemini_unicode_in_refinement_request() {
 async fn test_anthropic_500_with_html_error_body() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(500).set_body_string(
-                "<html><body><h1>Internal Server Error</h1><script>alert('xss')</script></body></html>",
-            ),
-        )
+        .respond_with(ResponseTemplate::new(500).set_body_string(
+            "<html><body><h1>Internal Server Error</h1><script>alert('xss')</script></body></html>",
+        ))
         .mount(&server)
         .await;
 
@@ -999,7 +1028,8 @@ async fn test_gemini_400_bad_request() {
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     match result.unwrap_err() {
@@ -1034,9 +1064,7 @@ async fn test_anthropic_empty_body_on_success() {
 async fn test_anthropic_concurrent_requests() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_anthropic_pass1_tool_use()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_anthropic_pass1_tool_use()))
         .mount(&server)
         .await;
 
@@ -1053,7 +1081,11 @@ async fn test_anthropic_concurrent_requests() {
 
     while let Some(result) = set.join_next().await {
         let inner = result.expect("Join error");
-        assert!(inner.is_ok(), "Concurrent request failed: {:?}", inner.err());
+        assert!(
+            inner.is_ok(),
+            "Concurrent request failed: {:?}",
+            inner.err()
+        );
     }
 }
 
@@ -1061,9 +1093,7 @@ async fn test_anthropic_concurrent_requests() {
 async fn test_openai_concurrent_requests() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_openai_pass1()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_openai_pass1()))
         .mount(&server)
         .await;
 
@@ -1079,7 +1109,11 @@ async fn test_openai_concurrent_requests() {
 
     while let Some(result) = set.join_next().await {
         let inner = result.expect("Join error");
-        assert!(inner.is_ok(), "Concurrent request failed: {:?}", inner.err());
+        assert!(
+            inner.is_ok(),
+            "Concurrent request failed: {:?}",
+            inner.err()
+        );
     }
 }
 
@@ -1087,13 +1121,12 @@ async fn test_openai_concurrent_requests() {
 async fn test_gemini_concurrent_requests() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_gemini_pass1()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_gemini_pass1()))
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let provider = std::sync::Arc::new(provider);
 
     let mut set = tokio::task::JoinSet::new();
@@ -1105,7 +1138,11 @@ async fn test_gemini_concurrent_requests() {
 
     while let Some(result) = set.join_next().await {
         let inner = result.expect("Join error");
-        assert!(inner.is_ok(), "Concurrent request failed: {:?}", inner.err());
+        assert!(
+            inner.is_ok(),
+            "Concurrent request failed: {:?}",
+            inner.err()
+        );
     }
 }
 
@@ -1133,9 +1170,7 @@ fn test_provider_trait_object_send_sync() {
 async fn test_anthropic_valid_pass1_response() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_anthropic_pass1_tool_use()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_anthropic_pass1_tool_use()))
         .mount(&server)
         .await;
 
@@ -1153,9 +1188,7 @@ async fn test_anthropic_valid_pass1_response() {
 async fn test_openai_valid_pass1_response() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_openai_pass1()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_openai_pass1()))
         .mount(&server)
         .await;
 
@@ -1171,13 +1204,12 @@ async fn test_openai_valid_pass1_response() {
 async fn test_gemini_valid_pass1_response() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_gemini_pass1()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_gemini_pass1()))
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     let response = result.unwrap();
@@ -1234,7 +1266,8 @@ async fn test_gemini_judge_timeout() {
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let judge_request = flowdiff_core::llm::schema::JudgeRequest {
         analysis_json: "{}".to_string(),
         source_files: vec![],
@@ -1273,7 +1306,11 @@ async fn test_anthropic_text_fallback_with_valid_json() {
     let provider =
         AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
-    assert!(result.is_ok(), "Text fallback should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Text fallback should work: {:?}",
+        result.err()
+    );
 }
 
 #[tokio::test]
@@ -1295,18 +1332,20 @@ async fn test_anthropic_text_fallback_with_markdown_fenced_json() {
     let provider =
         AnthropicProvider::with_base_url("key".into(), "claude-sonnet-4-6".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
-    assert!(result.is_ok(), "Markdown fence stripping should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Markdown fence stripping should work: {:?}",
+        result.err()
+    );
 }
 
 #[tokio::test]
 async fn test_anthropic_no_content_blocks() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(
-                r#"{"content": [], "model": "claude-sonnet-4-6", "stop_reason": "end_turn"}"#,
-            ),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"{"content": [], "model": "claude-sonnet-4-6", "stop_reason": "end_turn"}"#,
+        ))
         .mount(&server)
         .await;
 
@@ -1316,7 +1355,11 @@ async fn test_anthropic_no_content_blocks() {
 
     match result.unwrap_err() {
         LlmError::ParseResponse(msg) => {
-            assert!(msg.contains("no tool_use or text"), "Expected no content error: {}", msg);
+            assert!(
+                msg.contains("no tool_use or text"),
+                "Expected no content error: {}",
+                msg
+            );
         }
         other => panic!("Expected ParseResponse, got: {:?}", other),
     }
@@ -1326,15 +1369,13 @@ async fn test_anthropic_no_content_blocks() {
 async fn test_anthropic_thinking_only_no_tool_use() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(
-                r#"{
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"{
                     "content": [{"type": "thinking", "thinking": "Let me analyze this..."}],
                     "model": "claude-opus-4-6",
                     "stop_reason": "end_turn"
                 }"#,
-            ),
-        )
+        ))
         .mount(&server)
         .await;
 
@@ -1345,7 +1386,11 @@ async fn test_anthropic_thinking_only_no_tool_use() {
     // Should fail — thinking block alone has no usable output
     match result.unwrap_err() {
         LlmError::ParseResponse(msg) => {
-            assert!(msg.contains("no tool_use or text"), "Expected no content error: {}", msg);
+            assert!(
+                msg.contains("no tool_use or text"),
+                "Expected no content error: {}",
+                msg
+            );
         }
         other => panic!("Expected ParseResponse, got: {:?}", other),
     }
@@ -1360,9 +1405,7 @@ async fn test_openai_reasoning_model_request_format() {
     let server = MockServer::start().await;
     // We'll capture the request to verify it doesn't include system message
     Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(valid_openai_pass1()),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(valid_openai_pass1()))
         .expect(1)
         .mount(&server)
         .await;
@@ -1370,7 +1413,11 @@ async fn test_openai_reasoning_model_request_format() {
     let provider = OpenAIProvider::with_base_url("key".into(), "o3-mini".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
     // The request should have gone through (reasoning model formatting)
-    assert!(result.is_ok(), "Reasoning model request should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Reasoning model request should succeed: {:?}",
+        result.err()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1422,7 +1469,11 @@ async fn test_openai_very_large_200_response() {
     match result.unwrap_err() {
         LlmError::ParseResponse(msg) => {
             // Error message should be truncated (the response: prefix is truncated to 500 chars)
-            assert!(msg.len() < 1000, "Error message should be reasonably sized: len={}", msg.len());
+            assert!(
+                msg.len() < 1000,
+                "Error message should be reasonably sized: len={}",
+                msg.len()
+            );
         }
         other => panic!("Expected ParseResponse, got: {:?}", other),
     }
@@ -1448,9 +1499,14 @@ async fn test_gemini_multi_part_response_concatenation() {
         .mount(&server)
         .await;
 
-    let provider = GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
+    let provider =
+        GeminiProvider::with_base_url("key".into(), "gemini-2.5-flash".into(), server.uri());
     let result = provider.annotate_overview(&sample_pass1_request()).await;
-    assert!(result.is_ok(), "Multi-part concatenation should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Multi-part concatenation should work: {:?}",
+        result.err()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1495,19 +1551,33 @@ fn test_all_error_variants_display() {
     let errors = vec![
         LlmError::NoApiKey("ANTHROPIC_API_KEY".to_string()),
         LlmError::ParseResponse("bad json".to_string()),
-        LlmError::ApiError { status: 500, message: "Internal".to_string() },
-        LlmError::RateLimited { retry_after_secs: Some(30) },
-        LlmError::RateLimited { retry_after_secs: None },
+        LlmError::ApiError {
+            status: 500,
+            message: "Internal".to_string(),
+        },
+        LlmError::RateLimited {
+            retry_after_secs: Some(30),
+        },
+        LlmError::RateLimited {
+            retry_after_secs: None,
+        },
         LlmError::Timeout(120),
         LlmError::AuthError("Invalid key".to_string()),
         LlmError::KeyCmdError("cmd failed".to_string()),
-        LlmError::ContextWindowExceeded { input_tokens: 300_000, max_tokens: 200_000 },
+        LlmError::ContextWindowExceeded {
+            input_tokens: 300_000,
+            max_tokens: 200_000,
+        },
         LlmError::UnsupportedProvider("unknown".to_string()),
     ];
 
     for err in &errors {
         let display = format!("{}", err);
-        assert!(!display.is_empty(), "Error display should not be empty: {:?}", err);
+        assert!(
+            !display.is_empty(),
+            "Error display should not be empty: {:?}",
+            err
+        );
         let debug = format!("{:?}", err);
         assert!(!debug.is_empty(), "Error debug should not be empty");
     }

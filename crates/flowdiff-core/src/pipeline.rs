@@ -78,8 +78,7 @@ impl IrCache {
         let key = Self::cache_key(path, source);
         match self.inner.get(&key) {
             Some(entry) => {
-                self.hits
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 if cache_debug_enabled() {
                     eprintln!("[IrCache] HIT  {}", path);
                 }
@@ -409,7 +408,13 @@ pub fn parse_to_ir(
             let parsed = engine
                 .parse_file(path, source)
                 .map_err(|e| PipelineError::Parse(format!("{}: {}", path, e)))?;
-            (parsed, Ok(crate::ast::DataFlowInfo { assignments: vec![], calls_with_args: vec![] }))
+            (
+                parsed,
+                Ok(crate::ast::DataFlowInfo {
+                    assignments: vec![],
+                    calls_with_args: vec![],
+                }),
+            )
         }
     };
 
@@ -419,7 +424,10 @@ pub fn parse_to_ir(
     // Non-fatal: file may have syntax errors or unsupported language.
     match data_flow_result {
         Ok(df) => ir.enrich_with_data_flow(&df),
-        Err(e) => warn!("Data flow extraction failed for {}: {} (non-fatal, skipping enrichment)", path, e),
+        Err(e) => warn!(
+            "Data flow extraction failed for {}: {} (non-fatal, skipping enrichment)",
+            path, e
+        ),
     }
 
     // Store in cache for future lookups.
@@ -477,9 +485,7 @@ pub fn parse_all_to_ir(
 pub fn parse_files_parallel(files: &[(&str, &str)]) -> Vec<ParsedFile> {
     let results: Vec<Result<ParsedFile, (String, crate::ast::AstError)>> = files
         .par_iter()
-        .map(|&(path, source)| {
-            ast::parse_file(path, source).map_err(|e| (path.to_string(), e))
-        })
+        .map(|&(path, source)| ast::parse_file(path, source).map_err(|e| (path.to_string(), e)))
         .collect();
 
     let mut parsed = Vec::with_capacity(files.len());
@@ -508,7 +514,13 @@ pub enum PipelineError {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
@@ -689,7 +701,13 @@ export function handle(req: any) {
     #[test]
     fn parse_to_ir_comments_only() {
         let engine = shared_engine();
-        let ir = parse_to_ir(engine, "src/comments.ts", "// just a comment\n/* block */\n", None).unwrap();
+        let ir = parse_to_ir(
+            engine,
+            "src/comments.ts",
+            "// just a comment\n/* block */\n",
+            None,
+        )
+        .unwrap();
         assert_eq!(ir.path, "src/comments.ts");
         assert!(ir.functions.is_empty());
     }
@@ -779,10 +797,7 @@ export function handle(req: any) {
             None,
         )
         .unwrap();
-        assert_eq!(
-            ir.path,
-            "packages/core/src/modules/auth/handlers/login.ts"
-        );
+        assert_eq!(ir.path, "packages/core/src/modules/auth/handlers/login.ts");
     }
 
     #[test]
@@ -897,7 +912,10 @@ export function handler() {
         let engine = shared_engine();
         let files = vec![
             ("a.ts", "export function a() {}"),
-            ("b.ts", "import { a } from './a'; export function b() { a(); }"),
+            (
+                "b.ts",
+                "import { a } from './a'; export function b() { a(); }",
+            ),
             ("c.py", "def c(): pass"),
         ];
         let (ir1, err1) = parse_all_to_ir(engine, &files, None);
@@ -986,7 +1004,12 @@ export function handler() {
     #[test]
     fn parse_files_parallel_many_files() {
         let sources: Vec<(String, String)> = (0..50)
-            .map(|i| (format!("src/file_{:03}.ts", i), format!("function f{}() {{}}", i)))
+            .map(|i| {
+                (
+                    format!("src/file_{:03}.ts", i),
+                    format!("function f{}() {{}}", i),
+                )
+            })
             .collect();
         let files: Vec<(&str, &str)> = sources
             .iter()
@@ -1122,7 +1145,7 @@ export function handler() {
             ("src/app.ts", "export function app() {}"),
             ("data.csv", "a,b,c\n1,2,3"),
             ("image.png", "PNG binary-like content"), // non-code content
-            ("src/main.rs", "fn main() {}"),      // Rust not yet supported by query engine
+            ("src/main.rs", "fn main() {}"),          // Rust not yet supported by query engine
         ];
         let parsed = parse_files_parallel(&files);
         // Should not panic. The exact count depends on which languages are supported,
@@ -1306,8 +1329,8 @@ const message = "日本語テスト";
 
         // Parse batch with one cached and one new file.
         let files = vec![
-            ("src/a.ts", "function a() {}"),  // hit
-            ("src/c.ts", "function c() {}"),  // miss
+            ("src/a.ts", "function a() {}"), // hit
+            ("src/c.ts", "function c() {}"), // miss
         ];
         let (ir_files, errors) = parse_all_to_ir(engine, &files, Some(&cache));
         assert!(errors.is_empty());
@@ -1440,7 +1463,8 @@ export function handler(req: Request) {
 
         // Load from disk and retrieve.
         let dc2 = DiskIrCache::load(tmp.path());
-        let ir_from_disk = parse_to_ir(engine, "src/handler.ts", source, Some(dc2.memory())).unwrap();
+        let ir_from_disk =
+            parse_to_ir(engine, "src/handler.ts", source, Some(dc2.memory())).unwrap();
 
         // Must be byte-identical via JSON serialization.
         let json_uncached = serde_json::to_string(&ir_uncached).unwrap();
@@ -1461,7 +1485,11 @@ export function handler(req: Request) {
         // Simulating --no-cache: just don't load disk cache, use plain IrCache.
         let memory_only = IrCache::new();
         let _ = parse_to_ir(engine, "src/a.ts", "function a() {}", Some(&memory_only)).unwrap();
-        assert_eq!(memory_only.hits(), 0, "no-cache means no pre-loaded entries");
+        assert_eq!(
+            memory_only.hits(),
+            0,
+            "no-cache means no pre-loaded entries"
+        );
         assert_eq!(memory_only.misses(), 1);
     }
 
@@ -1489,7 +1517,10 @@ export function handler(req: Request) {
         // With 1 byte limit, most (if not all) entries should be evicted.
         // At most 1 can remain (the last one written may be ≤ 1 byte? No, it'll be larger).
         // Actually all should be evicted since even one bincode entry is > 1 byte.
-        assert!(remaining.is_empty(), "all entries should be evicted with 1-byte limit");
+        assert!(
+            remaining.is_empty(),
+            "all entries should be evicted with 1-byte limit"
+        );
     }
 
     #[test]

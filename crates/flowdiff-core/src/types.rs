@@ -246,7 +246,13 @@ pub struct AnalysisOutput {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
@@ -900,9 +906,12 @@ mod tests {
         }
 
         fn arb_symbol() -> impl Strategy<Value = Symbol> {
-            ("[a-zA-Z_][a-zA-Z0-9_]{0,30}", "[a-z/]{1,50}\\.ts", arb_symbol_kind()).prop_map(
-                |(name, file, kind)| Symbol { name, file, kind },
+            (
+                "[a-zA-Z_][a-zA-Z0-9_]{0,30}",
+                "[a-z/]{1,50}\\.ts",
+                arb_symbol_kind(),
             )
+                .prop_map(|(name, file, kind)| Symbol { name, file, kind })
         }
 
         fn arb_flow_edge() -> impl Strategy<Value = FlowEdge> {
@@ -914,11 +923,10 @@ mod tests {
         }
 
         fn arb_change_stats() -> impl Strategy<Value = ChangeStats> {
-            (0u32..10000, 0u32..10000)
-                .prop_map(|(additions, deletions)| ChangeStats {
-                    additions,
-                    deletions,
-                })
+            (0u32..10000, 0u32..10000).prop_map(|(additions, deletions)| ChangeStats {
+                additions,
+                deletions,
+            })
         }
 
         fn arb_rank_weights() -> impl Strategy<Value = RankWeights> {
@@ -1091,7 +1099,11 @@ mod tests {
         set.insert(InfraCategory::Generated);
         set.insert(InfraCategory::DirectoryGroup);
         set.insert(InfraCategory::Unclassified);
-        assert_eq!(set.len(), 11, "all 11 InfraCategory variants should be distinct");
+        assert_eq!(
+            set.len(),
+            11,
+            "all 11 InfraCategory variants should be distinct"
+        );
     }
 
     #[test]
@@ -1147,6 +1159,9 @@ mod tests {
         };
         let json = serde_json::to_string(&ig).unwrap();
         // sub_groups should be skipped when empty
-        assert!(!json.contains("sub_groups"), "empty sub_groups should not be serialized");
+        assert!(
+            !json.contains("sub_groups"),
+            "empty sub_groups should not be serialized"
+        );
     }
 }

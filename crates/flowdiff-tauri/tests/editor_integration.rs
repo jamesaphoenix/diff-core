@@ -148,7 +148,9 @@ fn require_editor_tests() -> bool {
 
 #[test]
 fn open_in_editor_accepts_all_known_editors_with_valid_file() {
-    if !require_editor_tests() { return; }
+    if !require_editor_tests() {
+        return;
+    }
 
     let tmp = std::env::temp_dir().join("flowdiff_inttest_known_editors");
     std::fs::write(&tmp, "test content").unwrap();
@@ -174,21 +176,26 @@ fn open_in_editor_accepts_all_known_editors_with_valid_file() {
 
 #[test]
 fn open_in_editor_with_directory_path_for_terminal() {
-    if !require_editor_tests() { return; }
+    if !require_editor_tests() {
+        return;
+    }
 
     // Terminal editor should accept directory paths (opens terminal in that dir)
     let dir = std::env::temp_dir();
-    let result = open_in_editor(
-        "terminal".to_string(),
-        dir.to_str().unwrap().to_string(),
-    );
+    let result = open_in_editor("terminal".to_string(), dir.to_str().unwrap().to_string());
     // Should succeed (terminal is always available)
-    assert!(result.is_ok(), "Terminal should open directory: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Terminal should open directory: {:?}",
+        result
+    );
 }
 
 #[test]
 fn open_in_editor_with_spaces_in_path() {
-    if !require_editor_tests() { return; }
+    if !require_editor_tests() {
+        return;
+    }
 
     let dir = std::env::temp_dir().join("flowdiff inttest dir with spaces");
     std::fs::create_dir_all(&dir).ok();
@@ -196,10 +203,7 @@ fn open_in_editor_with_spaces_in_path() {
     std::fs::write(&file, "test content with spaces").unwrap();
 
     // Should not crash or error on file-exists check
-    let result = open_in_editor(
-        "terminal".to_string(),
-        file.to_str().unwrap().to_string(),
-    );
+    let result = open_in_editor("terminal".to_string(), file.to_str().unwrap().to_string());
     // Terminal opens the parent dir, should work
     assert!(
         result.is_ok(),
@@ -213,16 +217,15 @@ fn open_in_editor_with_spaces_in_path() {
 
 #[test]
 fn open_in_editor_with_unicode_filename() {
-    if !require_editor_tests() { return; }
+    if !require_editor_tests() {
+        return;
+    }
 
     let tmp = std::env::temp_dir().join("flowdiff_inttest_ünîcödé.txt");
     std::fs::write(&tmp, "unicode content").unwrap();
 
     // Should not crash on unicode paths
-    let result = open_in_editor(
-        "terminal".to_string(),
-        tmp.to_str().unwrap().to_string(),
-    );
+    let result = open_in_editor("terminal".to_string(), tmp.to_str().unwrap().to_string());
     assert!(
         result.is_ok(),
         "Terminal should handle unicode paths: {:?}",

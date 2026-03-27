@@ -208,27 +208,28 @@ impl LlmProvider for VcrProvider {
         self.inner.max_context_tokens()
     }
 
-    async fn annotate_overview(
-        &self,
-        request: &Pass1Request,
-    ) -> Result<Pass1Response, LlmError> {
+    async fn annotate_overview(&self, request: &Pass1Request) -> Result<Pass1Response, LlmError> {
         let request_json = serde_json::to_string(request).map_err(|e| {
             LlmError::ParseResponse(format!("Failed to serialize request for VCR key: {}", e))
         })?;
         let template_hash = Self::pass1_template_hash();
-        let key = Self::cache_key(self.inner.name(), self.inner.model(), &request_json, &template_hash);
+        let key = Self::cache_key(
+            self.inner.name(),
+            self.inner.model(),
+            &request_json,
+            &template_hash,
+        );
         let path = self.cache_path("pass1", &key);
 
         match self.mode {
-            VcrMode::Replay => {
-                self.read_cache::<Pass1Response>(&path, &template_hash)
-                    .ok_or_else(|| {
-                        LlmError::ParseResponse(format!(
-                            "VCR replay: no cached entry at {}",
-                            path.display()
-                        ))
-                    })
-            }
+            VcrMode::Replay => self
+                .read_cache::<Pass1Response>(&path, &template_hash)
+                .ok_or_else(|| {
+                    LlmError::ParseResponse(format!(
+                        "VCR replay: no cached entry at {}",
+                        path.display()
+                    ))
+                }),
             VcrMode::Record => {
                 let response = self.inner.annotate_overview(request).await?;
                 self.write_cache(&path, &key, &template_hash, &response)?;
@@ -245,27 +246,28 @@ impl LlmProvider for VcrProvider {
         }
     }
 
-    async fn annotate_group(
-        &self,
-        request: &Pass2Request,
-    ) -> Result<Pass2Response, LlmError> {
+    async fn annotate_group(&self, request: &Pass2Request) -> Result<Pass2Response, LlmError> {
         let request_json = serde_json::to_string(request).map_err(|e| {
             LlmError::ParseResponse(format!("Failed to serialize request for VCR key: {}", e))
         })?;
         let template_hash = Self::pass2_template_hash();
-        let key = Self::cache_key(self.inner.name(), self.inner.model(), &request_json, &template_hash);
+        let key = Self::cache_key(
+            self.inner.name(),
+            self.inner.model(),
+            &request_json,
+            &template_hash,
+        );
         let path = self.cache_path("pass2", &key);
 
         match self.mode {
-            VcrMode::Replay => {
-                self.read_cache::<Pass2Response>(&path, &template_hash)
-                    .ok_or_else(|| {
-                        LlmError::ParseResponse(format!(
-                            "VCR replay: no cached entry at {}",
-                            path.display()
-                        ))
-                    })
-            }
+            VcrMode::Replay => self
+                .read_cache::<Pass2Response>(&path, &template_hash)
+                .ok_or_else(|| {
+                    LlmError::ParseResponse(format!(
+                        "VCR replay: no cached entry at {}",
+                        path.display()
+                    ))
+                }),
             VcrMode::Record => {
                 let response = self.inner.annotate_group(request).await?;
                 self.write_cache(&path, &key, &template_hash, &response)?;
@@ -282,27 +284,28 @@ impl LlmProvider for VcrProvider {
         }
     }
 
-    async fn evaluate_quality(
-        &self,
-        request: &JudgeRequest,
-    ) -> Result<JudgeResponse, LlmError> {
+    async fn evaluate_quality(&self, request: &JudgeRequest) -> Result<JudgeResponse, LlmError> {
         let request_json = serde_json::to_string(request).map_err(|e| {
             LlmError::ParseResponse(format!("Failed to serialize request for VCR key: {}", e))
         })?;
         let template_hash = Self::judge_template_hash();
-        let key = Self::cache_key(self.inner.name(), self.inner.model(), &request_json, &template_hash);
+        let key = Self::cache_key(
+            self.inner.name(),
+            self.inner.model(),
+            &request_json,
+            &template_hash,
+        );
         let path = self.cache_path("judge", &key);
 
         match self.mode {
-            VcrMode::Replay => {
-                self.read_cache::<JudgeResponse>(&path, &template_hash)
-                    .ok_or_else(|| {
-                        LlmError::ParseResponse(format!(
-                            "VCR replay: no cached entry at {}",
-                            path.display()
-                        ))
-                    })
-            }
+            VcrMode::Replay => self
+                .read_cache::<JudgeResponse>(&path, &template_hash)
+                .ok_or_else(|| {
+                    LlmError::ParseResponse(format!(
+                        "VCR replay: no cached entry at {}",
+                        path.display()
+                    ))
+                }),
             VcrMode::Record => {
                 let response = self.inner.evaluate_quality(request).await?;
                 self.write_cache(&path, &key, &template_hash, &response)?;
@@ -327,8 +330,12 @@ impl LlmProvider for VcrProvider {
             LlmError::ParseResponse(format!("Failed to serialize request for VCR key: {}", e))
         })?;
         let template_hash = Self::refinement_template_hash();
-        let key =
-            Self::cache_key(self.inner.name(), self.inner.model(), &request_json, &template_hash);
+        let key = Self::cache_key(
+            self.inner.name(),
+            self.inner.model(),
+            &request_json,
+            &template_hash,
+        );
         let path = self.cache_path("refinement", &key);
 
         match self.mode {
@@ -346,9 +353,7 @@ impl LlmProvider for VcrProvider {
                 Ok(response)
             }
             VcrMode::Auto => {
-                if let Some(cached) =
-                    self.read_cache::<RefinementResponse>(&path, &template_hash)
-                {
+                if let Some(cached) = self.read_cache::<RefinementResponse>(&path, &template_hash) {
                     return Ok(cached);
                 }
                 let response = self.inner.refine_groups(request).await?;
@@ -360,7 +365,13 @@ impl LlmProvider for VcrProvider {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
     use crate::llm::schema::{
@@ -412,10 +423,7 @@ mod tests {
             })
         }
 
-        async fn annotate_group(
-            &self,
-            _request: &Pass2Request,
-        ) -> Result<Pass2Response, LlmError> {
+        async fn annotate_group(&self, _request: &Pass2Request) -> Result<Pass2Response, LlmError> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             Ok(Pass2Response {
                 group_id: "g1".to_string(),
@@ -525,7 +533,11 @@ mod tests {
         let replayed = vcr2.annotate_overview(&sample_pass1()).await.unwrap();
         assert_eq!(replayed.groups[0].id, "g1");
         assert_eq!(replayed.overall_summary, "Mock overall");
-        assert_eq!(call_count2.load(Ordering::SeqCst), 0, "Should not call real provider in replay mode");
+        assert_eq!(
+            call_count2.load(Ordering::SeqCst),
+            0,
+            "Should not call real provider in replay mode"
+        );
     }
 
     #[tokio::test]
@@ -565,7 +577,11 @@ mod tests {
 
         // Second call: hit → reads from cache
         let r2 = vcr.annotate_overview(&sample_pass1()).await.unwrap();
-        assert_eq!(call_count.load(Ordering::SeqCst), 1, "Should use cache on second call");
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "Should use cache on second call"
+        );
         assert_eq!(r1, r2);
     }
 
@@ -650,7 +666,11 @@ mod tests {
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
 
         let r2 = vcr.evaluate_quality(&sample_judge()).await.unwrap();
-        assert_eq!(call_count.load(Ordering::SeqCst), 1, "Should use cache on second call");
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "Should use cache on second call"
+        );
         assert_eq!(r1, r2);
     }
 
@@ -704,7 +724,11 @@ mod tests {
 
         let _ = vcr.annotate_overview(&req1).await.unwrap();
         let _ = vcr.annotate_overview(&req2).await.unwrap();
-        assert_eq!(call_count.load(Ordering::SeqCst), 2, "Different requests should both call provider");
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            2,
+            "Different requests should both call provider"
+        );
     }
 
     // ── Cache Key Determinism ──
@@ -856,7 +880,11 @@ mod tests {
         // Record twice with same request
         let _ = vcr.annotate_overview(&sample_pass1()).await.unwrap();
         let _ = vcr.annotate_overview(&sample_pass1()).await.unwrap();
-        assert_eq!(call_count.load(Ordering::SeqCst), 2, "Record mode always calls provider");
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            2,
+            "Record mode always calls provider"
+        );
 
         // Only one cache file (overwritten)
         assert_eq!(vcr.list_entries().len(), 1);
@@ -891,7 +919,10 @@ mod tests {
         let vcr = VcrProvider::new(Box::new(mock), tmp.path().to_path_buf(), VcrMode::Replay);
 
         let result = vcr.read_cache::<Pass1Response>(&cache_path, "new_template_hash");
-        assert!(result.is_none(), "Should invalidate cache when template hash differs");
+        assert!(
+            result.is_none(),
+            "Should invalidate cache when template hash differs"
+        );
 
         // Same template hash should work
         let result = vcr.read_cache::<Pass1Response>(&cache_path, "old_template_hash");

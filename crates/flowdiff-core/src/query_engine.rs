@@ -163,12 +163,11 @@ impl QueryWithCaptures {
         lang_name: &str,
         category: &str,
     ) -> Result<Self, QueryEngineError> {
-        let query =
-            Query::new(lang, source).map_err(|e| QueryEngineError::QueryCompilation {
-                language: lang_name.to_string(),
-                category: category.to_string(),
-                detail: e.to_string(),
-            })?;
+        let query = Query::new(lang, source).map_err(|e| QueryEngineError::QueryCompilation {
+            language: lang_name.to_string(),
+            category: category.to_string(),
+            detail: e.to_string(),
+        })?;
         let mut capture_names = HashMap::new();
         for (i, name) in query.capture_names().iter().enumerate() {
             capture_names.insert(name.to_string(), i as u32);
@@ -227,8 +226,7 @@ fn collect_matches<'tree>(
         matches.advance();
         match matches.get() {
             Some(m) => {
-                let caps: Vec<(u32, Node)> =
-                    m.captures.iter().map(|c| (c.index, c.node)).collect();
+                let caps: Vec<(u32, Node)> = m.captures.iter().map(|c| (c.index, c.node)).collect();
                 result.push(CollectedMatch { captures: caps });
             }
             None => break,
@@ -345,10 +343,8 @@ impl QueryEngine {
         let root = tree.root_node();
         let src = source.as_bytes();
 
-        let assignments =
-            self.extract_assignments(&root, src, &lq.assignments, language)?;
-        let calls_with_args =
-            self.extract_calls_with_args(&root, src, &lq.calls, language)?;
+        let assignments = self.extract_assignments(&root, src, &lq.assignments, language)?;
+        let calls_with_args = self.extract_calls_with_args(&root, src, &lq.calls, language)?;
 
         Ok(DataFlowInfo {
             assignments,
@@ -574,9 +570,7 @@ impl QueryEngine {
             let parser = parsers.get_mut(&language).unwrap();
             parser
                 .parse(source, None)
-                .ok_or_else(|| {
-                    QueryEngineError::ParseError("tree-sitter failed to parse".into())
-                })
+                .ok_or_else(|| QueryEngineError::ParseError("tree-sitter failed to parse".into()))
         })
     }
 
@@ -640,10 +634,8 @@ impl QueryEngine {
         let root = tree.root_node();
         let src = source.as_bytes();
 
-        let assignments =
-            self.extract_assignments(&root, src, &lq.assignments, language)?;
-        let calls_with_args =
-            self.extract_calls_with_args(&root, src, &lq.calls, language)?;
+        let assignments = self.extract_assignments(&root, src, &lq.assignments, language)?;
+        let calls_with_args = self.extract_calls_with_args(&root, src, &lq.calls, language)?;
 
         Ok(DataFlowInfo {
             assignments,
@@ -890,8 +882,7 @@ impl QueryEngine {
                     }
                 }
                 if !src.is_empty() && !imported.is_empty() {
-                    let entry =
-                        get_or_insert_import(&mut import_map, stmt_start, &src, line);
+                    let entry = get_or_insert_import(&mut import_map, stmt_start, &src, line);
                     entry.names.retain(|n| n.name != imported);
                     entry.names.push(ImportedName {
                         name: imported,
@@ -911,8 +902,7 @@ impl QueryEngine {
                     }
                 }
                 if !src.is_empty() {
-                    let entry =
-                        get_or_insert_import(&mut import_map, stmt_start, &src, line);
+                    let entry = get_or_insert_import(&mut import_map, stmt_start, &src, line);
                     if !imported.is_empty() {
                         entry.names.push(ImportedName {
                             name: imported,
@@ -937,8 +927,7 @@ impl QueryEngine {
                     }
                 }
                 if !src.is_empty() && !imported.is_empty() {
-                    let entry =
-                        get_or_insert_import(&mut import_map, stmt_start, &src, line);
+                    let entry = get_or_insert_import(&mut import_map, stmt_start, &src, line);
                     entry.names.retain(|n| n.name != imported);
                     entry.names.push(ImportedName {
                         name: imported,
@@ -954,8 +943,7 @@ impl QueryEngine {
                     }
                 }
                 if !src.is_empty() {
-                    let entry =
-                        get_or_insert_import(&mut import_map, stmt_start, &src, line);
+                    let entry = get_or_insert_import(&mut import_map, stmt_start, &src, line);
                     entry.names.push(ImportedName {
                         name: "*".to_string(),
                         alias: None,
@@ -974,11 +962,8 @@ impl QueryEngine {
                     }
                 }
                 if !src.is_empty() {
-                    let entry =
-                        get_or_insert_import(&mut import_map, stmt_start, &src, line);
-                    if !imported.is_empty()
-                        && !entry.names.iter().any(|n| n.name == imported)
-                    {
+                    let entry = get_or_insert_import(&mut import_map, stmt_start, &src, line);
+                    if !imported.is_empty() && !entry.names.iter().any(|n| n.name == imported) {
                         entry.names.push(ImportedName {
                             name: imported,
                             alias: None,
@@ -998,8 +983,7 @@ impl QueryEngine {
                     }
                 }
                 if !name.is_empty() {
-                    let entry =
-                        get_or_insert_import(&mut import_map, stmt_start, &name, line);
+                    let entry = get_or_insert_import(&mut import_map, stmt_start, &name, line);
                     entry.is_namespace = true;
                     entry.names.push(ImportedName {
                         name,
@@ -1011,8 +995,7 @@ impl QueryEngine {
                 for &(idx, node) in &m.captures {
                     if Some(idx) == module_name_idx {
                         let name = node_text(&node, source).to_string();
-                        let entry =
-                            get_or_insert_import(&mut import_map, stmt_start, &name, line);
+                        let entry = get_or_insert_import(&mut import_map, stmt_start, &name, line);
                         entry.is_namespace = true;
                         entry.names.push(ImportedName {
                             name: name.clone(),
@@ -1194,7 +1177,11 @@ impl QueryEngine {
                 entry.names.retain(|n| n.name != imported);
                 entry.names.push(ImportedName {
                     name: imported,
-                    alias: if alias_val.is_empty() { None } else { Some(alias_val) },
+                    alias: if alias_val.is_empty() {
+                        None
+                    } else {
+                        Some(alias_val)
+                    },
                 });
             } else if m.has_capture(alias_name_idx) {
                 // use std::io as stdio;
@@ -1959,8 +1946,7 @@ impl QueryEngine {
                         let mut sel_cursor = child.walk();
                         for sel_child in child.children(&mut sel_cursor) {
                             if sel_child.kind() == "identifier" {
-                                named_imports
-                                    .push(node_text(&sel_child, source).to_string());
+                                named_imports.push(node_text(&sel_child, source).to_string());
                             }
                         }
                     }
@@ -2080,9 +2066,7 @@ impl QueryEngine {
                 }
             }
 
-            let is_default = stmt_node
-                .map(|n| has_default_keyword(&n))
-                .unwrap_or(false);
+            let is_default = stmt_node.map(|n| has_default_keyword(&n)).unwrap_or(false);
 
             if m.has_capture(reexport_name_idx) {
                 // export { baz } from './other'
@@ -2308,7 +2292,9 @@ impl QueryEngine {
                             .get_capture(const_value_idx)
                             .map(|n| {
                                 let k = n.kind();
-                                k == "arrow_function" || k == "function" || k == "function_expression"
+                                k == "arrow_function"
+                                    || k == "function"
+                                    || k == "function_expression"
                             })
                             .unwrap_or(false);
                         if has_fn_value {
@@ -2319,8 +2305,7 @@ impl QueryEngine {
                             .get_capture(const_name_idx)
                             .map(|n| node_text(&n, source).to_string())
                             .unwrap_or_default();
-                        let (start_line, end_line, node_start) =
-                            node_span(m, const_node_idx);
+                        let (start_line, end_line, node_start) = node_span(m, const_node_idx);
                         if !name_text.is_empty() {
                             let key = (node_start, hash_str(&name_text));
                             if !seen_nodes.contains(&key) {
@@ -2343,8 +2328,7 @@ impl QueryEngine {
                                 .get_capture(name_cap)
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
                                 let key = (node_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
@@ -2380,8 +2364,16 @@ impl QueryEngine {
                 let py_def_captures: &[(Option<u32>, Option<u32>, SymbolKind)] = &[
                     (fn_name_idx, fn_node_idx, SymbolKind::Function),
                     (class_name_idx, class_node_idx, SymbolKind::Class),
-                    (decorated_fn_name_idx, decorated_fn_node_idx, SymbolKind::Function),
-                    (decorated_class_name_idx, decorated_class_node_idx, SymbolKind::Class),
+                    (
+                        decorated_fn_name_idx,
+                        decorated_fn_node_idx,
+                        SymbolKind::Function,
+                    ),
+                    (
+                        decorated_class_name_idx,
+                        decorated_class_node_idx,
+                        SymbolKind::Class,
+                    ),
                     (method_name_idx, method_node_idx, SymbolKind::Function),
                     (
                         decorated_method_name_idx,
@@ -2397,16 +2389,13 @@ impl QueryEngine {
                             let name_text = name_node
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, _node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, _node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
                                 // Dedup by name node start byte (not outer node) to
                                 // prevent decorated functions/classes from being counted
                                 // twice — the bare pattern and decorated pattern share
                                 // the same inner name identifier node.
-                                let name_start = name_node
-                                    .map(|n| n.start_byte())
-                                    .unwrap_or(0);
+                                let name_start = name_node.map(|n| n.start_byte()).unwrap_or(0);
                                 let key = (name_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
                                     seen_nodes.push(key);
@@ -2456,8 +2445,7 @@ impl QueryEngine {
                                 .get_capture(name_cap)
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
                                 let key = (node_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
@@ -2497,7 +2485,11 @@ impl QueryEngine {
                     (class_name_idx, class_node_idx, SymbolKind::Class),
                     (iface_name_idx, iface_node_idx, SymbolKind::Interface),
                     (enum_name_idx, enum_node_idx, SymbolKind::Class),
-                    (annotation_name_idx, annotation_node_idx, SymbolKind::Interface),
+                    (
+                        annotation_name_idx,
+                        annotation_node_idx,
+                        SymbolKind::Interface,
+                    ),
                     (field_name_idx, field_node_idx, SymbolKind::Constant),
                 ];
 
@@ -2508,8 +2500,7 @@ impl QueryEngine {
                                 .get_capture(name_cap)
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
                                 let key = (node_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
@@ -2566,8 +2557,7 @@ impl QueryEngine {
                                 .get_capture(name_cap)
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
                                 let key = (node_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
@@ -2627,8 +2617,7 @@ impl QueryEngine {
                                 .get_capture(name_cap)
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
                                 let key = (node_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
@@ -2679,12 +2668,9 @@ impl QueryEngine {
                             let name_text = name_node
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, _node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, _node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
-                                let name_start = name_node
-                                    .map(|n| n.start_byte())
-                                    .unwrap_or(0);
+                                let name_start = name_node.map(|n| n.start_byte()).unwrap_or(0);
                                 let key = (name_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
                                     seen_nodes.push(key);
@@ -2715,7 +2701,11 @@ impl QueryEngine {
 
                 let ruby_def_captures: &[(Option<u32>, Option<u32>, SymbolKind)] = &[
                     (method_name_idx, method_node_idx, SymbolKind::Function),
-                    (singleton_method_name_idx, singleton_method_node_idx, SymbolKind::Function),
+                    (
+                        singleton_method_name_idx,
+                        singleton_method_node_idx,
+                        SymbolKind::Function,
+                    ),
                     (class_name_idx, class_node_idx, SymbolKind::Class),
                     (module_name_idx, module_node_idx, SymbolKind::Module),
                     (const_name_idx, const_node_idx, SymbolKind::Constant),
@@ -2728,12 +2718,9 @@ impl QueryEngine {
                             let name_text = name_node
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, _node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, _node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
-                                let name_start = name_node
-                                    .map(|n| n.start_byte())
-                                    .unwrap_or(0);
+                                let name_start = name_node.map(|n| n.start_byte()).unwrap_or(0);
                                 let key = (name_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
                                     seen_nodes.push(key);
@@ -2767,7 +2754,11 @@ impl QueryEngine {
                     (class_name_idx, class_node_idx, SymbolKind::Class),
                     (object_name_idx, object_node_idx, SymbolKind::Class),
                     (prop_name_idx, prop_node_idx, SymbolKind::Constant),
-                    (typealias_name_idx, typealias_node_idx, SymbolKind::TypeAlias),
+                    (
+                        typealias_name_idx,
+                        typealias_node_idx,
+                        SymbolKind::TypeAlias,
+                    ),
                 ];
 
                 for m in &matches {
@@ -2777,12 +2768,9 @@ impl QueryEngine {
                             let name_text = name_node
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, _node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, _node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
-                                let name_start = name_node
-                                    .map(|n| n.start_byte())
-                                    .unwrap_or(0);
+                                let name_start = name_node.map(|n| n.start_byte()).unwrap_or(0);
                                 let key = (name_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
                                     seen_nodes.push(key);
@@ -2817,9 +2805,17 @@ impl QueryEngine {
                     (func_name_idx, func_node_idx, SymbolKind::Function),
                     (class_name_idx, class_node_idx, SymbolKind::Class),
                     (protocol_name_idx, protocol_node_idx, SymbolKind::Interface),
-                    (proto_func_name_idx, proto_func_node_idx, SymbolKind::Function),
+                    (
+                        proto_func_name_idx,
+                        proto_func_node_idx,
+                        SymbolKind::Function,
+                    ),
                     (prop_name_idx, prop_node_idx, SymbolKind::Constant),
-                    (typealias_name_idx, typealias_node_idx, SymbolKind::TypeAlias),
+                    (
+                        typealias_name_idx,
+                        typealias_node_idx,
+                        SymbolKind::TypeAlias,
+                    ),
                 ];
 
                 for m in &matches {
@@ -2829,12 +2825,9 @@ impl QueryEngine {
                             let name_text = name_node
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, _node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, _node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
-                                let name_start = name_node
-                                    .map(|n| n.start_byte())
-                                    .unwrap_or(0);
+                                let name_start = name_node.map(|n| n.start_byte()).unwrap_or(0);
                                 let key = (name_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
                                     seen_nodes.push(key);
@@ -2881,12 +2874,9 @@ impl QueryEngine {
                             let name_text = name_node
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, _node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, _node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
-                                let name_start = name_node
-                                    .map(|n| n.start_byte())
-                                    .unwrap_or(0);
+                                let name_start = name_node.map(|n| n.start_byte()).unwrap_or(0);
                                 let key = (name_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
                                     seen_nodes.push(key);
@@ -2931,8 +2921,16 @@ impl QueryEngine {
                     (enum_name_idx, enum_node_idx, SymbolKind::Class),
                     (namespace_name_idx, namespace_node_idx, SymbolKind::Module),
                     (alias_name_idx, alias_node_idx, SymbolKind::TypeAlias),
-                    (template_func_name_idx, template_func_node_idx, SymbolKind::Function),
-                    (template_class_name_idx, template_class_node_idx, SymbolKind::Class),
+                    (
+                        template_func_name_idx,
+                        template_func_node_idx,
+                        SymbolKind::Function,
+                    ),
+                    (
+                        template_class_name_idx,
+                        template_class_node_idx,
+                        SymbolKind::Class,
+                    ),
                 ];
 
                 for m in &matches {
@@ -2942,12 +2940,9 @@ impl QueryEngine {
                             let name_text = name_node
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, _node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, _node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
-                                let name_start = name_node
-                                    .map(|n| n.start_byte())
-                                    .unwrap_or(0);
+                                let name_start = name_node.map(|n| n.start_byte()).unwrap_or(0);
                                 let key = (name_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
                                     seen_nodes.push(key);
@@ -2984,7 +2979,11 @@ impl QueryEngine {
                     (trait_name_idx, trait_node_idx, SymbolKind::Interface),
                     (object_name_idx, object_node_idx, SymbolKind::Class),
                     (prop_name_idx, prop_node_idx, SymbolKind::Constant),
-                    (typealias_name_idx, typealias_node_idx, SymbolKind::TypeAlias),
+                    (
+                        typealias_name_idx,
+                        typealias_node_idx,
+                        SymbolKind::TypeAlias,
+                    ),
                 ];
 
                 for m in &matches {
@@ -2994,12 +2993,9 @@ impl QueryEngine {
                             let name_text = name_node
                                 .map(|n| node_text(&n, source).to_string())
                                 .unwrap_or_default();
-                            let (start_line, end_line, _node_start) =
-                                node_span(m, node_cap);
+                            let (start_line, end_line, _node_start) = node_span(m, node_cap);
                             if !name_text.is_empty() {
-                                let name_start = name_node
-                                    .map(|n| n.start_byte())
-                                    .unwrap_or(0);
+                                let name_start = name_node.map(|n| n.start_byte()).unwrap_or(0);
                                 let key = (name_start, hash_str(&name_text));
                                 if !seen_nodes.contains(&key) {
                                     seen_nodes.push(key);
@@ -3384,7 +3380,13 @@ fn shared_test_engine() -> &'static QueryEngine {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
@@ -3544,9 +3546,7 @@ import * as path from 'path';
     #[test]
     fn test_ts_wildcard_reexport() {
         let e = engine();
-        let result = e
-            .parse_file("lib.ts", "export * from './other';")
-            .unwrap();
+        let result = e.parse_file("lib.ts", "export * from './other';").unwrap();
         let exp = result.exports.iter().find(|e| e.name == "*").unwrap();
         assert!(exp.is_reexport);
         assert_eq!(exp.source, Some("./other".to_string()));
@@ -3555,9 +3555,7 @@ import * as path from 'path';
     #[test]
     fn test_ts_export_const() {
         let e = engine();
-        let result = e
-            .parse_file("lib.ts", "export const VALUE = 42;")
-            .unwrap();
+        let result = e.parse_file("lib.ts", "export const VALUE = 42;").unwrap();
         assert!(result.exports.iter().any(|e| e.name == "VALUE"));
         assert!(result.definitions.iter().any(|d| d.name == "VALUE"));
     }
@@ -3619,9 +3617,7 @@ import * as path from 'path';
     #[test]
     fn test_ts_arrow_function_def() {
         let e = engine();
-        let result = e
-            .parse_file("lib.ts", "const greet = () => {};")
-            .unwrap();
+        let result = e.parse_file("lib.ts", "const greet = () => {};").unwrap();
         let def = result
             .definitions
             .iter()
@@ -3634,11 +3630,7 @@ import * as path from 'path';
     fn test_ts_const_value_def() {
         let e = engine();
         let result = e.parse_file("lib.ts", "const MAX = 100;").unwrap();
-        let def = result
-            .definitions
-            .iter()
-            .find(|d| d.name == "MAX")
-            .unwrap();
+        let def = result.definitions.iter().find(|d| d.name == "MAX").unwrap();
         assert_eq!(def.kind, SymbolKind::Constant);
     }
 
@@ -3656,13 +3648,8 @@ import * as path from 'path';
     #[test]
     fn test_ts_method_call() {
         let e = engine();
-        let result = e
-            .parse_file("lib.ts", "console.log('hello');")
-            .unwrap();
-        assert!(result
-            .call_sites
-            .iter()
-            .any(|c| c.callee == "console.log"));
+        let result = e.parse_file("lib.ts", "console.log('hello');").unwrap();
+        assert!(result.call_sites.iter().any(|c| c.callee == "console.log"));
     }
 
     #[test]
@@ -3711,10 +3698,7 @@ import * as path from 'path';
             .unwrap();
         assert_eq!(df.calls_with_args.len(), 1);
         assert_eq!(df.calls_with_args[0].callee, "processData");
-        assert_eq!(
-            df.calls_with_args[0].arguments,
-            vec!["input", "config"]
-        );
+        assert_eq!(df.calls_with_args[0].arguments, vec!["input", "config"]);
     }
 
     // === Python imports ===
@@ -3731,15 +3715,10 @@ import * as path from 'path';
     #[test]
     fn test_python_aliased_import() {
         let e = engine();
-        let result = e
-            .parse_file("app.py", "import numpy as np")
-            .unwrap();
+        let result = e.parse_file("app.py", "import numpy as np").unwrap();
         assert_eq!(result.imports.len(), 1);
         assert_eq!(result.imports[0].source, "numpy");
-        assert_eq!(
-            result.imports[0].names[0].alias,
-            Some("np".to_string())
-        );
+        assert_eq!(result.imports[0].names[0].alias, Some("np".to_string()));
     }
 
     #[test]
@@ -3762,9 +3741,7 @@ import * as path from 'path';
     #[test]
     fn test_python_wildcard_import() {
         let e = engine();
-        let result = e
-            .parse_file("app.py", "from os.path import *")
-            .unwrap();
+        let result = e.parse_file("app.py", "from os.path import *").unwrap();
         assert_eq!(result.imports.len(), 1);
         assert!(result.imports[0].names.iter().any(|n| n.name == "*"));
     }
@@ -3841,10 +3818,7 @@ import * as path from 'path';
             .unwrap();
         assert_eq!(df.calls_with_args.len(), 1);
         assert_eq!(df.calls_with_args[0].callee, "process");
-        assert_eq!(
-            df.calls_with_args[0].arguments,
-            vec!["data", "config"]
-        );
+        assert_eq!(df.calls_with_args[0].arguments, vec!["data", "config"]);
     }
 
     #[test]
@@ -3854,10 +3828,7 @@ import * as path from 'path';
             .extract_data_flow("app.py", "connect(host='localhost', port=5432)")
             .unwrap();
         assert_eq!(df.calls_with_args.len(), 1);
-        assert_eq!(
-            df.calls_with_args[0].arguments,
-            vec!["'localhost'", "5432"]
-        );
+        assert_eq!(df.calls_with_args[0].arguments, vec!["'localhost'", "5432"]);
     }
 
     // === Unknown language ===
@@ -4056,7 +4027,13 @@ export function process(data: string) {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod lazy_init_tests {
     use super::*;
 
@@ -4142,9 +4119,7 @@ mod lazy_init_tests {
     fn extract_data_flow_triggers_lazy_init() {
         let engine = QueryEngine::new().unwrap();
         assert!(engine.py_queries.get().is_none());
-        let _ = engine
-            .extract_data_flow("main.py", "x = foo(1)")
-            .unwrap();
+        let _ = engine.extract_data_flow("main.py", "x = foo(1)").unwrap();
         assert!(engine.py_queries.get().is_some());
     }
 
@@ -4184,7 +4159,13 @@ mod lazy_init_tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod thread_local_parser_tests {
     use super::*;
 
@@ -4208,9 +4189,7 @@ mod thread_local_parser_tests {
     fn parser_reused_across_different_languages() {
         let engine = QueryEngine::new().unwrap();
 
-        let ts_result = engine
-            .parse_file("app.ts", "function hello() {}")
-            .unwrap();
+        let ts_result = engine.parse_file("app.ts", "function hello() {}").unwrap();
         let py_result = engine
             .parse_file("main.py", "def hello():\n    pass")
             .unwrap();
@@ -4250,15 +4229,11 @@ mod thread_local_parser_tests {
         let engine = QueryEngine::new().unwrap();
 
         // First call creates the parser for TypeScript.
-        let r1 = engine
-            .parse_tree_for_path("a.ts", "const x = 1;")
-            .unwrap();
+        let r1 = engine.parse_tree_for_path("a.ts", "const x = 1;").unwrap();
         assert!(r1.is_some());
 
         // Second call reuses the same thread-local parser.
-        let r2 = engine
-            .parse_tree_for_path("b.ts", "const y = 2;")
-            .unwrap();
+        let r2 = engine.parse_tree_for_path("b.ts", "const y = 2;").unwrap();
         assert!(r2.is_some());
     }
 
@@ -4298,11 +4273,7 @@ mod thread_local_parser_tests {
             assert_eq!(a.source, b.source);
             assert_eq!(a.names.len(), b.names.len());
         }
-        for (a, b) in r_fresh
-            .definitions
-            .iter()
-            .zip(r_reused.definitions.iter())
-        {
+        for (a, b) in r_fresh.definitions.iter().zip(r_reused.definitions.iter()) {
             assert_eq!(a.name, b.name);
             assert_eq!(a.kind, b.kind);
         }
@@ -4314,7 +4285,13 @@ mod thread_local_parser_tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod prop_tests {
     use super::*;
     use proptest::prelude::*;
@@ -4460,7 +4437,13 @@ mod prop_tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod audit_tests {
     use super::*;
 
@@ -4474,7 +4457,10 @@ mod audit_tests {
         let source = "abstract class Base { abstract process(): void; helper() {} }";
         let result = e.parse_file("base.ts", source).unwrap();
         assert!(
-            result.definitions.iter().any(|d| d.name == "Base" && d.kind == SymbolKind::Class),
+            result
+                .definitions
+                .iter()
+                .any(|d| d.name == "Base" && d.kind == SymbolKind::Class),
             "abstract classes should be captured"
         );
         assert!(result.definitions.iter().any(|d| d.name == "helper"));
@@ -4486,7 +4472,10 @@ mod audit_tests {
         let result = e
             .parse_file("gen.ts", "function* gen() { yield 1; }")
             .unwrap();
-        assert!(result.definitions.iter().any(|d| d.name == "gen" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "gen" && d.kind == SymbolKind::Function));
     }
 
     #[test]
@@ -4586,16 +4575,34 @@ mod audit_tests {
         let e = engine();
         let source = "@dataclass\nclass User:\n    name: str\n    def greet(self):\n        pass";
         let result = e.parse_file("models.py", source).unwrap();
-        assert!(result.definitions.iter().any(|d| d.name == "User" && d.kind == SymbolKind::Class));
-        assert!(result.definitions.iter().any(|d| d.name == "greet" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "User" && d.kind == SymbolKind::Class));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "greet" && d.kind == SymbolKind::Function));
     }
 
     #[test]
     fn test_hash_str_no_collision_for_common_names() {
         // Verify the hash function gives different results for common definition names
         let names = [
-            "foo", "bar", "baz", "get", "set", "create", "update", "delete",
-            "handler", "process", "validate", "transform", "save", "load",
+            "foo",
+            "bar",
+            "baz",
+            "get",
+            "set",
+            "create",
+            "update",
+            "delete",
+            "handler",
+            "process",
+            "validate",
+            "transform",
+            "save",
+            "load",
         ];
         let hashes: Vec<usize> = names.iter().map(|n| hash_str(n)).collect();
         for i in 0..hashes.len() {
@@ -4621,10 +4628,18 @@ function outer() {
 }
 "#;
         let result = e.parse_file("nested.ts", source).unwrap();
-        let deep = result.call_sites.iter().find(|c| c.callee == "deepCall").unwrap();
+        let deep = result
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "deepCall")
+            .unwrap();
         assert_eq!(deep.containing_function, Some("inner".to_string()));
 
-        let outer_call = result.call_sites.iter().find(|c| c.callee == "outerCall").unwrap();
+        let outer_call = result
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "outerCall")
+            .unwrap();
         assert_eq!(outer_call.containing_function, Some("outer".to_string()));
     }
 
@@ -4633,7 +4648,11 @@ function outer() {
         let e = engine();
         let source = "const handler = () => { innerCall(); };";
         let result = e.parse_file("fn.ts", source).unwrap();
-        let call = result.call_sites.iter().find(|c| c.callee == "innerCall").unwrap();
+        let call = result
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "innerCall")
+            .unwrap();
         assert_eq!(call.containing_function, Some("handler".to_string()));
     }
 
@@ -4662,7 +4681,10 @@ function outer() {
         let e = engine();
         let source = "class Router {\n    get() {}\n    post() {}\n    delete() {}\n}";
         let result = e.parse_file("router.ts", source).unwrap();
-        assert!(result.definitions.iter().any(|d| d.name == "Router" && d.kind == SymbolKind::Class));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "Router" && d.kind == SymbolKind::Class));
         assert!(result.definitions.iter().any(|d| d.name == "get"));
         assert!(result.definitions.iter().any(|d| d.name == "post"));
         assert!(result.definitions.iter().any(|d| d.name == "delete"));
@@ -4677,8 +4699,12 @@ function outer() {
         assert_eq!(df.calls_with_args.len(), 1);
         assert_eq!(df.calls_with_args[0].callee, "db.save");
         // keyword arg value should be captured
-        assert!(df.calls_with_args[0].arguments.contains(&"user".to_string()));
-        assert!(df.calls_with_args[0].arguments.contains(&"True".to_string()));
+        assert!(df.calls_with_args[0]
+            .arguments
+            .contains(&"user".to_string()));
+        assert!(df.calls_with_args[0]
+            .arguments
+            .contains(&"True".to_string()));
     }
 
     #[test]
@@ -4748,7 +4774,10 @@ function handler(req: any) {
 
         for ast_a in &ast_df.assignments {
             assert!(
-                qe_df.assignments.iter().any(|a| a.variable == ast_a.variable && a.callee == ast_a.callee),
+                qe_df
+                    .assignments
+                    .iter()
+                    .any(|a| a.variable == ast_a.variable && a.callee == ast_a.callee),
                 "missing assignment {}.{} in query engine",
                 ast_a.variable,
                 ast_a.callee
@@ -4762,7 +4791,13 @@ function handler(req: any) {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod scm_audit_tests {
     use super::*;
 
@@ -4780,7 +4815,10 @@ mod scm_audit_tests {
         let result = e.parse_file("dir.ts", source).unwrap();
         // Document current behavior: enums are NOT captured
         let has_enum = result.definitions.iter().any(|d| d.name == "Direction");
-        assert!(!has_enum, "Enums are not captured (known gap) — if this starts passing, update the .scm file");
+        assert!(
+            !has_enum,
+            "Enums are not captured (known gap) — if this starts passing, update the .scm file"
+        );
     }
 
     #[test]
@@ -4802,7 +4840,10 @@ mod scm_audit_tests {
         let result = e.parse_file("app.ts", source).unwrap();
         // Query engine cannot capture bare export default expressions
         let has_default = result.exports.iter().any(|e| e.is_default);
-        assert!(!has_default, "Export default identifier is not captured (known gap)");
+        assert!(
+            !has_default,
+            "Export default identifier is not captured (known gap)"
+        );
     }
 
     #[test]
@@ -4852,8 +4893,13 @@ mod scm_audit_tests {
         // statements. This is acceptable because walrus operators are typically
         // used inline (if/while conditions) and rarely represent data flow.
         let e = engine();
-        let df = e.extract_data_flow("app.py", "if (x := compute()):\n    pass").unwrap();
-        assert!(df.assignments.is_empty(), "walrus operator not captured (acceptable gap)");
+        let df = e
+            .extract_data_flow("app.py", "if (x := compute()):\n    pass")
+            .unwrap();
+        assert!(
+            df.assignments.is_empty(),
+            "walrus operator not captured (acceptable gap)"
+        );
     }
 
     // === TS destructuring assignments ===
@@ -4864,15 +4910,25 @@ mod scm_audit_tests {
         // by assignments.scm because the LHS is not an `identifier` but an
         // `object_pattern`. The IR layer handles destructuring via IrPattern.
         let e = engine();
-        let df = e.extract_data_flow("app.ts", "const { a, b } = getData();").unwrap();
-        assert!(df.assignments.is_empty(), "destructuring assignments not in .scm query (handled by IR layer)");
+        let df = e
+            .extract_data_flow("app.ts", "const { a, b } = getData();")
+            .unwrap();
+        assert!(
+            df.assignments.is_empty(),
+            "destructuring assignments not in .scm query (handled by IR layer)"
+        );
     }
 
     #[test]
     fn test_ts_array_destructuring_not_in_assignments() {
         let e = engine();
-        let df = e.extract_data_flow("app.ts", "const [first, ...rest] = getList();").unwrap();
-        assert!(df.assignments.is_empty(), "array destructuring not in .scm query (handled by IR layer)");
+        let df = e
+            .extract_data_flow("app.ts", "const [first, ...rest] = getList();")
+            .unwrap();
+        assert!(
+            df.assignments.is_empty(),
+            "array destructuring not in .scm query (handled by IR layer)"
+        );
     }
 
     // === Python tuple unpacking ===
@@ -4882,7 +4938,10 @@ mod scm_audit_tests {
         // `a, b = foo()` has LHS as `pattern_list`, not `identifier`
         let e = engine();
         let df = e.extract_data_flow("app.py", "a, b = compute()").unwrap();
-        assert!(df.assignments.is_empty(), "tuple unpacking not in .scm query (handled by IR layer)");
+        assert!(
+            df.assignments.is_empty(),
+            "tuple unpacking not in .scm query (handled by IR layer)"
+        );
     }
 
     // === Python relative import with alias ===
@@ -4891,7 +4950,9 @@ mod scm_audit_tests {
     fn test_python_relative_import_with_alias() {
         // `from .models import User as U` — Pattern 6 in python/imports.scm
         let e = engine();
-        let result = e.parse_file("pkg/app.py", "from .models import User as U").unwrap();
+        let result = e
+            .parse_file("pkg/app.py", "from .models import User as U")
+            .unwrap();
         assert_eq!(result.imports.len(), 1);
         assert_eq!(result.imports[0].source, ".models");
         assert_eq!(result.imports[0].names.len(), 1);
@@ -4909,7 +4970,10 @@ mod scm_audit_tests {
         let source = "async def fetch_data():\n    pass";
         let result = e.parse_file("api.py", source).unwrap();
         assert!(
-            result.definitions.iter().any(|d| d.name == "fetch_data" && d.kind == SymbolKind::Function),
+            result
+                .definitions
+                .iter()
+                .any(|d| d.name == "fetch_data" && d.kind == SymbolKind::Function),
             "async functions should be captured"
         );
     }
@@ -4921,7 +4985,10 @@ mod scm_audit_tests {
         let e = engine();
         let source = "const config = { port: 3000 } as const;";
         let result = e.parse_file("config.ts", source).unwrap();
-        assert!(result.definitions.iter().any(|d| d.name == "config" && d.kind == SymbolKind::Constant));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "config" && d.kind == SymbolKind::Constant));
     }
 
     #[test]
@@ -4929,7 +4996,10 @@ mod scm_audit_tests {
         let e = engine();
         let source = "const config = { port: 3000 } satisfies Config;";
         let result = e.parse_file("config.ts", source).unwrap();
-        assert!(result.definitions.iter().any(|d| d.name == "config" && d.kind == SymbolKind::Constant));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "config" && d.kind == SymbolKind::Constant));
     }
 
     // === TS `export default function` with no name ===
@@ -4950,7 +5020,10 @@ mod scm_audit_tests {
         let e = engine();
         let source = "type EventName = `on${string}`;";
         let result = e.parse_file("events.ts", source).unwrap();
-        assert!(result.definitions.iter().any(|d| d.name == "EventName" && d.kind == SymbolKind::TypeAlias));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "EventName" && d.kind == SymbolKind::TypeAlias));
     }
 
     // === TS namespace/module declarations ===
@@ -4989,7 +5062,10 @@ mod scm_audit_tests {
         let source = "__all__ = ['foo', 'bar']";
         let result = e.parse_file("mod.py", source).unwrap();
         // Python has no const/let/var, so assignments are not captured as definitions
-        assert!(result.definitions.is_empty(), "__all__ is an assignment, not a definition");
+        assert!(
+            result.definitions.is_empty(),
+            "__all__ is an assignment, not a definition"
+        );
     }
 
     // === TS `require()` calls (CJS imports) ===
@@ -5027,7 +5103,10 @@ mod scm_audit_tests {
         let e = engine();
         let source = "@dataclass\nclass Service:\n    @staticmethod\n    def create():\n        pass\n    @classmethod\n    def from_config(cls):\n        pass";
         let result = e.parse_file("svc.py", source).unwrap();
-        assert!(result.definitions.iter().any(|d| d.name == "Service" && d.kind == SymbolKind::Class));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "Service" && d.kind == SymbolKind::Class));
         assert!(result.definitions.iter().any(|d| d.name == "create"));
         assert!(result.definitions.iter().any(|d| d.name == "from_config"));
     }
@@ -5040,7 +5119,10 @@ mod scm_audit_tests {
         let source = "export const handler = async (req: Request) => { return new Response(); };";
         let result = e.parse_file("handler.ts", source).unwrap();
         assert!(result.exports.iter().any(|e| e.name == "handler"));
-        assert!(result.definitions.iter().any(|d| d.name == "handler" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "handler" && d.kind == SymbolKind::Function));
     }
 
     // === Python multiline import ===
@@ -5051,7 +5133,11 @@ mod scm_audit_tests {
         let source = "from models import (\n    User,\n    Post,\n    Comment\n)";
         let result = e.parse_file("app.py", source).unwrap();
         assert_eq!(result.imports.len(), 1);
-        let names: Vec<&str> = result.imports[0].names.iter().map(|n| n.name.as_str()).collect();
+        let names: Vec<&str> = result.imports[0]
+            .names
+            .iter()
+            .map(|n| n.name.as_str())
+            .collect();
         assert!(names.contains(&"User"));
         assert!(names.contains(&"Post"));
         assert!(names.contains(&"Comment"));
@@ -5087,7 +5173,11 @@ mod scm_audit_tests {
         let e = engine();
         let source = "const handler = function named() { innerCall(); };";
         let result = e.parse_file("fn.ts", source).unwrap();
-        let call = result.call_sites.iter().find(|c| c.callee == "innerCall").unwrap();
+        let call = result
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "innerCall")
+            .unwrap();
         // function_expression assigned to variable — should find "handler" or "named"
         assert!(
             call.containing_function.is_some(),
@@ -5159,7 +5249,10 @@ import './polyfill';
         assert_eq!(result.imports.len(), 4);
         // Verify each import type was correctly dispatched
         assert!(result.imports.iter().any(|i| i.is_default)); // default
-        assert!(result.imports.iter().any(|i| !i.is_default && !i.is_namespace && !i.names.is_empty())); // named
+        assert!(result
+            .imports
+            .iter()
+            .any(|i| !i.is_default && !i.is_namespace && !i.names.is_empty())); // named
         assert!(result.imports.iter().any(|i| i.is_namespace)); // namespace
         assert!(result.imports.iter().any(|i| i.names.is_empty())); // side-effect
     }
@@ -5179,13 +5272,34 @@ export type TAlias = string;
 export const VAL = 1;
 "#;
         let result = e.parse_file("all.ts", source).unwrap();
-        assert!(result.exports.iter().any(|e| e.name == "fn"), "export function");
-        assert!(result.exports.iter().any(|e| e.name == "gen"), "export generator");
-        assert!(result.exports.iter().any(|e| e.name == "Cls"), "export class");
-        assert!(result.exports.iter().any(|e| e.name == "ACls"), "export abstract class");
-        assert!(result.exports.iter().any(|e| e.name == "IFace"), "export interface");
-        assert!(result.exports.iter().any(|e| e.name == "TAlias"), "export type alias");
-        assert!(result.exports.iter().any(|e| e.name == "VAL"), "export const");
+        assert!(
+            result.exports.iter().any(|e| e.name == "fn"),
+            "export function"
+        );
+        assert!(
+            result.exports.iter().any(|e| e.name == "gen"),
+            "export generator"
+        );
+        assert!(
+            result.exports.iter().any(|e| e.name == "Cls"),
+            "export class"
+        );
+        assert!(
+            result.exports.iter().any(|e| e.name == "ACls"),
+            "export abstract class"
+        );
+        assert!(
+            result.exports.iter().any(|e| e.name == "IFace"),
+            "export interface"
+        );
+        assert!(
+            result.exports.iter().any(|e| e.name == "TAlias"),
+            "export type alias"
+        );
+        assert!(
+            result.exports.iter().any(|e| e.name == "VAL"),
+            "export const"
+        );
     }
 
     // === Verify definition extraction finds all kinds ===
@@ -5206,16 +5320,46 @@ const VAL = 42;
 class WithMethod { method() {} }
 "#;
         let result = e.parse_file("all.ts", source).unwrap();
-        assert!(result.definitions.iter().any(|d| d.name == "fn" && d.kind == SymbolKind::Function));
-        assert!(result.definitions.iter().any(|d| d.name == "gen" && d.kind == SymbolKind::Function));
-        assert!(result.definitions.iter().any(|d| d.name == "Cls" && d.kind == SymbolKind::Class));
-        assert!(result.definitions.iter().any(|d| d.name == "ACls" && d.kind == SymbolKind::Class));
-        assert!(result.definitions.iter().any(|d| d.name == "IFace" && d.kind == SymbolKind::Interface));
-        assert!(result.definitions.iter().any(|d| d.name == "TAlias" && d.kind == SymbolKind::TypeAlias));
-        assert!(result.definitions.iter().any(|d| d.name == "handler" && d.kind == SymbolKind::Function));
-        assert!(result.definitions.iter().any(|d| d.name == "fnExpr" && d.kind == SymbolKind::Function));
-        assert!(result.definitions.iter().any(|d| d.name == "VAL" && d.kind == SymbolKind::Constant));
-        assert!(result.definitions.iter().any(|d| d.name == "method" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "fn" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "gen" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "Cls" && d.kind == SymbolKind::Class));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "ACls" && d.kind == SymbolKind::Class));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "IFace" && d.kind == SymbolKind::Interface));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "TAlias" && d.kind == SymbolKind::TypeAlias));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "handler" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "fnExpr" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "VAL" && d.kind == SymbolKind::Constant));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "method" && d.kind == SymbolKind::Function));
     }
 
     #[test]
@@ -5223,12 +5367,30 @@ class WithMethod { method() {} }
         let e = engine();
         let source = "def fn():\n    pass\n\nclass Cls:\n    def method(self):\n        pass\n\n@deco\ndef decorated():\n    pass\n\n@deco\nclass DCls:\n    @deco\n    def dmethod(self):\n        pass";
         let result = e.parse_file("all.py", source).unwrap();
-        assert!(result.definitions.iter().any(|d| d.name == "fn" && d.kind == SymbolKind::Function));
-        assert!(result.definitions.iter().any(|d| d.name == "Cls" && d.kind == SymbolKind::Class));
-        assert!(result.definitions.iter().any(|d| d.name == "method" && d.kind == SymbolKind::Function));
-        assert!(result.definitions.iter().any(|d| d.name == "decorated" && d.kind == SymbolKind::Function));
-        assert!(result.definitions.iter().any(|d| d.name == "DCls" && d.kind == SymbolKind::Class));
-        assert!(result.definitions.iter().any(|d| d.name == "dmethod" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "fn" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "Cls" && d.kind == SymbolKind::Class));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "method" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "decorated" && d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "DCls" && d.kind == SymbolKind::Class));
+        assert!(result
+            .definitions
+            .iter()
+            .any(|d| d.name == "dmethod" && d.kind == SymbolKind::Function));
     }
 
     // === Verify Python import capture coverage ===
@@ -5246,7 +5408,11 @@ from . import utils
 "#;
         let result = e.parse_file("all.py", source).unwrap();
         // Should capture all 7 imports (though some may be combined)
-        assert!(result.imports.len() >= 6, "expected at least 6 imports, got {}", result.imports.len());
+        assert!(
+            result.imports.len() >= 6,
+            "expected at least 6 imports, got {}",
+            result.imports.len()
+        );
     }
 
     // === Agent audit Issue 3: Decorated Python function double-counting ===
@@ -5257,12 +5423,29 @@ from . import utils
         // and the `decorated_definition > function_definition` pattern.
         // Verify they are deduplicated (same name should appear only once).
         let e = engine();
-        let source = "@app.route('/hello')\ndef hello():\n    pass\n\n@cache\ndef cached_func():\n    pass";
+        let source =
+            "@app.route('/hello')\ndef hello():\n    pass\n\n@cache\ndef cached_func():\n    pass";
         let result = e.parse_file("app.py", source).unwrap();
-        let hello_count = result.definitions.iter().filter(|d| d.name == "hello").count();
-        let cached_count = result.definitions.iter().filter(|d| d.name == "cached_func").count();
-        assert_eq!(hello_count, 1, "decorated function 'hello' should appear exactly once, got {}", hello_count);
-        assert_eq!(cached_count, 1, "decorated function 'cached_func' should appear exactly once, got {}", cached_count);
+        let hello_count = result
+            .definitions
+            .iter()
+            .filter(|d| d.name == "hello")
+            .count();
+        let cached_count = result
+            .definitions
+            .iter()
+            .filter(|d| d.name == "cached_func")
+            .count();
+        assert_eq!(
+            hello_count, 1,
+            "decorated function 'hello' should appear exactly once, got {}",
+            hello_count
+        );
+        assert_eq!(
+            cached_count, 1,
+            "decorated function 'cached_func' should appear exactly once, got {}",
+            cached_count
+        );
     }
 
     #[test]
@@ -5270,8 +5453,16 @@ from . import utils
         let e = engine();
         let source = "@dataclass\nclass User:\n    name: str";
         let result = e.parse_file("models.py", source).unwrap();
-        let user_count = result.definitions.iter().filter(|d| d.name == "User").count();
-        assert_eq!(user_count, 1, "decorated class 'User' should appear exactly once, got {}", user_count);
+        let user_count = result
+            .definitions
+            .iter()
+            .filter(|d| d.name == "User")
+            .count();
+        assert_eq!(
+            user_count, 1,
+            "decorated class 'User' should appear exactly once, got {}",
+            user_count
+        );
     }
 
     // === Agent audit Issue 4: "function" kind string in const skip logic ===
@@ -5284,9 +5475,22 @@ from . import utils
         let e = engine();
         let source = "const handler = function() { return 42; };";
         let result = e.parse_file("fn.ts", source).unwrap();
-        let handler_defs: Vec<_> = result.definitions.iter().filter(|d| d.name == "handler").collect();
-        assert_eq!(handler_defs.len(), 1, "function expression should produce exactly 1 definition, got {}", handler_defs.len());
-        assert_eq!(handler_defs[0].kind, SymbolKind::Function, "should be Function, not Constant");
+        let handler_defs: Vec<_> = result
+            .definitions
+            .iter()
+            .filter(|d| d.name == "handler")
+            .collect();
+        assert_eq!(
+            handler_defs.len(),
+            1,
+            "function expression should produce exactly 1 definition, got {}",
+            handler_defs.len()
+        );
+        assert_eq!(
+            handler_defs[0].kind,
+            SymbolKind::Function,
+            "should be Function, not Constant"
+        );
     }
 
     #[test]
@@ -5296,8 +5500,16 @@ from . import utils
         let source = "const handler = function named() { return 42; };";
         let result = e.parse_file("fn.ts", source).unwrap();
         // Should have "handler" as Function, not double-counted
-        let handler_defs: Vec<_> = result.definitions.iter().filter(|d| d.name == "handler").collect();
-        assert_eq!(handler_defs.len(), 1, "named function expression should produce exactly 1 definition for 'handler'");
+        let handler_defs: Vec<_> = result
+            .definitions
+            .iter()
+            .filter(|d| d.name == "handler")
+            .collect();
+        assert_eq!(
+            handler_defs.len(),
+            1,
+            "named function expression should produce exactly 1 definition for 'handler'"
+        );
         assert_eq!(handler_defs[0].kind, SymbolKind::Function);
     }
 
@@ -5312,7 +5524,10 @@ from . import utils
         let source = "const user = new User('Alice');";
         let result = e.parse_file("app.ts", source).unwrap();
         let has_user_call = result.call_sites.iter().any(|c| c.callee == "User");
-        assert!(!has_user_call, "new_expression is not captured as a call site (known gap)");
+        assert!(
+            !has_user_call,
+            "new_expression is not captured as a call site (known gap)"
+        );
     }
 
     // =====================================================================
@@ -5342,7 +5557,11 @@ from . import utils
         let result = e.parse_file("main.rs", source).unwrap();
         assert_eq!(result.imports.len(), 1);
         assert_eq!(result.imports[0].source, "std::collections");
-        let names: Vec<&str> = result.imports[0].names.iter().map(|n| n.name.as_str()).collect();
+        let names: Vec<&str> = result.imports[0]
+            .names
+            .iter()
+            .map(|n| n.name.as_str())
+            .collect();
         assert!(names.contains(&"HashMap"));
         assert!(names.contains(&"BTreeMap"));
     }
@@ -5413,7 +5632,9 @@ async fn fetch_data() -> Result<(), Error> {
 }
 "#;
         let result = e.parse_file("main.rs", source).unwrap();
-        let fn_names: Vec<&str> = result.definitions.iter()
+        let fn_names: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Function)
             .map(|d| d.name.as_str())
             .collect();
@@ -5436,7 +5657,9 @@ struct Config {
 }
 "#;
         let result = e.parse_file("main.rs", source).unwrap();
-        let struct_names: Vec<&str> = result.definitions.iter()
+        let struct_names: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Class)
             .map(|d| d.name.as_str())
             .collect();
@@ -5455,7 +5678,9 @@ pub enum Status {
 }
 "#;
         let result = e.parse_file("main.rs", source).unwrap();
-        let enum_names: Vec<&str> = result.definitions.iter()
+        let enum_names: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Class)
             .map(|d| d.name.as_str())
             .collect();
@@ -5472,7 +5697,9 @@ pub trait Repository {
 }
 "#;
         let result = e.parse_file("main.rs", source).unwrap();
-        let trait_names: Vec<&str> = result.definitions.iter()
+        let trait_names: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Interface)
             .map(|d| d.name.as_str())
             .collect();
@@ -5487,7 +5714,9 @@ type Result<T> = std::result::Result<T, AppError>;
 type UserId = u64;
 "#;
         let result = e.parse_file("main.rs", source).unwrap();
-        let type_names: Vec<&str> = result.definitions.iter()
+        let type_names: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::TypeAlias)
             .map(|d| d.name.as_str())
             .collect();
@@ -5503,7 +5732,9 @@ const MAX_RETRIES: u32 = 3;
 static DB_URL: &str = "postgres://localhost/mydb";
 "#;
         let result = e.parse_file("main.rs", source).unwrap();
-        let const_names: Vec<&str> = result.definitions.iter()
+        let const_names: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Constant)
             .map(|d| d.name.as_str())
             .collect();
@@ -5528,7 +5759,9 @@ impl UserService {
 }
 "#;
         let result = e.parse_file("main.rs", source).unwrap();
-        let fn_names: Vec<&str> = result.definitions.iter()
+        let fn_names: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Function)
             .map(|d| d.name.as_str())
             .collect();
@@ -5547,7 +5780,11 @@ fn main() {
 }
 "#;
         let result = e.parse_file("main.rs", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"UserService::new"));
         assert!(callees.contains(&"service.find_user"));
     }
@@ -5577,7 +5814,11 @@ fn handler() {
 }
 "#;
         let result = e.extract_data_flow("main.rs", source).unwrap();
-        let vars: Vec<&str> = result.assignments.iter().map(|a| a.variable.as_str()).collect();
+        let vars: Vec<&str> = result
+            .assignments
+            .iter()
+            .map(|a| a.variable.as_str())
+            .collect();
         assert!(vars.contains(&"user"));
         assert!(vars.contains(&"result"));
     }
@@ -5592,7 +5833,10 @@ fn handler(req: Request) {
 }
 "#;
         let result = e.extract_data_flow("main.rs", source).unwrap();
-        let call = result.calls_with_args.iter().find(|c| c.callee == "parse_body");
+        let call = result
+            .calls_with_args
+            .iter()
+            .find(|c| c.callee == "parse_body");
         assert!(call.is_some());
         assert!(call.unwrap().arguments.contains(&"req".to_string()));
     }
@@ -5608,7 +5852,9 @@ macro_rules! my_macro {
 }
 "#;
         let result = e.parse_file("main.rs", source).unwrap();
-        let macro_names: Vec<&str> = result.definitions.iter()
+        let macro_names: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.name == "my_macro")
             .map(|d| d.name.as_str())
             .collect();
@@ -5638,7 +5884,12 @@ use super::config::Config;
         // Verify serde has named imports
         let serde_import = result.imports.iter().find(|i| i.source == "serde");
         assert!(serde_import.is_some());
-        let serde_names: Vec<&str> = serde_import.unwrap().names.iter().map(|n| n.name.as_str()).collect();
+        let serde_names: Vec<&str> = serde_import
+            .unwrap()
+            .names
+            .iter()
+            .map(|n| n.name.as_str())
+            .collect();
         assert!(serde_names.contains(&"Serialize"));
         assert!(serde_names.contains(&"Deserialize"));
     }
@@ -5649,10 +5900,16 @@ use super::config::Config;
         let e = engine();
         let source = "use axum::{Router, routing};";
         let result = e.parse_file("main.rs", source).unwrap();
-        assert!(!result.imports.is_empty(), "should have at least one import");
+        assert!(
+            !result.imports.is_empty(),
+            "should have at least one import"
+        );
         // The source should be "axum" (the crate root)
-        assert!(result.imports.iter().any(|i| i.source == "axum"),
-            "should detect axum import; got: {:?}", result.imports.iter().map(|i| &i.source).collect::<Vec<_>>());
+        assert!(
+            result.imports.iter().any(|i| i.source == "axum"),
+            "should detect axum import; got: {:?}",
+            result.imports.iter().map(|i| &i.source).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -5668,11 +5925,17 @@ async fn main() {
 }
 "#;
         let result = e.parse_file("src/main.rs", source).unwrap();
-        let fn_names: Vec<&str> = result.definitions.iter()
+        let fn_names: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Function)
             .map(|d| d.name.as_str())
             .collect();
-        assert!(fn_names.contains(&"main"), "should detect async fn main(); got defs: {:?}", fn_names);
+        assert!(
+            fn_names.contains(&"main"),
+            "should detect async fn main(); got defs: {:?}",
+            fn_names
+        );
     }
 
     #[test]
@@ -5729,7 +5992,11 @@ fn start_listener(addr: String) {
         assert!(def_names.contains(&"start_listener"));
 
         // Check call sites (format! is a macro, not a call_expression — won't appear)
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"start_listener"));
     }
 
@@ -5738,8 +6005,14 @@ fn start_listener(addr: String) {
     #[test]
     fn test_java_language_detection() {
         assert_eq!(Language::from_path("Main.java"), Language::Java);
-        assert_eq!(Language::from_path("src/com/example/App.java"), Language::Java);
-        assert_eq!(Language::from_path("src/main/java/UserController.java"), Language::Java);
+        assert_eq!(
+            Language::from_path("src/com/example/App.java"),
+            Language::Java
+        );
+        assert_eq!(
+            Language::from_path("src/main/java/UserController.java"),
+            Language::Java
+        );
     }
 
     // === Java imports ===
@@ -5766,7 +6039,9 @@ fn start_listener(addr: String) {
     #[test]
     fn test_java_static_import() {
         let e = engine();
-        let result = e.parse_file("App.java", "import static org.junit.Assert.assertEquals;").unwrap();
+        let result = e
+            .parse_file("App.java", "import static org.junit.Assert.assertEquals;")
+            .unwrap();
         assert_eq!(result.imports.len(), 1);
         assert_eq!(result.imports[0].source, "org.junit.Assert");
         assert_eq!(result.imports[0].names[0].name, "assertEquals");
@@ -5794,7 +6069,9 @@ public class UserController {
 }
 "#;
         let result = e.parse_file("UserController.java", source).unwrap();
-        let class_defs: Vec<&str> = result.definitions.iter()
+        let class_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Class)
             .map(|d| d.name.as_str())
             .collect();
@@ -5810,7 +6087,9 @@ public interface UserRepository {
 }
 "#;
         let result = e.parse_file("UserRepository.java", source).unwrap();
-        let iface_defs: Vec<&str> = result.definitions.iter()
+        let iface_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Interface)
             .map(|d| d.name.as_str())
             .collect();
@@ -5831,7 +6110,9 @@ public class UserService {
 }
 "#;
         let result = e.parse_file("UserService.java", source).unwrap();
-        let fn_defs: Vec<&str> = result.definitions.iter()
+        let fn_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Function)
             .map(|d| d.name.as_str())
             .collect();
@@ -5849,7 +6130,9 @@ public enum Status {
 }
 "#;
         let result = e.parse_file("Status.java", source).unwrap();
-        let class_defs: Vec<&str> = result.definitions.iter()
+        let class_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Class)
             .map(|d| d.name.as_str())
             .collect();
@@ -5866,7 +6149,9 @@ public class UserService {
 }
 "#;
         let result = e.parse_file("UserService.java", source).unwrap();
-        let fn_defs: Vec<&str> = result.definitions.iter()
+        let fn_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Function)
             .map(|d| d.name.as_str())
             .collect();
@@ -5883,7 +6168,9 @@ public class Config {
 }
 "#;
         let result = e.parse_file("Config.java", source).unwrap();
-        let field_defs: Vec<&str> = result.definitions.iter()
+        let field_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Constant)
             .map(|d| d.name.as_str())
             .collect();
@@ -5904,7 +6191,9 @@ public class App {
 }
 "#;
         let result = e.parse_file("App.java", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter()
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
             .map(|c| c.callee.as_str())
             .collect();
         assert!(callees.contains(&"findUser"));
@@ -5921,7 +6210,9 @@ public class App {
 }
 "#;
         let result = e.parse_file("App.java", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter()
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
             .map(|c| c.callee.as_str())
             .collect();
         assert!(callees.contains(&"User"));
@@ -5938,7 +6229,11 @@ public class App {
 }
 "#;
         let result = e.parse_file("App.java", source).unwrap();
-        let call = result.call_sites.iter().find(|c| c.callee == "doSomething").unwrap();
+        let call = result
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "doSomething")
+            .unwrap();
         assert_eq!(call.containing_function.as_deref(), Some("run"));
     }
 
@@ -6027,7 +6322,9 @@ public class UserController {
         assert!(result.imports.len() >= 4);
         let import_sources: Vec<&str> = result.imports.iter().map(|i| i.source.as_str()).collect();
         assert!(import_sources.iter().any(|s| s.contains("java.util")));
-        assert!(import_sources.iter().any(|s| s.contains("org.springframework")));
+        assert!(import_sources
+            .iter()
+            .any(|s| s.contains("org.springframework")));
 
         // Definitions
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
@@ -6036,7 +6333,11 @@ public class UserController {
         assert!(def_names.contains(&"createUser"));
 
         // Call sites
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"findAll"));
         assert!(callees.contains(&"save"));
     }
@@ -6048,7 +6349,10 @@ public class UserController {
     #[test]
     fn test_csharp_language_detection() {
         assert_eq!(Language::from_path("Program.cs"), Language::CSharp);
-        assert_eq!(Language::from_path("src/Controllers/UserController.cs"), Language::CSharp);
+        assert_eq!(
+            Language::from_path("src/Controllers/UserController.cs"),
+            Language::CSharp
+        );
         assert_eq!(Language::from_path("Models/User.cs"), Language::CSharp);
     }
 
@@ -6066,7 +6370,9 @@ public class UserController {
     #[test]
     fn test_csharp_qualified_using() {
         let e = engine();
-        let result = e.parse_file("App.cs", "using System.Collections.Generic;").unwrap();
+        let result = e
+            .parse_file("App.cs", "using System.Collections.Generic;")
+            .unwrap();
         assert_eq!(result.imports.len(), 1);
         assert_eq!(result.imports[0].source, "System.Collections.Generic");
         assert_eq!(result.imports[0].names[0].name, "*");
@@ -6094,7 +6400,9 @@ using Microsoft.EntityFrameworkCore;
     #[test]
     fn test_csharp_aspnet_using() {
         let e = engine();
-        let result = e.parse_file("App.cs", "using Microsoft.AspNetCore.Mvc;").unwrap();
+        let result = e
+            .parse_file("App.cs", "using Microsoft.AspNetCore.Mvc;")
+            .unwrap();
         assert_eq!(result.imports.len(), 1);
         assert_eq!(result.imports[0].source, "Microsoft.AspNetCore.Mvc");
         assert_eq!(result.imports[0].names[0].name, "*");
@@ -6111,7 +6419,9 @@ public class UserService
 }
 "#;
         let result = e.parse_file("UserService.cs", source).unwrap();
-        let class_defs: Vec<&str> = result.definitions.iter()
+        let class_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Class)
             .map(|d| d.name.as_str())
             .collect();
@@ -6128,7 +6438,9 @@ public interface IUserRepository
 }
 "#;
         let result = e.parse_file("IUserRepository.cs", source).unwrap();
-        let iface_defs: Vec<&str> = result.definitions.iter()
+        let iface_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Interface)
             .map(|d| d.name.as_str())
             .collect();
@@ -6146,7 +6458,9 @@ public struct Point
 }
 "#;
         let result = e.parse_file("Point.cs", source).unwrap();
-        let struct_defs: Vec<&str> = result.definitions.iter()
+        let struct_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Class)
             .map(|d| d.name.as_str())
             .collect();
@@ -6160,7 +6474,9 @@ public struct Point
 public record UserDto(string Name, string Email);
 "#;
         let result = e.parse_file("UserDto.cs", source).unwrap();
-        let record_defs: Vec<&str> = result.definitions.iter()
+        let record_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Class)
             .map(|d| d.name.as_str())
             .collect();
@@ -6184,7 +6500,9 @@ public class UserService
 }
 "#;
         let result = e.parse_file("UserService.cs", source).unwrap();
-        let fn_defs: Vec<&str> = result.definitions.iter()
+        let fn_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Function)
             .map(|d| d.name.as_str())
             .collect();
@@ -6203,7 +6521,9 @@ public enum Status
 }
 "#;
         let result = e.parse_file("Status.cs", source).unwrap();
-        let class_defs: Vec<&str> = result.definitions.iter()
+        let class_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Class)
             .map(|d| d.name.as_str())
             .collect();
@@ -6222,7 +6542,9 @@ public class UserService
 }
 "#;
         let result = e.parse_file("UserService.cs", source).unwrap();
-        let fn_defs: Vec<&str> = result.definitions.iter()
+        let fn_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Function)
             .map(|d| d.name.as_str())
             .collect();
@@ -6240,7 +6562,9 @@ public class Config
 }
 "#;
         let result = e.parse_file("Config.cs", source).unwrap();
-        let prop_defs: Vec<&str> = result.definitions.iter()
+        let prop_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Constant)
             .map(|d| d.name.as_str())
             .collect();
@@ -6259,7 +6583,9 @@ public class Config
 }
 "#;
         let result = e.parse_file("Config.cs", source).unwrap();
-        let field_defs: Vec<&str> = result.definitions.iter()
+        let field_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Constant)
             .map(|d| d.name.as_str())
             .collect();
@@ -6274,7 +6600,9 @@ public class Config
 public delegate void EventHandler(object sender, EventArgs e);
 "#;
         let result = e.parse_file("EventHandler.cs", source).unwrap();
-        let delegate_defs: Vec<&str> = result.definitions.iter()
+        let delegate_defs: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Interface)
             .map(|d| d.name.as_str())
             .collect();
@@ -6296,7 +6624,9 @@ public class App
 }
 "#;
         let result = e.parse_file("App.cs", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter()
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
             .map(|c| c.callee.as_str())
             .collect();
         assert!(callees.contains(&"FindUser"));
@@ -6315,7 +6645,9 @@ public class App
 }
 "#;
         let result = e.parse_file("App.cs", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter()
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
             .map(|c| c.callee.as_str())
             .collect();
         assert!(callees.contains(&"DoSomething"));
@@ -6334,7 +6666,9 @@ public class App
 }
 "#;
         let result = e.parse_file("App.cs", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter()
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
             .map(|c| c.callee.as_str())
             .collect();
         assert!(callees.contains(&"User"));
@@ -6353,7 +6687,11 @@ public class App
 }
 "#;
         let result = e.parse_file("App.cs", source).unwrap();
-        let call = result.call_sites.iter().find(|c| c.callee == "DoSomething").unwrap();
+        let call = result
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "DoSomething")
+            .unwrap();
         assert_eq!(call.containing_function.as_deref(), Some("Run"));
     }
 
@@ -6475,7 +6813,11 @@ namespace MyApp.Controllers
         assert!(def_names.contains(&"CreateUser"));
 
         // Call sites
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"FindAll"));
         assert!(callees.contains(&"Save"));
         assert!(callees.contains(&"Ok"));
@@ -6487,9 +6829,18 @@ namespace MyApp.Controllers
 
     #[test]
     fn test_php_language_detection() {
-        assert_eq!(Language::from_path("app/Http/Controllers/UserController.php"), Language::Php);
-        assert_eq!(Language::from_path("src/Services/UserService.php"), Language::Php);
-        assert_eq!(Language::from_path("tests/Unit/UserTest.php"), Language::Php);
+        assert_eq!(
+            Language::from_path("app/Http/Controllers/UserController.php"),
+            Language::Php
+        );
+        assert_eq!(
+            Language::from_path("src/Services/UserService.php"),
+            Language::Php
+        );
+        assert_eq!(
+            Language::from_path("tests/Unit/UserTest.php"),
+            Language::Php
+        );
     }
 
     #[test]
@@ -6503,7 +6854,10 @@ namespace MyApp.Controllers
             .unwrap();
         assert_eq!(result.language, Language::Php);
         assert_eq!(result.imports.len(), 1);
-        assert_eq!(result.imports[0].source, "Illuminate\\Database\\Eloquent\\Model");
+        assert_eq!(
+            result.imports[0].source,
+            "Illuminate\\Database\\Eloquent\\Model"
+        );
         assert_eq!(result.imports[0].names[0].name, "Model");
     }
 
@@ -6569,7 +6923,10 @@ namespace MyApp.Controllers
         assert!(def_names.contains(&"farewell"));
         assert_eq!(result.definitions.len(), 2);
         // Both should be Function kind
-        assert!(result.definitions.iter().all(|d| d.kind == SymbolKind::Function));
+        assert!(result
+            .definitions
+            .iter()
+            .all(|d| d.kind == SymbolKind::Function));
     }
 
     #[test]
@@ -6584,7 +6941,11 @@ namespace MyApp.Controllers
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
         assert!(def_names.contains(&"User"));
         assert!(def_names.contains(&"getName"));
-        let class_def = result.definitions.iter().find(|d| d.name == "User").unwrap();
+        let class_def = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "User")
+            .unwrap();
         assert_eq!(class_def.kind, SymbolKind::Class);
     }
 
@@ -6599,7 +6960,11 @@ namespace MyApp.Controllers
             .unwrap();
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
         assert!(def_names.contains(&"Greetable"));
-        let iface_def = result.definitions.iter().find(|d| d.name == "Greetable").unwrap();
+        let iface_def = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "Greetable")
+            .unwrap();
         assert_eq!(iface_def.kind, SymbolKind::Interface);
     }
 
@@ -6642,7 +7007,10 @@ namespace MyApp.Controllers
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
         assert!(def_names.contains(&"MAX_SIZE"));
         assert!(def_names.contains(&"APP_NAME"));
-        assert!(result.definitions.iter().all(|d| d.kind == SymbolKind::Constant));
+        assert!(result
+            .definitions
+            .iter()
+            .all(|d| d.kind == SymbolKind::Constant));
     }
 
     #[test]
@@ -6654,7 +7022,9 @@ namespace MyApp.Controllers
                 "<?php\n\nclass UserService {\n    public function findAll() {\n        return [];\n    }\n\n    public function findById($id) {\n        return null;\n    }\n\n    public function create($data) {\n        return $data;\n    }\n}\n",
             )
             .unwrap();
-        let method_names: Vec<&str> = result.definitions.iter()
+        let method_names: Vec<&str> = result
+            .definitions
+            .iter()
             .filter(|d| d.kind == SymbolKind::Function)
             .map(|d| d.name.as_str())
             .collect();
@@ -6672,7 +7042,11 @@ namespace MyApp.Controllers
                 "<?php\n\n$result = greet('World');\necho strlen($result);\n",
             )
             .unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"greet"));
         assert!(callees.contains(&"strlen"));
     }
@@ -6686,7 +7060,11 @@ namespace MyApp.Controllers
                 "<?php\n\nclass UserController {\n    public function index() {\n        $users = $this->service->findAll();\n        return response()->json($users);\n    }\n}\n",
             )
             .unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"findAll"));
         assert!(callees.contains(&"response"));
         assert!(callees.contains(&"json"));
@@ -6701,7 +7079,11 @@ namespace MyApp.Controllers
                 "<?php\n\nclass UserController {\n    public function index() {\n        $users = User::all();\n        $user = User::find(1);\n        return $users;\n    }\n}\n",
             )
             .unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"all"));
         assert!(callees.contains(&"find"));
     }
@@ -6715,7 +7097,11 @@ namespace MyApp.Controllers
                 "<?php\n\n$service = new UserService();\n$response = new JsonResponse($data);\n",
             )
             .unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"UserService"));
         assert!(callees.contains(&"JsonResponse"));
     }
@@ -6729,7 +7115,11 @@ namespace MyApp.Controllers
                 "<?php\n\nclass UserService {\n    public function create($data) {\n        $user = User::create($data);\n        return $user;\n    }\n}\n",
             )
             .unwrap();
-        let create_call = result.call_sites.iter().find(|c| c.callee == "create").unwrap();
+        let create_call = result
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "create")
+            .unwrap();
         // The containing function should be the method "create"
         assert!(create_call.containing_function.is_some());
         assert_eq!(create_call.containing_function.as_deref(), Some("create"));
@@ -6739,10 +7129,7 @@ namespace MyApp.Controllers
     fn test_php_data_flow_function_assignment() {
         let e = engine();
         let result = e
-            .extract_data_flow(
-                "index.php",
-                "<?php\n\n$result = greet('World');\n",
-            )
+            .extract_data_flow("index.php", "<?php\n\n$result = greet('World');\n")
             .unwrap();
         assert!(!result.assignments.is_empty());
         let a = &result.assignments[0];
@@ -6782,10 +7169,7 @@ namespace MyApp.Controllers
     fn test_php_data_flow_constructor_assignment() {
         let e = engine();
         let result = e
-            .extract_data_flow(
-                "index.php",
-                "<?php\n\n$service = new UserService();\n",
-            )
+            .extract_data_flow("index.php", "<?php\n\n$service = new UserService();\n")
             .unwrap();
         let assignment = result.assignments.iter().find(|a| a.variable == "service");
         assert!(assignment.is_some(), "should find $service assignment");
@@ -6806,7 +7190,9 @@ namespace MyApp.Controllers
     fn test_php_full_laravel_controller() {
         let e = engine();
         let source = "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse Illuminate\\Http\\Request;\nuse App\\Models\\User;\nuse App\\Services\\UserService;\n\nclass UserController extends Controller\n{\n    private $service;\n\n    public function __construct(UserService $service)\n    {\n        $this->service = $service;\n    }\n\n    public function index()\n    {\n        $users = User::all();\n        return response()->json($users);\n    }\n\n    public function store(Request $request)\n    {\n        $data = $request->validated();\n        $user = User::create($data);\n        return response()->json($user, 201);\n    }\n\n    public function show(User $user)\n    {\n        return response()->json($user);\n    }\n\n    public function destroy(User $user)\n    {\n        $user->delete();\n        return response()->json(null, 204);\n    }\n}\n";
-        let result = e.parse_file("app/Http/Controllers/UserController.php", source).unwrap();
+        let result = e
+            .parse_file("app/Http/Controllers/UserController.php", source)
+            .unwrap();
         assert_eq!(result.language, Language::Php);
 
         // Imports
@@ -6825,7 +7211,11 @@ namespace MyApp.Controllers
         assert!(def_names.contains(&"destroy"));
 
         // Call sites
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"all"));
         assert!(callees.contains(&"response"));
         assert!(callees.contains(&"json"));
@@ -6840,9 +7230,15 @@ namespace MyApp.Controllers
 
     #[test]
     fn test_ruby_language_detection() {
-        assert_eq!(Language::from_path("app/controllers/users_controller.rb"), Language::Ruby);
+        assert_eq!(
+            Language::from_path("app/controllers/users_controller.rb"),
+            Language::Ruby
+        );
         assert_eq!(Language::from_path("app/models/user.rb"), Language::Ruby);
-        assert_eq!(Language::from_path("spec/models/user_spec.rb"), Language::Ruby);
+        assert_eq!(
+            Language::from_path("spec/models/user_spec.rb"),
+            Language::Ruby
+        );
     }
 
     #[test]
@@ -6889,7 +7285,11 @@ namespace MyApp.Controllers
         assert!(import_sources.contains(&"Logging"));
         assert!(import_sources.contains(&"ClassMethods"));
         // include/extend imports should have names
-        let logging_import = result.imports.iter().find(|i| i.source == "Logging").unwrap();
+        let logging_import = result
+            .imports
+            .iter()
+            .find(|i| i.source == "Logging")
+            .unwrap();
         assert_eq!(logging_import.names[0].name, "Logging");
     }
 
@@ -6906,7 +7306,14 @@ namespace MyApp.Controllers
         assert!(def_names.contains(&"create"));
         assert!(def_names.contains(&"find"));
         assert!(def_names.contains(&"UserService"));
-        assert!(result.definitions.iter().filter(|d| d.kind == SymbolKind::Function).count() >= 2);
+        assert!(
+            result
+                .definitions
+                .iter()
+                .filter(|d| d.kind == SymbolKind::Function)
+                .count()
+                >= 2
+        );
     }
 
     #[test]
@@ -6932,7 +7339,11 @@ namespace MyApp.Controllers
                 "class User < ActiveRecord::Base\n  def name\n    @name\n  end\nend\n",
             )
             .unwrap();
-        let class_def = result.definitions.iter().find(|d| d.name == "User").unwrap();
+        let class_def = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "User")
+            .unwrap();
         assert_eq!(class_def.kind, SymbolKind::Class);
     }
 
@@ -6945,7 +7356,11 @@ namespace MyApp.Controllers
                 "module Logging\n  def log(msg)\n    puts msg\n  end\nend\n",
             )
             .unwrap();
-        let mod_def = result.definitions.iter().find(|d| d.name == "Logging").unwrap();
+        let mod_def = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "Logging")
+            .unwrap();
         assert_eq!(mod_def.kind, SymbolKind::Module);
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
         assert!(def_names.contains(&"log"));
@@ -6963,7 +7378,10 @@ namespace MyApp.Controllers
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
         assert!(def_names.contains(&"MAX_RETRIES"));
         assert!(def_names.contains(&"DEFAULT_TIMEOUT"));
-        assert!(result.definitions.iter().all(|d| d.kind == SymbolKind::Constant));
+        assert!(result
+            .definitions
+            .iter()
+            .all(|d| d.kind == SymbolKind::Constant));
     }
 
     #[test]
@@ -6975,7 +7393,11 @@ namespace MyApp.Controllers
                 "class UserService\n  def create(attrs)\n    user = User.new(attrs)\n    user.save()\n    EventBus.publish('user.created', user)\n  end\nend\n",
             )
             .unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"new"));
         assert!(callees.contains(&"save"));
         assert!(callees.contains(&"publish"));
@@ -6990,9 +7412,17 @@ namespace MyApp.Controllers
                 "class UserService\n  def create(attrs)\n    User.new(attrs)\n  end\n\n  def find(id)\n    User.find(id)\n  end\nend\n",
             )
             .unwrap();
-        let create_call = result.call_sites.iter().find(|c| c.callee == "new").unwrap();
+        let create_call = result
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "new")
+            .unwrap();
         assert_eq!(create_call.containing_function, Some("create".to_string()));
-        let find_call = result.call_sites.iter().find(|c| c.callee == "find").unwrap();
+        let find_call = result
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "find")
+            .unwrap();
         assert_eq!(find_call.containing_function, Some("find".to_string()));
     }
 
@@ -7002,7 +7432,11 @@ namespace MyApp.Controllers
         let result = e
             .extract_data_flow("app/services/user_service.rb", "class UserService\n  def create(attrs)\n    user = User.new(attrs)\n    result = user.save()\n  end\nend\n")
             .unwrap();
-        let var_names: Vec<&str> = result.assignments.iter().map(|a| a.variable.as_str()).collect();
+        let var_names: Vec<&str> = result
+            .assignments
+            .iter()
+            .map(|a| a.variable.as_str())
+            .collect();
         assert!(var_names.contains(&"user"));
         assert!(var_names.contains(&"result"));
     }
@@ -7011,9 +7445,16 @@ namespace MyApp.Controllers
     fn test_ruby_data_flow_instance_var_assignment() {
         let e = engine();
         let result = e
-            .extract_data_flow("app/controllers/users_controller.rb", "class UsersController\n  def index\n    @users = User.all()\n  end\nend\n")
+            .extract_data_flow(
+                "app/controllers/users_controller.rb",
+                "class UsersController\n  def index\n    @users = User.all()\n  end\nend\n",
+            )
             .unwrap();
-        let var_names: Vec<&str> = result.assignments.iter().map(|a| a.variable.as_str()).collect();
+        let var_names: Vec<&str> = result
+            .assignments
+            .iter()
+            .map(|a| a.variable.as_str())
+            .collect();
         assert!(var_names.contains(&"@users"));
     }
 
@@ -7043,7 +7484,9 @@ namespace MyApp.Controllers
     fn test_ruby_full_rails_controller() {
         let e = engine();
         let source = "require 'action_controller'\nrequire_relative '../models/user'\nrequire_relative '../services/user_service'\n\nclass UsersController < ApplicationController\n  include Authentication\n\n  def index\n    @users = User.all()\n    respond_to()\n  end\n\n  def show\n    @user = User.find(params())\n  end\n\n  def create\n    @user = User.new(user_params())\n    @user.save()\n    redirect_to(@user)\n  end\n\n  private\n\n  def user_params\n    params().require().permit()\n  end\nend\n";
-        let result = e.parse_file("app/controllers/users_controller.rb", source).unwrap();
+        let result = e
+            .parse_file("app/controllers/users_controller.rb", source)
+            .unwrap();
         assert_eq!(result.language, Language::Ruby);
 
         // Imports
@@ -7062,7 +7505,11 @@ namespace MyApp.Controllers
         assert!(def_names.contains(&"user_params"));
 
         // Call sites
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
         assert!(callees.contains(&"all"));
         assert!(callees.contains(&"respond_to"));
         assert!(callees.contains(&"find"));
@@ -7075,9 +7522,15 @@ namespace MyApp.Controllers
 
     #[test]
     fn test_kotlin_language_detection() {
-        assert_eq!(Language::from_path("src/main/kotlin/App.kt"), Language::Kotlin);
+        assert_eq!(
+            Language::from_path("src/main/kotlin/App.kt"),
+            Language::Kotlin
+        );
         assert_eq!(Language::from_path("build.gradle.kts"), Language::Kotlin);
-        assert_eq!(Language::from_path("src/test/kotlin/AppTest.kt"), Language::Kotlin);
+        assert_eq!(
+            Language::from_path("src/test/kotlin/AppTest.kt"),
+            Language::Kotlin
+        );
     }
 
     #[test]
@@ -7112,9 +7565,10 @@ fun main() {
         );
 
         // Wildcard import
-        let wildcard_import = result.imports.iter().find(|i| {
-            i.names.iter().any(|n| n.name == "*")
-        });
+        let wildcard_import = result
+            .imports
+            .iter()
+            .find(|i| i.names.iter().any(|n| n.name == "*"));
         assert!(
             wildcard_import.is_some(),
             "should detect wildcard import; imports: {:?}",
@@ -7122,9 +7576,10 @@ fun main() {
         );
 
         // Aliased import
-        let aliased_import = result.imports.iter().find(|i| {
-            i.names.iter().any(|n| n.alias.as_deref() == Some("DB"))
-        });
+        let aliased_import = result
+            .imports
+            .iter()
+            .find(|i| i.names.iter().any(|n| n.alias.as_deref() == Some("DB")));
         assert!(
             aliased_import.is_some(),
             "should detect aliased import (Database as DB); imports: {:?}",
@@ -7164,12 +7619,36 @@ typealias UserId = String
         assert_eq!(result.language, Language::Kotlin);
 
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"User"), "should detect data class; got: {:?}", def_names);
-        assert!(def_names.contains(&"UserFactory"), "should detect object; got: {:?}", def_names);
-        assert!(def_names.contains(&"create"), "should detect function in object; got: {:?}", def_names);
-        assert!(def_names.contains(&"greet"), "should detect top-level function; got: {:?}", def_names);
-        assert!(def_names.contains(&"DEFAULT_NAME"), "should detect val property; got: {:?}", def_names);
-        assert!(def_names.contains(&"UserId"), "should detect typealias; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"User"),
+            "should detect data class; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"UserFactory"),
+            "should detect object; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"create"),
+            "should detect function in object; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"greet"),
+            "should detect top-level function; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"DEFAULT_NAME"),
+            "should detect val property; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"UserId"),
+            "should detect typealias; got: {:?}",
+            def_names
+        );
     }
 
     #[test]
@@ -7197,10 +7676,26 @@ class UserService(private val repo: UserRepository) {
             .unwrap();
         assert_eq!(result.language, Language::Kotlin);
 
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"findAll"), "should detect method call; got: {:?}", callees);
-        assert!(callees.contains(&"save"), "should detect repo.save call; got: {:?}", callees);
-        assert!(callees.contains(&"println"), "should detect println call; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"findAll"),
+            "should detect method call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"save"),
+            "should detect repo.save call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"println"),
+            "should detect println call; got: {:?}",
+            callees
+        );
     }
 
     #[test]
@@ -7222,7 +7717,11 @@ class UserService(private val repo: UserRepository) {
             .unwrap();
 
         // Should detect val users = repo.findAll() as an assignment
-        let assign_vars: Vec<&str> = dfi.assignments.iter().map(|a| a.variable.as_str()).collect();
+        let assign_vars: Vec<&str> = dfi
+            .assignments
+            .iter()
+            .map(|a| a.variable.as_str())
+            .collect();
         assert!(
             assign_vars.contains(&"users"),
             "should detect val assignment from call; got: {:?}",
@@ -7250,7 +7749,9 @@ fun Route.userRoutes(userService: UserService) {
     }
 }
 "#;
-        let result = e.parse_file("src/main/kotlin/routes/UserRoutes.kt", source).unwrap();
+        let result = e
+            .parse_file("src/main/kotlin/routes/UserRoutes.kt", source)
+            .unwrap();
         assert_eq!(result.language, Language::Kotlin);
 
         // Imports
@@ -7261,22 +7762,52 @@ fun Route.userRoutes(userService: UserService) {
 
         // Definitions
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"userRoutes"), "should detect extension function; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"userRoutes"),
+            "should detect extension function; got: {:?}",
+            def_names
+        );
 
         // Call sites
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"get"), "should detect get route; got: {:?}", callees);
-        assert!(callees.contains(&"post"), "should detect post route; got: {:?}", callees);
-        assert!(callees.contains(&"findAll"), "should detect service call; got: {:?}", callees);
-        assert!(callees.contains(&"respond"), "should detect respond call; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"get"),
+            "should detect get route; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"post"),
+            "should detect post route; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"findAll"),
+            "should detect service call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"respond"),
+            "should detect respond call; got: {:?}",
+            callees
+        );
     }
 
     // Swift tests
 
     #[test]
     fn test_swift_language_detection() {
-        assert_eq!(Language::from_path("Sources/App/main.swift"), Language::Swift);
-        assert_eq!(Language::from_path("Tests/AppTests/AppTests.swift"), Language::Swift);
+        assert_eq!(
+            Language::from_path("Sources/App/main.swift"),
+            Language::Swift
+        );
+        assert_eq!(
+            Language::from_path("Tests/AppTests/AppTests.swift"),
+            Language::Swift
+        );
         assert_eq!(Language::from_path("Package.swift"), Language::Swift);
     }
 
@@ -7353,15 +7884,51 @@ func greet(name: String) -> String {
         assert_eq!(result.language, Language::Swift);
 
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"User"), "should detect struct; got: {:?}", def_names);
-        assert!(def_names.contains(&"UserService"), "should detect class; got: {:?}", def_names);
-        assert!(def_names.contains(&"findAll"), "should detect method; got: {:?}", def_names);
-        assert!(def_names.contains(&"UserRepository"), "should detect protocol; got: {:?}", def_names);
-        assert!(def_names.contains(&"findById"), "should detect protocol function; got: {:?}", def_names);
-        assert!(def_names.contains(&"UserRole"), "should detect enum; got: {:?}", def_names);
-        assert!(def_names.contains(&"defaultName"), "should detect let property; got: {:?}", def_names);
-        assert!(def_names.contains(&"UserID"), "should detect typealias; got: {:?}", def_names);
-        assert!(def_names.contains(&"greet"), "should detect top-level function; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"User"),
+            "should detect struct; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"UserService"),
+            "should detect class; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"findAll"),
+            "should detect method; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"UserRepository"),
+            "should detect protocol; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"findById"),
+            "should detect protocol function; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"UserRole"),
+            "should detect enum; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"defaultName"),
+            "should detect let property; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"UserID"),
+            "should detect typealias; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"greet"),
+            "should detect top-level function; got: {:?}",
+            def_names
+        );
     }
 
     #[test]
@@ -7390,10 +7957,26 @@ class UserController {
             .unwrap();
         assert_eq!(result.language, Language::Swift);
 
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"findAll"), "should detect method call; got: {:?}", callees);
-        assert!(callees.contains(&"decode"), "should detect decode call; got: {:?}", callees);
-        assert!(callees.contains(&"save"), "should detect save call; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"findAll"),
+            "should detect method call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"decode"),
+            "should detect decode call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"save"),
+            "should detect save call; got: {:?}",
+            callees
+        );
     }
 
     #[test]
@@ -7413,7 +7996,11 @@ func index(req: Request) throws -> [User] {
             )
             .unwrap();
 
-        let assign_vars: Vec<&str> = dfi.assignments.iter().map(|a| a.variable.as_str()).collect();
+        let assign_vars: Vec<&str> = dfi
+            .assignments
+            .iter()
+            .map(|a| a.variable.as_str())
+            .collect();
         assert!(
             assign_vars.contains(&"users"),
             "should detect let assignment from method call; got: {:?}",
@@ -7452,7 +8039,9 @@ struct UserController: RouteCollection {
 
 typealias UserID = UUID
 "#;
-        let result = e.parse_file("Sources/App/Controllers/UserController.swift", source).unwrap();
+        let result = e
+            .parse_file("Sources/App/Controllers/UserController.swift", source)
+            .unwrap();
         assert_eq!(result.language, Language::Swift);
 
         // Imports
@@ -7463,18 +8052,58 @@ typealias UserID = UUID
 
         // Definitions
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"UserController"), "should detect struct; got: {:?}", def_names);
-        assert!(def_names.contains(&"boot"), "should detect boot function; got: {:?}", def_names);
-        assert!(def_names.contains(&"index"), "should detect index function; got: {:?}", def_names);
-        assert!(def_names.contains(&"create"), "should detect create function; got: {:?}", def_names);
-        assert!(def_names.contains(&"UserID"), "should detect typealias; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"UserController"),
+            "should detect struct; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"boot"),
+            "should detect boot function; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"index"),
+            "should detect index function; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"create"),
+            "should detect create function; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"UserID"),
+            "should detect typealias; got: {:?}",
+            def_names
+        );
 
         // Call sites
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"grouped"), "should detect grouped call; got: {:?}", callees);
-        assert!(callees.contains(&"get"), "should detect get route; got: {:?}", callees);
-        assert!(callees.contains(&"post"), "should detect post route; got: {:?}", callees);
-        assert!(callees.contains(&"all"), "should detect query().all(); got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"grouped"),
+            "should detect grouped call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"get"),
+            "should detect get route; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"post"),
+            "should detect post route; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"all"),
+            "should detect query().all(); got: {:?}",
+            callees
+        );
     }
 }
 
@@ -7483,7 +8112,13 @@ typealias UserID = UUID
 // ===========================================================================
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod c_tests {
     use super::*;
 
@@ -7509,9 +8144,7 @@ mod c_tests {
     #[test]
     fn test_c_local_include() {
         let e = engine();
-        let result = e
-            .parse_file("main.c", "#include \"myheader.h\"\n")
-            .unwrap();
+        let result = e.parse_file("main.c", "#include \"myheader.h\"\n").unwrap();
         assert_eq!(result.imports.len(), 1);
         assert_eq!(result.imports[0].source, "myheader.h");
         assert_eq!(result.imports[0].names[0].name, "myheader");
@@ -7520,9 +8153,7 @@ mod c_tests {
     #[test]
     fn test_c_include_with_path() {
         let e = engine();
-        let result = e
-            .parse_file("main.c", "#include <curl/curl.h>\n")
-            .unwrap();
+        let result = e.parse_file("main.c", "#include <curl/curl.h>\n").unwrap();
         assert_eq!(result.imports.len(), 1);
         assert_eq!(result.imports[0].source, "curl/curl.h");
         assert_eq!(result.imports[0].names[0].name, "curl");
@@ -7544,8 +8175,16 @@ void print_hello() {
 "#;
         let result = e.parse_file("math.c", source).unwrap();
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"add"), "should detect add function; got: {:?}", def_names);
-        assert!(def_names.contains(&"print_hello"), "should detect print_hello function; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"add"),
+            "should detect add function; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"print_hello"),
+            "should detect print_hello function; got: {:?}",
+            def_names
+        );
     }
 
     #[test]
@@ -7559,7 +8198,11 @@ struct Point {
 "#;
         let result = e.parse_file("types.c", source).unwrap();
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"Point"), "should detect struct Point; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"Point"),
+            "should detect struct Point; got: {:?}",
+            def_names
+        );
     }
 
     #[test]
@@ -7574,7 +8217,11 @@ enum Color {
 "#;
         let result = e.parse_file("color.c", source).unwrap();
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"Color"), "should detect enum Color; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"Color"),
+            "should detect enum Color; got: {:?}",
+            def_names
+        );
     }
 
     #[test]
@@ -7584,7 +8231,11 @@ enum Color {
         let source = "typedef struct Config AppConfig;\n";
         let result = e.parse_file("types.c", source).unwrap();
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"AppConfig"), "should detect typedef; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"AppConfig"),
+            "should detect typedef; got: {:?}",
+            def_names
+        );
     }
 
     // === C call sites ===
@@ -7599,9 +8250,21 @@ void foo() {
 }
 "#;
         let result = e.parse_file("main.c", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"bar"), "should detect bar call; got: {:?}", callees);
-        assert!(callees.contains(&"printf"), "should detect printf call; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"bar"),
+            "should detect bar call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"printf"),
+            "should detect printf call; got: {:?}",
+            callees
+        );
     }
 
     #[test]
@@ -7613,8 +8276,16 @@ void process(struct Obj *obj) {
 }
 "#;
         let result = e.parse_file("main.c", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"init"), "should detect member call via ->; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"init"),
+            "should detect member call via ->; got: {:?}",
+            callees
+        );
     }
 
     // === C data flow ===
@@ -7628,7 +8299,10 @@ void foo() {
 }
 "#;
         let df = e.extract_data_flow("main.c", source).unwrap();
-        assert!(!df.assignments.is_empty(), "should detect assignment from call");
+        assert!(
+            !df.assignments.is_empty(),
+            "should detect assignment from call"
+        );
         assert_eq!(df.assignments[0].variable, "result");
         assert_eq!(df.assignments[0].callee, "process_data");
     }
@@ -7677,18 +8351,54 @@ int main() {
 
         // Definitions
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"Config"), "struct Config; got: {:?}", def_names);
-        assert!(def_names.contains(&"AppConfig"), "typedef AppConfig; got: {:?}", def_names);
-        assert!(def_names.contains(&"process_request"), "process_request fn; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"Config"),
+            "struct Config; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"AppConfig"),
+            "typedef AppConfig; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"process_request"),
+            "process_request fn; got: {:?}",
+            def_names
+        );
         assert!(def_names.contains(&"main"), "main fn; got: {:?}", def_names);
 
         // Call sites
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"read_data"), "read_data call; got: {:?}", callees);
-        assert!(callees.contains(&"handle"), "handle call; got: {:?}", callees);
-        assert!(callees.contains(&"printf"), "printf call; got: {:?}", callees);
-        assert!(callees.contains(&"init_server"), "init_server call; got: {:?}", callees);
-        assert!(callees.contains(&"process_request"), "process_request call; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"read_data"),
+            "read_data call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"handle"),
+            "handle call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"printf"),
+            "printf call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"init_server"),
+            "init_server call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"process_request"),
+            "process_request call; got: {:?}",
+            callees
+        );
     }
 }
 
@@ -7697,7 +8407,13 @@ int main() {
 // ===========================================================================
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod cpp_tests {
     use super::*;
 
@@ -7745,8 +8461,16 @@ std::string greet(const std::string& name) {
 "#;
         let result = e.parse_file("math.cpp", source).unwrap();
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"add"), "should detect add function; got: {:?}", def_names);
-        assert!(def_names.contains(&"greet"), "should detect greet function; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"add"),
+            "should detect add function; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"greet"),
+            "should detect greet function; got: {:?}",
+            def_names
+        );
     }
 
     #[test]
@@ -7763,7 +8487,11 @@ private:
 "#;
         let result = e.parse_file("service.cpp", source).unwrap();
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"UserService"), "should detect class UserService; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"UserService"),
+            "should detect class UserService; got: {:?}",
+            def_names
+        );
     }
 
     #[test]
@@ -7777,7 +8505,11 @@ struct Point {
 "#;
         let result = e.parse_file("types.cpp", source).unwrap();
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"Point"), "should detect struct Point; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"Point"),
+            "should detect struct Point; got: {:?}",
+            def_names
+        );
     }
 
     #[test]
@@ -7790,7 +8522,11 @@ namespace myapp {
 "#;
         let result = e.parse_file("app.cpp", source).unwrap();
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"myapp"), "should detect namespace myapp; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"myapp"),
+            "should detect namespace myapp; got: {:?}",
+            def_names
+        );
     }
 
     #[test]
@@ -7805,7 +8541,11 @@ enum class Status {
 "#;
         let result = e.parse_file("status.cpp", source).unwrap();
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"Status"), "should detect enum class Status; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"Status"),
+            "should detect enum class Status; got: {:?}",
+            def_names
+        );
     }
 
     #[test]
@@ -7814,7 +8554,11 @@ enum class Status {
         let source = "using StringVec = std::vector<std::string>;\n";
         let result = e.parse_file("types.cpp", source).unwrap();
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"StringVec"), "should detect using alias; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"StringVec"),
+            "should detect using alias; got: {:?}",
+            def_names
+        );
     }
 
     // === C++ call sites ===
@@ -7829,8 +8573,16 @@ void foo() {
 }
 "#;
         let result = e.parse_file("main.cpp", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"process"), "should detect process call; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"process"),
+            "should detect process call; got: {:?}",
+            callees
+        );
     }
 
     #[test]
@@ -7843,9 +8595,21 @@ void bar(UserService& svc) {
 }
 "#;
         let result = e.parse_file("main.cpp", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"create_user"), "should detect method call; got: {:?}", callees);
-        assert!(callees.contains(&"delete_user"), "should detect method call; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"create_user"),
+            "should detect method call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"delete_user"),
+            "should detect method call; got: {:?}",
+            callees
+        );
     }
 
     #[test]
@@ -7858,9 +8622,21 @@ void foo() {
 }
 "#;
         let result = e.parse_file("algo.cpp", source).unwrap();
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"sort"), "should detect std::sort; got: {:?}", callees);
-        assert!(callees.contains(&"transform"), "should detect std::transform; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"sort"),
+            "should detect std::sort; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"transform"),
+            "should detect std::transform; got: {:?}",
+            callees
+        );
     }
 
     // === C++ data flow ===
@@ -7874,7 +8650,10 @@ void foo() {
 }
 "#;
         let df = e.extract_data_flow("main.cpp", source).unwrap();
-        assert!(!df.assignments.is_empty(), "should detect assignment from call");
+        assert!(
+            !df.assignments.is_empty(),
+            "should detect assignment from call"
+        );
         assert_eq!(df.assignments[0].variable, "result");
         assert_eq!(df.assignments[0].callee, "compute");
     }
@@ -7928,23 +8707,53 @@ using UserList = std::vector<User>;
 
         // Definitions
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"api"), "namespace api; got: {:?}", def_names);
-        assert!(def_names.contains(&"UserService"), "class UserService; got: {:?}", def_names);
-        assert!(def_names.contains(&"UserList"), "using alias UserList; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"api"),
+            "namespace api; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"UserService"),
+            "class UserService; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"UserList"),
+            "using alias UserList; got: {:?}",
+            def_names
+        );
 
         // Call sites
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"find_all"), "find_all method call; got: {:?}", callees);
-        assert!(callees.contains(&"insert"), "insert method call; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"find_all"),
+            "find_all method call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"insert"),
+            "insert method call; got: {:?}",
+            callees
+        );
     }
 
     // Scala tests
 
     #[test]
     fn test_scala_language_detection() {
-        assert_eq!(Language::from_path("src/main/scala/App.scala"), Language::Scala);
+        assert_eq!(
+            Language::from_path("src/main/scala/App.scala"),
+            Language::Scala
+        );
         assert_eq!(Language::from_path("build.sc"), Language::Scala);
-        assert_eq!(Language::from_path("src/test/scala/AppTest.scala"), Language::Scala);
+        assert_eq!(
+            Language::from_path("src/test/scala/AppTest.scala"),
+            Language::Scala
+        );
     }
 
     #[test]
@@ -7979,10 +8788,22 @@ object Main {
         );
 
         // Named imports {ActorSystem, Props}
-        let akka_import = result.imports.iter().find(|i| i.source == "akka.actor").unwrap();
+        let akka_import = result
+            .imports
+            .iter()
+            .find(|i| i.source == "akka.actor")
+            .unwrap();
         let names: Vec<&str> = akka_import.names.iter().map(|n| n.name.as_str()).collect();
-        assert!(names.contains(&"ActorSystem"), "should have ActorSystem; got: {:?}", names);
-        assert!(names.contains(&"Props"), "should have Props; got: {:?}", names);
+        assert!(
+            names.contains(&"ActorSystem"),
+            "should have ActorSystem; got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"Props"),
+            "should have Props; got: {:?}",
+            names
+        );
 
         // Wildcard import
         let wildcard_import = result.imports.iter().find(|i| i.source == "play.api.mvc");
@@ -8033,24 +8854,72 @@ type UserId = String
         assert_eq!(result.language, Language::Scala);
 
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"UserService"), "should detect class; got: {:?}", def_names);
-        assert!(def_names.contains(&"getUser"), "should detect def; got: {:?}", def_names);
-        assert!(def_names.contains(&"maxRetries"), "should detect val; got: {:?}", def_names);
-        assert!(def_names.contains(&"Repository"), "should detect trait; got: {:?}", def_names);
-        assert!(def_names.contains(&"findById"), "should detect abstract def; got: {:?}", def_names);
-        assert!(def_names.contains(&"apply"), "should detect object method; got: {:?}", def_names);
-        assert!(def_names.contains(&"User"), "should detect case class; got: {:?}", def_names);
-        assert!(def_names.contains(&"Shape"), "should detect sealed trait; got: {:?}", def_names);
-        assert!(def_names.contains(&"UserId"), "should detect type alias; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"UserService"),
+            "should detect class; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"getUser"),
+            "should detect def; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"maxRetries"),
+            "should detect val; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"Repository"),
+            "should detect trait; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"findById"),
+            "should detect abstract def; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"apply"),
+            "should detect object method; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"User"),
+            "should detect case class; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"Shape"),
+            "should detect sealed trait; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"UserId"),
+            "should detect type alias; got: {:?}",
+            def_names
+        );
 
         // Verify kinds
-        let user_service = result.definitions.iter().find(|d| d.name == "UserService").unwrap();
+        let user_service = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "UserService")
+            .unwrap();
         assert_eq!(user_service.kind, SymbolKind::Class);
 
-        let repository = result.definitions.iter().find(|d| d.name == "Repository").unwrap();
+        let repository = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "Repository")
+            .unwrap();
         assert_eq!(repository.kind, SymbolKind::Interface);
 
-        let user_id = result.definitions.iter().find(|d| d.name == "UserId").unwrap();
+        let user_id = result
+            .definitions
+            .iter()
+            .find(|d| d.name == "UserId")
+            .unwrap();
         assert_eq!(user_id.kind, SymbolKind::TypeAlias);
     }
 
@@ -8079,10 +8948,26 @@ class UserService(repo: UserRepository) {
             .unwrap();
         assert_eq!(result.language, Language::Scala);
 
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"findAll"), "should detect method call; got: {:?}", callees);
-        assert!(callees.contains(&"save"), "should detect repo.save call; got: {:?}", callees);
-        assert!(callees.contains(&"println"), "should detect println call; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"findAll"),
+            "should detect method call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"save"),
+            "should detect repo.save call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"println"),
+            "should detect println call; got: {:?}",
+            callees
+        );
     }
 
     #[test]
@@ -8154,18 +9039,62 @@ type UserId = String
 
         // Definitions
         let def_names: Vec<&str> = result.definitions.iter().map(|d| d.name.as_str()).collect();
-        assert!(def_names.contains(&"Main"), "object Main; got: {:?}", def_names);
-        assert!(def_names.contains(&"main"), "def main; got: {:?}", def_names);
-        assert!(def_names.contains(&"routes"), "def routes; got: {:?}", def_names);
-        assert!(def_names.contains(&"User"), "case class User; got: {:?}", def_names);
-        assert!(def_names.contains(&"UserId"), "type alias UserId; got: {:?}", def_names);
+        assert!(
+            def_names.contains(&"Main"),
+            "object Main; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"main"),
+            "def main; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"routes"),
+            "def routes; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"User"),
+            "case class User; got: {:?}",
+            def_names
+        );
+        assert!(
+            def_names.contains(&"UserId"),
+            "type alias UserId; got: {:?}",
+            def_names
+        );
 
         // Call sites
-        let callees: Vec<&str> = result.call_sites.iter().map(|c| c.callee.as_str()).collect();
-        assert!(callees.contains(&"ActorSystem"), "ActorSystem call; got: {:?}", callees);
-        assert!(callees.contains(&"UserRepository"), "UserRepository call; got: {:?}", callees);
-        assert!(callees.contains(&"UserService"), "UserService call; got: {:?}", callees);
-        assert!(callees.contains(&"findAll"), "findAll call; got: {:?}", callees);
-        assert!(callees.contains(&"println"), "println call; got: {:?}", callees);
+        let callees: Vec<&str> = result
+            .call_sites
+            .iter()
+            .map(|c| c.callee.as_str())
+            .collect();
+        assert!(
+            callees.contains(&"ActorSystem"),
+            "ActorSystem call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"UserRepository"),
+            "UserRepository call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"UserService"),
+            "UserService call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"findAll"),
+            "findAll call; got: {:?}",
+            callees
+        );
+        assert!(
+            callees.contains(&"println"),
+            "println call; got: {:?}",
+            callees
+        );
     }
 }

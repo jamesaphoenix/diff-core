@@ -18,9 +18,7 @@ use crate::output::{self, build_analysis_output};
 use crate::rank::{self, compute_risk_score, compute_surface_area};
 use crate::types::{AnalysisOutput, EntrypointType, GroupRankInput, RankWeights};
 
-use super::scoring::{
-    EvalBaseline, ExpectedEntrypoint, ExpectedGroup, RiskOrderingConstraint,
-};
+use super::scoring::{EvalBaseline, ExpectedEntrypoint, ExpectedGroup, RiskOrderingConstraint};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Fixture Names
@@ -108,11 +106,7 @@ impl RepoBuilder {
         let tree = self.repo.find_tree(tree_oid).unwrap();
         let sig = Signature::now("Test User", "test@example.com").unwrap();
 
-        let parent = self
-            .repo
-            .head()
-            .ok()
-            .and_then(|h| h.peel_to_commit().ok());
+        let parent = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok());
         let parents: Vec<&git2::Commit> = parent.iter().collect();
 
         self.repo
@@ -213,11 +207,7 @@ pub fn run_pipeline(repo_path: &Path, base_ref: &str, head_ref: &str) -> Analysi
                 ),
                 centrality: 0.5,
                 surface_area: compute_surface_area(total_add, total_del, 1000),
-                uncertainty: if risk_flags.has_test_only {
-                    0.1
-                } else {
-                    0.5
-                },
+                uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
             }
         })
         .collect();
@@ -231,15 +221,19 @@ pub fn run_pipeline(repo_path: &Path, base_ref: &str, head_ref: &str) -> Analysi
         diff_result.head_sha.as_deref(),
     );
 
-    build_analysis_output(&diff_result, diff_source, &parsed_files, &cluster_result, &ranked)
+    build_analysis_output(
+        &diff_result,
+        diff_source,
+        &parsed_files,
+        &cluster_result,
+        &ranked,
+    )
 }
 
 /// Find the feature branch name in a repo (first non-main branch).
 pub fn find_feature_branch(repo_path: &Path) -> String {
     let repo = Repository::open(repo_path).unwrap();
-    let branches = repo
-        .branches(Some(git2::BranchType::Local))
-        .unwrap();
+    let branches = repo.branches(Some(git2::BranchType::Local)).unwrap();
     for branch in branches {
         let (branch, _) = branch.unwrap();
         let name = branch.name().unwrap().unwrap().to_string();
@@ -477,10 +471,7 @@ export interface CreateUserInput {
 pub fn build_fixture_python_fastapi() -> (RepoBuilder, EvalBaseline) {
     let rb = RepoBuilder::new();
 
-    rb.write_file(
-        "requirements.txt",
-        "fastapi\nuvicorn\nsqlalchemy\ncelery\n",
-    );
+    rb.write_file("requirements.txt", "fastapi\nuvicorn\nsqlalchemy\ncelery\n");
     rb.write_file("app/__init__.py", "");
     rb.commit("Initial Python project");
     rb.create_branch("main");
@@ -1078,12 +1069,10 @@ pub fn load_config(path: &Option<String>) -> Config {
         min_groups: 1,
         max_groups: 5,
         expected_file_count: 5,
-        expected_entrypoints: vec![
-            ExpectedEntrypoint {
-                file_contains: "src/main.rs".to_string(),
-                ep_type: EntrypointType::CliCommand,
-            },
-        ],
+        expected_entrypoints: vec![ExpectedEntrypoint {
+            file_contains: "src/main.rs".to_string(),
+            ep_type: EntrypointType::CliCommand,
+        }],
         expected_groups: vec![],
         risk_ordering: vec![],
         expected_infrastructure: vec![],
@@ -1312,9 +1301,15 @@ mod tests {
     fn test_fixture_display_names() {
         assert_eq!(fixture_display_name("ts-express"), "TS Express API");
         assert_eq!(fixture_display_name("python-fastapi"), "Python FastAPI");
-        assert_eq!(fixture_display_name("nextjs-fullstack"), "Next.js Fullstack");
+        assert_eq!(
+            fixture_display_name("nextjs-fullstack"),
+            "Next.js Fullstack"
+        );
         assert_eq!(fixture_display_name("rust-cli"), "Rust CLI");
-        assert_eq!(fixture_display_name("multi-language"), "Multi-lang Monorepo");
+        assert_eq!(
+            fixture_display_name("multi-language"),
+            "Multi-lang Monorepo"
+        );
         assert_eq!(fixture_display_name("unknown"), "unknown");
     }
 
@@ -1338,7 +1333,10 @@ mod tests {
         let (rb, baseline) = build_fixture_ts_express();
         let branch = find_feature_branch(rb.path());
         let output = run_pipeline(rb.path(), "main", &branch);
-        assert_eq!(output.summary.total_files_changed as usize, baseline.expected_file_count);
+        assert_eq!(
+            output.summary.total_files_changed as usize,
+            baseline.expected_file_count
+        );
     }
 
     #[test]
