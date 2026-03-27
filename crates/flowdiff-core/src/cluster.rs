@@ -715,10 +715,11 @@ fn is_config_like_filename(path: &str) -> bool {
     let filename = lower.rsplit('/').next().unwrap_or(&lower);
 
     // Python/Django config files
+    // Note: __init__.py removed — when changed in a diff, it usually contains
+    // meaningful exports or version bumps (fastapi/__init__.py, requests/__init__.py).
     if matches!(
         filename,
-        "__init__.py"
-            | "settings.py"
+        "settings.py"
             | "celeryconf.py"
             | "urls.py"
             | "wsgi.py"
