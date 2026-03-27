@@ -1,0 +1,50 @@
+# Rust — pydantic-core validation engine, ~23 files
+# 10-commit range: serializer improvements, URL validation, GC fixes.
+[[repos]]
+name = "pydantic-core-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/pydantic-core"
+language = "rust"
+range = "83133d6b04cc14cdb5476496cf09288444e0c474..383eb95a19433754c0cecf7025b50c26b6d97a36"
+notes = "MEDIUM. 10-commit range: serializers, URL, GC. ~23 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.40
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5
+same_group = [
+  ["src/serializers/type_serializers/typed_dict.rs", "tests/serializers/test_typed_dict.py"],
+  ["src/validators/url.rs", "tests/validators/test_url.py"],
+  ["src/serializers/fields.rs", "src/serializers/shared.rs"],
+]
+infrastructure = [
+  ".github/dependabot.yml",
+  "Cargo.lock",
+  "Cargo.toml",
+  "README.md",
+]
+non_infrastructure = [
+  "src/py_gc.rs",
+  "src/serializers/extra.rs",
+  "src/serializers/fields.rs",
+  "src/serializers/infer.rs",
+  "src/serializers/mod.rs",
+  "src/serializers/ob_type.rs",
+  "src/serializers/shared.rs",
+  "src/serializers/type_serializers/dataclass.rs",
+  "src/serializers/type_serializers/function.rs",
+  "src/serializers/type_serializers/generator.rs",
+  "src/serializers/type_serializers/typed_dict.rs",
+  "src/url.rs",
+  "src/validators/dataclass.rs",
+  "src/validators/function.rs",
+  "src/validators/mod.rs",
+  "src/validators/url.rs",
+  "tests/serializers/test_any.py",
+  "tests/serializers/test_typed_dict.py",
+  "tests/validators/test_url.py",
+]
