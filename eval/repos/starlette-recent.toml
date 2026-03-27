@@ -1,0 +1,42 @@
+# Python — Starlette ASGI framework, ~16 files
+# 15-commit range: form parsers, session middleware, responses.
+[[repos]]
+name = "starlette-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/starlette"
+language = "python"
+range = "6a99d99485d8a380ca99d248ad16a319dea8c769..0e88e92b592bfa11fd92e331869a8d49ba34b541"
+notes = "SMALL. 15-commit range: form parsers, sessions, responses. ~16 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5
+same_group = [
+  ["starlette/middleware/sessions.py", "tests/middleware/test_session.py"],
+  ["starlette/responses.py", "tests/test_responses.py"],
+]
+infrastructure = [
+  ".github/workflows/main.yml",
+  ".github/workflows/publish.yml",
+  "README.md",
+  "docs/middleware.md",
+  "docs/release-notes.md",
+  "docs/routing.md",
+  "pyproject.toml",
+  "uv.lock",
+]
+non_infrastructure = [
+  "starlette/__init__.py",
+  "starlette/formparsers.py",
+  "starlette/middleware/sessions.py",
+  "starlette/requests.py",
+  "starlette/responses.py",
+  "tests/middleware/test_session.py",
+  "tests/test_responses.py",
+  "tests/test_websockets.py",
+]
