@@ -1,0 +1,39 @@
+# Python — pydantic-settings, ~13 files
+# 15-commit range: CLI source, env provider, dotenv improvements.
+[[repos]]
+name = "pydantic-settings-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/pydantic-settings"
+language = "python"
+range = "a8c47f8209ef8722119935c00983ab837a377ddd..73fbbed33839f07856655a65f60176638dbb36f1"
+notes = "SMALL. 15-commit range: CLI, env, dotenv providers. ~13 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 4
+same_group = [
+  ["pydantic_settings/sources/providers/cli.py", "tests/test_source_cli.py"],
+  ["pydantic_settings/main.py", "tests/test_settings.py"],
+]
+infrastructure = [
+  ".github/dependabot.yml",
+  ".github/workflows/ci.yml",
+  "docs/index.md",
+  "uv.lock",
+]
+non_infrastructure = [
+  "pydantic_settings/main.py",
+  "pydantic_settings/sources/base.py",
+  "pydantic_settings/sources/providers/cli.py",
+  "pydantic_settings/sources/providers/dotenv.py",
+  "pydantic_settings/sources/providers/env.py",
+  "pydantic_settings/sources/utils.py",
+  "tests/test_precedence_and_merging.py",
+  "tests/test_settings.py",
+  "tests/test_source_cli.py",
+]
