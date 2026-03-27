@@ -1,0 +1,103 @@
+# TypeScript — Vercel AI SDK, ~75 files
+# 10-commit range: gateway provider, stream-text loop control, spend reports.
+[[repos]]
+name = "vercel-ai-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/vercel-ai"
+language = "typescript"
+range = "adafe39f1a6e03b5e46f36c4d2a8578f1d10ab23..ca12a22dfc6c69f6333c524c6899b7e0856f8a6d"
+notes = "MEDIUM. 10-commit range: gateway provider, stream-text, spend reports. ~75 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.80
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 5
+same_group = [
+  ["packages/gateway/src/gateway-provider.ts", "packages/gateway/src/gateway-provider.test.ts"],
+  ["packages/gateway/src/gateway-spend-report.ts", "packages/gateway/src/gateway-spend-report.test.ts"],
+  ["packages/ai/src/generate-text/stream-model-call.ts", "packages/ai/src/generate-text/stream-model-call.test.ts"],
+  ["packages/ai/src/generate-text/create-execute-tools-transformation.ts", "packages/ai/src/generate-text/create-execute-tools-transformation.test.ts"],
+]
+infrastructure = [
+  ".changeset/light-dolphins-shake.md",
+  ".changeset/neat-jokes-impress.md",
+  ".changeset/pre.json",
+  ".changeset/unlucky-seas-prove.md",
+  "architecture/stream-text-loop-control.md",
+  "contributing/naming-conventions.md",
+  "contributing/providers.md",
+  "examples/ai-e2e-next/package.json",
+  "examples/angular/package.json",
+  "examples/express/package.json",
+  "examples/fastify/package.json",
+  "examples/hono/package.json",
+  "examples/mcp/package.json",
+  "examples/nest/package.json",
+  "examples/next-agent/package.json",
+  "examples/next-fastapi/package.json",
+  "examples/next-google-vertex/package.json",
+  "examples/next-langchain/package.json",
+  "examples/next-openai-kasada-bot-protection/package.json",
+  "examples/next-openai-pages/package.json",
+  "examples/next-openai-telemetry-sentry/package.json",
+  "examples/next-openai-telemetry/package.json",
+  "examples/next-openai-upstash-rate-limits/package.json",
+  "examples/next/package.json",
+  "examples/node-http-server/package.json",
+  "examples/nuxt-openai/package.json",
+  "examples/sveltekit-openai/package.json",
+  "packages/ai/CHANGELOG.md",
+  "packages/ai/package.json",
+  "packages/angular/CHANGELOG.md",
+  "packages/angular/package.json",
+  "packages/gateway/CHANGELOG.md",
+  "packages/gateway/package.json",
+  "packages/langchain/CHANGELOG.md",
+  "packages/langchain/package.json",
+  "packages/llamaindex/CHANGELOG.md",
+  "packages/llamaindex/package.json",
+  "packages/react/CHANGELOG.md",
+  "packages/react/package.json",
+  "packages/rsc/CHANGELOG.md",
+  "packages/rsc/package.json",
+  "packages/rsc/tests/e2e/next-server/CHANGELOG.md",
+  "packages/svelte/CHANGELOG.md",
+  "packages/svelte/package.json",
+  "packages/vue/CHANGELOG.md",
+  "packages/vue/package.json",
+  "pnpm-lock.yaml",
+]
+non_infrastructure = [
+  "content/docs/02-foundations/06-provider-options.mdx",
+  "content/providers/01-ai-sdk-providers/00-ai-gateway.mdx",
+  "examples/ai-functions/src/deprecated-options-types.test-d.ts",
+  "examples/ai-functions/src/gateway/get-spend-report-filtered.ts",
+  "examples/ai-functions/src/gateway/get-spend-report.ts",
+  "examples/ai-functions/src/gateway/stream-text-with-tags.ts",
+  "examples/ai-functions/src/generate-text/gateway/request-byok.ts",
+  "examples/ai-functions/src/stream-text-custom-loop/openai.ts",
+  "examples/ai-functions/src/stream-text/gateway/provider-options-models.ts",
+  "examples/ai-functions/src/stream-text/gateway/provider-options-order.ts",
+  "examples/ai-functions/src/stream-text/gateway/provider-options-tags.ts",
+  "examples/ai-functions/src/stream-text/gateway/provider-options-zero-data-retention.ts",
+  "packages/ai/src/error/invalid-stream-part-error.ts",
+  "packages/ai/src/generate-text/create-execute-tools-transformation.test.ts",
+  "packages/ai/src/generate-text/create-execute-tools-transformation.ts",
+  "packages/ai/src/generate-text/create-stream-text-part-transform.ts",
+  "packages/ai/src/generate-text/index.ts",
+  "packages/ai/src/generate-text/invoke-tool-callbacks-from-stream.test.ts",
+  "packages/ai/src/generate-text/invoke-tool-callbacks-from-stream.ts",
+  "packages/ai/src/generate-text/stream-model-call.test.ts",
+  "packages/ai/src/generate-text/stream-model-call.ts",
+  "packages/ai/src/generate-text/stream-text.ts",
+  "packages/gateway/src/gateway-provider-options.ts",
+  "packages/gateway/src/gateway-provider.test.ts",
+  "packages/gateway/src/gateway-provider.ts",
+  "packages/gateway/src/gateway-spend-report.test.ts",
+  "packages/gateway/src/gateway-spend-report.ts",
+  "packages/gateway/src/index.ts",
+]
