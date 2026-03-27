@@ -1,0 +1,125 @@
+# Go — containerd container runtime, ~85 files
+# Mixed range: cgroup mount options fix, parallel unpack workaround, resolver fallback hardening,
+# streaming EOF fix, vendor bumps (klauspost/compress, otel, grpc, k8s, platforms).
+[[repos]]
+name = "containerd-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/containerd"
+language = "go"
+range = "33db836a8b06000e8afb5bba947c299ae721878a..131286b17755467322f5fcc2bf90842d4c414b79"
+notes = "LARGE. ~85 files, heavy vendor churn. Core changes: cgroup mount option preservation for privileged containers, parallel unpack overlay workaround, resolver transient-error fallback fix, streaming EOF data-loss fix, pusher validation, shim pid typo fix."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 12
+
+same_group = [
+  # Mount parsing: X-containerd option rejection + parseMountOptions error return
+  ["core/mount/mount_linux.go", "core/mount/mount_linux_test.go"],
+  # Docker resolver: transient error fallback hardening + tests
+  ["core/remotes/docker/resolver.go", "core/remotes/docker/resolver_test.go"],
+  # Transfer streaming: EOF-with-data fix + test
+  ["core/transfer/streaming/stream.go", "core/transfer/streaming/stream_test.go"],
+  # Unpacker: parallel unpack overlay workaround + snapshot labels + test
+  ["core/unpack/unpacker.go", "core/unpack/unpacker_test.go"],
+  # CRI cgroup namespace ordering + cgroup mount option preservation
+  ["internal/cri/opts/spec_linux_opts.go", "internal/cri/server/container_create.go"],
+  ["internal/cri/opts/spec_linux_opts.go", "internal/cri/opts/spec_linux_test.go"],
+  ["internal/cri/server/container_create.go", "internal/cri/server/container_create_linux_test.go"],
+]
+
+infrastructure = [
+  "CONTRIBUTING.md",
+  "Vagrantfile",
+  "api/go.mod",
+  "api/go.sum",
+  "go.mod",
+  "go.sum",
+  "script/critest.sh",
+  "script/setup/critools-version",
+  "script/setup/install-dev-tools",
+  "script/setup/prepare_env_windows.ps1",
+  "script/test/cri-integration.sh",
+  "vendor/github.com/containerd/platforms/.golangci.yml",
+  "vendor/github.com/containerd/platforms/compare.go",
+  "vendor/github.com/containerd/platforms/cpuinfo_other.go",
+  "vendor/github.com/containerd/platforms/platforms.go",
+  "vendor/github.com/klauspost/compress/.goreleaser.yml",
+  "vendor/github.com/klauspost/compress/README.md",
+  "vendor/github.com/klauspost/compress/huff0/decompress_amd64.go",
+  "vendor/github.com/klauspost/compress/huff0/decompress_generic.go",
+  "vendor/github.com/klauspost/compress/internal/cpuinfo/cpuinfo_amd64.go",
+  "vendor/github.com/klauspost/compress/zstd/blockenc.go",
+  "vendor/github.com/klauspost/compress/zstd/enc_base.go",
+  "vendor/github.com/klauspost/compress/zstd/enc_best.go",
+  "vendor/github.com/klauspost/compress/zstd/enc_better.go",
+  "vendor/github.com/klauspost/compress/zstd/enc_dfast.go",
+  "vendor/github.com/klauspost/compress/zstd/enc_fast.go",
+  "vendor/github.com/klauspost/compress/zstd/encoder.go",
+  "vendor/github.com/klauspost/compress/zstd/encoder_options.go",
+  "vendor/github.com/klauspost/compress/zstd/fse_decoder_amd64.go",
+  "vendor/github.com/klauspost/compress/zstd/fse_decoder_generic.go",
+  "vendor/github.com/klauspost/compress/zstd/internal/xxhash/xxhash_other.go",
+  "vendor/github.com/klauspost/compress/zstd/matchlen_amd64.go",
+  "vendor/github.com/klauspost/compress/zstd/matchlen_generic.go",
+  "vendor/github.com/klauspost/compress/zstd/seqdec_amd64.go",
+  "vendor/github.com/klauspost/compress/zstd/seqdec_generic.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/config.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/interceptor.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/internal/parse.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/stats_handler.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/version.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/client.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/common.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/config.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/handler.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/internal/request/resp_writer_wrapper.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/internal/semconv/client.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/internal/semconv/server.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/internal/semconv/util.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/transport.go",
+  "vendor/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/version.go",
+  "vendor/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/client.go",
+  "vendor/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/internal/observ/instrumentation.go",
+  "vendor/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/internal/version.go",
+  "vendor/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp/client.go",
+  "vendor/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp/internal/observ/instrumentation.go",
+  "vendor/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp/internal/version.go",
+  "vendor/go.opentelemetry.io/otel/exporters/otlp/otlptrace/version.go",
+  "vendor/go.opentelemetry.io/otel/semconv/v1.37.0/otelconv/metric.go",
+  "vendor/go.opentelemetry.io/otel/semconv/v1.37.0/rpcconv/metric.go",
+  "vendor/go.opentelemetry.io/otel/semconv/v1.40.0/httpconv/metric.go",
+  "vendor/go.opentelemetry.io/otel/semconv/v1.40.0/rpcconv/metric.go",
+  "vendor/google.golang.org/grpc/internal/envconfig/envconfig.go",
+  "vendor/google.golang.org/grpc/server.go",
+  "vendor/google.golang.org/grpc/version.go",
+  "vendor/modules.txt",
+]
+
+non_infrastructure = [
+  "cmd/containerd-shim-runc-v2/process/exec.go",
+  "cmd/containerd/server/server.go",
+  "core/mount/mount_linux.go",
+  "core/mount/mount_linux_test.go",
+  "core/remotes/docker/pusher.go",
+  "core/remotes/docker/resolver.go",
+  "core/remotes/docker/resolver_test.go",
+  "core/snapshots/storage/bolt.go",
+  "core/transfer/streaming/stream.go",
+  "core/transfer/streaming/stream_test.go",
+  "core/unpack/unpacker.go",
+  "core/unpack/unpacker_test.go",
+  "integration/client/container_linux_test.go",
+  "integration/container_cgroup_mount_options_linux_test.go",
+  "integration/images/image_list.go",
+  "internal/cri/opts/spec_linux_opts.go",
+  "internal/cri/opts/spec_linux_test.go",
+  "internal/cri/server/container_create.go",
+  "internal/cri/server/container_create_linux_test.go",
+  "plugins/transfer/plugin.go",
+]
