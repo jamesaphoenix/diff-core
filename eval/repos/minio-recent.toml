@@ -1,0 +1,37 @@
+# Go — MinIO object storage, ~10 files
+# 10-commit range: API responses, erasure multipart, metrics.
+[[repos]]
+name = "minio-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/minio"
+language = "go"
+range = "fa18589d1c65aeb5854efbc7a1c09bf4273a3dee..7aac2a2c5b7c882e68c1ce017d8256be2feea27f"
+notes = "SMALL. 10-commit range: API responses, erasure, metrics. ~10 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 4
+same_group = [
+  ["cmd/api-response.go", "cmd/api-response_test.go"],
+  ["cmd/erasure-multipart.go", "cmd/erasure-multipart-conditional_test.go"],
+  ["cmd/erasure-object.go", "cmd/erasure-object-conditional_test.go"],
+]
+infrastructure = [
+  "README.md",
+  "docs/metrics/v3.md",
+]
+non_infrastructure = [
+  "cmd/api-response.go",
+  "cmd/api-response_test.go",
+  "cmd/api-router.go",
+  "cmd/erasure-multipart-conditional_test.go",
+  "cmd/erasure-multipart.go",
+  "cmd/erasure-object-conditional_test.go",
+  "cmd/erasure-object.go",
+  "cmd/metrics.go",
+]

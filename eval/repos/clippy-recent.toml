@@ -1,0 +1,38 @@
+# Rust — rust-clippy linter, ~12 files
+# 10-commit range: collapsible_if, manual_is_ascii, iter_kv_map fixes.
+[[repos]]
+name = "clippy-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/clippy"
+language = "rust"
+range = "79db6154d3b547bf60f89f65588917ca0247de56..f7649efff74f10b49b048fc903877e19255bdd7d"
+notes = "SMALL. 10-commit range: lint rule fixes. ~12 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.30
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 7
+same_group = [
+  ["clippy_lints/src/methods/iter_kv_map.rs", "tests/ui/iter_kv_map.rs"],
+  ["clippy_lints/src/collapsible_if.rs", "tests/ui/collapsible_if_unfixable.rs"],
+  ["clippy_lints/src/matches/collapsible_match.rs", "tests/ui/collapsible_match.rs"],
+]
+infrastructure = []
+non_infrastructure = [
+  "clippy_lints/src/collapsible_if.rs",
+  "clippy_lints/src/manual_is_ascii_check.rs",
+  "clippy_lints/src/matches/collapsible_match.rs",
+  "clippy_lints/src/methods/filter_map.rs",
+  "clippy_lints/src/methods/iter_kv_map.rs",
+  "clippy_lints/src/repeat_vec_with_capacity.rs",
+  "clippy_lints/src/string_patterns.rs",
+  "tests/ui/collapsible_if_unfixable.rs",
+  "tests/ui/collapsible_match.rs",
+  "tests/ui/iter_kv_map.fixed",
+  "tests/ui/iter_kv_map.rs",
+  "tests/ui/iter_kv_map.stderr",
+]
