@@ -1,0 +1,84 @@
+# Python — Requests historical floor-bump and netrc fix range, 11 files
+# Adjacent historical range: CI workflow pin bumps, Python 3.10 floor uplift, and empty-netrc handling.
+[[repos]]
+name = "requests-python310-netrc"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/requests"
+language = "python"
+range = "cb2c800518423e0042789ab09f8f6e719428a444..47914226c2968802f2cdee3f6f0f6e06e4472f64"
+notes = "SMALL. Adjacent historical range: GitHub Actions maintenance, Python 3.10 support-floor uplift, and a netrc empty-default-credentials fix. 11 files."
+
+[repos.thresholds]
+max_groups = 20
+max_infra_ratio = 0.85
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 4
+
+same_group = [
+  ["src/requests/utils.py", "tests/test_utils.py"],
+  ["pyproject.toml", "setup.py"],
+  ["pyproject.toml", "tox.ini"],
+  ["pyproject.toml", ".github/workflows/run-tests.yml"],
+]
+
+separate_group = [
+  ["src/requests/utils.py", "pyproject.toml"],
+  ["src/requests/utils.py", ".github/workflows/codeql-analysis.yml"],
+  ["pyproject.toml", ".github/workflows/codeql-analysis.yml"],
+]
+
+infrastructure = [
+  ".github/workflows/codeql-analysis.yml",
+  ".github/workflows/lint.yml",
+  ".github/workflows/lock-issues.yml",
+  ".github/workflows/publish.yml",
+  ".github/workflows/run-tests.yml",
+  "README.md",
+  "pyproject.toml",
+  "setup.py",
+  "tox.ini",
+]
+
+non_infrastructure = [
+  "src/requests/utils.py",
+  "tests/test_utils.py",
+]
+
+[repos.ml]
+dataset_version = 1
+underlying_repo = "requests"
+range_id = "requests-python310-netrc"
+label_source = "manual-diff-analysis"
+review_status = "draft"
+
+[[repos.ml.groups]]
+id = "python310-floor-and-test-matrix"
+kind = "infrastructure"
+files = [
+  ".github/workflows/run-tests.yml",
+  "README.md",
+  "pyproject.toml",
+  "setup.py",
+  "tox.ini",
+]
+
+[[repos.ml.groups]]
+id = "github-actions-maintenance"
+kind = "infrastructure"
+files = [
+  ".github/workflows/codeql-analysis.yml",
+  ".github/workflows/lint.yml",
+  ".github/workflows/lock-issues.yml",
+  ".github/workflows/publish.yml",
+]
+
+[[repos.ml.groups]]
+id = "netrc-empty-default-credentials-fix"
+kind = "feature"
+files = [
+  "src/requests/utils.py",
+  "tests/test_utils.py",
+]
