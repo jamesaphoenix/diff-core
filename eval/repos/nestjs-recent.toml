@@ -1,0 +1,97 @@
+# TypeScript — NestJS monorepo, 65 files
+# Range mixes one middleware behavior fix, one logger refactor, and broad package/version churn.
+[[repos]]
+name = "nestjs-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/nestjs"
+language = "typescript"
+range = "4593f5889c482fc0e29060222757c0fececa94fa..a39e345b0af1dc1aeff87c1843df6712b18ee6ee"
+notes = "MEDIUM. 65-file range: HEAD auto-forwarding to GET in middleware, ConsoleLogger helper visibility refactor, plus broad root/package/sample dependency and version bumps."
+
+[repos.thresholds]
+max_groups = 20
+max_infra_ratio = 0.98
+max_singleton_ratio = 0.70
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 5
+
+same_group = [
+  ["packages/core/middleware/middleware-module.ts", "integration/hello-world/e2e/middleware-fastify.spec.ts"],
+]
+
+separate_group = [
+  ["packages/common/services/console-logger.service.ts", "packages/core/middleware/middleware-module.ts"],
+]
+
+infrastructure = [
+  "CONTRIBUTING.md",
+  "integration/docker-compose.yml",
+  "lerna.json",
+  "package-lock.json",
+  "package.json",
+  "packages/common/Readme.md",
+  "packages/common/package.json",
+  "packages/core/Readme.md",
+  "packages/core/package.json",
+  "packages/microservices/Readme.md",
+  "packages/microservices/package.json",
+  "packages/platform-express/Readme.md",
+  "packages/platform-express/package.json",
+  "packages/platform-fastify/Readme.md",
+  "packages/platform-fastify/package.json",
+  "packages/platform-socket.io/Readme.md",
+  "packages/platform-socket.io/package.json",
+  "packages/platform-ws/Readme.md",
+  "packages/platform-ws/package.json",
+  "packages/testing/Readme.md",
+  "packages/testing/package.json",
+  "packages/websockets/Readme.md",
+  "packages/websockets/package.json",
+  "sample/01-cats-app/package.json",
+  "sample/02-gateways/package.json",
+  "sample/03-microservices/package.json",
+  "sample/04-grpc/package.json",
+  "sample/05-sql-typeorm/package.json",
+  "sample/06-mongoose/package.json",
+  "sample/07-sequelize/package.json",
+  "sample/08-webpack/package.json",
+  "sample/09-babel-example/package.json",
+  "sample/10-fastify/package.json",
+  "sample/11-swagger/package.json",
+  "sample/12-graphql-schema-first/package.json",
+  "sample/13-mongo-typeorm/package.json",
+  "sample/14-mongoose-base/package.json",
+  "sample/15-mvc/package.json",
+  "sample/16-gateways-ws/package.json",
+  "sample/17-mvc-fastify/package.json",
+  "sample/18-context/package.json",
+  "sample/19-auth-jwt/package.json",
+  "sample/20-cache/package.json",
+  "sample/21-serializer/package.json",
+  "sample/22-graphql-prisma/package.json",
+  "sample/23-graphql-code-first/package.json",
+  "sample/24-serve-static/package.json",
+  "sample/25-dynamic-modules/package.json",
+  "sample/26-queues/package.json",
+  "sample/27-scheduling/package.json",
+  "sample/28-sse/package.json",
+  "sample/29-file-upload/package.json",
+  "sample/30-event-emitter/package.json",
+  "sample/31-graphql-federation-code-first/gateway/package.json",
+  "sample/31-graphql-federation-code-first/posts-application/package.json",
+  "sample/31-graphql-federation-code-first/users-application/package.json",
+  "sample/32-graphql-federation-schema-first/gateway/package.json",
+  "sample/32-graphql-federation-schema-first/posts-application/package.json",
+  "sample/32-graphql-federation-schema-first/users-application/package.json",
+  "sample/33-graphql-mercurius/package.json",
+  "sample/36-hmr-esm/package.json",
+  "tools/benchmarks/package-lock.json",
+]
+
+non_infrastructure = [
+  "integration/hello-world/e2e/middleware-fastify.spec.ts",
+  "packages/common/services/console-logger.service.ts",
+  "packages/core/middleware/middleware-module.ts",
+]
