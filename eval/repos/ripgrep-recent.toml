@@ -1,0 +1,42 @@
+# Rust — ripgrep search tool, ~15 files
+# 15-commit range: flag config, ignore patterns, default types, dependency updates.
+[[repos]]
+name = "ripgrep-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/ripgrep"
+language = "rust"
+range = "4694800be58daa9e2ca9534f674b63254eb02b3b..4519153e5e461527f4bca45b042fff45c4ec6fb9"
+notes = "SMALL. 15-commit range: flag config, ignore patterns, dep updates. ~15 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5
+same_group = [
+  ["crates/core/flags/config.rs", "crates/core/flags/defs.rs"],
+  ["crates/core/flags/defs.rs", "crates/core/flags/lowargs.rs"],
+  ["crates/ignore/src/default_types.rs", "crates/ignore/src/dir.rs"],
+]
+infrastructure = [
+  "CHANGELOG.md",
+  "Cargo.lock",
+  "Cargo.toml",
+  "GUIDE.md",
+  "crates/grep/Cargo.toml",
+  "crates/ignore/Cargo.toml",
+  "crates/printer/Cargo.toml",
+  "pkg/brew/ripgrep-bin.rb",
+]
+non_infrastructure = [
+  "crates/core/flags/config.rs",
+  "crates/core/flags/defs.rs",
+  "crates/core/flags/lowargs.rs",
+  "crates/ignore/src/default_types.rs",
+  "crates/ignore/src/dir.rs",
+  "tests/misc.rs",
+  "tests/util.rs",
+]
