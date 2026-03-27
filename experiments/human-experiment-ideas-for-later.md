@@ -93,43 +93,49 @@ Ideas queued for testing in the autoresearch loop. Move items to `experiments.js
 
 **Schedule: 10 MACRO → 10 MICRO → 10 GROWING_DATA → repeat**
 
-**Current phase: MACRO (1/10)** — Cycle 2 starting. GROWING_DATA complete (57 repos, 0.9616). Next: MACRO optimization on 57 repos.
+**Current phase: GROWING_DATA toward 107 repos. Next MACRO cycle: pie-in-the-sky ideas.**
 
-### Macro (GLOBAL) — 10 experiments, generic approaches
-1. [x] **Diff-based embeddings** — embed change hunks not full content (#62, +0.0002 keep)
-2. [x] **Filename stem clustering** — bare-stem matching across dirs (#63, neutral revert)
-3. [ ] **Co-change mining** — `git log --name-only` co-change frequencies
-4. [x] **Stem merge (breakthrough)** — bare-stem matching across groups (#64, +0.0021)
-5. [x] **Vitest suffix** — .vitest. test pattern (#65, +0.0002)
-6. [x] **Infra detection** — .changeset/, version files, zz_generated (#66, +0.0009)
-7. [x] **Package prefix merge** — monorepo prefix too aggressive (#67, -0.0002 revert)
-8. [ ] **Import chain depth weighting** — weight graph edges by import chain length
-9. [ ] **Embedding-based infra detection** — train a classifier on golden infra/non-infra labels
-10. [ ] **Hybrid BFS + embedding** — use embeddings to break ties in BFS assignment
+### Macro (GLOBAL) — pie-in-the-sky research ideas
+These are ambitious, research-grade approaches. Each may take multiple experiments.
 
-### Micro (LOCAL) — 10 experiments, targeted heuristics
-1. [ ] `.changeset/` directory → infra (Effect.ts repos)
-2. [ ] `version.go` / `version.ts` → `is_config_like_filename`
-3. [ ] `__init__.py` context-aware — only config if <10 lines or non-test dir
-4. [ ] Cross-directory stem match: `django/forms/fields.py` ↔ `tests/forms_tests/*/test_*.py`
-5. [ ] `go.mod` + `go.sum` always same group (post-processing merge)
-6. [ ] `lib.rs` / `mod.rs` → infra when it's just re-exports
-7. [ ] `.tmpl` / `.gohtml` → same group as Go handler by path stem
-8. [ ] `coverage-final.json` / `*.snap` → infra (test artifacts)
-9. [ ] `examples/` directory → feature code (not infra)
-10. [ ] `testscripts/` / `__test__` → same group as matching source
+1. [ ] **Graph community detection (Louvain/Leiden)** — treat symbol graph as weighted network, find natural communities. Replace BFS-from-entrypoints with data-driven clustering. Crate: `petgraph` + community detection algorithm.
+2. [ ] **Spectral clustering on embeddings** — build similarity graph from 768-dim file embeddings, compute Laplacian eigenvectors, k-means on spectral space. Discovers non-convex clusters that centroid methods miss.
+3. [ ] **Learned merge policy** — use 90+ golden repos as training data. For each pair of groups, extract features (directory overlap, embedding cosine, graph connectivity, stem match, file count ratio). Train a simple classifier (logistic regression / decision tree) to predict "should merge". Apply to new repos.
+4. [ ] **Co-change mining from git history** — `git log --name-only` to build co-change frequency matrix. Files that change together in past commits → same group. Signal independent of code content.
+5. [ ] **Multi-signal fusion** — combine graph edges + embedding similarity + directory proximity + filename similarity + co-change into a single weighted similarity matrix. Cluster on the fused matrix. Currently signals are applied sequentially; fusion could find groups no single signal detects.
+6. [ ] **Hierarchical agglomerative clustering** — build distance matrix from import graph edge weights. Ward/average linkage to form hierarchy. Cut at optimal level for group count. More principled than BFS+consolidation.
+7. [ ] **Feature generation pipeline** — extract per-file features: path depth, extension, directory tokens, import count, change size (additions+deletions), embedding vector. Feed into clustering algorithm (HDBSCAN, k-means, DBSCAN).
+8. [ ] **GNN on symbol graph** — message-passing neural network on the file/symbol graph to learn file representations. Train on golden corpus labels. Would capture transitive dependencies that BFS misses.
+9. [ ] **Active learning loop** — use golden failures as hard negatives. For each failing same_group/infra constraint, extract the feature vector and add to training set. Iteratively improve the merge/classify decision boundary.
+10. [ ] **Hybrid BFS + embedding tiebreaker** — when BFS assigns a file to multiple entrypoints at equal distance, use embedding similarity to the group centroid to break the tie. Currently uses ep_idx (arbitrary).
 
-### Growing Data — 10 experiments (add ~20-30 repos)
-- Add Java repos (Spring Boot, Micronaut)
-- Add C# repos (.NET, ASP.NET)
-- Add more Python repos (FastAPI monorepos, Django apps)
-- Add Swift/Kotlin mobile repos
+### Micro (LOCAL) — targeted heuristics
+Quick wins from specific failure patterns. Each is one experiment.
+
+1. [ ] `lib.rs` / `mod.rs` → infra when file has <5 lines (just re-exports)
+2. [ ] `.tmpl` / `.gohtml` → same group as Go handler matching by path stem
+3. [ ] `coverage-final.json` / `*.snap` → Generated infra (test artifacts)
+4. [ ] `examples/` directory files → feature code (not infra) unless config
+5. [ ] `.sql` files in `db/` or `migrations/` → infra (schema/seeds)
+6. [ ] `.properties` files → infra when not in src/main/ (Java convention)
+7. [ ] `Makefile` in subdirectories → infra
+8. [ ] `.proto` generated `.pb.go`/`.pb.rs` → always infra (Generated)
+9. [ ] `conftest.py` → context-aware (test fixture vs config)
+10. [ ] `_test.go` files in `vendor/` → always infra
+
+### Growing Data — ongoing corpus expansion
+- Target: 107 repos for Round 4 gate (91 currently, 16 more needed)
 - Re-classify octospark via sub-agents (fix 1894 non-infra failures)
+- Add Guava Java (172 files, needs divide-and-conquer)
+- Continue diversifying: more C, C++, Dart, Elixir repos
+
+### Refactoring
+- [ ] **Split cluster.rs into modules** — classify.rs, merge.rs, rescue.rs, stem.rs (see task #1)
 
 ### Schedule rule
-- Complete all experiments in current phase before moving to next.
-- If an item is blocked, skip it and move to the next.
-- After GROWING_DATA: return to MACRO with fresh repo data.
+- MACRO ideas are research projects — may span multiple experiments each
+- MICRO ideas are one-shot — test, keep/revert, move on
+- After GROWING_DATA: pick the most promising MACRO idea and deep-dive
 
 ## Phase 0: Corpus Expansion Ideas
 
