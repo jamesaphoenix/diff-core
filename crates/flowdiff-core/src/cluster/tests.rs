@@ -450,6 +450,121 @@ fn test_disconnected_components() {
 }
 
 #[test]
+fn test_no_entrypoints_use_graph_connected_components_before_directory_groups() {
+    let graph = make_graph(
+        &[
+            ("src/auth_impl.py", "src/auth_impl.py", SymbolKind::Module),
+            (
+                "src/auth_impl.py::login",
+                "src/auth_impl.py",
+                SymbolKind::Function,
+            ),
+            ("src/auth_test.py", "src/auth_test.py", SymbolKind::Module),
+            (
+                "src/auth_test.py::test_login",
+                "src/auth_test.py",
+                SymbolKind::Function,
+            ),
+            (
+                "src/billing_impl.py",
+                "src/billing_impl.py",
+                SymbolKind::Module,
+            ),
+            (
+                "src/billing_impl.py::charge",
+                "src/billing_impl.py",
+                SymbolKind::Function,
+            ),
+            (
+                "src/billing_test.py",
+                "src/billing_test.py",
+                SymbolKind::Module,
+            ),
+            (
+                "src/billing_test.py::test_charge",
+                "src/billing_test.py",
+                SymbolKind::Function,
+            ),
+        ],
+        &[
+            (
+                "src/auth_test.py",
+                "src/auth_impl.py::login",
+                EdgeType::Imports,
+            ),
+            (
+                "src/auth_test.py::test_login",
+                "src/auth_impl.py::login",
+                EdgeType::Calls,
+            ),
+            (
+                "src/billing_test.py",
+                "src/billing_impl.py::charge",
+                EdgeType::Imports,
+            ),
+            (
+                "src/billing_test.py::test_charge",
+                "src/billing_impl.py::charge",
+                EdgeType::Calls,
+            ),
+        ],
+    );
+
+    let files = changed(&[
+        "src/auth_impl.py",
+        "src/auth_test.py",
+        "src/billing_impl.py",
+        "src/billing_test.py",
+    ]);
+
+    let result = cluster_files(&graph, &[], &files);
+
+    assert_eq!(
+        result.groups.len(),
+        2,
+        "same-directory files should split by graph component"
+    );
+    assert!(result.infrastructure.is_none());
+
+    let auth_group = result
+        .groups
+        .iter()
+        .find(|group| {
+            group
+                .files
+                .iter()
+                .any(|file| file.path == "src/auth_impl.py")
+        })
+        .expect("missing auth component group");
+    let auth_files: Vec<&str> = auth_group
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    assert_eq!(auth_files, vec!["src/auth_impl.py", "src/auth_test.py"]);
+
+    let billing_group = result
+        .groups
+        .iter()
+        .find(|group| {
+            group
+                .files
+                .iter()
+                .any(|file| file.path == "src/billing_impl.py")
+        })
+        .expect("missing billing component group");
+    let billing_files: Vec<&str> = billing_group
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    assert_eq!(
+        billing_files,
+        vec!["src/billing_impl.py", "src/billing_test.py"]
+    );
+}
+
+#[test]
 fn test_group_file_ordering() {
     // Linear chain: entry → mid → leaf. Files should be ordered by BFS distance.
     let graph = make_graph(

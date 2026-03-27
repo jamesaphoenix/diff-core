@@ -94,6 +94,171 @@ pub(super) fn has_semantic_source_extension(path: &str) -> bool {
     )
 }
 
+fn build_no_entrypoint_component_groups(
+    graph: &SymbolGraph,
+    source_files: &[String],
+) -> (Vec<FlowGroup>, Vec<String>) {
+    let source_set: HashSet<&str> = source_files.iter().map(String::as_str).collect();
+    let mut adjacency: HashMap<String, HashSet<String>> = HashMap::new();
+
+    for file in source_files {
+        let reachable = compute_file_reachability(graph, file, "");
+        for other in reachable.keys() {
+            if other == file || !source_set.contains(other.as_str()) {
+                continue;
+            }
+            adjacency
+                .entry(file.clone())
+                .or_default()
+                .insert(other.clone());
+            adjacency
+                .entry(other.clone())
+                .or_default()
+                .insert(file.clone());
+        }
+    }
+
+    let mut component_groups = Vec::new();
+    let mut isolated_files = Vec::new();
+    let mut visited: HashSet<String> = HashSet::new();
+
+    for file in source_files {
+        if !visited.insert(file.clone()) {
+            continue;
+        }
+
+        let mut stack = vec![file.clone()];
+        let mut component = Vec::new();
+        let mut has_connection = false;
+
+        while let Some(current) = stack.pop() {
+            component.push(current.clone());
+
+            let neighbors: Vec<String> = adjacency
+                .get(&current)
+                .map(|entries| entries.iter().cloned().collect())
+                .unwrap_or_default();
+
+            if !neighbors.is_empty() {
+                has_connection = true;
+            }
+
+            for neighbor in neighbors {
+                if visited.insert(neighbor.clone()) {
+                    stack.push(neighbor);
+                }
+            }
+        }
+
+        component.sort();
+
+        if has_connection && component.len() > 1 {
+            let label = component
+                .first()
+                .and_then(|path| path.rsplit_once('/').map(|(dir, _)| dir))
+                .and_then(|dir| dir.rsplit('/').next())
+                .unwrap_or("root");
+            let component_set: HashSet<&str> = component.iter().map(String::as_str).collect();
+            let edges = collect_internal_edges(graph, &component_set);
+            let file_changes = component
+                .iter()
+                .enumerate()
+                .map(|(pos, path)| FileChange {
+                    path: path.clone(),
+                    flow_position: pos as u32,
+                    role: infer_file_role(path),
+                    changes: ChangeStats {
+                        additions: 0,
+                        deletions: 0,
+                    },
+                    symbols_changed: vec![],
+                })
+                .collect();
+
+            component_groups.push(FlowGroup {
+                id: format!("group_{}", component_groups.len() + 1),
+                name: format!("{label} (connected)"),
+                entrypoint: None,
+                files: file_changes,
+                edges,
+                risk_score: 0.0,
+                review_order: 0,
+            });
+        } else {
+            isolated_files.extend(component);
+        }
+    }
+
+    (component_groups, isolated_files)
+}
+
+fn build_no_entrypoint_directory_groups(source_files: &[String]) -> Vec<FlowGroup> {
+    let mut dir_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for file in source_files {
+        let dir = file
+            .rsplit_once('/')
+            .map(|(d, _)| d.to_string())
+            .unwrap_or_default();
+        dir_groups.entry(dir).or_default().push(file.clone());
+    }
+
+    dir_groups
+        .into_iter()
+        .enumerate()
+        .map(|(idx, (dir, files))| {
+            let name = if dir.is_empty() {
+                "root".to_string()
+            } else {
+                dir.rsplit('/').next().unwrap_or(&dir).to_string()
+            };
+            FlowGroup {
+                id: format!("group_{}", idx + 1),
+                name: format!("{name} (directory)"),
+                entrypoint: None,
+                files: files
+                    .iter()
+                    .enumerate()
+                    .map(|(pos, path)| FileChange {
+                        path: path.clone(),
+                        flow_position: pos as u32,
+                        role: infer_file_role(path),
+                        changes: ChangeStats {
+                            additions: 0,
+                            deletions: 0,
+                        },
+                        symbols_changed: vec![],
+                    })
+                    .collect(),
+                edges: vec![],
+                risk_score: 0.0,
+                review_order: 0,
+            }
+        })
+        .collect()
+}
+
+fn renumber_groups(mut groups: Vec<FlowGroup>) -> Vec<FlowGroup> {
+    groups.sort_by(|a, b| {
+        let a_key = a
+            .files
+            .first()
+            .map(|f| f.path.as_str())
+            .unwrap_or(a.name.as_str());
+        let b_key = b
+            .files
+            .first()
+            .map(|f| f.path.as_str())
+            .unwrap_or(b.name.as_str());
+        a_key.cmp(b_key).then_with(|| a.name.cmp(&b.name))
+    });
+
+    for (idx, group) in groups.iter_mut().enumerate() {
+        group.id = format!("group_{}", idx + 1);
+    }
+
+    groups
+}
+
 /// Result of semantic clustering.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClusterResult {
@@ -187,52 +352,15 @@ fn cluster_files_internal(
             };
         }
 
-        // Create groups from source files by directory clustering
-        let mut dir_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for file in &source_files {
-            let dir = file
-                .rsplit_once('/')
-                .map(|(d, _)| d.to_string())
-                .unwrap_or_default();
-            dir_groups.entry(dir).or_default().push(file.clone());
-        }
-
-        let mut groups: Vec<FlowGroup> = dir_groups
-            .into_iter()
-            .enumerate()
-            .map(|(idx, (dir, files))| {
-                let name = if dir.is_empty() {
-                    "root".to_string()
-                } else {
-                    dir.rsplit('/').next().unwrap_or(&dir).to_string()
-                };
-                FlowGroup {
-                    id: format!("group_{}", idx + 1),
-                    name: format!("{} (directory)", name),
-                    entrypoint: None,
-                    files: files
-                        .iter()
-                        .enumerate()
-                        .map(|(pos, path)| FileChange {
-                            path: path.clone(),
-                            flow_position: pos as u32,
-                            role: infer_file_role(path),
-                            changes: ChangeStats {
-                                additions: 0,
-                                deletions: 0,
-                            },
-                            symbols_changed: vec![],
-                        })
-                        .collect(),
-                    edges: vec![],
-                    risk_score: 0.0,
-                    review_order: 0,
-                }
-            })
-            .collect();
-
-        // Consolidate the directory groups
-        groups = consolidate_small_groups(groups);
+        // With no runtime entrypoints, fall back to graph-connected source components
+        // before simple directory bucketing. This preserves library/test clusters
+        // that share imports/calls but would otherwise collapse into one directory group.
+        let (mut groups, isolated_files) =
+            build_no_entrypoint_component_groups(graph, &source_files);
+        let directory_groups =
+            consolidate_small_groups(build_no_entrypoint_directory_groups(&isolated_files));
+        groups.extend(directory_groups);
+        groups = renumber_groups(groups);
 
         let infrastructure = if true_infra.is_empty() {
             None
