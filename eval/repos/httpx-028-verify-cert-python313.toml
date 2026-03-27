@@ -1,0 +1,104 @@
+# Python — HTTPX 0.28 compatibility and release range, 13 files
+# 10-commit range: SSL/cert compatibility, Python 3.13/tooling churn,
+# multipart docs examples, and 0.28.1 release metadata.
+[[repos]]
+name = "httpx-028-verify-cert-python313"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/httpx"
+language = "python"
+range = "a33c87852b8a0dddc65e5f739af1e0a6fca4b91f..e70d0b08c929e5140e38aa92a419de0c6d494148"
+notes = "SMALL. 10-commit historical range: SSL verify/cert compatibility work, request params regression coverage, Python 3.13/tooling updates, multipart docs cleanup, and 0.28.1 release metadata. 13 files."
+
+[repos.thresholds]
+max_groups = 20
+max_infra_ratio = 0.65
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 5
+group_count_max = 5
+
+same_group = [
+  ["httpx/_config.py", "httpx/_transports/default.py"],
+  ["httpx/_client.py", "httpx/_types.py"],
+  ["docs/advanced/clients.md", "docs/quickstart.md"],
+  [".github/workflows/test-suite.yml", "pyproject.toml"],
+  ["CHANGELOG.md", "httpx/__version__.py"],
+]
+
+separate_group = [
+  ["httpx/_config.py", "tests/models/test_requests.py"],
+  ["httpx/_config.py", ".github/workflows/test-suite.yml"],
+  ["httpx/_config.py", "docs/advanced/clients.md"],
+  ["tests/models/test_requests.py", "docs/quickstart.md"],
+  ["CHANGELOG.md", "docs/advanced/clients.md"],
+]
+
+infrastructure = [
+  ".github/workflows/test-suite.yml",
+  "CHANGELOG.md",
+  "docs/advanced/clients.md",
+  "docs/quickstart.md",
+  "httpx/__version__.py",
+  "pyproject.toml",
+  "requirements.txt",
+]
+
+non_infrastructure = [
+  "httpx/_api.py",
+  "httpx/_client.py",
+  "httpx/_config.py",
+  "httpx/_transports/default.py",
+  "httpx/_types.py",
+  "tests/models/test_requests.py",
+]
+
+[repos.ml]
+dataset_version = 1
+underlying_repo = "httpx"
+range_id = "httpx-028-verify-cert-python313"
+label_source = "sub-agent"
+review_status = "draft"
+
+[[repos.ml.groups]]
+id = "ssl-config-compatibility-fix"
+kind = "feature"
+files = [
+  "httpx/_api.py",
+  "httpx/_client.py",
+  "httpx/_config.py",
+  "httpx/_transports/default.py",
+  "httpx/_types.py",
+]
+
+[[repos.ml.groups]]
+id = "request-params-regression-test"
+kind = "feature"
+files = [
+  "tests/models/test_requests.py",
+]
+
+[[repos.ml.groups]]
+id = "python313-support-and-tooling"
+kind = "infrastructure"
+files = [
+  ".github/workflows/test-suite.yml",
+  "pyproject.toml",
+  "requirements.txt",
+]
+
+[[repos.ml.groups]]
+id = "multipart-upload-doc-examples"
+kind = "infrastructure"
+files = [
+  "docs/advanced/clients.md",
+  "docs/quickstart.md",
+]
+
+[[repos.ml.groups]]
+id = "release-metadata-0281"
+kind = "infrastructure"
+files = [
+  "CHANGELOG.md",
+  "httpx/__version__.py",
+]
