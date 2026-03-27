@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use git2::Repository;
+use git2::{Delta, DiffOptions, Repository};
 use serde::{Deserialize, Serialize};
 
 use crate::cluster;
@@ -165,8 +165,7 @@ pub struct RepoEvalExpectations {
     /// Optional upper bound that is more specific than the global thresholds.
     #[serde(default)]
     pub group_count_max: Option<usize>,
-    /// Each set must resolve to the same review destination.
-    /// This may be a semantic group or the same infrastructure bucket/subgroup.
+    /// Each set must resolve to the same semantic group (not infrastructure).
     #[serde(default)]
     pub same_group: Vec<Vec<String>>,
     /// Each set must resolve to distinct destinations.
@@ -522,7 +521,13 @@ fn run_repo_target(
         &cluster_result,
         &ranked,
     );
-    let golden = evaluate_repo_expectations(&output, target.expectations.as_ref());
+    let deleted_changed_files = extract_deleted_paths_for_target(&repo, target, &config)?;
+    let golden = evaluate_repo_expectations(
+        &output,
+        target.expectations.as_ref(),
+        &unique_changed_files,
+        &deleted_changed_files,
+    );
     let metrics = compute_repo_metrics(
         &output,
         diff_result.files.len(),
@@ -635,6 +640,111 @@ fn extract_diff_for_target(
         diff.head_sha.as_deref(),
     );
     Ok((diff, source, format!("{}...{}", base, head)))
+}
+
+fn extract_deleted_paths_for_target(
+    repo: &Repository,
+    target: &RepoEvalTarget,
+    config: &FlowdiffConfig,
+) -> Result<HashSet<String>, RepoEvalError> {
+    let deleted = if let Some(range) = target.range.as_deref() {
+        let parts: Vec<&str> = range.split("..").collect();
+        if parts.len() != 2 {
+            return Err(RepoEvalError::Git(
+                target.name.clone(),
+                format!("invalid range: {}", range),
+            ));
+        }
+        deleted_paths_between_refs(repo, target, parts[0], parts[1])?
+    } else if target.staged {
+        deleted_paths_staged(repo, target)?
+    } else if target.unstaged {
+        deleted_paths_unstaged(repo, target)?
+    } else {
+        let base = target.base.as_deref().unwrap_or("main");
+        let head = target.head.as_deref().unwrap_or("HEAD");
+        deleted_paths_between_refs(repo, target, base, head)?
+    };
+
+    Ok(deleted
+        .into_iter()
+        .filter(|path| !config.is_ignored(path))
+        .collect())
+}
+
+fn deleted_paths_between_refs(
+    repo: &Repository,
+    target: &RepoEvalTarget,
+    base_ref: &str,
+    head_ref: &str,
+) -> Result<HashSet<String>, RepoEvalError> {
+    let base_obj = repo
+        .revparse_single(base_ref)
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?;
+    let head_obj = repo
+        .revparse_single(head_ref)
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?;
+    let base_tree = base_obj
+        .peel_to_commit()
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?
+        .tree()
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?;
+    let head_tree = head_obj
+        .peel_to_commit()
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?
+        .tree()
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?;
+
+    let mut opts = DiffOptions::new();
+    opts.context_lines(3);
+    let diff = repo
+        .diff_tree_to_tree(Some(&base_tree), Some(&head_tree), Some(&mut opts))
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?;
+
+    Ok(collect_deleted_paths(&diff))
+}
+
+fn deleted_paths_staged(
+    repo: &Repository,
+    target: &RepoEvalTarget,
+) -> Result<HashSet<String>, RepoEvalError> {
+    let head_tree = repo
+        .head()
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?
+        .peel_to_commit()
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?
+        .tree()
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?;
+    let mut opts = DiffOptions::new();
+    opts.context_lines(3);
+    let diff = repo
+        .diff_tree_to_index(Some(&head_tree), None, Some(&mut opts))
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?;
+    Ok(collect_deleted_paths(&diff))
+}
+
+fn deleted_paths_unstaged(
+    repo: &Repository,
+    target: &RepoEvalTarget,
+) -> Result<HashSet<String>, RepoEvalError> {
+    let mut opts = DiffOptions::new();
+    opts.context_lines(3);
+    let diff = repo
+        .diff_index_to_workdir(None, Some(&mut opts))
+        .map_err(|e| RepoEvalError::Git(target.name.clone(), e.to_string()))?;
+    Ok(collect_deleted_paths(&diff))
+}
+
+fn collect_deleted_paths(diff: &git2::Diff<'_>) -> HashSet<String> {
+    diff.deltas()
+        .filter(|delta| delta.status() == Delta::Deleted)
+        .filter_map(|delta| {
+            delta
+                .old_file()
+                .path()
+                .map(|path| path.to_string_lossy().into_owned())
+        })
+        .collect()
 }
 
 fn compute_repo_metrics(
@@ -769,6 +879,8 @@ fn score_repo_metrics(
 fn evaluate_repo_expectations(
     output: &AnalysisOutput,
     expectations: Option<&RepoEvalExpectations>,
+    changed_files: &[String],
+    deleted_files: &HashSet<String>,
 ) -> RepoEvalGoldenResult {
     let Some(expectations) = expectations else {
         return RepoEvalGoldenResult::default();
@@ -829,10 +941,10 @@ fn evaluate_repo_expectations(
 
     for files in &expectations.same_group {
         total_checks += 1;
-        match shared_review_destination(files, &file_locations) {
+        match shared_semantic_group(files, &file_locations) {
             Ok(true) => satisfied_checks += 1,
             Ok(false) => failures.push(format!(
-                "same_group failed: expected [{}] to share a review destination",
+                "same_group failed: expected [{}] to share a semantic group",
                 files.join(", ")
             )),
             Err(missing) => failures.push(format!(
@@ -859,7 +971,7 @@ fn evaluate_repo_expectations(
 
     for path in &expectations.infrastructure {
         total_checks += 1;
-        if infra_files.contains(path) {
+        if infra_files.contains(path) || deleted_files.contains(path) {
             satisfied_checks += 1;
         } else {
             failures.push(format!(
@@ -873,6 +985,7 @@ fn evaluate_repo_expectations(
         total_checks += 1;
         match file_locations.get(path) {
             Some(location) if !is_any_infra_location(location) => satisfied_checks += 1,
+            None if deleted_files.contains(path) => satisfied_checks += 1,
             Some(_) => failures.push(format!(
                 "non_infrastructure failed: expected '{}' to remain in a semantic group",
                 path
@@ -892,18 +1005,7 @@ fn evaluate_repo_expectations(
         .map(|s| s.as_str())
         .collect();
 
-    let all_changed_files: HashSet<&str> = output
-        .groups
-        .iter()
-        .flat_map(|g| g.files.iter().map(|f| f.path.as_str()))
-        .chain(
-            output
-                .infrastructure_group
-                .as_ref()
-                .into_iter()
-                .flat_map(|ig| ig.files.iter().map(|s| s.as_str())),
-        )
-        .collect();
+    let all_changed_files: HashSet<&str> = changed_files.iter().map(|path| path.as_str()).collect();
 
     let mut unclassified_paths: Vec<String> = all_changed_files
         .iter()
@@ -994,7 +1096,7 @@ fn is_any_infra_location(location: &str) -> bool {
     location == "infra" || location.starts_with("infra:")
 }
 
-fn shared_review_destination(
+fn shared_semantic_group(
     files: &[String],
     file_locations: &HashMap<String, String>,
 ) -> Result<bool, String> {
@@ -1003,6 +1105,9 @@ fn shared_review_destination(
         let Some(location) = file_locations.get(path) else {
             return Err(path.clone());
         };
+        if location == "infra" {
+            return Ok(false);
+        }
         locations.insert(location.as_str());
     }
 
@@ -1281,6 +1386,14 @@ mod tests {
         }
     }
 
+    fn string_vec(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|path| (*path).to_string()).collect()
+    }
+
+    fn string_set(paths: &[&str]) -> HashSet<String> {
+        paths.iter().map(|path| (*path).to_string()).collect()
+    }
+
     fn make_output_with_infra_subgroups(
         groups: Vec<FlowGroup>,
         infra_sub_groups: Vec<(&str, InfraCategory, Vec<&str>)>,
@@ -1400,7 +1513,16 @@ mod tests {
             non_infrastructure: vec!["src/vcr/cassette.test.ts".to_string()],
         };
 
-        let golden = evaluate_repo_expectations(&output, Some(&expectations));
+        let golden = evaluate_repo_expectations(
+            &output,
+            Some(&expectations),
+            &string_vec(&[
+                "src/vcr/cassette.test.ts",
+                "src/vcr/cassette-invalidation.test.ts",
+                "package.json",
+            ]),
+            &HashSet::new(),
+        );
         assert_eq!(golden.total_checks, 5);
         assert_eq!(golden.satisfied_checks, 5);
         assert!(golden.failures.is_empty());
@@ -1451,51 +1573,25 @@ mod tests {
             non_infrastructure: vec!["src/requests/utils.py".to_string()],
         };
 
-        let golden = evaluate_repo_expectations(&output, Some(&expectations));
+        let golden = evaluate_repo_expectations(
+            &output,
+            Some(&expectations),
+            &string_vec(&[
+                "src/requests/utils.py",
+                "tests/test_utils.py",
+                "pyproject.toml",
+                "setup.py",
+                "tox.ini",
+                ".github/workflows/run-tests.yml",
+                ".github/workflows/codeql-analysis.yml",
+            ]),
+            &HashSet::new(),
+        );
         assert_eq!(golden.total_checks, 11);
         assert_eq!(golden.satisfied_checks, 11);
         assert!(golden.failures.is_empty());
     }
 
-    #[test]
-    fn test_evaluate_repo_expectations_counts_flat_infra_as_same_destination() {
-        let output = make_output(
-            vec![make_group("g1", &["src/requests/utils.py"])],
-            vec![
-                "pyproject.toml",
-                "setup.py",
-                "tox.ini",
-                ".github/workflows/codeql-analysis.yml",
-            ],
-            5,
-        );
-        let expectations = RepoEvalExpectations {
-            group_count_min: Some(2),
-            group_count_max: Some(1),
-            same_group: vec![
-                vec!["pyproject.toml".to_string(), "setup.py".to_string()],
-                vec!["pyproject.toml".to_string(), "tox.ini".to_string()],
-            ],
-            separate_group: vec![vec![
-                "src/requests/utils.py".to_string(),
-                "pyproject.toml".to_string(),
-            ]],
-            infrastructure: vec![
-                "pyproject.toml".to_string(),
-                "setup.py".to_string(),
-                "tox.ini".to_string(),
-                ".github/workflows/codeql-analysis.yml".to_string(),
-            ],
-            non_infrastructure: vec!["src/requests/utils.py".to_string()],
-        };
-
-        let golden = evaluate_repo_expectations(&output, Some(&expectations));
-        assert_eq!(golden.total_checks, 10);
-        assert_eq!(golden.satisfied_checks, 10);
-        assert!(golden.failures.is_empty());
-    }
-
-    #[test]
     fn test_non_infrastructure_still_fails_for_infra_subgroup_files() {
         let output = make_output_with_infra_subgroups(
             vec![make_group("g1", &["src/app.py"])],
@@ -1515,13 +1611,73 @@ mod tests {
             non_infrastructure: vec!["pyproject.toml".to_string()],
         };
 
-        let golden = evaluate_repo_expectations(&output, Some(&expectations));
+        let golden = evaluate_repo_expectations(
+            &output,
+            Some(&expectations),
+            &string_vec(&["src/app.py", "pyproject.toml"]),
+            &HashSet::new(),
+        );
         assert_eq!(golden.satisfied_checks, 0);
         assert_eq!(golden.total_checks, 1);
         assert_eq!(
             golden.failures,
             vec!["non_infrastructure failed: expected 'pyproject.toml' to remain in a semantic group"]
         );
+    }
+
+    #[test]
+    fn test_evaluate_repo_expectations_treats_deleted_infrastructure_as_satisfied() {
+        let output = make_output(vec![make_group("g1", &["src/app.ts"])], vec!["package.json"], 3);
+        let expectations = RepoEvalExpectations {
+            group_count_min: None,
+            group_count_max: None,
+            same_group: vec![],
+            separate_group: vec![],
+            infrastructure: vec!["package.json".to_string(), "CHANGELOG.md".to_string()],
+            non_infrastructure: vec!["src/app.ts".to_string()],
+        };
+
+        let golden = evaluate_repo_expectations(
+            &output,
+            Some(&expectations),
+            &string_vec(&["src/app.ts", "package.json", "CHANGELOG.md"]),
+            &string_set(&["CHANGELOG.md"]),
+        );
+
+        assert_eq!(golden.total_checks, 3);
+        assert_eq!(golden.satisfied_checks, 3);
+        assert_eq!(golden.classified_files, 3);
+        assert_eq!(golden.file_coverage, 1.0);
+        assert!(golden.failures.is_empty());
+    }
+
+    #[test]
+    fn test_evaluate_repo_expectations_treats_deleted_non_infrastructure_as_satisfied() {
+        let output = make_output(vec![make_group("g1", &["src/app.ts"])], vec![], 2);
+        let expectations = RepoEvalExpectations {
+            group_count_min: None,
+            group_count_max: None,
+            same_group: vec![],
+            separate_group: vec![],
+            infrastructure: vec![],
+            non_infrastructure: vec![
+                "src/app.ts".to_string(),
+                "benchmark/core_benchmark_test.go".to_string(),
+            ],
+        };
+
+        let golden = evaluate_repo_expectations(
+            &output,
+            Some(&expectations),
+            &string_vec(&["src/app.ts", "benchmark/core_benchmark_test.go"]),
+            &string_set(&["benchmark/core_benchmark_test.go"]),
+        );
+
+        assert_eq!(golden.total_checks, 2);
+        assert_eq!(golden.satisfied_checks, 2);
+        assert_eq!(golden.classified_files, 2);
+        assert_eq!(golden.file_coverage, 1.0);
+        assert!(golden.failures.is_empty());
     }
 
     #[test]
