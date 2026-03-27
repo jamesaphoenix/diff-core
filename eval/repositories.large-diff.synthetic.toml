@@ -1,0 +1,15 @@
+# flowdiff synthetic large-diff corpus
+#
+# Separate from:
+# - eval/repositories.research.toml (default live-repo experimentation)
+# - eval/repositories.large-diff.toml (real large-diff targets like octospark-services)
+#
+# Gated 2k+ synthetic targets. This is the primary large-diff synthetic pipeline because the coarse partitioning compromise only applies at 2000+ changed files.
+
+include_dir = "repos-large-diff-synthetic-gated"
+
+[defaults]
+max_groups = 130
+max_infra_ratio = 0.80
+max_singleton_ratio = 0.60
+max_groups_per_1000_files = 65.0

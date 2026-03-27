@@ -1,0 +1,15 @@
+# flowdiff synthetic large-diff corpus (all)
+#
+# Separate from:
+# - eval/repositories.research.toml (default live-repo experimentation)
+# - eval/repositories.large-diff.toml (real large-diff targets like octospark-services)
+#
+# All generated 1.5k and 2k+ synthetic targets. Useful for broad exploration, but not the default gating manifest.
+
+include_dir = "repos-large-diff-synthetic"
+
+[defaults]
+max_groups = 130
+max_infra_ratio = 0.80
+max_singleton_ratio = 0.60
+max_groups_per_1000_files = 65.0

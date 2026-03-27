@@ -16,20 +16,25 @@ mod rescue;
 mod stem;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::graph::SymbolGraph;
 use crate::types::{
-    ChangeStats, Entrypoint, FileChange, FileRole, FlowGroup,
-    InfraCategory, InfrastructureGroup,
+    ChangeStats, Entrypoint, FileChange, FileRole, FlowGroup, InfraCategory, InfrastructureGroup,
 };
 
 // Re-export public API
-pub use classify::classify_by_convention;
 pub(crate) use classify::category_display_name;
+pub use classify::classify_by_convention;
 #[cfg(feature = "embeddings")]
 pub use embeddings_refine::refine_with_embeddings;
 pub use infra::sub_cluster_infra_files;
@@ -47,6 +52,10 @@ pub(crate) const SMALL_GROUP_THRESHOLD: usize = 5;
 /// Maximum number of small groups that can merge in a single directory bucket.
 /// Prevents collapsing 15+ singletons into one mega-group.
 const MAX_MERGE_BUCKET_SIZE: usize = 12;
+
+/// Very large diffs need a coarse partition step before the normal semantic grouping.
+/// This is intentionally gated so it does not perturb the normal-sized eval corpus.
+const LARGE_DIFF_PARTITION_THRESHOLD: usize = 2000;
 
 /// Result of semantic clustering.
 #[derive(Debug, Clone, PartialEq)]
@@ -66,6 +75,15 @@ pub fn cluster_files(
     entrypoints: &[Entrypoint],
     changed_files: &[String],
 ) -> ClusterResult {
+    cluster_files_internal(graph, entrypoints, changed_files, true)
+}
+
+fn cluster_files_internal(
+    graph: &SymbolGraph,
+    entrypoints: &[Entrypoint],
+    changed_files: &[String],
+    allow_large_diff_partitioning: bool,
+) -> ClusterResult {
     if changed_files.is_empty() {
         return ClusterResult {
             groups: vec![],
@@ -81,6 +99,10 @@ pub fn cluster_files(
         s
     };
 
+    if allow_large_diff_partitioning && changed_set.len() >= LARGE_DIFF_PARTITION_THRESHOLD {
+        return cluster_large_diff_files(graph, entrypoints, &changed_set);
+    }
+
     if entrypoints.is_empty() {
         // No entrypoints detected — but don't dump everything to infra.
         // Classify files directly: source files go to directory groups, infra stays.
@@ -91,15 +113,36 @@ pub fn cluster_files(
             if category == InfraCategory::Infrastructure {
                 // Hard infrastructure (CI, Docker, package managers, .changeset/) — always infra
                 true_infra.push(file.clone());
-            } else if category != InfraCategory::Unclassified && category != InfraCategory::DirectoryGroup {
+            } else if category != InfraCategory::Unclassified
+                && category != InfraCategory::DirectoryGroup
+            {
                 // Soft infrastructure (docs, schemas, migrations, etc.) — rescue if source extension
                 if !is_config_like_filename(file) {
                     let ext = file.rsplit('.').next().unwrap_or("");
                     let is_source = matches!(
                         ext,
-                        "go" | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "java" | "kt"
-                            | "rb" | "php" | "cs" | "swift" | "scala" | "vue" | "svelte"
-                            | "tmpl" | "html" | "css" | "scss" | "md" | "mdx" | "rst"
+                        "go" | "rs"
+                            | "ts"
+                            | "tsx"
+                            | "js"
+                            | "jsx"
+                            | "py"
+                            | "java"
+                            | "kt"
+                            | "rb"
+                            | "php"
+                            | "cs"
+                            | "swift"
+                            | "scala"
+                            | "vue"
+                            | "svelte"
+                            | "tmpl"
+                            | "html"
+                            | "css"
+                            | "scss"
+                            | "md"
+                            | "mdx"
+                            | "rst"
                     );
                     if is_source && !is_top_level_doc(file) {
                         source_files.push(file.clone());
@@ -136,7 +179,10 @@ pub fn cluster_files(
         // Create groups from source files by directory clustering
         let mut dir_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for file in &source_files {
-            let dir = file.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+            let dir = file
+                .rsplit_once('/')
+                .map(|(d, _)| d.to_string())
+                .unwrap_or_default();
             dir_groups.entry(dir).or_default().push(file.clone());
         }
 
@@ -160,7 +206,10 @@ pub fn cluster_files(
                             path: path.clone(),
                             flow_position: pos as u32,
                             role: infer_file_role(path),
-                            changes: ChangeStats { additions: 0, deletions: 0 },
+                            changes: ChangeStats {
+                                additions: 0,
+                                deletions: 0,
+                            },
                             symbols_changed: vec![],
                         })
                         .collect(),
@@ -358,7 +407,10 @@ pub fn cluster_files(
                 path: file_path.clone(),
                 flow_position: pos,
                 role: FileRole::Test,
-                changes: ChangeStats { additions: 0, deletions: 0 },
+                changes: ChangeStats {
+                    additions: 0,
+                    deletions: 0,
+                },
                 symbols_changed: vec![],
             });
         }
@@ -385,4 +437,168 @@ pub fn cluster_files(
         groups,
         infrastructure,
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LargeDiffPartition {
+    files: Vec<String>,
+    is_infra: bool,
+}
+
+fn cluster_large_diff_files(
+    graph: &SymbolGraph,
+    entrypoints: &[Entrypoint],
+    changed_files: &[String],
+) -> ClusterResult {
+    let partitions = partition_large_diff_files(changed_files);
+    let mut groups = Vec::new();
+    let mut infra_files = Vec::new();
+
+    for partition in partitions.into_values() {
+        if partition.is_infra {
+            infra_files.extend(partition.files);
+            continue;
+        }
+
+        let partition_paths: HashSet<&str> = partition.files.iter().map(|s| s.as_str()).collect();
+        let partition_entrypoints: Vec<Entrypoint> = entrypoints
+            .iter()
+            .filter(|ep| partition_paths.contains(ep.file.as_str()))
+            .cloned()
+            .collect();
+
+        let result = cluster_files_internal(graph, &partition_entrypoints, &partition.files, false);
+        groups.extend(result.groups);
+        if let Some(infra) = result.infrastructure {
+            infra_files.extend(infra.files);
+        }
+    }
+
+    infra_files.sort();
+    infra_files.dedup();
+
+    groups.sort_by(|a, b| {
+        a.name.cmp(&b.name).then_with(|| {
+            a.files
+                .first()
+                .map(|f| f.path.as_str())
+                .cmp(&b.files.first().map(|f| f.path.as_str()))
+        })
+    });
+    for (idx, group) in groups.iter_mut().enumerate() {
+        group.id = format!("group_{}", idx + 1);
+    }
+
+    let infrastructure = if infra_files.is_empty() {
+        None
+    } else {
+        let sub_groups = sub_cluster_infra_files(&infra_files, graph);
+        Some(InfrastructureGroup {
+            files: infra_files,
+            sub_groups,
+            reason: format!(
+                "Large diff partitioned into coarse buckets before semantic grouping ({}+ files)",
+                LARGE_DIFF_PARTITION_THRESHOLD
+            ),
+        })
+    };
+
+    ClusterResult {
+        groups,
+        infrastructure,
+    }
+}
+
+fn partition_large_diff_files(changed_files: &[String]) -> BTreeMap<String, LargeDiffPartition> {
+    let mut partitions: BTreeMap<String, LargeDiffPartition> = BTreeMap::new();
+
+    for file in changed_files {
+        let (is_infra, key) = large_diff_partition_key(file);
+        let bucket_key = format!("{}:{}", if is_infra { "infra" } else { "semantic" }, key);
+        partitions
+            .entry(bucket_key)
+            .or_insert_with(|| LargeDiffPartition {
+                files: Vec::new(),
+                is_infra,
+            })
+            .files
+            .push(file.clone());
+    }
+
+    for partition in partitions.values_mut() {
+        partition.files.sort();
+        partition.files.dedup();
+    }
+
+    partitions
+}
+
+fn large_diff_partition_key(file: &str) -> (bool, String) {
+    if is_config_like_filename(file) {
+        return (true, "config-like".to_string());
+    }
+
+    let category = classify_by_convention(file);
+    if category != InfraCategory::Unclassified && category != InfraCategory::DirectoryGroup {
+        return (true, large_diff_infra_partition_name(category));
+    }
+
+    let mut parts = file.split('/');
+    let first = parts.next().unwrap_or_default();
+    let second = parts.next();
+    let third = parts.next();
+
+    if first.is_empty() {
+        return (false, "root".to_string());
+    }
+
+    if matches!(
+        first,
+        "apps" | "packages" | "services" | "workers" | "libs" | "modules" | "crates"
+    ) {
+        if let (Some(second), Some(third)) = (second, third) {
+            if !second.contains('.') && !third.contains('.') && is_container_segment(second) {
+                return (false, format!("{}/{}/{}", first, second, third));
+            }
+        }
+
+        if let Some(second) = second.filter(|segment| !segment.contains('.')) {
+            return (false, format!("{}/{}", first, second));
+        }
+    }
+
+    (false, first.to_string())
+}
+
+fn large_diff_infra_partition_name(category: InfraCategory) -> String {
+    match category {
+        InfraCategory::Infrastructure => "infrastructure",
+        InfraCategory::Schema => "schema",
+        InfraCategory::Script => "script",
+        InfraCategory::Migration => "migration",
+        InfraCategory::Deployment => "deployment",
+        InfraCategory::Documentation => "documentation",
+        InfraCategory::Lint => "lint",
+        InfraCategory::TestUtil => "test-util",
+        InfraCategory::Generated => "generated",
+        InfraCategory::DirectoryGroup => "directory-group",
+        InfraCategory::Unclassified => "unclassified",
+    }
+    .to_string()
+}
+
+fn is_container_segment(segment: &str) -> bool {
+    matches!(
+        segment,
+        "services"
+            | "workers"
+            | "libs"
+            | "modules"
+            | "packages"
+            | "features"
+            | "domains"
+            | "core"
+            | "shared"
+            | "ui"
+    )
 }

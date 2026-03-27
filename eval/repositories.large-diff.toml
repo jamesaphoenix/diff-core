@@ -1,0 +1,13 @@
+# flowdiff large-diff corpus
+#
+# Separate from the default live-repo experimentation manifest.
+# This track is for 1k+ file diffs, especially 2k+ ranges that use
+# large-diff-specific partitioning and density-style thresholds.
+
+include_dir = "repos-large-diff"
+
+[defaults]
+max_groups = 400
+max_infra_ratio = 0.95
+max_singleton_ratio = 0.60
+max_groups_per_1000_files = 55.0

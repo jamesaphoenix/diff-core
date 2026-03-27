@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::types::FlowGroup;
 
 use super::classify::{classify_by_convention, is_config_like_filename, is_top_level_doc};
-use super::stem::{is_test_file_name, test_impl_stem};
+use super::stem::{bare_stem, is_test_file_name, test_impl_stem};
 use crate::types::InfraCategory;
 
 /// Separate truly infrastructure files from source files that just couldn't be reached
@@ -16,9 +16,38 @@ pub(super) fn rescue_non_infra_files(
 ) -> (Vec<String>, Vec<(usize, String)>) {
     let mut true_infra = Vec::new();
     let mut rescued: Vec<(usize, String)> = Vec::new();
+    let root_docs_batch_count = infra_files
+        .iter()
+        .filter(|file| is_root_nonlocalized_docs_page(file))
+        .count();
 
     for file in infra_files {
         let category = classify_by_convention(file);
+        if category == InfraCategory::Documentation {
+            if !is_semantic_doc_candidate(file, root_docs_batch_count) {
+                true_infra.push(file.clone());
+                continue;
+            }
+
+            if let Some(group_idx) = find_group_by_semantic_doc_affinity(file, groups) {
+                rescued.push((group_idx, file.clone()));
+            } else if is_semantic_doc_fallback_candidate(file, root_docs_batch_count) {
+                if let Some(largest_idx) = groups
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(_, g)| g.files.len())
+                    .map(|(idx, _)| idx)
+                {
+                    rescued.push((largest_idx, file.clone()));
+                } else {
+                    true_infra.push(file.clone());
+                }
+            } else {
+                true_infra.push(file.clone());
+            }
+            continue;
+        }
+
         // Only rescue files that are Unclassified (source code) or DirectoryGroup
         // Everything else (Infrastructure, Schema, Migration, etc.) stays in infra
         if category != InfraCategory::Unclassified && category != InfraCategory::DirectoryGroup {
@@ -36,9 +65,28 @@ pub(super) fn rescue_non_infra_files(
                     let ext = file.rsplit('.').next().unwrap_or("");
                     let is_source = matches!(
                         ext,
-                        "go" | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "java" | "kt"
-                            | "rb" | "php" | "cs" | "swift" | "scala" | "vue" | "svelte"
-                            | "tmpl" | "html" | "css" | "scss" | "md" | "mdx" | "rst"
+                        "go" | "rs"
+                            | "ts"
+                            | "tsx"
+                            | "js"
+                            | "jsx"
+                            | "py"
+                            | "java"
+                            | "kt"
+                            | "rb"
+                            | "php"
+                            | "cs"
+                            | "swift"
+                            | "scala"
+                            | "vue"
+                            | "svelte"
+                            | "tmpl"
+                            | "html"
+                            | "css"
+                            | "scss"
+                            | "md"
+                            | "mdx"
+                            | "rst"
                     );
                     if is_source && !is_top_level_doc(file) {
                         if let Some(largest_idx) = groups
@@ -60,6 +108,187 @@ pub(super) fn rescue_non_infra_files(
     }
 
     (true_infra, rescued)
+}
+
+fn is_semantic_doc_candidate(path: &str, root_docs_batch_count: usize) -> bool {
+    let lower = path.to_lowercase();
+    let ext = lower.rsplit('.').next().unwrap_or("");
+    if !matches!(ext, "md" | "mdx" | "rst" | "txt") || is_top_level_doc(path) {
+        return false;
+    }
+
+    if is_localized_docs_tree(&lower) {
+        return false;
+    }
+
+    lower.contains("/src/docs/")
+        || lower.contains("/resources/mdtest/")
+        || lower.starts_with("docs_src/")
+        || lower.contains("/docs_src/")
+        || lower.starts_with("docs/tutorial/")
+        || lower.starts_with("docs/advanced/")
+        || lower.starts_with("docs/how-to/")
+        || lower.starts_with("docs/guide/")
+        || lower.starts_with("docs/guides/")
+        || lower.starts_with("docs/reference/")
+        || is_semantic_doc_fallback_candidate(path, root_docs_batch_count)
+}
+
+fn is_semantic_doc_fallback_candidate(path: &str, root_docs_batch_count: usize) -> bool {
+    let lower = path.to_lowercase();
+    lower.starts_with("documentation/docs/")
+        || lower.contains("/documentation/docs/")
+        || lower.starts_with("www/docs/")
+        || lower.contains("/www/docs/")
+        || lower.starts_with("content/docs/")
+        || lower.contains("/content/docs/")
+        || lower.starts_with("site/content/")
+        || lower.contains("/site/content/")
+        || (is_root_nonlocalized_docs_page(path) && root_docs_batch_count >= 3)
+}
+
+fn is_root_nonlocalized_docs_page(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    if is_top_level_doc(path)
+        || is_localized_docs_tree(&lower)
+        || !lower.starts_with("docs/")
+        || lower.contains("/docs/")
+    {
+        return false;
+    }
+
+    let ext = lower.rsplit('.').next().unwrap_or("");
+    matches!(ext, "md" | "mdx" | "rst" | "txt")
+}
+
+fn is_localized_docs_tree(lower: &str) -> bool {
+    let Some(rest) = lower.strip_prefix("docs/") else {
+        return false;
+    };
+    let Some((locale, remainder)) = rest.split_once('/') else {
+        return false;
+    };
+
+    remainder.starts_with("docs/")
+        && (2..=8).contains(&locale.len())
+        && locale
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch == '-')
+}
+
+fn find_group_by_semantic_doc_affinity(file: &str, groups: &[FlowGroup]) -> Option<usize> {
+    let doc_tokens = path_topic_tokens(file);
+    if doc_tokens.is_empty() {
+        return None;
+    }
+
+    let mut best: Option<(usize, usize)> = None;
+    let mut tied = false;
+
+    for (idx, group) in groups.iter().enumerate() {
+        let mut score = 0;
+        for group_file in &group.files {
+            let overlap = path_topic_tokens(&group_file.path)
+                .into_iter()
+                .filter(|token| doc_tokens.contains(token))
+                .count();
+            score = score.max(overlap);
+        }
+
+        if score == 0 {
+            continue;
+        }
+
+        match best {
+            None => {
+                best = Some((idx, score));
+                tied = false;
+            }
+            Some((_, best_score)) if score > best_score => {
+                best = Some((idx, score));
+                tied = false;
+            }
+            Some((_, best_score)) if score == best_score => {
+                tied = true;
+            }
+            _ => {}
+        }
+    }
+
+    match best {
+        Some((idx, score)) if score >= 2 || (score == 1 && !tied) => Some(idx),
+        _ => None,
+    }
+}
+
+fn path_topic_tokens(path: &str) -> Vec<String> {
+    let lower = path.to_lowercase();
+    let mut tokens = Vec::new();
+
+    let stem = bare_stem(path);
+    if !stem.is_empty() {
+        push_topic_pieces(&mut tokens, &stem);
+    }
+
+    if let Some(parent) = lower.rsplit_once('/').map(|(dir, _)| dir) {
+        for segment in parent.rsplit('/').take(3) {
+            push_topic_pieces(&mut tokens, segment);
+        }
+    }
+
+    tokens
+}
+
+fn push_topic_pieces(tokens: &mut Vec<String>, segment: &str) {
+    let normalized: String = segment
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect();
+
+    for raw in normalized.split_whitespace() {
+        let token = raw.trim_start_matches(|ch: char| ch.is_ascii_digit());
+        if token.len() < 3 || is_generic_topic_token(token) || tokens.iter().any(|t| t == token) {
+            continue;
+        }
+        tokens.push(token.to_string());
+    }
+}
+
+fn is_generic_topic_token(token: &str) -> bool {
+    matches!(
+        token,
+        "docs"
+            | "doc"
+            | "documentation"
+            | "content"
+            | "tutorial"
+            | "tutorials"
+            | "guide"
+            | "guides"
+            | "reference"
+            | "references"
+            | "advanced"
+            | "example"
+            | "examples"
+            | "sample"
+            | "samples"
+            | "site"
+            | "www"
+            | "src"
+            | "test"
+            | "tests"
+            | "resources"
+            | "mdtest"
+            | "how"
+            | "with"
+            | "and"
+    )
 }
 
 /// Find the group that shares the longest directory prefix with the given file.
@@ -88,6 +317,64 @@ pub(super) fn find_nearest_group_by_directory(file: &str, groups: &[FlowGroup]) 
     }
 
     best_match.map(|(idx, _)| idx)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::types::{ChangeStats, FileChange};
+
+    use super::*;
+
+    fn group_with_file(path: &str) -> FlowGroup {
+        FlowGroup {
+            id: "group_1".to_string(),
+            name: "test".to_string(),
+            entrypoint: None,
+            files: vec![FileChange {
+                path: path.to_string(),
+                flow_position: 0,
+                role: crate::types::FileRole::Infrastructure,
+                changes: ChangeStats {
+                    additions: 0,
+                    deletions: 0,
+                },
+                symbols_changed: vec![],
+            }],
+            edges: vec![],
+            risk_score: 0.0,
+            review_order: 0,
+        }
+    }
+
+    #[test]
+    fn semantic_doc_candidates_exclude_localized_trees() {
+        assert!(is_semantic_doc_candidate(
+            "documentation/docs/02-runes/03-$derived.md",
+            0
+        ));
+        assert!(!is_semantic_doc_candidate(
+            "docs/zh-hant/docs/tutorial/first-steps.md",
+            0
+        ));
+    }
+
+    #[test]
+    fn semantic_doc_affinity_matches_topic_directory() {
+        let groups = vec![group_with_file(
+            "docs_src/tutorial/where/tutorial006b_py310.py",
+        )];
+
+        assert_eq!(
+            find_group_by_semantic_doc_affinity("docs/tutorial/where.md", &groups),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn root_docs_pages_need_batch_context() {
+        assert!(!is_semantic_doc_candidate("docs/quickstart.md", 1));
+        assert!(is_semantic_doc_candidate("docs/quickstart.md", 3));
+    }
 }
 
 /// Move test files to the same group as their corresponding implementation files.
@@ -127,22 +414,20 @@ pub(super) fn coalesce_test_impl_pairs(
         if is_test_file_name(file) {
             let stem = test_impl_stem(file);
             // Try full context match first, then bare stem match
-            let impl_group = impl_lookup
-                .get(&stem)
-                .or_else(|| {
-                    let bare = file
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or(file)
-                        .rsplit_once('.')
-                        .map(|(s, _)| s)
-                        .unwrap_or(file)
-                        .replace(".test", "")
-                        .replace(".spec", "")
-                        .replace("_test", "")
-                        .replace("test_", "");
-                    impl_bare_lookup.get(&bare)
-                });
+            let impl_group = impl_lookup.get(&stem).or_else(|| {
+                let bare = file
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(file)
+                    .rsplit_once('.')
+                    .map(|(s, _)| s)
+                    .unwrap_or(file)
+                    .replace(".test", "")
+                    .replace(".spec", "")
+                    .replace("_test", "")
+                    .replace("test_", "");
+                impl_bare_lookup.get(&bare)
+            });
             if let Some((_, impl_grp)) = impl_group {
                 if impl_grp != ep_idx {
                     moves.push((file.clone(), *ep_idx, *impl_grp));

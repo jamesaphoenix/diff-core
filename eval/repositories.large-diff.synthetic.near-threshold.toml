@@ -1,0 +1,15 @@
+# flowdiff synthetic near-threshold corpus
+#
+# Separate from:
+# - eval/repositories.research.toml (default live-repo experimentation)
+# - eval/repositories.large-diff.toml (real large-diff targets like octospark-services)
+#
+# Diagnostic 1.5k synthetic targets. These do not exercise the 2k+ partition gate and should be tracked separately from the gated large-diff pipeline.
+
+include_dir = "repos-large-diff-synthetic-near-threshold"
+
+[defaults]
+max_groups = 130
+max_infra_ratio = 0.80
+max_singleton_ratio = 0.60
+max_groups_per_1000_files = 65.0

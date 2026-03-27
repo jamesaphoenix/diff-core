@@ -1,0 +1,27 @@
+# TypeScript — octospark-services (existing, ~3484 files)
+# Dedicated large-diff benchmark. This target is intentionally evaluated outside
+# the default live-repo manifest so we can optimize very large monorepo diffs
+# without perturbing the normal experimentation corpus.
+[[repos]]
+name = "octospark-services-large-history"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/octospark-services"
+language = "typescript"
+range = "2ef8528c4a5d60c045251ce5a270ec4993607327..884272b11751fea85e9703cf276114837e592147"
+notes = "Large-diff track only. Focus on keeping very large ranges partitioned into bounded semantic groups."
+
+[repos.thresholds]
+max_groups = 220
+max_infra_ratio = 0.92
+max_singleton_ratio = 0.40
+max_groups_per_1000_files = 55.0
+
+[repos.expectations]
+group_count_min = 40
+group_count_max = 220
+same_group = [
+  [
+    "packages/services/evaluation-framework/src/vcr/cassette-invalidation.test.ts",
+    "packages/services/evaluation-framework/src/vcr/cassette.test.ts",
+  ],
+]

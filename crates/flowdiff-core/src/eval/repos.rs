@@ -117,6 +117,10 @@ pub struct RepoEvalThresholds {
     pub max_infra_ratio: f64,
     #[serde(default = "default_repo_eval_max_singleton_ratio")]
     pub max_singleton_ratio: f64,
+    /// Optional density-style cap used by the separate large-diff eval track.
+    /// Example: 55.0 means "no more than 55 semantic groups per 1000 changed files".
+    #[serde(default)]
+    pub max_groups_per_1000_files: Option<f64>,
 }
 
 fn default_repo_eval_max_groups() -> usize {
@@ -137,6 +141,7 @@ impl Default for RepoEvalThresholds {
             max_groups: default_repo_eval_max_groups(),
             max_infra_ratio: default_repo_eval_max_infra_ratio(),
             max_singleton_ratio: default_repo_eval_max_singleton_ratio(),
+            max_groups_per_1000_files: None,
         }
     }
 }
@@ -243,6 +248,7 @@ pub struct RepoEvalMetrics {
     pub ignored_files: usize,
     pub duplicate_file_entries: usize,
     pub total_groups: usize,
+    pub groups_per_1000_files: f64,
     pub infra_files: usize,
     pub infra_ratio: f64,
     pub singleton_groups: usize,
@@ -259,6 +265,7 @@ pub struct RepoEvalMetrics {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RepoEvalScores {
     pub group_count: f64,
+    pub group_density: Option<f64>,
     pub infra_ratio: f64,
     pub singleton_ratio: f64,
     pub file_accounting: f64,
@@ -526,6 +533,10 @@ fn run_repo_target(
     let scores = score_repo_metrics(&metrics, &thresholds, &golden);
     let passed = metrics.files_accounted
         && metrics.total_groups <= thresholds.max_groups
+        && match thresholds.max_groups_per_1000_files {
+            Some(limit) => metrics.groups_per_1000_files <= limit,
+            None => true,
+        }
         && metrics.infra_ratio <= thresholds.max_infra_ratio
         && metrics.singleton_ratio <= thresholds.max_singleton_ratio
         && golden.failures.is_empty();
@@ -684,6 +695,7 @@ fn compute_repo_metrics(
         ignored_files,
         duplicate_file_entries,
         total_groups,
+        groups_per_1000_files: ratio(total_groups, total_files_changed) * 1000.0,
         infra_files,
         infra_ratio: ratio(infra_files, total_files_changed),
         singleton_groups,
@@ -710,11 +722,29 @@ fn score_repo_metrics(
         (thresholds.max_groups as f64 / metrics.total_groups as f64).clamp(0.0, 1.0)
     };
 
+    let group_density = thresholds
+        .max_groups_per_1000_files
+        .map(|limit| threshold_score(metrics.groups_per_1000_files, limit));
     let infra_ratio = threshold_score(metrics.infra_ratio, thresholds.max_infra_ratio);
     let singleton_ratio = threshold_score(metrics.singleton_ratio, thresholds.max_singleton_ratio);
     let file_accounting = if metrics.files_accounted { 1.0 } else { 0.0 };
     let golden_score = golden.score;
-    let overall = if golden.total_checks == 0 {
+    let overall = if let Some(group_density_score) = group_density {
+        if golden.total_checks == 0 {
+            0.20 * group_count
+                + 0.20 * group_density_score
+                + 0.20 * infra_ratio
+                + 0.20 * singleton_ratio
+                + 0.20 * file_accounting
+        } else {
+            0.15 * group_count
+                + 0.15 * group_density_score
+                + 0.10 * infra_ratio
+                + 0.10 * singleton_ratio
+                + 0.10 * file_accounting
+                + 0.40 * golden_score
+        }
+    } else if golden.total_checks == 0 {
         0.35 * group_count + 0.25 * infra_ratio + 0.20 * singleton_ratio + 0.20 * file_accounting
     } else {
         0.20 * group_count
@@ -726,6 +756,7 @@ fn score_repo_metrics(
 
     RepoEvalScores {
         group_count,
+        group_density,
         infra_ratio,
         singleton_ratio,
         file_accounting,
@@ -961,26 +992,52 @@ fn format_repo_eval_text(
     min_score: f64,
 ) -> String {
     let mut lines = Vec::new();
+    let show_group_density = results
+        .iter()
+        .any(|result| result.thresholds.max_groups_per_1000_files.is_some());
     lines.push(format!("Repo eval manifest: {}", manifest_path.display()));
     lines.push(String::new());
-    lines.push(
-        "name | files(analyzed) | groups | infra% | singletons% | golden | score | status"
-            .to_string(),
-    );
-    lines.push("--- | ---: | ---: | ---: | ---: | ---: | ---: | ---".to_string());
+    if show_group_density {
+        lines.push(
+            "name | files(analyzed) | groups | groups/1k | infra% | singletons% | golden | score | status"
+                .to_string(),
+        );
+        lines.push("--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---".to_string());
+    } else {
+        lines.push(
+            "name | files(analyzed) | groups | infra% | singletons% | golden | score | status"
+                .to_string(),
+        );
+        lines.push("--- | ---: | ---: | ---: | ---: | ---: | ---: | ---".to_string());
+    }
 
     for result in results {
-        lines.push(format!(
-            "{} | {} | {} | {:.1}% | {:.1}% | {:.2} | {:.2} | {}",
-            result.name,
-            result.metrics.total_files_changed,
-            result.metrics.total_groups,
-            result.metrics.infra_ratio * 100.0,
-            result.metrics.singleton_ratio * 100.0,
-            result.golden.score,
-            result.scores.overall,
-            if result.passed { "PASS" } else { "FAIL" }
-        ));
+        if show_group_density {
+            lines.push(format!(
+                "{} | {} | {} | {:.1} | {:.1}% | {:.1}% | {:.2} | {:.2} | {}",
+                result.name,
+                result.metrics.total_files_changed,
+                result.metrics.total_groups,
+                result.metrics.groups_per_1000_files,
+                result.metrics.infra_ratio * 100.0,
+                result.metrics.singleton_ratio * 100.0,
+                result.golden.score,
+                result.scores.overall,
+                if result.passed { "PASS" } else { "FAIL" }
+            ));
+        } else {
+            lines.push(format!(
+                "{} | {} | {} | {:.1}% | {:.1}% | {:.2} | {:.2} | {}",
+                result.name,
+                result.metrics.total_files_changed,
+                result.metrics.total_groups,
+                result.metrics.infra_ratio * 100.0,
+                result.metrics.singleton_ratio * 100.0,
+                result.golden.score,
+                result.scores.overall,
+                if result.passed { "PASS" } else { "FAIL" }
+            ));
+        }
     }
 
     let failures: Vec<&RepoEvalRun> = results
@@ -1015,27 +1072,50 @@ fn format_repo_eval_html(
     avg_overall: f64,
     min_score: f64,
 ) -> String {
+    let show_group_density = results
+        .iter()
+        .any(|result| result.thresholds.max_groups_per_1000_files.is_some());
     let mut rows = String::new();
     for result in results {
-        rows.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{:.1}%</td><td>{:.1}%</td><td>{:.2}</td><td>{:.2}</td><td>{}</td></tr>",
-            html_escape(&result.name),
-            result.metrics.total_files_changed,
-            result.metrics.total_groups,
-            result.metrics.infra_ratio * 100.0,
-            result.metrics.singleton_ratio * 100.0,
-            result.golden.score,
-            result.scores.overall,
-            if result.passed { "PASS" } else { "FAIL" }
-        ));
+        if show_group_density {
+            rows.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{:.1}</td><td>{:.1}%</td><td>{:.1}%</td><td>{:.2}</td><td>{:.2}</td><td>{}</td></tr>",
+                html_escape(&result.name),
+                result.metrics.total_files_changed,
+                result.metrics.total_groups,
+                result.metrics.groups_per_1000_files,
+                result.metrics.infra_ratio * 100.0,
+                result.metrics.singleton_ratio * 100.0,
+                result.golden.score,
+                result.scores.overall,
+                if result.passed { "PASS" } else { "FAIL" }
+            ));
+        } else {
+            rows.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{:.1}%</td><td>{:.1}%</td><td>{:.2}</td><td>{:.2}</td><td>{}</td></tr>",
+                html_escape(&result.name),
+                result.metrics.total_files_changed,
+                result.metrics.total_groups,
+                result.metrics.infra_ratio * 100.0,
+                result.metrics.singleton_ratio * 100.0,
+                result.golden.score,
+                result.scores.overall,
+                if result.passed { "PASS" } else { "FAIL" }
+            ));
+        }
     }
 
     format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>flowdiff repo eval</title><style>body{{font-family:ui-monospace,monospace;padding:24px;background:#111827;color:#e5e7eb}}table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #374151;padding:8px;text-align:left;vertical-align:top}}th{{background:#1f2937}}ul{{margin:12px 0 0 18px}}</style></head><body><h1>flowdiff repo eval</h1><p>Manifest: {}</p><p>Average overall score: {:.2} {} {:.2}</p><table><thead><tr><th>Name</th><th>Files (analyzed)</th><th>Groups</th><th>Infra %</th><th>Singleton %</th><th>Golden</th><th>Score</th><th>Status</th></tr></thead><tbody>{}</tbody></table>{}</body></html>",
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>flowdiff repo eval</title><style>body{{font-family:ui-monospace,monospace;padding:24px;background:#111827;color:#e5e7eb}}table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #374151;padding:8px;text-align:left;vertical-align:top}}th{{background:#1f2937}}ul{{margin:12px 0 0 18px}}</style></head><body><h1>flowdiff repo eval</h1><p>Manifest: {}</p><p>Average overall score: {:.2} {} {:.2}</p><table><thead><tr>{}</tr></thead><tbody>{}</tbody></table>{}</body></html>",
         html_escape(&manifest_path.display().to_string()),
         avg_overall,
         if avg_overall >= min_score { "&gt;=" } else { "&lt;" },
         min_score,
+        if show_group_density {
+            "<th>Name</th><th>Files (analyzed)</th><th>Groups</th><th>Groups / 1k files</th><th>Infra %</th><th>Singleton %</th><th>Golden</th><th>Score</th><th>Status</th>"
+        } else {
+            "<th>Name</th><th>Files (analyzed)</th><th>Groups</th><th>Infra %</th><th>Singleton %</th><th>Golden</th><th>Score</th><th>Status</th>"
+        },
         rows,
         format_golden_failures_html(results)
     )
@@ -1180,6 +1260,7 @@ mod tests {
         assert_eq!(metrics.raw_total_files_changed, 5);
         assert_eq!(metrics.total_files_changed, 2);
         assert_eq!(metrics.ignored_files, 3);
+        assert_eq!(metrics.groups_per_1000_files, 500.0);
         assert!(metrics.files_accounted);
     }
 
@@ -1221,6 +1302,94 @@ mod tests {
         assert_eq!(golden.total_checks, 5);
         assert_eq!(golden.satisfied_checks, 5);
         assert!(golden.failures.is_empty());
+    }
+
+    #[test]
+    fn test_score_repo_metrics_uses_group_density_when_configured() {
+        let metrics = RepoEvalMetrics {
+            raw_total_files_changed: 3000,
+            total_files_changed: 3000,
+            ignored_files: 0,
+            duplicate_file_entries: 0,
+            total_groups: 180,
+            groups_per_1000_files: 60.0,
+            infra_files: 300,
+            infra_ratio: 0.1,
+            singleton_groups: 10,
+            singleton_ratio: 10.0 / 180.0,
+            max_group_size: 40,
+            avg_group_size: 15.0,
+            files_accounted: true,
+            golden_checks: 0,
+            golden_satisfied: 0,
+            golden_score: 1.0,
+        };
+        let thresholds = RepoEvalThresholds {
+            max_groups: 300,
+            max_infra_ratio: 0.5,
+            max_singleton_ratio: 0.6,
+            max_groups_per_1000_files: Some(55.0),
+        };
+
+        let scores = score_repo_metrics(&metrics, &thresholds, &RepoEvalGoldenResult::default());
+
+        assert!(scores.group_density.is_some());
+        assert!(scores.group_density.unwrap() < 1.0);
+        assert!(scores.overall < 1.0);
+    }
+
+    #[test]
+    fn test_format_repo_eval_text_adds_group_density_column_when_needed() {
+        let run = RepoEvalRun {
+            name: "large-diff".to_string(),
+            path: "/tmp/repo".to_string(),
+            diff_spec: "main...HEAD".to_string(),
+            thresholds: RepoEvalThresholds {
+                max_groups: 300,
+                max_infra_ratio: 0.5,
+                max_singleton_ratio: 0.6,
+                max_groups_per_1000_files: Some(55.0),
+            },
+            metrics: RepoEvalMetrics {
+                raw_total_files_changed: 3000,
+                total_files_changed: 3000,
+                ignored_files: 0,
+                duplicate_file_entries: 0,
+                total_groups: 120,
+                groups_per_1000_files: 40.0,
+                infra_files: 200,
+                infra_ratio: 0.066,
+                singleton_groups: 4,
+                singleton_ratio: 0.033,
+                max_group_size: 25,
+                avg_group_size: 10.0,
+                files_accounted: true,
+                golden_checks: 0,
+                golden_satisfied: 0,
+                golden_score: 1.0,
+            },
+            scores: RepoEvalScores {
+                group_count: 1.0,
+                group_density: Some(1.0),
+                infra_ratio: 1.0,
+                singleton_ratio: 1.0,
+                file_accounting: 1.0,
+                golden: 1.0,
+                overall: 1.0,
+            },
+            golden: RepoEvalGoldenResult::default(),
+            passed: true,
+        };
+
+        let text = format_repo_eval_text(
+            Path::new("eval/repositories.large-diff.toml"),
+            &[run],
+            1.0,
+            0.9,
+        );
+
+        assert!(text.contains("groups/1k"));
+        assert!(text.contains("40.0"));
     }
 
     #[test]

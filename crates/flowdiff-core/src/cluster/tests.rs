@@ -6,10 +6,7 @@ use crate::types::{EdgeType, EntrypointType, SymbolKind};
 use petgraph::Direction;
 
 /// Helper: build a SymbolGraph from explicit nodes and edges.
-fn make_graph(
-    nodes: &[(&str, &str, SymbolKind)],
-    edges: &[(&str, &str, EdgeType)],
-) -> SymbolGraph {
+fn make_graph(nodes: &[(&str, &str, SymbolKind)], edges: &[(&str, &str, EdgeType)]) -> SymbolGraph {
     let sg = SerializableGraph {
         nodes: nodes
             .iter()
@@ -44,6 +41,52 @@ fn changed(files: &[&str]) -> Vec<String> {
     files.iter().map(|s| s.to_string()).collect()
 }
 
+#[test]
+fn test_large_diff_partition_key_uses_monorepo_package_roots() {
+    assert_eq!(
+        large_diff_partition_key("apps/web/src/app/page.tsx"),
+        (false, "apps/web".to_string())
+    );
+    assert_eq!(
+        large_diff_partition_key("packages/services/evaluation-framework/src/index.ts"),
+        (false, "packages/services/evaluation-framework".to_string())
+    );
+    assert_eq!(
+        large_diff_partition_key("content-service/src/index.ts"),
+        (false, "content-service".to_string())
+    );
+}
+
+#[test]
+fn test_large_diff_partitioning_separates_semantic_and_infra_buckets() {
+    let mut files: Vec<String> = (0..1000)
+        .map(|i| format!("apps/web/src/page-{}.ts", i))
+        .collect();
+    files.extend((0..1000).map(|i| format!("apps/worker/src/task-{}.ts", i)));
+    files.extend((0..10).map(|i| format!("schemas/generated/schema-{}.ts", i)));
+    files.extend((0..10).map(|i| format!(".github/workflows/check-{}.yml", i)));
+
+    let partitions = partition_large_diff_files(&files);
+
+    let web = partitions
+        .get("semantic:apps/web")
+        .expect("missing apps/web partition");
+    let worker = partitions
+        .get("semantic:apps/worker")
+        .expect("missing apps/worker partition");
+    let schema = partitions
+        .get("infra:schema")
+        .expect("missing schema partition");
+    let infra = partitions
+        .get("infra:infrastructure")
+        .expect("missing infrastructure partition");
+
+    assert_eq!(web.files.len(), 1000);
+    assert_eq!(worker.files.len(), 1000);
+    assert_eq!(schema.files.len(), 10);
+    assert_eq!(infra.files.len(), 10);
+}
+
 // ===================================================================
 // Unit tests from spec §12.2 — Cluster Layer
 // ===================================================================
@@ -54,17 +97,37 @@ fn test_single_entrypoint_group() {
     let graph = make_graph(
         &[
             ("src/route.ts", "src/route.ts", SymbolKind::Module),
-            ("src/route.ts::handlePost", "src/route.ts", SymbolKind::Function),
+            (
+                "src/route.ts::handlePost",
+                "src/route.ts",
+                SymbolKind::Function,
+            ),
             ("src/service.ts", "src/service.ts", SymbolKind::Module),
-            ("src/service.ts::createUser", "src/service.ts", SymbolKind::Function),
+            (
+                "src/service.ts::createUser",
+                "src/service.ts",
+                SymbolKind::Function,
+            ),
             ("src/repo.ts", "src/repo.ts", SymbolKind::Module),
             ("src/repo.ts::insert", "src/repo.ts", SymbolKind::Function),
         ],
         &[
-            ("src/route.ts", "src/service.ts::createUser", EdgeType::Imports),
-            ("src/route.ts::handlePost", "src/service.ts::createUser", EdgeType::Calls),
+            (
+                "src/route.ts",
+                "src/service.ts::createUser",
+                EdgeType::Imports,
+            ),
+            (
+                "src/route.ts::handlePost",
+                "src/service.ts::createUser",
+                EdgeType::Calls,
+            ),
             ("src/service.ts", "src/repo.ts::insert", EdgeType::Imports),
-            ("src/service.ts::createUser", "src/repo.ts::insert", EdgeType::Calls),
+            (
+                "src/service.ts::createUser",
+                "src/repo.ts::insert",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -93,19 +156,51 @@ fn test_multiple_entrypoints() {
     let graph = make_graph(
         &[
             ("src/route_a.ts", "src/route_a.ts", SymbolKind::Module),
-            ("src/route_a.ts::getUsers", "src/route_a.ts", SymbolKind::Function),
+            (
+                "src/route_a.ts::getUsers",
+                "src/route_a.ts",
+                SymbolKind::Function,
+            ),
             ("src/service_a.ts", "src/service_a.ts", SymbolKind::Module),
-            ("src/service_a.ts::listUsers", "src/service_a.ts", SymbolKind::Function),
+            (
+                "src/service_a.ts::listUsers",
+                "src/service_a.ts",
+                SymbolKind::Function,
+            ),
             ("src/route_b.ts", "src/route_b.ts", SymbolKind::Module),
-            ("src/route_b.ts::getOrders", "src/route_b.ts", SymbolKind::Function),
+            (
+                "src/route_b.ts::getOrders",
+                "src/route_b.ts",
+                SymbolKind::Function,
+            ),
             ("src/service_b.ts", "src/service_b.ts", SymbolKind::Module),
-            ("src/service_b.ts::listOrders", "src/service_b.ts", SymbolKind::Function),
+            (
+                "src/service_b.ts::listOrders",
+                "src/service_b.ts",
+                SymbolKind::Function,
+            ),
         ],
         &[
-            ("src/route_a.ts::getUsers", "src/service_a.ts::listUsers", EdgeType::Calls),
-            ("src/route_a.ts", "src/service_a.ts::listUsers", EdgeType::Imports),
-            ("src/route_b.ts::getOrders", "src/service_b.ts::listOrders", EdgeType::Calls),
-            ("src/route_b.ts", "src/service_b.ts::listOrders", EdgeType::Imports),
+            (
+                "src/route_a.ts::getUsers",
+                "src/service_a.ts::listUsers",
+                EdgeType::Calls,
+            ),
+            (
+                "src/route_a.ts",
+                "src/service_a.ts::listUsers",
+                EdgeType::Imports,
+            ),
+            (
+                "src/route_b.ts::getOrders",
+                "src/service_b.ts::listOrders",
+                EdgeType::Calls,
+            ),
+            (
+                "src/route_b.ts",
+                "src/service_b.ts::listOrders",
+                EdgeType::Imports,
+            ),
         ],
     );
 
@@ -152,23 +247,59 @@ fn test_shared_file_assignment() {
     let graph = make_graph(
         &[
             ("src/route_a.ts", "src/route_a.ts", SymbolKind::Module),
-            ("src/route_a.ts::handleA", "src/route_a.ts", SymbolKind::Function),
+            (
+                "src/route_a.ts::handleA",
+                "src/route_a.ts",
+                SymbolKind::Function,
+            ),
             ("src/route_b.ts", "src/route_b.ts", SymbolKind::Module),
-            ("src/route_b.ts::handleB", "src/route_b.ts", SymbolKind::Function),
+            (
+                "src/route_b.ts::handleB",
+                "src/route_b.ts",
+                SymbolKind::Function,
+            ),
             ("src/other.ts", "src/other.ts", SymbolKind::Module),
-            ("src/other.ts::transform", "src/other.ts", SymbolKind::Function),
+            (
+                "src/other.ts::transform",
+                "src/other.ts",
+                SymbolKind::Function,
+            ),
             ("src/utils.ts", "src/utils.ts", SymbolKind::Module),
-            ("src/utils.ts::validate", "src/utils.ts", SymbolKind::Function),
+            (
+                "src/utils.ts::validate",
+                "src/utils.ts",
+                SymbolKind::Function,
+            ),
         ],
         &[
             // route_a directly imports utils
-            ("src/route_a.ts", "src/utils.ts::validate", EdgeType::Imports),
-            ("src/route_a.ts::handleA", "src/utils.ts::validate", EdgeType::Calls),
+            (
+                "src/route_a.ts",
+                "src/utils.ts::validate",
+                EdgeType::Imports,
+            ),
+            (
+                "src/route_a.ts::handleA",
+                "src/utils.ts::validate",
+                EdgeType::Calls,
+            ),
             // route_b → other → utils (longer chain)
-            ("src/route_b.ts", "src/other.ts::transform", EdgeType::Imports),
-            ("src/route_b.ts::handleB", "src/other.ts::transform", EdgeType::Calls),
+            (
+                "src/route_b.ts",
+                "src/other.ts::transform",
+                EdgeType::Imports,
+            ),
+            (
+                "src/route_b.ts::handleB",
+                "src/other.ts::transform",
+                EdgeType::Calls,
+            ),
             ("src/other.ts", "src/utils.ts::validate", EdgeType::Imports),
-            ("src/other.ts::transform", "src/utils.ts::validate", EdgeType::Calls),
+            (
+                "src/other.ts::transform",
+                "src/utils.ts::validate",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -224,12 +355,20 @@ fn test_infrastructure_group() {
             ("src/route.ts", "src/route.ts", SymbolKind::Module),
             ("src/route.ts::handle", "src/route.ts", SymbolKind::Function),
             ("src/service.ts", "src/service.ts", SymbolKind::Module),
-            ("src/service.ts::process", "src/service.ts", SymbolKind::Function),
+            (
+                "src/service.ts::process",
+                "src/service.ts",
+                SymbolKind::Function,
+            ),
             ("src/config.ts", "src/config.ts", SymbolKind::Module),
         ],
         &[
             ("src/route.ts", "src/service.ts::process", EdgeType::Imports),
-            ("src/route.ts::handle", "src/service.ts::process", EdgeType::Calls),
+            (
+                "src/route.ts::handle",
+                "src/service.ts::process",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -249,7 +388,10 @@ fn test_infrastructure_group() {
     assert!(group_files.contains(&"src/service.ts"));
     assert!(!group_files.contains(&"src/config.ts"));
 
-    let infra = result.infrastructure.as_ref().expect("should have infrastructure group");
+    let infra = result
+        .infrastructure
+        .as_ref()
+        .expect("should have infrastructure group");
     assert!(infra.files.contains(&"src/config.ts".to_string()));
 }
 
@@ -277,7 +419,10 @@ fn test_all_infrastructure() {
     let result = cluster_files(&graph, &[], &files);
 
     assert!(result.groups.is_empty());
-    let infra = result.infrastructure.as_ref().expect("should have infrastructure");
+    let infra = result
+        .infrastructure
+        .as_ref()
+        .expect("should have infrastructure");
     assert_eq!(infra.files.len(), 2);
 }
 
@@ -297,7 +442,10 @@ fn test_disconnected_components() {
     let result = cluster_files(&graph, &[], &files);
 
     assert!(result.groups.is_empty());
-    let infra = result.infrastructure.as_ref().expect("should have infrastructure");
+    let infra = result
+        .infrastructure
+        .as_ref()
+        .expect("should have infrastructure");
     assert_eq!(infra.files.len(), 3);
 }
 
@@ -315,9 +463,17 @@ fn test_group_file_ordering() {
         ],
         &[
             ("src/entry.ts", "src/mid.ts::transform", EdgeType::Imports),
-            ("src/entry.ts::start", "src/mid.ts::transform", EdgeType::Calls),
+            (
+                "src/entry.ts::start",
+                "src/mid.ts::transform",
+                EdgeType::Calls,
+            ),
             ("src/mid.ts", "src/leaf.ts::persist", EdgeType::Imports),
-            ("src/mid.ts::transform", "src/leaf.ts::persist", EdgeType::Calls),
+            (
+                "src/mid.ts::transform",
+                "src/leaf.ts::persist",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -349,15 +505,27 @@ fn test_deterministic_output() {
             ("src/route.ts", "src/route.ts", SymbolKind::Module),
             ("src/route.ts::handle", "src/route.ts", SymbolKind::Function),
             ("src/service.ts", "src/service.ts", SymbolKind::Module),
-            ("src/service.ts::process", "src/service.ts", SymbolKind::Function),
+            (
+                "src/service.ts::process",
+                "src/service.ts",
+                SymbolKind::Function,
+            ),
             ("src/repo.ts", "src/repo.ts", SymbolKind::Module),
             ("src/repo.ts::save", "src/repo.ts", SymbolKind::Function),
         ],
         &[
             ("src/route.ts", "src/service.ts::process", EdgeType::Imports),
-            ("src/route.ts::handle", "src/service.ts::process", EdgeType::Calls),
+            (
+                "src/route.ts::handle",
+                "src/service.ts::process",
+                EdgeType::Calls,
+            ),
             ("src/service.ts", "src/repo.ts::save", EdgeType::Imports),
-            ("src/service.ts::process", "src/repo.ts::save", EdgeType::Calls),
+            (
+                "src/service.ts::process",
+                "src/repo.ts::save",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -384,11 +552,19 @@ fn test_entrypoint_file_not_in_changed_set() {
             ("src/route.ts", "src/route.ts", SymbolKind::Module),
             ("src/route.ts::handle", "src/route.ts", SymbolKind::Function),
             ("src/service.ts", "src/service.ts", SymbolKind::Module),
-            ("src/service.ts::process", "src/service.ts", SymbolKind::Function),
+            (
+                "src/service.ts::process",
+                "src/service.ts",
+                SymbolKind::Function,
+            ),
         ],
         &[
             ("src/route.ts", "src/service.ts::process", EdgeType::Imports),
-            ("src/route.ts::handle", "src/service.ts::process", EdgeType::Calls),
+            (
+                "src/route.ts::handle",
+                "src/service.ts::process",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -409,16 +585,48 @@ fn test_multiple_entrypoints_same_file() {
     let graph = make_graph(
         &[
             ("src/route.ts", "src/route.ts", SymbolKind::Module),
-            ("src/route.ts::getHandler", "src/route.ts", SymbolKind::Function),
-            ("src/route.ts::postHandler", "src/route.ts", SymbolKind::Function),
-            ("src/read_service.ts", "src/read_service.ts", SymbolKind::Module),
-            ("src/read_service.ts::fetchAll", "src/read_service.ts", SymbolKind::Function),
-            ("src/write_service.ts", "src/write_service.ts", SymbolKind::Module),
-            ("src/write_service.ts::create", "src/write_service.ts", SymbolKind::Function),
+            (
+                "src/route.ts::getHandler",
+                "src/route.ts",
+                SymbolKind::Function,
+            ),
+            (
+                "src/route.ts::postHandler",
+                "src/route.ts",
+                SymbolKind::Function,
+            ),
+            (
+                "src/read_service.ts",
+                "src/read_service.ts",
+                SymbolKind::Module,
+            ),
+            (
+                "src/read_service.ts::fetchAll",
+                "src/read_service.ts",
+                SymbolKind::Function,
+            ),
+            (
+                "src/write_service.ts",
+                "src/write_service.ts",
+                SymbolKind::Module,
+            ),
+            (
+                "src/write_service.ts::create",
+                "src/write_service.ts",
+                SymbolKind::Function,
+            ),
         ],
         &[
-            ("src/route.ts::getHandler", "src/read_service.ts::fetchAll", EdgeType::Calls),
-            ("src/route.ts::postHandler", "src/write_service.ts::create", EdgeType::Calls),
+            (
+                "src/route.ts::getHandler",
+                "src/read_service.ts::fetchAll",
+                EdgeType::Calls,
+            ),
+            (
+                "src/route.ts::postHandler",
+                "src/write_service.ts::create",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -456,7 +664,10 @@ fn test_entrypoint_not_in_graph() {
     assert_eq!(result.groups[0].files.len(), 1);
     assert_eq!(result.groups[0].files[0].path, "src/main.rs");
 
-    let infra = result.infrastructure.as_ref().expect("should have infrastructure");
+    let infra = result
+        .infrastructure
+        .as_ref()
+        .expect("should have infrastructure");
     assert!(infra.files.contains(&"src/other.rs".to_string()));
 }
 
@@ -467,11 +678,19 @@ fn test_group_has_internal_edges() {
             ("src/route.ts", "src/route.ts", SymbolKind::Module),
             ("src/route.ts::handle", "src/route.ts", SymbolKind::Function),
             ("src/service.ts", "src/service.ts", SymbolKind::Module),
-            ("src/service.ts::process", "src/service.ts", SymbolKind::Function),
+            (
+                "src/service.ts::process",
+                "src/service.ts",
+                SymbolKind::Function,
+            ),
         ],
         &[
             ("src/route.ts", "src/service.ts::process", EdgeType::Imports),
-            ("src/route.ts::handle", "src/service.ts::process", EdgeType::Calls),
+            (
+                "src/route.ts::handle",
+                "src/service.ts::process",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -496,9 +715,15 @@ fn test_group_has_internal_edges() {
 fn test_file_role_inference() {
     use classify::infer_file_role;
     assert_eq!(infer_file_role("src/handlers/auth.ts"), FileRole::Handler);
-    assert_eq!(infer_file_role("src/controllers/user.ts"), FileRole::Handler);
+    assert_eq!(
+        infer_file_role("src/controllers/user.ts"),
+        FileRole::Handler
+    );
     assert_eq!(infer_file_role("src/services/user.ts"), FileRole::Service);
-    assert_eq!(infer_file_role("src/repository/user.ts"), FileRole::Repository);
+    assert_eq!(
+        infer_file_role("src/repository/user.ts"),
+        FileRole::Repository
+    );
     assert_eq!(infer_file_role("src/models/user.ts"), FileRole::Model);
     assert_eq!(infer_file_role("src/config/db.ts"), FileRole::Config);
     assert_eq!(infer_file_role("src/__tests__/auth.ts"), FileRole::Test);
@@ -535,10 +760,7 @@ fn test_group_name_generation() {
 #[test]
 fn test_duplicate_changed_files() {
     // Duplicate entries in changed_files should be deduplicated.
-    let graph = make_graph(
-        &[("src/a.ts", "src/a.ts", SymbolKind::Module)],
-        &[],
-    );
+    let graph = make_graph(&[("src/a.ts", "src/a.ts", SymbolKind::Module)], &[]);
 
     let entrypoints = vec![ep("src/a.ts", "main", EntrypointType::CliCommand)];
     let files = changed(&["src/a.ts", "src/a.ts", "src/a.ts"]);
@@ -557,8 +779,7 @@ mod proptests {
     use proptest::prelude::*;
 
     fn file_path_strategy() -> impl Strategy<Value = String> {
-        "[a-z]{1,5}"
-            .prop_map(|name| format!("src/{}.ts", name))
+        "[a-z]{1,5}".prop_map(|name| format!("src/{}.ts", name))
     }
 
     fn changed_files_strategy() -> impl Strategy<Value = Vec<String>> {
@@ -835,13 +1056,25 @@ fn test_equal_distance_tiebreak_by_ep_index() {
             ("src/ep_b.ts", "src/ep_b.ts", SymbolKind::Module),
             ("src/ep_b.ts::handleB", "src/ep_b.ts", SymbolKind::Function),
             ("src/shared.ts", "src/shared.ts", SymbolKind::Module),
-            ("src/shared.ts::helper", "src/shared.ts", SymbolKind::Function),
+            (
+                "src/shared.ts::helper",
+                "src/shared.ts",
+                SymbolKind::Function,
+            ),
         ],
         &[
             ("src/ep_a.ts", "src/shared.ts::helper", EdgeType::Imports),
-            ("src/ep_a.ts::handleA", "src/shared.ts::helper", EdgeType::Calls),
+            (
+                "src/ep_a.ts::handleA",
+                "src/shared.ts::helper",
+                EdgeType::Calls,
+            ),
             ("src/ep_b.ts", "src/shared.ts::helper", EdgeType::Imports),
-            ("src/ep_b.ts::handleB", "src/shared.ts::helper", EdgeType::Calls),
+            (
+                "src/ep_b.ts::handleB",
+                "src/shared.ts::helper",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -896,8 +1129,15 @@ fn test_deep_chain_ordering() {
 
     let result = cluster_files(&graph, &entrypoints, &files);
     assert_eq!(result.groups.len(), 1);
-    let paths: Vec<&str> = result.groups[0].files.iter().map(|f| f.path.as_str()).collect();
-    assert_eq!(paths, vec!["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts"]);
+    let paths: Vec<&str> = result.groups[0]
+        .files
+        .iter()
+        .map(|f| f.path.as_str())
+        .collect();
+    assert_eq!(
+        paths,
+        vec!["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts"]
+    );
 
     // flow_position should be sequential
     for (i, fc) in result.groups[0].files.iter().enumerate() {
@@ -911,12 +1151,22 @@ fn test_entrypoint_role_assigned_correctly() {
         &[
             ("src/route.ts", "src/route.ts", SymbolKind::Module),
             ("src/route.ts::handle", "src/route.ts", SymbolKind::Function),
-            ("src/services/user.ts", "src/services/user.ts", SymbolKind::Module),
-            ("src/services/user.ts::getUser", "src/services/user.ts", SymbolKind::Function),
+            (
+                "src/services/user.ts",
+                "src/services/user.ts",
+                SymbolKind::Module,
+            ),
+            (
+                "src/services/user.ts::getUser",
+                "src/services/user.ts",
+                SymbolKind::Function,
+            ),
         ],
-        &[
-            ("src/route.ts::handle", "src/services/user.ts::getUser", EdgeType::Calls),
-        ],
+        &[(
+            "src/route.ts::handle",
+            "src/services/user.ts::getUser",
+            EdgeType::Calls,
+        )],
     );
 
     let entrypoints = vec![ep("src/route.ts", "handle", EntrypointType::HttpRoute)];
@@ -926,11 +1176,19 @@ fn test_entrypoint_role_assigned_correctly() {
     let group = &result.groups[0];
 
     // Entrypoint file gets FileRole::Entrypoint
-    let route_file = group.files.iter().find(|f| f.path == "src/route.ts").unwrap();
+    let route_file = group
+        .files
+        .iter()
+        .find(|f| f.path == "src/route.ts")
+        .unwrap();
     assert_eq!(route_file.role, FileRole::Entrypoint);
 
     // Other files get inferred roles
-    let service_file = group.files.iter().find(|f| f.path == "src/services/user.ts").unwrap();
+    let service_file = group
+        .files
+        .iter()
+        .find(|f| f.path == "src/services/user.ts")
+        .unwrap();
     assert_eq!(service_file.role, FileRole::Service);
 }
 
@@ -982,7 +1240,11 @@ fn test_large_number_of_entrypoints() {
 
         edges.push((ep_id.clone(), svc_id.clone(), EdgeType::Calls));
 
-        entrypoints.push(ep(&ep_file, &format!("handle{}", i), EntrypointType::HttpRoute));
+        entrypoints.push(ep(
+            &ep_file,
+            &format!("handle{}", i),
+            EntrypointType::HttpRoute,
+        ));
         files.push(ep_file);
         files.push(svc_file);
     }
@@ -1016,16 +1278,40 @@ fn test_fan_out_topology() {
             ("src/hub.ts", "src/hub.ts", SymbolKind::Module),
             ("src/hub.ts::dispatch", "src/hub.ts", SymbolKind::Function),
             ("src/leaf1.ts", "src/leaf1.ts", SymbolKind::Module),
-            ("src/leaf1.ts::handle1", "src/leaf1.ts", SymbolKind::Function),
+            (
+                "src/leaf1.ts::handle1",
+                "src/leaf1.ts",
+                SymbolKind::Function,
+            ),
             ("src/leaf2.ts", "src/leaf2.ts", SymbolKind::Module),
-            ("src/leaf2.ts::handle2", "src/leaf2.ts", SymbolKind::Function),
+            (
+                "src/leaf2.ts::handle2",
+                "src/leaf2.ts",
+                SymbolKind::Function,
+            ),
             ("src/leaf3.ts", "src/leaf3.ts", SymbolKind::Module),
-            ("src/leaf3.ts::handle3", "src/leaf3.ts", SymbolKind::Function),
+            (
+                "src/leaf3.ts::handle3",
+                "src/leaf3.ts",
+                SymbolKind::Function,
+            ),
         ],
         &[
-            ("src/hub.ts::dispatch", "src/leaf1.ts::handle1", EdgeType::Calls),
-            ("src/hub.ts::dispatch", "src/leaf2.ts::handle2", EdgeType::Calls),
-            ("src/hub.ts::dispatch", "src/leaf3.ts::handle3", EdgeType::Calls),
+            (
+                "src/hub.ts::dispatch",
+                "src/leaf1.ts::handle1",
+                EdgeType::Calls,
+            ),
+            (
+                "src/hub.ts::dispatch",
+                "src/leaf2.ts::handle2",
+                EdgeType::Calls,
+            ),
+            (
+                "src/hub.ts::dispatch",
+                "src/leaf3.ts::handle3",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -1037,7 +1323,11 @@ fn test_fan_out_topology() {
     assert_eq!(result.groups[0].files.len(), 4);
 
     // hub.ts should be first (distance 0), leaves at distance 1 (alphabetical order)
-    let paths: Vec<&str> = result.groups[0].files.iter().map(|f| f.path.as_str()).collect();
+    let paths: Vec<&str> = result.groups[0]
+        .files
+        .iter()
+        .map(|f| f.path.as_str())
+        .collect();
     assert_eq!(paths[0], "src/hub.ts");
 }
 
@@ -1071,9 +1361,13 @@ fn test_diamond_dependency() {
     assert_eq!(result.groups[0].files.len(), 4);
 
     // d.ts reached via BFS distance 2, b and c at distance 1
-    let paths: Vec<&str> = result.groups[0].files.iter().map(|f| f.path.as_str()).collect();
+    let paths: Vec<&str> = result.groups[0]
+        .files
+        .iter()
+        .map(|f| f.path.as_str())
+        .collect();
     assert_eq!(paths[0], "src/a.ts"); // distance 0
-    // b.ts and c.ts at distance 1 (alphabetical tiebreak)
+                                      // b.ts and c.ts at distance 1 (alphabetical tiebreak)
     assert_eq!(paths[1], "src/b.ts");
     assert_eq!(paths[2], "src/c.ts");
     assert_eq!(paths[3], "src/d.ts"); // distance 2
@@ -1115,12 +1409,20 @@ fn test_reverse_reachable_not_infra() {
             ("src/route.ts", "src/route.ts", SymbolKind::Module),
             ("src/route.ts::handle", "src/route.ts", SymbolKind::Function),
             ("src/caller.ts", "src/caller.ts", SymbolKind::Module),
-            ("src/caller.ts::invoke", "src/caller.ts", SymbolKind::Function),
+            (
+                "src/caller.ts::invoke",
+                "src/caller.ts",
+                SymbolKind::Function,
+            ),
         ],
         &[
             // caller.ts imports from route.ts (reverse edge from entrypoint's perspective)
             ("src/caller.ts", "src/route.ts::handle", EdgeType::Imports),
-            ("src/caller.ts::invoke", "src/route.ts::handle", EdgeType::Calls),
+            (
+                "src/caller.ts::invoke",
+                "src/route.ts::handle",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -1151,11 +1453,19 @@ fn test_forward_preferred_over_reverse() {
             ("src/entry.ts", "src/entry.ts", SymbolKind::Module),
             ("src/entry.ts::start", "src/entry.ts", SymbolKind::Function),
             ("src/target.ts", "src/target.ts", SymbolKind::Module),
-            ("src/target.ts::process", "src/target.ts", SymbolKind::Function),
+            (
+                "src/target.ts::process",
+                "src/target.ts",
+                SymbolKind::Function,
+            ),
         ],
         &[
             // Forward: entry → target
-            ("src/entry.ts::start", "src/target.ts::process", EdgeType::Calls),
+            (
+                "src/entry.ts::start",
+                "src/target.ts::process",
+                EdgeType::Calls,
+            ),
             // Reverse: target → entry (target imports from entry)
             ("src/target.ts", "src/entry.ts::start", EdgeType::Imports),
         ],
@@ -1188,7 +1498,11 @@ fn test_reverse_only_grouped() {
         ],
         &[
             // Only reverse: dep.ts depends on entry (dep imports entry)
-            ("src/dep.ts::use_entry", "src/entry.ts::start", EdgeType::Calls),
+            (
+                "src/dep.ts::use_entry",
+                "src/entry.ts::start",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -1245,7 +1559,10 @@ fn test_mixed_multi_hop_bidirectional() {
         .iter()
         .map(|f| f.path.as_str())
         .collect();
-    assert!(group_files.contains(&"src/c.ts"), "C should be grouped via reverse edge to entry");
+    assert!(
+        group_files.contains(&"src/c.ts"),
+        "C should be grouped via reverse edge to entry"
+    );
     assert!(result.infrastructure.is_none());
 }
 
@@ -1257,13 +1574,29 @@ fn test_existing_forward_tests_unchanged() {
     let graph = make_graph(
         &[
             ("src/route.ts", "src/route.ts", SymbolKind::Module),
-            ("src/route.ts::handlePost", "src/route.ts", SymbolKind::Function),
+            (
+                "src/route.ts::handlePost",
+                "src/route.ts",
+                SymbolKind::Function,
+            ),
             ("src/service.ts", "src/service.ts", SymbolKind::Module),
-            ("src/service.ts::createUser", "src/service.ts", SymbolKind::Function),
+            (
+                "src/service.ts::createUser",
+                "src/service.ts",
+                SymbolKind::Function,
+            ),
         ],
         &[
-            ("src/route.ts", "src/service.ts::createUser", EdgeType::Imports),
-            ("src/route.ts::handlePost", "src/service.ts::createUser", EdgeType::Calls),
+            (
+                "src/route.ts",
+                "src/service.ts::createUser",
+                EdgeType::Imports,
+            ),
+            (
+                "src/route.ts::handlePost",
+                "src/service.ts::createUser",
+                EdgeType::Calls,
+            ),
         ],
     );
 
@@ -1273,7 +1606,11 @@ fn test_existing_forward_tests_unchanged() {
     let result = cluster_files(&graph, &entrypoints, &files);
     assert_eq!(result.groups.len(), 1);
     assert!(result.infrastructure.is_none());
-    let paths: Vec<&str> = result.groups[0].files.iter().map(|f| f.path.as_str()).collect();
+    let paths: Vec<&str> = result.groups[0]
+        .files
+        .iter()
+        .map(|f| f.path.as_str())
+        .collect();
     assert_eq!(paths[0], "src/route.ts");
     assert_eq!(paths[1], "src/service.ts");
 }
@@ -1284,70 +1621,154 @@ fn test_existing_forward_tests_unchanged() {
 
 #[test]
 fn test_classify_only_true_infra() {
-    assert_eq!(classify_by_convention("Dockerfile"), InfraCategory::Infrastructure);
-    assert_eq!(classify_by_convention(".env.dev"), InfraCategory::Infrastructure);
-    assert_eq!(classify_by_convention("tsconfig.json"), InfraCategory::Infrastructure);
-    assert_eq!(classify_by_convention("package.json"), InfraCategory::Infrastructure);
-    assert_eq!(classify_by_convention(".github/workflows/ci.yml"), InfraCategory::Infrastructure);
-    assert_eq!(classify_by_convention("Cargo.toml"), InfraCategory::Infrastructure);
-    assert_eq!(classify_by_convention("Cargo.lock"), InfraCategory::Infrastructure);
+    assert_eq!(
+        classify_by_convention("Dockerfile"),
+        InfraCategory::Infrastructure
+    );
+    assert_eq!(
+        classify_by_convention(".env.dev"),
+        InfraCategory::Infrastructure
+    );
+    assert_eq!(
+        classify_by_convention("tsconfig.json"),
+        InfraCategory::Infrastructure
+    );
+    assert_eq!(
+        classify_by_convention("package.json"),
+        InfraCategory::Infrastructure
+    );
+    assert_eq!(
+        classify_by_convention(".github/workflows/ci.yml"),
+        InfraCategory::Infrastructure
+    );
+    assert_eq!(
+        classify_by_convention("Cargo.toml"),
+        InfraCategory::Infrastructure
+    );
+    assert_eq!(
+        classify_by_convention("Cargo.lock"),
+        InfraCategory::Infrastructure
+    );
 }
 
 #[test]
 fn test_classify_schemas() {
-    assert_eq!(classify_by_convention("schemas/user.ts"), InfraCategory::Schema);
-    assert_eq!(classify_by_convention("src/schema/billing.ts"), InfraCategory::Schema);
-    assert_eq!(classify_by_convention("src/user.schema.ts"), InfraCategory::Schema);
-    assert_eq!(classify_by_convention("src/user.dto.ts"), InfraCategory::Schema);
-    assert_eq!(classify_by_convention("src/types/index.ts"), InfraCategory::Schema);
+    assert_eq!(
+        classify_by_convention("schemas/user.ts"),
+        InfraCategory::Schema
+    );
+    assert_eq!(
+        classify_by_convention("src/schema/billing.ts"),
+        InfraCategory::Schema
+    );
+    assert_eq!(
+        classify_by_convention("src/user.schema.ts"),
+        InfraCategory::Schema
+    );
+    assert_eq!(
+        classify_by_convention("src/user.dto.ts"),
+        InfraCategory::Schema
+    );
+    assert_eq!(
+        classify_by_convention("src/types/index.ts"),
+        InfraCategory::Schema
+    );
 }
 
 #[test]
 fn test_classify_scripts() {
-    assert_eq!(classify_by_convention("scripts/deploy.sh"), InfraCategory::Script);
-    assert_eq!(classify_by_convention("scripts/setup.sh"), InfraCategory::Script);
+    assert_eq!(
+        classify_by_convention("scripts/deploy.sh"),
+        InfraCategory::Script
+    );
+    assert_eq!(
+        classify_by_convention("scripts/setup.sh"),
+        InfraCategory::Script
+    );
     assert_eq!(classify_by_convention("init.bash"), InfraCategory::Script);
     assert_eq!(classify_by_convention("clean.zsh"), InfraCategory::Script);
 }
 
 #[test]
 fn test_classify_migrations() {
-    assert_eq!(classify_by_convention("migrations/001.sql"), InfraCategory::Migration);
-    assert_eq!(classify_by_convention("db/migrations/002.ts"), InfraCategory::Migration);
-    assert_eq!(classify_by_convention("seeds/users.ts"), InfraCategory::Migration);
+    assert_eq!(
+        classify_by_convention("migrations/001.sql"),
+        InfraCategory::Migration
+    );
+    assert_eq!(
+        classify_by_convention("db/migrations/002.ts"),
+        InfraCategory::Migration
+    );
+    assert_eq!(
+        classify_by_convention("seeds/users.ts"),
+        InfraCategory::Migration
+    );
 }
 
 #[test]
 fn test_classify_docs() {
-    assert_eq!(classify_by_convention("docs/README.md"), InfraCategory::Documentation);
-    assert_eq!(classify_by_convention("docs/setup.md"), InfraCategory::Documentation);
-    assert_eq!(classify_by_convention("CHANGELOG.md"), InfraCategory::Documentation);
+    assert_eq!(
+        classify_by_convention("docs/README.md"),
+        InfraCategory::Documentation
+    );
+    assert_eq!(
+        classify_by_convention("docs/setup.md"),
+        InfraCategory::Documentation
+    );
+    assert_eq!(
+        classify_by_convention("CHANGELOG.md"),
+        InfraCategory::Documentation
+    );
 }
 
 #[test]
 fn test_classify_lint() {
-    assert_eq!(classify_by_convention(".eslintrc.json"), InfraCategory::Lint);
+    assert_eq!(
+        classify_by_convention(".eslintrc.json"),
+        InfraCategory::Lint
+    );
     assert_eq!(classify_by_convention(".prettierrc"), InfraCategory::Lint);
     assert_eq!(classify_by_convention("rustfmt.toml"), InfraCategory::Lint);
 }
 
 #[test]
 fn test_classify_test_utils() {
-    assert_eq!(classify_by_convention("src/test-utils/helpers.ts"), InfraCategory::TestUtil);
-    assert_eq!(classify_by_convention("test/__fixtures__/data.json"), InfraCategory::TestUtil);
+    assert_eq!(
+        classify_by_convention("src/test-utils/helpers.ts"),
+        InfraCategory::TestUtil
+    );
+    assert_eq!(
+        classify_by_convention("test/__fixtures__/data.json"),
+        InfraCategory::TestUtil
+    );
 }
 
 #[test]
 fn test_classify_generated() {
-    assert_eq!(classify_by_convention("src/generated/types.ts"), InfraCategory::Generated);
-    assert_eq!(classify_by_convention("src/__generated__/schema.ts"), InfraCategory::Generated);
-    assert_eq!(classify_by_convention("src/api.generated.ts"), InfraCategory::Generated);
+    assert_eq!(
+        classify_by_convention("src/generated/types.ts"),
+        InfraCategory::Generated
+    );
+    assert_eq!(
+        classify_by_convention("src/__generated__/schema.ts"),
+        InfraCategory::Generated
+    );
+    assert_eq!(
+        classify_by_convention("src/api.generated.ts"),
+        InfraCategory::Generated
+    );
 }
 
 #[test]
 fn test_classify_unclassified() {
-    assert_eq!(classify_by_convention("src/random-file.ts"), InfraCategory::Unclassified);
-    assert_eq!(classify_by_convention("src/utils/helpers.ts"), InfraCategory::Unclassified);
+    assert_eq!(
+        classify_by_convention("src/random-file.ts"),
+        InfraCategory::Unclassified
+    );
+    assert_eq!(
+        classify_by_convention("src/utils/helpers.ts"),
+        InfraCategory::Unclassified
+    );
 }
 
 // ===================================================================
@@ -1358,137 +1779,248 @@ fn test_classify_unclassified() {
 #[test]
 fn test_infra_exhaustive_env_patterns() {
     for path in &[
-        ".env", ".env.dev", ".env.prod", ".env.local", ".env.staging",
-        ".env.test", "app.env", "config/settings.env",
+        ".env",
+        ".env.dev",
+        ".env.prod",
+        ".env.local",
+        ".env.staging",
+        ".env.test",
+        "app.env",
+        "config/settings.env",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "expected Infrastructure for env pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "expected Infrastructure for env pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_infra_exhaustive_docker_patterns() {
     for path in &[
-        "Dockerfile", "Dockerfile.prod", "Dockerfile.dev",
-        "docker-compose.yml", "docker-compose.override.yml",
-        "docker-compose.prod.yml", ".dockerignore",
+        "Dockerfile",
+        "Dockerfile.prod",
+        "Dockerfile.dev",
+        "docker-compose.yml",
+        "docker-compose.override.yml",
+        "docker-compose.prod.yml",
+        ".dockerignore",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "expected Infrastructure for docker pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "expected Infrastructure for docker pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_infra_exhaustive_cicd_patterns() {
     for path in &[
-        ".github/workflows/ci.yml", ".github/workflows/deploy.yml",
-        ".github/workflows/test.yml", ".gitlab-ci.yml", "Jenkinsfile",
-        ".circleci/config.yml", ".circleci/setup.yml", ".travis.yml",
-        "azure-pipelines.yml", "bitbucket-pipelines.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/deploy.yml",
+        ".github/workflows/test.yml",
+        ".gitlab-ci.yml",
+        "Jenkinsfile",
+        ".circleci/config.yml",
+        ".circleci/setup.yml",
+        ".travis.yml",
+        "azure-pipelines.yml",
+        "bitbucket-pipelines.yml",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "expected Infrastructure for CI/CD pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "expected Infrastructure for CI/CD pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_infra_exhaustive_container_orch_patterns() {
     for path in &[
-        "k8s/deployment.yml", "k8s/service.yml", "k8s/ingress.yml",
-        "kubernetes/deployment.yml", "kubernetes/namespace.yml",
-        "helm/Chart.yaml", "helm/values.yaml",
+        "k8s/deployment.yml",
+        "k8s/service.yml",
+        "k8s/ingress.yml",
+        "kubernetes/deployment.yml",
+        "kubernetes/namespace.yml",
+        "helm/Chart.yaml",
+        "helm/values.yaml",
         "infra/helm/templates/app.yaml",
-        "app.helmrelease.yaml", "web.helmrelease.yml",
+        "app.helmrelease.yaml",
+        "web.helmrelease.yml",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "expected Infrastructure for container orch pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "expected Infrastructure for container orch pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_infra_exhaustive_iac_patterns() {
     for path in &[
-        "terraform/main.tf", "terraform/variables.tf",
-        "infra/terraform/outputs.tf", "main.tf", "variables.tf",
-        "prod.tfvars", "staging.tfvars", "pulumi/index.ts",
-        "pulumi/Pulumi.yaml", "Pulumi.yaml", "Pulumi.dev.yaml",
-        "cdk/app.ts", "cdk/lib/stack.ts",
-        "cloudformation/stack.yaml", "cloudformation/template.json",
+        "terraform/main.tf",
+        "terraform/variables.tf",
+        "infra/terraform/outputs.tf",
+        "main.tf",
+        "variables.tf",
+        "prod.tfvars",
+        "staging.tfvars",
+        "pulumi/index.ts",
+        "pulumi/Pulumi.yaml",
+        "Pulumi.yaml",
+        "Pulumi.dev.yaml",
+        "cdk/app.ts",
+        "cdk/lib/stack.ts",
+        "cloudformation/stack.yaml",
+        "cloudformation/template.json",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "expected Infrastructure for IaC pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "expected Infrastructure for IaC pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_infra_exhaustive_package_mgr_patterns() {
     for path in &[
-        "package.json", "Cargo.toml", "go.mod", "go.sum",
-        "requirements.txt", "Pipfile", "pyproject.toml", "Gemfile",
-        "pom.xml", "build.gradle", "build.gradle.kts",
-        "app/app.csproj", "Package.swift", "build.sbt", "composer.json",
+        "package.json",
+        "Cargo.toml",
+        "go.mod",
+        "go.sum",
+        "requirements.txt",
+        "Pipfile",
+        "pyproject.toml",
+        "Gemfile",
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "app/app.csproj",
+        "Package.swift",
+        "build.sbt",
+        "composer.json",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "expected Infrastructure for package manager pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "expected Infrastructure for package manager pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_infra_exhaustive_lock_file_patterns() {
     for path in &[
-        "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
-        "Cargo.lock", "Gemfile.lock", "poetry.lock", "composer.lock",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "Cargo.lock",
+        "Gemfile.lock",
+        "poetry.lock",
+        "composer.lock",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "expected Infrastructure for lock file pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "expected Infrastructure for lock file pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_infra_exhaustive_build_tool_patterns() {
     for path in &[
-        "tsconfig.json", "tsconfig.app.json", "tsconfig.spec.json",
-        "webpack.config.js", "webpack.prod.js", "vite.config.ts",
-        "vite.config.js", "rollup.config.js", "rollup.config.mjs",
-        "esbuild.config.mjs", "esbuild.js", "babel.config.js",
-        "babel.config.json", "Makefile", "CMakeLists.txt",
-        "build.mk", "rules.mk", "build.rs",
+        "tsconfig.json",
+        "tsconfig.app.json",
+        "tsconfig.spec.json",
+        "webpack.config.js",
+        "webpack.prod.js",
+        "vite.config.ts",
+        "vite.config.js",
+        "rollup.config.js",
+        "rollup.config.mjs",
+        "esbuild.config.mjs",
+        "esbuild.js",
+        "babel.config.js",
+        "babel.config.json",
+        "Makefile",
+        "CMakeLists.txt",
+        "build.mk",
+        "rules.mk",
+        "build.rs",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "expected Infrastructure for build tool pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "expected Infrastructure for build tool pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_infra_exhaustive_ide_patterns() {
     for path in &[
-        ".vscode/settings.json", ".vscode/extensions.json",
-        ".vscode/launch.json", ".idea/workspace.xml",
-        ".idea/modules.xml", ".idea/.gitignore",
-        ".eclipse/.project", ".eclipse/.classpath",
+        ".vscode/settings.json",
+        ".vscode/extensions.json",
+        ".vscode/launch.json",
+        ".idea/workspace.xml",
+        ".idea/modules.xml",
+        ".idea/.gitignore",
+        ".eclipse/.project",
+        ".eclipse/.classpath",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "expected Infrastructure for IDE pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "expected Infrastructure for IDE pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_infra_exhaustive_mcp_tool_patterns() {
     for path in &[
-        ".mcp.json", ".mcp/config.json", ".mcp/servers.json",
-        ".tool-versions", ".nvmrc", ".node-version",
-        ".python-version", ".ruby-version",
+        ".mcp.json",
+        ".mcp/config.json",
+        ".mcp/servers.json",
+        ".tool-versions",
+        ".nvmrc",
+        ".node-version",
+        ".python-version",
+        ".ruby-version",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "expected Infrastructure for MCP/tool pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "expected Infrastructure for MCP/tool pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_infra_exhaustive_git_patterns() {
     for path in &[".gitignore", ".gitattributes", ".gitmodules"] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "expected Infrastructure for git pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "expected Infrastructure for git pattern: {}",
+            path
+        );
     }
 }
 
@@ -1499,100 +2031,173 @@ fn test_infra_exhaustive_git_patterns() {
 #[test]
 fn test_classify_exhaustive_schema_patterns() {
     for path in &[
-        "schemas/user.ts", "src/schemas/billing.ts", "schema/order.ts",
-        "src/schema/product.ts", "src/user.schema.ts",
-        "src/order.schema.json", "src/user.dto.ts", "src/billing.dto.ts",
-        "types/index.ts", "src/types/api.ts",
+        "schemas/user.ts",
+        "src/schemas/billing.ts",
+        "schema/order.ts",
+        "src/schema/product.ts",
+        "src/user.schema.ts",
+        "src/order.schema.json",
+        "src/user.dto.ts",
+        "src/billing.dto.ts",
+        "types/index.ts",
+        "src/types/api.ts",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Schema,
-            "expected Schema for pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Schema,
+            "expected Schema for pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_classify_exhaustive_migration_patterns() {
     for path in &[
-        "migrations/001.sql", "db/migrations/002_add_users.ts",
-        "migrate/003.sql", "src/migrate/schema.ts",
-        "src/order.migration.ts", "seeds/users.ts",
-        "db/seeds/products.json", "fixtures/test-data.json",
+        "migrations/001.sql",
+        "db/migrations/002_add_users.ts",
+        "migrate/003.sql",
+        "src/migrate/schema.ts",
+        "src/order.migration.ts",
+        "seeds/users.ts",
+        "db/seeds/products.json",
+        "fixtures/test-data.json",
         "test/fixtures/setup.sql",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Migration,
-            "expected Migration for pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Migration,
+            "expected Migration for pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_classify_exhaustive_script_patterns() {
     for path in &[
-        "scripts/deploy.sh", "scripts/setup.sh", "scripts/seed-db.sh",
-        "init.bash", "clean.zsh", "setup.ps1", "install.sh",
+        "scripts/deploy.sh",
+        "scripts/setup.sh",
+        "scripts/seed-db.sh",
+        "init.bash",
+        "clean.zsh",
+        "setup.ps1",
+        "install.sh",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Script,
-            "expected Script for pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Script,
+            "expected Script for pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_classify_exhaustive_deployment_patterns() {
     for path in &[
-        "deploy/app.yaml", "deploy/staging.yaml",
-        "deployment/config.yaml", "infra/deployment/service.yaml",
+        "deploy/app.yaml",
+        "deploy/staging.yaml",
+        "deployment/config.yaml",
+        "infra/deployment/service.yaml",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Deployment,
-            "expected Deployment for pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Deployment,
+            "expected Deployment for pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_classify_exhaustive_documentation_patterns() {
     for path in &[
-        "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "docs/setup.md",
-        "docs/api.md", "documentation/guide.md", "src/overview.mdx",
-        "docs/architecture.rst", "notes.txt",
+        "README.md",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+        "docs/setup.md",
+        "docs/api.md",
+        "documentation/guide.md",
+        "src/overview.mdx",
+        "docs/architecture.rst",
+        "notes.txt",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Documentation,
-            "expected Documentation for pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Documentation,
+            "expected Documentation for pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_classify_exhaustive_lint_patterns() {
     for path in &[
-        ".eslintrc.json", ".eslintrc.js", ".eslintrc.yml", ".eslintrc",
-        ".prettierrc", ".prettierrc.json", ".prettierrc.yml",
-        ".stylelintrc", ".stylelintrc.json", ".editorconfig",
-        ".clang-format", "rustfmt.toml", ".rubocop.yml", ".flake8",
-        "mypy.ini", ".golangci.yml",
+        ".eslintrc.json",
+        ".eslintrc.js",
+        ".eslintrc.yml",
+        ".eslintrc",
+        ".prettierrc",
+        ".prettierrc.json",
+        ".prettierrc.yml",
+        ".stylelintrc",
+        ".stylelintrc.json",
+        ".editorconfig",
+        ".clang-format",
+        "rustfmt.toml",
+        ".rubocop.yml",
+        ".flake8",
+        "mypy.ini",
+        ".golangci.yml",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Lint,
-            "expected Lint for pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Lint,
+            "expected Lint for pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_classify_exhaustive_test_util_patterns() {
     for path in &[
-        "src/test-utils/helpers.ts", "src/test-utils/render.tsx",
-        "test/test-helpers/mock-db.ts", "test/__fixtures__/data.json",
-        "test/__fixtures__/sample.ts", "src/testutils/factory.ts",
+        "src/test-utils/helpers.ts",
+        "src/test-utils/render.tsx",
+        "test/test-helpers/mock-db.ts",
+        "test/__fixtures__/data.json",
+        "test/__fixtures__/sample.ts",
+        "src/testutils/factory.ts",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::TestUtil,
-            "expected TestUtil for pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::TestUtil,
+            "expected TestUtil for pattern: {}",
+            path
+        );
     }
 }
 
 #[test]
 fn test_classify_exhaustive_generated_patterns() {
     for path in &[
-        "src/generated/types.ts", "lib/generated/api.ts",
-        "src/__generated__/schema.ts", "lib/__generated__/graphql.ts",
-        "src/api.generated.ts", "src/models.generated.rs",
-        "lib/widget.g.dart", "proto/service.pb.go",
+        "src/generated/types.ts",
+        "lib/generated/api.ts",
+        "src/__generated__/schema.ts",
+        "lib/__generated__/graphql.ts",
+        "src/api.generated.ts",
+        "src/models.generated.rs",
+        "lib/widget.g.dart",
+        "proto/service.pb.go",
     ] {
-        assert_eq!(classify_by_convention(path), InfraCategory::Generated,
-            "expected Generated for pattern: {}", path);
+        assert_eq!(
+            classify_by_convention(path),
+            InfraCategory::Generated,
+            "expected Generated for pattern: {}",
+            path
+        );
     }
 }
 
@@ -1613,8 +2218,13 @@ fn test_infra_false_positive_guards() {
         ("main.go", "go main"),
     ];
     for (path, desc) in non_infra_paths {
-        assert_ne!(classify_by_convention(path), InfraCategory::Infrastructure,
-            "{} should NOT be Infrastructure: {}", path, desc);
+        assert_ne!(
+            classify_by_convention(path),
+            InfraCategory::Infrastructure,
+            "{} should NOT be Infrastructure: {}",
+            path,
+            desc
+        );
     }
 }
 
@@ -1641,8 +2251,12 @@ fn test_sub_cluster_schemas_separated() {
         "Dockerfile".to_string(),
     ];
     let sub_groups = sub_cluster_infra_files(&files, &graph);
-    assert!(sub_groups.iter().any(|g| g.category == InfraCategory::Infrastructure));
-    assert!(sub_groups.iter().any(|g| g.category == InfraCategory::Schema));
+    assert!(sub_groups
+        .iter()
+        .any(|g| g.category == InfraCategory::Infrastructure));
+    assert!(sub_groups
+        .iter()
+        .any(|g| g.category == InfraCategory::Schema));
 }
 
 #[test]
@@ -1666,7 +2280,9 @@ fn test_sub_cluster_dir_proximity() {
         "mcp/spotlight.ts".to_string(),
     ];
     let sub_groups = sub_cluster_infra_files(&files, &graph);
-    assert!(sub_groups.iter().any(|g| g.category == InfraCategory::DirectoryGroup));
+    assert!(sub_groups
+        .iter()
+        .any(|g| g.category == InfraCategory::DirectoryGroup));
 }
 
 #[test]
@@ -1726,10 +2342,7 @@ fn test_sub_cluster_empty_input() {
 #[test]
 fn test_sub_cluster_docs_grouped() {
     let graph = make_graph(&[], &[]);
-    let files = vec![
-        "docs/README.md".to_string(),
-        "docs/setup.md".to_string(),
-    ];
+    let files = vec!["docs/README.md".to_string(), "docs/setup.md".to_string()];
     let sub_groups = sub_cluster_infra_files(&files, &graph);
     assert_eq!(sub_groups.len(), 1);
     assert_eq!(sub_groups[0].category, InfraCategory::Documentation);
@@ -1831,7 +2444,11 @@ fn test_compute_reachability_merge_picks_minimum() {
 
     let merged = compute_file_reachability(&graph, "src/entry.ts", "main");
     assert_eq!(merged.get("src/entry.ts"), Some(&0));
-    assert_eq!(merged.get("src/x.ts"), Some(&2), "should pick min(forward=3, reverse=2)");
+    assert_eq!(
+        merged.get("src/x.ts"),
+        Some(&2),
+        "should pick min(forward=3, reverse=2)"
+    );
     assert_eq!(merged.get("src/a.ts"), Some(&1));
 }
 
@@ -1843,13 +2460,23 @@ fn test_bfs_disconnected_file_not_reached() {
             ("src/entry.ts", "src/entry.ts", SymbolKind::Module),
             ("src/entry.ts::main", "src/entry.ts", SymbolKind::Function),
             ("src/connected.ts", "src/connected.ts", SymbolKind::Module),
-            ("src/connected.ts::fc", "src/connected.ts", SymbolKind::Function),
+            (
+                "src/connected.ts::fc",
+                "src/connected.ts",
+                SymbolKind::Function,
+            ),
             ("src/isolated.ts", "src/isolated.ts", SymbolKind::Module),
-            ("src/isolated.ts::fi", "src/isolated.ts", SymbolKind::Function),
+            (
+                "src/isolated.ts::fi",
+                "src/isolated.ts",
+                SymbolKind::Function,
+            ),
         ],
-        &[
-            ("src/entry.ts::main", "src/connected.ts::fc", EdgeType::Calls),
-        ],
+        &[(
+            "src/entry.ts::main",
+            "src/connected.ts::fc",
+            EdgeType::Calls,
+        )],
     );
 
     let forward = bfs_pass(&graph, "src/entry.ts", "main", Direction::Outgoing, 1);
@@ -1881,8 +2508,8 @@ fn test_bfs_entry_distance_always_zero() {
 
 mod proptests_bidir {
     use super::*;
-    use proptest::prelude::*;
     use crate::graph::{SerializableEdge, SerializableGraph, SymbolNode};
+    use proptest::prelude::*;
 
     /// Build a forward chain graph: f0 → f1 → f2 → ... → f(n-1)
     fn build_forward_chain(n: usize) -> SymbolGraph {

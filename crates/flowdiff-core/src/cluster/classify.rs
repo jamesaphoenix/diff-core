@@ -16,19 +16,8 @@ pub fn classify_by_convention(path: &str) -> InfraCategory {
     // (Go, Rust, TS packages named "types" contain core application types, not infra)
     let is_source_ext = matches!(
         ext,
-        "go" | "rs"
-            | "ts"
-            | "tsx"
-            | "js"
-            | "jsx"
-            | "py"
-            | "java"
-            | "kt"
-            | "rb"
-            | "php"
-            | "cs"
-            | "swift"
-            | "scala"
+        "go" | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "java" | "kt" | "rb" | "php"
+            | "cs" | "swift" | "scala"
     );
     if (lower.contains("/schemas/")
         || lower.starts_with("schemas/")
@@ -60,8 +49,6 @@ pub fn classify_by_convention(path: &str) -> InfraCategory {
     if matches!(ext, "sh" | "bash" | "zsh" | "ps1")
         || lower.contains("/scripts/")
         || lower.starts_with("scripts/")
-        || lower.contains("/script/")
-        || lower.starts_with("script/")
     {
         return InfraCategory::Script;
     }
@@ -153,33 +140,22 @@ pub(super) fn is_true_infrastructure(path: &str) -> bool {
     }
 
     // Docker
-    if filename.starts_with("dockerfile")
-        || filename.starts_with("docker-compose")
-        || filename == ".dockerignore"
-    {
+    if filename.starts_with("dockerfile") || filename.starts_with("docker-compose") || filename == ".dockerignore" {
         return true;
     }
 
     // CI/CD + release tooling
     if lower.contains(".github/workflows/")
-        || lower.starts_with(".github/")
         || filename == ".gitlab-ci.yml"
         || filename == "jenkinsfile"
         || lower.contains(".circleci/")
         || filename == ".travis.yml"
         || filename == "azure-pipelines.yml"
         || filename == "bitbucket-pipelines.yml"
-        || filename == "codeowners"
         || lower.contains(".changeset/")
         || lower.starts_with(".changeset/")
         || lower.contains(".changes/")
         || lower.starts_with(".changes/")
-        || lower.starts_with("vendor/")
-        || lower.contains("/vendor/")
-        || lower.starts_with("third_party/")
-        || lower.contains("/third_party/")
-        || lower.starts_with("node_modules/")
-        || lower.contains("/node_modules/")
     {
         return true;
     }
@@ -305,18 +281,13 @@ pub(super) fn is_config_like_filename(path: &str) -> bool {
     }
 
     // PHP config tools (rector, phpstan, phpunit)
-    if matches!(
-        filename,
-        "rector.php" | "phpstan.neon" | "phpunit.xml" | "phpunit.xml.dist"
-    ) {
+    if matches!(filename, "rector.php" | "phpstan.neon" | "phpunit.xml" | "phpunit.xml.dist") {
         return true;
     }
 
     // Version constant files (auto-bumped, not feature code)
-    if matches!(
-        filename,
-        "version.go" | "version.ts" | "version.js" | "version.py" | "version.rb"
-    ) || filename == "version_current.go"
+    if matches!(filename, "version.go" | "version.ts" | "version.js" | "version.py" | "version.rb")
+        || filename == "version_current.go"
     {
         return true;
     }
@@ -414,21 +385,12 @@ pub(super) fn is_top_level_doc(path: &str) -> bool {
     let depth = path.matches('/').count();
 
     // Root-level docs
-    if depth == 0
-        && matches!(
-            filename,
-            "readme.md"
-                | "changelog.md"
-                | "contributing.md"
-                | "license.md"
-                | "security.md"
-                | "authors.md"
-                | "code_of_conduct.md"
-                | "changes.rst"
-                | "history.md"
-                | "releases.md"
-        )
-    {
+    if depth == 0 && matches!(
+        filename,
+        "readme.md" | "changelog.md" | "contributing.md" | "license.md"
+            | "security.md" | "authors.md" | "code_of_conduct.md"
+            | "changes.rst" | "history.md" | "releases.md"
+    ) {
         return true;
     }
 
