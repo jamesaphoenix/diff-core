@@ -1,0 +1,35 @@
+# Go — gorilla/mux HTTP router, ~8 files
+# 10-commit range: middleware, route matching, regexp improvements.
+[[repos]]
+name = "gorilla-mux-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gorilla-mux"
+language = "go"
+range = "cfec64dd9f7b38263f7ac56023c96299587d529a..db9d1d0073d27a0a2d9a8c1bc52aa0af4374d265"
+notes = "SMALL. 10-commit range: middleware, route matching, regexp. ~8 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.30
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 4
+same_group = [
+  ["middleware.go", "middleware_test.go"],
+  ["mux.go", "mux_test.go"],
+  ["route.go", "route_test.go"],
+  ["regexp.go", "regexp_test.go"],
+]
+infrastructure = []
+non_infrastructure = [
+  "middleware.go",
+  "middleware_test.go",
+  "mux.go",
+  "mux_test.go",
+  "regexp.go",
+  "regexp_test.go",
+  "route.go",
+  "route_test.go",
+]
