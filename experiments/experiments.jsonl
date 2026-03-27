@@ -109,3 +109,4 @@
 {"id": 108, "timestamp": "2026-03-27T13:00:00Z", "hypothesis": "GROWING_DATA: Add bubbletea Go (12 files)", "type": "corpus-expansion", "repos_total": 70, "repos_passing": 19, "new_repo_score": 1.00, "decision": "keep"}
 {"id": 109, "timestamp": "2026-03-27T13:00:00Z", "hypothesis": "GROWING_DATA: Add starlette Python (16 files)", "type": "corpus-expansion", "repos_total": 70, "repos_passing": 19, "new_repo_score": 0.96, "decision": "keep"}
 {"id": 110, "timestamp": "2026-03-27T13:00:00Z", "hypothesis": "GROWING_DATA: Add solid TS (15 files)", "type": "corpus-expansion", "repos_total": 70, "repos_passing": 19, "new_repo_score": 1.00, "decision": "keep"}
+{"id": 111, "timestamp": "2026-03-27T13:30:00Z", "hypothesis": "GROWING_DATA: Add jq C (9 files) + testify Go (7 files)", "type": "corpus-expansion", "avg_overall": 0.9612, "repos_total": 72, "repos_passing": 20, "decision": "keep", "notes": "testify PASS (1.00). jq 0.97. 20 PASS milestone — 28% PASS rate."}
