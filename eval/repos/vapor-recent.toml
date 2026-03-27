@@ -1,0 +1,38 @@
+# Swift — Vapor web framework, ~11 files
+# 10-commit range: session auth improvements, cookie parsing, CI updates.
+[[repos]]
+name = "vapor-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/swift/vapor"
+language = "swift"
+range = "3014d7de87d86939f31c5e88b3aa261a46e1d460..ff88583e10f02aa47be49e632d5179f89e855e03"
+notes = "SMALL. 10-commit range: session auth, cookie parsing, CI. ~11 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 4
+same_group = [
+  ["Sources/Vapor/Authentication/SessionAuthenticatable.swift", "Tests/VaporTests/AsyncAuthTests.swift"],
+  ["Sources/Vapor/Authentication/SessionAuthenticatable.swift", "Sources/Vapor/Concurrency/Authentication+Concurrency.swift"],
+  ["Sources/Vapor/HTTP/Headers/HTTPCookies.swift", "Tests/VaporTests/HTTPHeaderTests.swift"],
+]
+infrastructure = [
+  ".github/dependabot.yml",
+  ".github/workflows/sponsors.yml",
+  ".github/workflows/test.yml",
+  "AGENTS.md",
+]
+non_infrastructure = [
+  "Sources/Vapor/Authentication/SessionAuthenticatable.swift",
+  "Sources/Vapor/Concurrency/Authentication+Concurrency.swift",
+  "Sources/Vapor/HTTP/Headers/HTTPCookies.swift",
+  "Sources/VaporTestUtils/TestingApplication.swift",
+  "Tests/VaporTests/AsyncAuthTests.swift",
+  "Tests/VaporTests/AuthenticationTests.swift",
+  "Tests/VaporTests/HTTPHeaderTests.swift",
+]
