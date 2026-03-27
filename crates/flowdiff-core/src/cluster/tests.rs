@@ -509,7 +509,6 @@ fn test_no_entrypoints_use_graph_connected_components_before_directory_groups() 
             ),
         ],
     );
-
     let files = changed(&[
         "src/auth_impl.py",
         "src/auth_test.py",
@@ -562,6 +561,34 @@ fn test_no_entrypoints_use_graph_connected_components_before_directory_groups() 
         billing_files,
         vec!["src/billing_impl.py", "src/billing_test.py"]
     );
+}
+
+#[test]
+fn test_no_entrypoints_fixture_project_configs_can_stay_semantic() {
+    let graph = make_graph(&[], &[]);
+    let files = changed(&[
+        "turborepo-tests/integration/fixtures/watch_mixed_persistent_test/package.json",
+        "turborepo-tests/integration/fixtures/watch_mixed_persistent_test/turbo.json",
+        "turborepo-tests/integration/fixtures/watch_mixed_persistent_test/packages/app-a/dev.js",
+    ]);
+
+    let result = cluster_files(&graph, &[], &files);
+
+    let grouped_paths: Vec<&str> = result
+        .groups
+        .iter()
+        .flat_map(|group| group.files.iter().map(|file| file.path.as_str()))
+        .collect();
+
+    assert!(result.infrastructure.is_none());
+    assert!(grouped_paths.contains(
+        &"turborepo-tests/integration/fixtures/watch_mixed_persistent_test/package.json"
+    ));
+    assert!(grouped_paths
+        .contains(&"turborepo-tests/integration/fixtures/watch_mixed_persistent_test/turbo.json"));
+    assert!(grouped_paths.contains(
+        &"turborepo-tests/integration/fixtures/watch_mixed_persistent_test/packages/app-a/dev.js"
+    ));
 }
 
 #[test]

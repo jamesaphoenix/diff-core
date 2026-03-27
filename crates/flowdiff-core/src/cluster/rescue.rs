@@ -5,8 +5,11 @@ use std::collections::{BTreeMap, HashMap};
 use crate::types::FlowGroup;
 
 use super::classify::{classify_by_convention, is_config_like_filename, is_top_level_doc};
-use super::has_semantic_source_extension;
 use super::stem::{bare_stem, is_test_file_name, test_impl_stem};
+use super::{
+    has_semantic_source_extension, is_semantic_fixture_project_config_candidate,
+    is_semantic_fixture_source_candidate, semantic_fixture_root,
+};
 use crate::types::InfraCategory;
 
 /// Separate truly infrastructure files from source files that just couldn't be reached
@@ -17,12 +20,54 @@ pub(super) fn rescue_non_infra_files(
 ) -> (Vec<String>, Vec<(usize, String)>) {
     let mut true_infra = Vec::new();
     let mut rescued: Vec<(usize, String)> = Vec::new();
+    let mut fixture_group_assignments: HashMap<String, usize> = HashMap::new();
     let root_docs_batch_count = infra_files
         .iter()
         .filter(|file| is_root_nonlocalized_docs_page(file))
         .count();
 
     for file in infra_files {
+        if !is_semantic_fixture_source_candidate(file) {
+            continue;
+        }
+
+        let target_group = semantic_fixture_root(file)
+            .and_then(|root| fixture_group_assignments.get(root).copied())
+            .or_else(|| find_group_by_fixture_root(file, groups))
+            .or_else(|| find_nearest_group_by_directory(file, groups))
+            .or_else(|| {
+                groups
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(_, g)| g.files.len())
+                    .map(|(idx, _)| idx)
+            });
+
+        if let Some(group_idx) = target_group {
+            rescued.push((group_idx, file.clone()));
+            if let Some(root) = semantic_fixture_root(file) {
+                fixture_group_assignments.insert(root.to_string(), group_idx);
+            }
+        } else {
+            true_infra.push(file.clone());
+        }
+    }
+
+    for file in infra_files {
+        if is_semantic_fixture_source_candidate(file) {
+            continue;
+        }
+
+        if is_semantic_fixture_project_config_candidate(file) {
+            if let Some(group_idx) = semantic_fixture_root(file)
+                .and_then(|root| fixture_group_assignments.get(root).copied())
+                .or_else(|| find_group_by_fixture_root(file, groups))
+            {
+                rescued.push((group_idx, file.clone()));
+                continue;
+            }
+        }
+
         let category = classify_by_convention(file);
         if category == InfraCategory::Documentation {
             if let Some(group_idx) = find_group_by_topic_affinity(file, groups) {
@@ -91,6 +136,47 @@ pub(super) fn rescue_non_infra_files(
     }
 
     (true_infra, rescued)
+}
+
+fn find_group_by_fixture_root(file: &str, groups: &[FlowGroup]) -> Option<usize> {
+    let root = semantic_fixture_root(file)?;
+    let mut best: Option<(usize, usize)> = None;
+    let mut tied = false;
+
+    for (idx, group) in groups.iter().enumerate() {
+        let same_root_source_count = group
+            .files
+            .iter()
+            .filter(|group_file| {
+                semantic_fixture_root(&group_file.path) == Some(root)
+                    && is_semantic_fixture_source_candidate(&group_file.path)
+            })
+            .count();
+
+        if same_root_source_count == 0 {
+            continue;
+        }
+
+        match best {
+            None => {
+                best = Some((idx, same_root_source_count));
+                tied = false;
+            }
+            Some((_, best_count)) if same_root_source_count > best_count => {
+                best = Some((idx, same_root_source_count));
+                tied = false;
+            }
+            Some((_, best_count)) if same_root_source_count == best_count => {
+                tied = true;
+            }
+            _ => {}
+        }
+    }
+
+    match best {
+        Some((idx, _)) if !tied => Some(idx),
+        _ => None,
+    }
 }
 
 fn is_semantic_doc_candidate(path: &str, root_docs_batch_count: usize) -> bool {
@@ -357,6 +443,55 @@ mod tests {
     fn root_docs_pages_need_batch_context() {
         assert!(!is_semantic_doc_candidate("docs/quickstart.md", 1));
         assert!(is_semantic_doc_candidate("docs/quickstart.md", 3));
+    }
+
+    #[test]
+    fn rescue_non_infra_files_keeps_fixture_project_configs_with_semantic_fixture_sources() {
+        let groups = vec![group_with_file(
+            "packages/integrations/svelte/test/extract-generics.test.js",
+        )];
+        let infra_files = vec![
+            "packages/integrations/svelte/test/fixtures/prop-types/types/generics/pass.astro"
+                .to_string(),
+            "packages/integrations/svelte/test/fixtures/prop-types/tsconfig.generics-pass.json"
+                .to_string(),
+        ];
+
+        let (true_infra, rescued) = rescue_non_infra_files(&infra_files, &groups);
+
+        assert!(true_infra.is_empty());
+        assert_eq!(
+            rescued,
+            vec![
+                (
+                    0,
+                    "packages/integrations/svelte/test/fixtures/prop-types/types/generics/pass.astro"
+                        .to_string()
+                ),
+                (
+                    0,
+                    "packages/integrations/svelte/test/fixtures/prop-types/tsconfig.generics-pass.json"
+                        .to_string()
+                )
+            ]
+        );
+    }
+
+    #[test]
+    fn rescue_non_infra_files_leaves_non_project_fixture_assets_in_infra() {
+        let groups = vec![group_with_file(
+            "tests/fixtures/PackageSmoke/BlazorConsumer/Program.cs",
+        )];
+        let infra_files =
+            vec!["tests/fixtures/PackageSmoke/BlazorConsumer/Consumer.csproj.template".to_string()];
+
+        let (true_infra, rescued) = rescue_non_infra_files(&infra_files, &groups);
+
+        assert!(rescued.is_empty());
+        assert_eq!(
+            true_infra,
+            vec!["tests/fixtures/PackageSmoke/BlazorConsumer/Consumer.csproj.template".to_string()]
+        );
     }
 
     #[test]
