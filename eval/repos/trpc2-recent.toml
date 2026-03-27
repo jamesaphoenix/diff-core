@@ -1,0 +1,80 @@
+# trpc2-recent
+[[repos]]
+name = "trpc2-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/trpc2"
+language = "typescript"
+range = "25b97f51ee4ee57da0da3c63cf54a50c6c8627d5..88b02b81d16d4046a709508799a905ac7bf9ce8b"
+notes = "MEDIUM. Patch release 11.15.0 -> 11.15.1: bug fix for Node VM cross-realm error message preservation (issue #7272) with regression test, SSR/SSG sponsor fallback, version bumps across ~50 package.json files. 55 files."
+
+[repos.thresholds]
+max_groups = 20
+max_infra_ratio = 0.95
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5
+same_group = [
+  # Bug fix: TRPCError change and its regression test belong together
+  ["packages/server/src/unstable-core-do-not-import/error/TRPCError.ts", "packages/tests/server/regression/issue-7272-node-vm-error-message.test.ts"],
+]
+infrastructure = [
+  ".superset/config.json",
+  "lerna.json",
+  "pnpm-lock.yaml",
+  "examples/.experimental/next-app-dir/package.json",
+  "examples/.test/diagnostics-big-router/package.json",
+  "examples/.test/internal-types-export/package.json",
+  "examples/.test/monotest-api-router01/package.json",
+  "examples/.test/monotest-api/package.json",
+  "examples/.test/monotest-app/package.json",
+  "examples/.test/monotest-trpc/package.json",
+  "examples/.test/monotest-tsconfig/package.json",
+  "examples/.test/ssg-infinite-serialization/package.json",
+  "examples/.test/ssg/package.json",
+  "examples/bun/package.json",
+  "examples/cloudflare-workers/package.json",
+  "examples/express-minimal/package.json",
+  "examples/express-server/package.json",
+  "examples/fastify-server/package.json",
+  "examples/lambda-api-gateway-streaming/package.json",
+  "examples/lambda-api-gateway/package.json",
+  "examples/lambda-url/package.json",
+  "examples/lazy-load/package.json",
+  "examples/minimal-content-types/client/package.json",
+  "examples/minimal-content-types/package.json",
+  "examples/minimal-content-types/server/package.json",
+  "examples/minimal-react/client/package.json",
+  "examples/minimal-react/package.json",
+  "examples/minimal-react/server/package.json",
+  "examples/minimal/package.json",
+  "examples/next-big-router/package.json",
+  "examples/next-edge-runtime/package.json",
+  "examples/next-formdata/package.json",
+  "examples/next-minimal-starter/package.json",
+  "examples/next-prisma-starter/package.json",
+  "examples/next-prisma-todomvc/package.json",
+  "examples/next-prisma-websockets-starter/package.json",
+  "examples/next-sse-chat/package.json",
+  "examples/next-websockets-encoder/package.json",
+  "examples/openapi-codegen/package.json",
+  "examples/soa/package.json",
+  "examples/standalone-server/package.json",
+  "examples/vercel-edge-runtime/package.json",
+  "packages/client/package.json",
+  "packages/next/package.json",
+  "packages/openapi/package.json",
+  "packages/react-query/package.json",
+  "packages/server/package.json",
+  "packages/tanstack-react-query/package.json",
+  "packages/tests/package.json",
+  "packages/upgrade/package.json",
+  "www/og-image/package.json",
+  "www/package.json",
+]
+non_infrastructure = [
+  "packages/server/src/unstable-core-do-not-import/error/TRPCError.ts",
+  "packages/tests/server/regression/issue-7272-node-vm-error-message.test.ts",
+  "www/src/components/sponsors/SponsorBubbles.jsx",
+]
