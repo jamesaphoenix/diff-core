@@ -1,0 +1,92 @@
+# ruff2-recent
+[[repos]]
+name = "ruff2-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/ruff2"
+language = "rust"
+range = "9622285ed0081fc688149f6efca87f127d9b18dd..0629e70a4ab6d88ec9f1f27c787dce4b18f92e70"
+notes = "LARGE. 41 files across a release bump (0.15.7->0.15.8): SIM113 enumerate_for_loop fix, RUF050 multiline if fix, three new rule version stamps, ty lambda body inference with Callable type context and expression cache, bound method disjointness/single-valued rework, protocol Self/subclass_of improvements, intersection method resolution."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 4
+group_count_max = 10
+
+same_group = [
+  # SIM113 enumerate_for_loop bug fix: rule + fixture + snapshots
+  ["crates/ruff_linter/src/rules/flake8_simplify/rules/enumerate_for_loop.rs", "crates/ruff_linter/resources/test/fixtures/flake8_simplify/SIM113.py"],
+  ["crates/ruff_linter/src/rules/flake8_simplify/rules/enumerate_for_loop.rs", "crates/ruff_linter/src/rules/flake8_simplify/snapshots/ruff_linter__rules__flake8_simplify__tests__SIM113_SIM113.py.snap"],
+  ["crates/ruff_linter/src/rules/flake8_simplify/snapshots/ruff_linter__rules__flake8_simplify__tests__SIM113_SIM113.py.snap", "crates/ruff_linter/src/rules/flake8_simplify/snapshots/ruff_linter__rules__flake8_simplify__tests__preview__SIM113_SIM113.py.snap"],
+
+  # RUF050 unnecessary_if multiline expression fix: rule + fixture + snapshot
+  ["crates/ruff_linter/src/rules/ruff/rules/unnecessary_if.rs", "crates/ruff_linter/resources/test/fixtures/ruff/RUF050.py"],
+  ["crates/ruff_linter/src/rules/ruff/rules/unnecessary_if.rs", "crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__RUF050_RUF050.py.snap"],
+
+  # ty lambda inference: scope accepts type context + builder plumbing + lambda body + bidirectional tests + cycle regression
+  ["crates/ty_python_semantic/src/semantic_index/scope.rs", "crates/ty_python_semantic/src/types/infer/builder.rs"],
+  ["crates/ty_python_semantic/src/types/infer/builder.rs", "crates/ty_python_semantic/resources/mdtest/expression/lambda.md"],
+  ["crates/ty_python_semantic/src/types/infer/builder.rs", "crates/ty_python_semantic/resources/mdtest/bidirectional.md"],
+  ["crates/ty_python_semantic/resources/mdtest/expression/lambda.md", "crates/ty_python_semantic/resources/mdtest/cycle.md"],
+  ["crates/ty_python_semantic/resources/corpus/cyclic_lambdas.py", "crates/ty_python_semantic/resources/mdtest/cycle.md"],
+
+  # ty bound method disjointness + single-valued rework: relation + types + test docs
+  ["crates/ty_python_semantic/src/types/relation.rs", "crates/ty_python_semantic/src/types.rs"],
+  ["crates/ty_python_semantic/src/types/relation.rs", "crates/ty_python_semantic/resources/mdtest/type_properties/is_disjoint_from.md"],
+  ["crates/ty_python_semantic/src/types.rs", "crates/ty_python_semantic/resources/mdtest/type_properties/is_single_valued.md"],
+
+  # ty protocol Self / subclass_of / intersection methods
+  ["crates/ty_python_semantic/src/types/subclass_of.rs", "crates/ty_python_semantic/src/types/infer/builder/type_expression.rs"],
+  ["crates/ty_python_semantic/resources/mdtest/protocols.md", "crates/ty_python_semantic/resources/mdtest/annotations/self.md"],
+  ["crates/ty_python_semantic/resources/mdtest/intersection_types.md", "crates/ty_python_semantic/src/types/relation.rs"],
+]
+
+infrastructure = [
+  ".github/workflows/publish-playground.yml",
+  ".github/workflows/publish-ty-playground.yml",
+  ".github/workflows/publish-versions.yml",
+  ".github/workflows/publish-wasm.yml",
+  "CHANGELOG.md",
+  "Cargo.lock",
+  "README.md",
+  "crates/ruff/Cargo.toml",
+  "crates/ruff_benchmark/benches/ty_walltime.rs",
+  "crates/ruff_linter/Cargo.toml",
+  "crates/ruff_wasm/Cargo.toml",
+  "docs/formatter.md",
+  "docs/integrations.md",
+  "docs/tutorial.md",
+  "pyproject.toml",
+  "scripts/benchmarks/pyproject.toml",
+]
+
+non_infrastructure = [
+  "crates/ruff_linter/resources/test/fixtures/flake8_simplify/SIM113.py",
+  "crates/ruff_linter/resources/test/fixtures/ruff/RUF050.py",
+  "crates/ruff_linter/src/rules/flake8_simplify/rules/enumerate_for_loop.rs",
+  "crates/ruff_linter/src/rules/flake8_simplify/snapshots/ruff_linter__rules__flake8_simplify__tests__SIM113_SIM113.py.snap",
+  "crates/ruff_linter/src/rules/flake8_simplify/snapshots/ruff_linter__rules__flake8_simplify__tests__preview__SIM113_SIM113.py.snap",
+  "crates/ruff_linter/src/rules/ruff/rules/fstring_percent_format.rs",
+  "crates/ruff_linter/src/rules/ruff/rules/unnecessary_if.rs",
+  "crates/ruff_linter/src/rules/ruff/rules/useless_finally.rs",
+  "crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__RUF050_RUF050.py.snap",
+  "crates/ty_python_semantic/resources/corpus/cyclic_lambdas.py",
+  "crates/ty_python_semantic/resources/mdtest/annotations/self.md",
+  "crates/ty_python_semantic/resources/mdtest/bidirectional.md",
+  "crates/ty_python_semantic/resources/mdtest/cycle.md",
+  "crates/ty_python_semantic/resources/mdtest/expression/lambda.md",
+  "crates/ty_python_semantic/resources/mdtest/intersection_types.md",
+  "crates/ty_python_semantic/resources/mdtest/protocols.md",
+  "crates/ty_python_semantic/resources/mdtest/type_properties/is_disjoint_from.md",
+  "crates/ty_python_semantic/resources/mdtest/type_properties/is_single_valued.md",
+  "crates/ty_python_semantic/resources/mdtest/type_qualifiers/final.md",
+  "crates/ty_python_semantic/src/semantic_index/scope.rs",
+  "crates/ty_python_semantic/src/types.rs",
+  "crates/ty_python_semantic/src/types/infer/builder.rs",
+  "crates/ty_python_semantic/src/types/infer/builder/type_expression.rs",
+  "crates/ty_python_semantic/src/types/relation.rs",
+  "crates/ty_python_semantic/src/types/subclass_of.rs",
+]

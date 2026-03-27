@@ -1,0 +1,60 @@
+# terraform-recent
+[[repos]]
+name = "terraform-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/terraform"
+language = "go"
+range = "a42d5b9f62055e1f46d9b003213373528a718d3d..73c225dff4f1dc2a2464ffffe6f590e1d5692c05"
+notes = "MEDIUM. 22 files: two features—new 'store' block for terraform_data (ephemeral/sensitive values) and PlannedPrivate provider data (protocol v6.11), plus action invocations in stack plans."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 7
+
+same_group = [
+  # terraform_data store block: schema + resource logic + tests
+  ["internal/builtin/providers/terraform/resource_data.go", "internal/builtin/providers/terraform/resource_data_test.go"],
+  ["internal/builtin/providers/terraform/resource_data.go", "internal/builtin/providers/terraform/provider_test.go"],
+
+  # PlannedPrivate / protocol v6.11: proto definition + generated code + provider interface + grpc glue
+  ["docs/plugin-protocol/tfplugin6.proto", "internal/tfplugin6/tfplugin6.pb.go"],
+  ["internal/providers/provider.go", "internal/plugin6/grpc_provider.go"],
+  ["internal/terraform/node_resource_abstract_instance.go", "internal/terraform/eval_context_builtin.go"],
+
+  # Stack plan action invocations: component + from_proto + from_proto_test
+  ["internal/stacks/stackplan/component.go", "internal/stacks/stackplan/from_proto.go"],
+  ["internal/stacks/stackplan/from_proto.go", "internal/stacks/stackplan/from_proto_test.go"],
+]
+
+infrastructure = [
+  ".changes/v1.16/NEW FEATURES-20251217-113349.yaml",
+  ".changes/v1.16/NEW FEATURES-20260320-085123.yaml",
+]
+
+non_infrastructure = [
+  "docs/plugin-protocol/tfplugin6.proto",
+  "internal/builtin/providers/terraform/provider_test.go",
+  "internal/builtin/providers/terraform/resource_data.go",
+  "internal/builtin/providers/terraform/resource_data_test.go",
+  "internal/configs/configschema/coerce_value.go",
+  "internal/configs/configschema/decoder_spec.go",
+  "internal/configs/configschema/internal_validate.go",
+  "internal/plugin6/grpc_provider.go",
+  "internal/providers/provider.go",
+  "internal/rpcapi/dependencies_test.go",
+  "internal/stacks/stackplan/component.go",
+  "internal/stacks/stackplan/from_proto.go",
+  "internal/stacks/stackplan/from_proto_test.go",
+  "internal/stacks/stackruntime/plan_test.go",
+  "internal/terraform/context_apply2_test.go",
+  "internal/terraform/context_plan_test.go",
+  "internal/terraform/eval_context_builtin.go",
+  "internal/terraform/node_resource_abstract_instance.go",
+  "internal/tfplugin6/tfplugin6.pb.go",
+  "internal/tfplugin6/tfplugin6_grpc.pb.go",
+]
