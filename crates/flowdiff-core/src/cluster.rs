@@ -656,6 +656,18 @@ fn is_config_like_filename(path: &str) -> bool {
         return true;
     }
 
+    // Version constant files (auto-bumped, not feature code)
+    if matches!(filename, "version.go" | "version.ts" | "version.js" | "version.py" | "version.rb")
+        || filename == "version_current.go"
+    {
+        return true;
+    }
+
+    // Generated conversion/deepcopy files (Kubernetes codegen)
+    if filename.starts_with("zz_generated") {
+        return true;
+    }
+
     // JS/TS config files with source extensions
     if matches!(
         filename,
@@ -1157,7 +1169,7 @@ fn is_true_infrastructure(path: &str) -> bool {
         return true;
     }
 
-    // CI/CD
+    // CI/CD + release tooling
     if lower.contains(".github/workflows/")
         || filename == ".gitlab-ci.yml"
         || filename == "jenkinsfile"
@@ -1165,6 +1177,8 @@ fn is_true_infrastructure(path: &str) -> bool {
         || filename == ".travis.yml"
         || filename == "azure-pipelines.yml"
         || filename == "bitbucket-pipelines.yml"
+        || lower.contains(".changeset/")
+        || lower.starts_with(".changeset/")
     {
         return true;
     }
