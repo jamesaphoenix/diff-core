@@ -773,20 +773,13 @@ fn evaluate_repo_expectations(
         return RepoEvalGoldenResult::default();
     };
 
-    let mut file_locations = HashMap::<String, String>::new();
-    for group in &output.groups {
-        for file in &group.files {
-            file_locations.insert(file.path.clone(), group.id.clone());
-        }
-    }
+    let file_locations = build_file_locations(output);
     let infra_files: HashSet<String> = output
         .infrastructure_group
         .as_ref()
         .map(|infra| infra.files.iter().cloned().collect())
         .unwrap_or_default();
-    for file in &infra_files {
-        file_locations.insert(file.clone(), "infra".to_string());
-    }
+    let review_destination_count = count_review_destinations(output);
 
     let mut total_checks = 0usize;
     let mut satisfied_checks = 0usize;
@@ -809,7 +802,9 @@ fn evaluate_repo_expectations(
         };
         total_checks += 1;
         let matches = match label {
-            "group_count_min" => actual.is_some_and(|value| value >= boundary),
+            "group_count_min" => {
+                Some(review_destination_count).is_some_and(|value| value >= boundary)
+            }
             "group_count_max" => actual.is_some_and(|value| value <= boundary),
             _ => false,
         };
@@ -822,7 +817,11 @@ fn evaluate_repo_expectations(
                 label,
                 if label.ends_with("_min") { ">=" } else { "<=" },
                 boundary,
-                output.groups.len()
+                if label == "group_count_min" {
+                    review_destination_count
+                } else {
+                    output.groups.len()
+                }
             ));
         }
     }
@@ -872,7 +871,7 @@ fn evaluate_repo_expectations(
     for path in &expectations.non_infrastructure {
         total_checks += 1;
         match file_locations.get(path) {
-            Some(location) if location != "infra" => satisfied_checks += 1,
+            Some(location) if !is_any_infra_location(location) => satisfied_checks += 1,
             Some(_) => failures.push(format!(
                 "non_infrastructure failed: expected '{}' to remain in a semantic group",
                 path
@@ -933,6 +932,65 @@ fn evaluate_repo_expectations(
         unclassified_files: unclassified_paths.len(),
         unclassified_paths,
     }
+}
+
+fn build_file_locations(output: &AnalysisOutput) -> HashMap<String, String> {
+    let mut file_locations = HashMap::<String, String>::new();
+    for group in &output.groups {
+        for file in &group.files {
+            file_locations.insert(file.path.clone(), group.id.clone());
+        }
+    }
+
+    if let Some(infra) = &output.infrastructure_group {
+        if infra.sub_groups.is_empty() {
+            for file in &infra.files {
+                file_locations.insert(file.clone(), "infra".to_string());
+            }
+        } else {
+            for (idx, sub_group) in infra.sub_groups.iter().enumerate() {
+                let location = format!("infra:{}:{}", idx, sub_group.name);
+                for file in &sub_group.files {
+                    file_locations.insert(file.clone(), location.clone());
+                }
+            }
+
+            for file in &infra.files {
+                file_locations
+                    .entry(file.clone())
+                    .or_insert_with(|| "infra".to_string());
+            }
+        }
+    }
+
+    file_locations
+}
+
+fn count_review_destinations(output: &AnalysisOutput) -> usize {
+    let infra_destinations = output
+        .infrastructure_group
+        .as_ref()
+        .map(|infra| {
+            if infra.files.is_empty() {
+                0
+            } else if infra.sub_groups.is_empty() {
+                1
+            } else {
+                infra
+                    .sub_groups
+                    .iter()
+                    .filter(|sub_group| !sub_group.files.is_empty())
+                    .count()
+                    .max(1)
+            }
+        })
+        .unwrap_or(0);
+
+    output.groups.len() + infra_destinations
+}
+
+fn is_any_infra_location(location: &str) -> bool {
+    location == "infra" || location.starts_with("infra:")
 }
 
 fn shared_semantic_group(
@@ -1161,7 +1219,10 @@ fn html_escape(input: &str) -> String {
 )]
 mod tests {
     use super::*;
-    use crate::types::{AnalysisSummary, DiffSource, DiffType, FlowGroup, InfrastructureGroup};
+    use crate::types::{
+        AnalysisSummary, DiffSource, DiffType, FlowGroup, InfraCategory, InfraSubGroup,
+        InfrastructureGroup,
+    };
 
     fn make_output(
         groups: Vec<FlowGroup>,
@@ -1219,6 +1280,49 @@ mod tests {
             edges: vec![],
             risk_score: 0.0,
             review_order: 1,
+        }
+    }
+
+    fn make_output_with_infra_subgroups(
+        groups: Vec<FlowGroup>,
+        infra_sub_groups: Vec<(&str, InfraCategory, Vec<&str>)>,
+        total_files: u32,
+    ) -> AnalysisOutput {
+        let infra_files: Vec<String> = infra_sub_groups
+            .iter()
+            .flat_map(|(_, _, files)| files.iter().map(|path| (*path).to_string()))
+            .collect();
+        let sub_groups = infra_sub_groups
+            .into_iter()
+            .map(|(name, category, files)| InfraSubGroup {
+                name: name.to_string(),
+                category,
+                files: files.into_iter().map(|path| path.to_string()).collect(),
+            })
+            .collect();
+
+        AnalysisOutput {
+            version: "1.0.0".to_string(),
+            diff_source: DiffSource {
+                diff_type: DiffType::BranchComparison,
+                base: Some("main".to_string()),
+                head: Some("HEAD".to_string()),
+                base_sha: None,
+                head_sha: None,
+            },
+            summary: AnalysisSummary {
+                total_files_changed: total_files,
+                total_groups: groups.len() as u32,
+                languages_detected: vec![],
+                frameworks_detected: vec![],
+            },
+            groups,
+            infrastructure_group: Some(InfrastructureGroup {
+                files: infra_files,
+                sub_groups,
+                reason: "test".to_string(),
+            }),
+            annotations: None,
         }
     }
 
@@ -1302,6 +1406,86 @@ mod tests {
         assert_eq!(golden.total_checks, 5);
         assert_eq!(golden.satisfied_checks, 5);
         assert!(golden.failures.is_empty());
+    }
+
+    #[test]
+    fn test_evaluate_repo_expectations_counts_infra_subgroups_as_destinations() {
+        let output = make_output_with_infra_subgroups(
+            vec![make_group(
+                "g1",
+                &["src/requests/utils.py", "tests/test_utils.py"],
+            )],
+            vec![
+                (
+                    "build",
+                    InfraCategory::Infrastructure,
+                    vec!["pyproject.toml", "setup.py", "tox.ini"],
+                ),
+                (
+                    "ci",
+                    InfraCategory::Infrastructure,
+                    vec![
+                        ".github/workflows/run-tests.yml",
+                        ".github/workflows/codeql-analysis.yml",
+                    ],
+                ),
+            ],
+            7,
+        );
+        let expectations = RepoEvalExpectations {
+            group_count_min: Some(3),
+            group_count_max: Some(3),
+            same_group: vec![
+                vec!["pyproject.toml".to_string(), "setup.py".to_string()],
+                vec!["pyproject.toml".to_string(), "tox.ini".to_string()],
+            ],
+            separate_group: vec![vec![
+                "pyproject.toml".to_string(),
+                ".github/workflows/codeql-analysis.yml".to_string(),
+            ]],
+            infrastructure: vec![
+                "pyproject.toml".to_string(),
+                "setup.py".to_string(),
+                "tox.ini".to_string(),
+                ".github/workflows/run-tests.yml".to_string(),
+                ".github/workflows/codeql-analysis.yml".to_string(),
+            ],
+            non_infrastructure: vec!["src/requests/utils.py".to_string()],
+        };
+
+        let golden = evaluate_repo_expectations(&output, Some(&expectations));
+        assert_eq!(golden.total_checks, 11);
+        assert_eq!(golden.satisfied_checks, 11);
+        assert!(golden.failures.is_empty());
+    }
+
+    #[test]
+    fn test_non_infrastructure_still_fails_for_infra_subgroup_files() {
+        let output = make_output_with_infra_subgroups(
+            vec![make_group("g1", &["src/app.py"])],
+            vec![(
+                "build",
+                InfraCategory::Infrastructure,
+                vec!["pyproject.toml"],
+            )],
+            2,
+        );
+        let expectations = RepoEvalExpectations {
+            group_count_min: None,
+            group_count_max: None,
+            same_group: vec![],
+            separate_group: vec![],
+            infrastructure: vec![],
+            non_infrastructure: vec!["pyproject.toml".to_string()],
+        };
+
+        let golden = evaluate_repo_expectations(&output, Some(&expectations));
+        assert_eq!(golden.satisfied_checks, 0);
+        assert_eq!(golden.total_checks, 1);
+        assert_eq!(
+            golden.failures,
+            vec!["non_infrastructure failed: expected 'pyproject.toml' to remain in a semantic group"]
+        );
     }
 
     #[test]
