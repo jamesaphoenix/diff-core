@@ -1,0 +1,57 @@
+# Python — Black code formatter, ~30 files
+# 10-commit range: Python 3.15 support, string handling, pgen2 parser.
+[[repos]]
+name = "black-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/black"
+language = "python"
+range = "69973fd6950985fbeb1090d96da717dc4d8380b0..cbbbf64d2aefbd5797580e60e918fa6a21edca3e"
+notes = "MEDIUM. 10-commit range: Python 3.15, string handling, pgen2. ~30 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 8
+same_group = [
+  ["src/black/lines.py", "src/black/trans.py"],
+  ["src/blib2to3/pgen2/parse.py", "src/blib2to3/pgen2/tokenize.py"],
+  ["tests/data/cases/python315.py", "tests/test_black.py"],
+]
+infrastructure = [
+  ".github/workflows/diff_shades.yml",
+  ".github/workflows/diff_shades_comment.yml",
+  ".github/workflows/docker.yml",
+  ".github/workflows/fuzz.yml",
+  ".github/workflows/pypi_upload.yml",
+  ".github/workflows/zizmor.yml",
+  "CHANGES.md",
+  "docs/contributing/issue_triage.md",
+  "docs/faq.md",
+  "docs/guides/using_black_with_jupyter_notebooks.md",
+  "docs/integrations/editors.md",
+  "docs/integrations/source_version_control.md",
+  "docs/usage_and_configuration/file_collection_and_discovery.md",
+  "docs/usage_and_configuration/the_basics.md",
+  "scripts/fuzz.py",
+  "scripts/release.py",
+  "src/black/resources/black.schema.json",
+]
+non_infrastructure = [
+  "src/black/__init__.py",
+  "src/black/lines.py",
+  "src/black/mode.py",
+  "src/black/nodes.py",
+  "src/black/trans.py",
+  "src/blib2to3/Grammar.txt",
+  "src/blib2to3/pgen2/parse.py",
+  "src/blib2to3/pgen2/token.py",
+  "src/blib2to3/pgen2/tokenize.py",
+  "src/blib2to3/pygram.py",
+  "tests/data/cases/python315.py",
+  "tests/test_black.py",
+  "tests/util.py",
+]
