@@ -57,9 +57,12 @@ pub fn cluster_files(
         let mut source_files = Vec::new();
         for file in &changed_set {
             let category = classify_by_convention(file);
-            if category != InfraCategory::Unclassified && category != InfraCategory::DirectoryGroup {
+            if category == InfraCategory::Infrastructure {
+                // Hard infrastructure (CI, Docker, package managers, .changeset/) — always infra
+                true_infra.push(file.clone());
+            } else if category != InfraCategory::Unclassified && category != InfraCategory::DirectoryGroup {
+                // Soft infrastructure (docs, schemas, migrations, etc.) — rescue if source extension
                 if !is_config_like_filename(file) {
-                    // Check extension-based rescue
                     let ext = file.rsplit('.').next().unwrap_or("");
                     let is_source = matches!(
                         ext,
@@ -69,8 +72,6 @@ pub fn cluster_files(
                     );
                     if is_source && !is_top_level_doc(file) {
                         source_files.push(file.clone());
-                    } else if is_source {
-                        true_infra.push(file.clone());
                     } else {
                         true_infra.push(file.clone());
                     }
