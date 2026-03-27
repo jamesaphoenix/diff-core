@@ -93,7 +93,7 @@ Ideas queued for testing in the autoresearch loop. Move items to `experiments.js
 
 **Schedule: 10 MACRO → 10 MICRO → 10 GROWING_DATA → repeat**
 
-**Current phase: MACRO (7/10)** — next: import chain depth or hybrid BFS+embedding
+**Current phase: MICRO (1/10)** — MACRO complete, transitioning to MICRO
 
 ### Macro (GLOBAL) — 10 experiments, generic approaches
 1. [x] **Diff-based embeddings** — embed change hunks not full content (#62, +0.0002 keep)
