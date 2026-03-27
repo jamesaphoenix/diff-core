@@ -75,11 +75,6 @@ pub fn classify_by_convention(path: &str) -> InfraCategory {
     // Also exempt resources/mdtest/ (ruff test specs written as .md).
     let is_inline_doc = matches!(ext, "md" | "mdx")
         && (lower.contains("/src/docs/") || lower.contains("/resources/mdtest/"));
-    // Topic/reference/tutorial docs are often the feature surface itself and should
-    // stay groupable instead of being forced into infrastructure.
-    if !is_site_content && !is_inline_doc && is_semantic_docs_tree(path) {
-        return InfraCategory::DirectoryGroup;
-    }
     if !is_site_content
         && !is_inline_doc
         && (matches!(ext, "md" | "mdx" | "rst" | "txt")
@@ -259,42 +254,6 @@ pub(super) fn is_true_infrastructure(path: &str) -> bool {
     }
 
     false
-}
-
-fn is_semantic_docs_tree(path: &str) -> bool {
-    let lower = path.to_lowercase();
-    let filename = lower.rsplit('/').next().unwrap_or(&lower);
-    let ext = filename.rsplit('.').next().unwrap_or("");
-    let in_docs_tree = lower.starts_with("docs/")
-        || lower.contains("/docs/")
-        || lower.starts_with("documentation/")
-        || lower.contains("/documentation/")
-        || lower.starts_with("docs_src/")
-        || lower.contains("/docs_src/");
-
-    if !in_docs_tree || is_top_level_doc(path) {
-        return false;
-    }
-
-    if matches!(
-        filename,
-        "mkdocs.yml"
-            | "mkdocs.yaml"
-            | "_config.yml"
-            | "_config.yaml"
-            | "docusaurus.config.js"
-            | "docusaurus.config.ts"
-            | "sidebars.js"
-            | "sidebars.ts"
-    ) {
-        return false;
-    }
-
-    matches!(
-        ext,
-        "md" | "mdx" | "rst" | "txt" | "html" | "css" | "scss" | "js" | "jsx" | "ts"
-            | "tsx" | "py" | "proto"
-    )
 }
 
 /// Check if a filename looks like infrastructure/config even though it has a source extension.
