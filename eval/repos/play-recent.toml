@@ -1,0 +1,42 @@
+# Scala — Play Framework, ~16 files
+# 30-commit range: config improvements, body parser fixes, Gradle plugin updates.
+[[repos]]
+name = "play-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/scala/play"
+language = "scala"
+range = "49fbd1c544914dbb2d07835b876e016a0c6f5594..1f5858b1b5164662a0c8f2904135f4632c23abe3"
+notes = "SMALL. 30-commit range: config, body parser, websocket, Gradle updates. ~16 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 6
+same_group = [
+  ["core/play/src/main/scala/play/api/data/Form.scala", "core/play-configuration/src/main/scala/play/api/Configuration.scala"],
+  ["core/play-integration-test/src/test/scala/play/it/http/parsing/DefaultBodyParserSpec.scala", "core/play-integration-test/src/test/scala/play/it/http/websocket/WebSocketSpec.scala"],
+]
+infrastructure = [
+  ".github/renovate.json",
+  ".github/workflows/release-drafter.yml",
+  "README.md",
+  "dev-mode/gradle-plugin/gradle/libs.versions.toml",
+  "dev-mode/gradle-plugin/gradle/wrapper/gradle-wrapper.jar",
+  "dev-mode/gradle-plugin/gradle/wrapper/gradle-wrapper.properties",
+  "dev-mode/gradle-plugin/gradlew",
+]
+non_infrastructure = [
+  "core/play-configuration/src/main/scala/play/api/Configuration.scala",
+  "core/play-integration-test/src/test/scala/play/it/http/BasicHttpClient.scala",
+  "core/play-integration-test/src/test/scala/play/it/http/parsing/DefaultBodyParserSpec.scala",
+  "core/play-integration-test/src/test/scala/play/it/http/websocket/WebSocketSpec.scala",
+  "core/play/src/main/scala/play/api/data/Form.scala",
+  "core/play/src/main/scala/play/api/libs/concurrent/Pekko.scala",
+  "core/play/src/main/scala/play/utils/PlayIO.scala",
+  "transport/client/play-ahc-ws/src/main/scala/play/api/libs/ws/ahc/AhcWSRequest.scala",
+  "web/play-openid/src/test/scala/play/api/libs/openid/WsMock.scala",
+]
