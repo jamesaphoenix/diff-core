@@ -1,0 +1,73 @@
+# Rust — egui immediate mode GUI, ~39 files
+# 0.34.0 release: scroll fade feature, Direction refactor, IdTypeMap RawKey API, Vertex helper, button cursor fix.
+[[repos]]
+name = "egui-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/egui"
+language = "rust"
+range = "0887b54c93b19aa5ae0054bb5da65bca8741bb62..82a578e58c7ad8188c53a8fdc5bf6d4bc789e620"
+notes = "LARGE. 0.34.0 release: scroll-area fade-out feature, Direction enum moved to epaint, IdTypeMap RawKey API, Vertex::untextured + gradient_rect, button cursor fix, version bumps + changelogs. ~39 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 10
+same_group = [
+  # ScrollArea fade feature: style, scroll_area impl, bg_color helper, demo usage
+  ["crates/egui/src/containers/scroll_area.rs", "crates/egui/src/style.rs"],
+  ["crates/egui/src/containers/scroll_area.rs", "crates/egui/src/ui_stack.rs"],
+  # Direction refactor: moved from layout.rs to epaint/direction.rs, re-exported
+  ["crates/epaint/src/direction.rs", "crates/egui/src/layout.rs"],
+  ["crates/epaint/src/direction.rs", "crates/epaint/src/lib.rs"],
+  # Vertex::untextured + gradient_rect
+  ["crates/epaint/src/mesh.rs", "crates/epaint/src/shapes/shape.rs"],
+  ["crates/epaint/src/mesh.rs", "crates/epaint/src/tessellator.rs"],
+]
+infrastructure = [
+  "CHANGELOG.md",
+  "Cargo.lock",
+  "Cargo.toml",
+  "crates/ecolor/CHANGELOG.md",
+  "crates/eframe/CHANGELOG.md",
+  "crates/eframe/Cargo.toml",
+  "crates/egui-wgpu/CHANGELOG.md",
+  "crates/egui-winit/CHANGELOG.md",
+  "crates/egui_extras/CHANGELOG.md",
+  "crates/egui_glow/CHANGELOG.md",
+  "crates/egui_kittest/CHANGELOG.md",
+  "crates/emath/CHANGELOG.md",
+  "crates/epaint/CHANGELOG.md",
+  "crates/epaint_default_fonts/CHANGELOG.md",
+  # Snapshot images (binary test artifacts)
+  "crates/egui_demo_app/tests/snapshots/easymarkeditor.png",
+  "crates/egui_demo_lib/tests/snapshots/demos/Font Book.png",
+  "crates/egui_demo_lib/tests/snapshots/demos/Panels.png",
+  "crates/egui_demo_lib/tests/snapshots/demos/Scrolling.png",
+  "crates/egui_demo_lib/tests/snapshots/demos/Table.png",
+  "crates/egui_demo_lib/tests/snapshots/demos/Tooltips.png",
+  "crates/egui_demo_lib/tests/snapshots/demos/Window Resize Test.png",
+  "crates/egui_kittest/tests/snapshots/test_scroll_initial.png",
+  "crates/egui_kittest/tests/snapshots/test_scroll_scrolled.png",
+  "tests/egui_tests/tests/snapshots/text_edit_scroll_0_focus.png",
+  "tests/egui_tests/tests/snapshots/text_edit_scroll_1_5.png",
+]
+non_infrastructure = [
+  "crates/egui/src/containers/scroll_area.rs",
+  "crates/egui/src/layout.rs",
+  "crates/egui/src/lib.rs",
+  "crates/egui/src/style.rs",
+  "crates/egui/src/ui_stack.rs",
+  "crates/egui/src/util/id_type_map.rs",
+  "crates/egui/src/widgets/button.rs",
+  "crates/egui_demo_lib/src/demo/strip_demo.rs",
+  "crates/egui_extras/src/table.rs",
+  "crates/epaint/src/direction.rs",
+  "crates/epaint/src/lib.rs",
+  "crates/epaint/src/mesh.rs",
+  "crates/epaint/src/shapes/shape.rs",
+  "crates/epaint/src/tessellator.rs",
+]

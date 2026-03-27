@@ -1,0 +1,71 @@
+# Go — samber/lo functional utilities, ~32 files
+# Benchmark reorganization, CI security split, perf optimizations (value receivers, Zip loops), modernize linter.
+[[repos]]
+name = "lo-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/lo"
+language = "go"
+range = "e9ad51b03a044aecc7cf570abaa3dd7f0537cfda..a17e3ac882581ddf4503a27762b355b7c7961eb2"
+notes = "MEDIUM. Benchmark suite reorganization (monolith -> per-category files + shared helpers), CI split (security.yml), perf: condition.go value receivers + tuples.go Zip loop optimization, modernize linter. ~32 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 8
+same_group = [
+  # Benchmark refactor: old monolith deleted, split into category files + shared helpers
+  ["benchmark/helpers_test.go", "benchmark/core_find_bench_test.go"],
+  ["benchmark/helpers_test.go", "benchmark/core_map_bench_test.go"],
+  ["benchmark/helpers_test.go", "benchmark/core_slice_bench_test.go"],
+  # Iterator benchmark helpers + iterator benchmark files
+  ["benchmark/it_helpers_test.go", "benchmark/it_find_bench_test.go"],
+  ["benchmark/it_helpers_test.go", "benchmark/it_map_bench_test.go"],
+  # Perf optimizations: condition.go value receivers + condition benchmarks
+  ["condition.go", "benchmark/core_condition_bench_test.go"],
+  # Perf optimizations: tuples.go Zip loops + tuples benchmarks
+  ["tuples.go", "benchmark/core_tuples_bench_test.go"],
+  # CI refactor: lint.yml slimmed down, security.yml extracted
+  [".github/workflows/lint.yml", ".github/workflows/security.yml"],
+  # Linter nolint annotations: it/map.go and it/seq_test.go
+  ["it/map.go", "it/seq_test.go"],
+]
+infrastructure = [
+  ".github/workflows/lint.yml",
+  ".github/workflows/security.yml",
+  ".golangci.yml",
+  "README.md",
+  "benchmark/CLAUDE.md",
+  "docs/docs/about.md",
+  "docs/docs/getting-started.md",
+]
+non_infrastructure = [
+  "condition.go",
+  "tuples.go",
+  "it/map.go",
+  "it/seq_test.go",
+  "math_test.go",
+  "benchmark/core_benchmark_test.go",
+  "benchmark/core_condition_bench_test.go",
+  "benchmark/core_find_bench_test.go",
+  "benchmark/core_intersect_bench_test.go",
+  "benchmark/core_map_bench_test.go",
+  "benchmark/core_math_bench_test.go",
+  "benchmark/core_slice_bench_test.go",
+  "benchmark/core_string_bench_test.go",
+  "benchmark/core_tuples_bench_test.go",
+  "benchmark/core_type_manipulation_bench_test.go",
+  "benchmark/helpers_test.go",
+  "benchmark/it_find_bench_test.go",
+  "benchmark/it_helpers_test.go",
+  "benchmark/it_map_bench_test.go",
+  "benchmark/it_math_bench_test.go",
+  "benchmark/it_slice_bench_test.go",
+  "benchmark/it_type_manipulation_bench_test.go",
+  "benchmark/map_benchmark_test.go",
+  "benchmark/mutable_slice_bench_test.go",
+  "benchmark/parallel_slice_bench_test.go",
+]
