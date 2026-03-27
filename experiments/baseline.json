@@ -1,0 +1,737 @@
+{
+  "avg_overall": 0.8238385153362203,
+  "manifest_path": "eval/repositories.research.toml",
+  "min_score": 0.5,
+  "passed": false,
+  "repo_count": 17,
+  "repos": [
+    {
+      "diff_spec": "range fa20f19e54b5747632017dafcc2cd735dc7d70d4..72acf09ff20bdaa50173fcabceeb00825397668c",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.8,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 14,
+        "infra_ratio": 0.6086956521739131,
+        "max_group_size": 2,
+        "raw_total_files_changed": 23,
+        "singleton_groups": 1,
+        "singleton_ratio": 0.2,
+        "total_files_changed": 23,
+        "total_groups": 5
+      },
+      "name": "calcom-unified-calendar",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/cal.com/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 0.5590062111801242,
+        "overall": 0.9338509316770186,
+        "singleton_ratio": 1.0
+      },
+      "thresholds": {
+        "max_groups": 20,
+        "max_infra_ratio": 0.3,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range 43fac49a1439236c1fac404b5ef6ca198c3810b2..51295d09b70a64ccd0a6005f004e240ca9d4e395",
+      "golden": {
+        "failures": [
+          "non_infrastructure failed: missing 'backend/app/tests/api/routes/test_items.py' from analysis output"
+        ],
+        "satisfied_checks": 2,
+        "score": 0.6666666666666666,
+        "total_checks": 3
+      },
+      "metrics": {
+        "avg_group_size": 1.0,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 3,
+        "golden_satisfied": 2,
+        "golden_score": 0.6666666666666666,
+        "ignored_files": 0,
+        "infra_files": 12,
+        "infra_ratio": 0.5454545454545454,
+        "max_group_size": 1,
+        "raw_total_files_changed": 22,
+        "singleton_groups": 10,
+        "singleton_ratio": 1.0,
+        "total_files_changed": 22,
+        "total_groups": 10
+      },
+      "name": "fastapi-template-refactor",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/full-stack-fastapi-template/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 0.6666666666666666,
+        "group_count": 1.0,
+        "infra_ratio": 0.7575757575757577,
+        "overall": 0.6803030303030304,
+        "singleton_ratio": 0.0
+      },
+      "thresholds": {
+        "max_groups": 20,
+        "max_infra_ratio": 0.4,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range 0110bf59c86f6f0f33f95dc614c231acc19547b8..083ab008fc77b982a223af8f4f18020c7a64fec6",
+      "golden": {
+        "failures": [
+          "group_count_min failed: expected >= 3, got 0",
+          "same_group failed: missing 'src/modules/vcs.rs' from analysis output",
+          "same_group failed: expected [src/modules/maven.rs, src/configs/maven.rs] to share a semantic group",
+          "non_infrastructure failed: missing 'src/modules/git_status.rs' from analysis output",
+          "non_infrastructure failed: missing 'src/configs/git_status.rs' from analysis output",
+          "non_infrastructure failed: missing 'src/modules/vcs.rs' from analysis output",
+          "non_infrastructure failed: expected 'src/modules/maven.rs' to remain in a semantic group"
+        ],
+        "satisfied_checks": 1,
+        "score": 0.125,
+        "total_checks": 8
+      },
+      "metrics": {
+        "avg_group_size": 0.0,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 8,
+        "golden_satisfied": 1,
+        "golden_score": 0.125,
+        "ignored_files": 0,
+        "infra_files": 28,
+        "infra_ratio": 1.0,
+        "max_group_size": 0,
+        "raw_total_files_changed": 28,
+        "singleton_groups": 0,
+        "singleton_ratio": 0.0,
+        "total_files_changed": 28,
+        "total_groups": 0
+      },
+      "name": "starship-features",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/starship/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 0.125,
+        "group_count": 1.0,
+        "infra_ratio": 0.0,
+        "overall": 0.49999999999999994,
+        "singleton_ratio": 1.0
+      },
+      "thresholds": {
+        "max_groups": 30,
+        "max_infra_ratio": 0.3,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range 757619f3bf16acba321d78a109832dbb6cbee37a..18939cee8f7da2321795916c26dfbc6777c197a8",
+      "golden": {
+        "failures": [
+          "non_infrastructure failed: expected 'tracing/tracing.go' to remain in a semantic group"
+        ],
+        "satisfied_checks": 3,
+        "score": 0.75,
+        "total_checks": 4
+      },
+      "metrics": {
+        "avg_group_size": 1.0,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 4,
+        "golden_satisfied": 3,
+        "golden_score": 0.75,
+        "ignored_files": 0,
+        "infra_files": 19,
+        "infra_ratio": 0.59375,
+        "max_group_size": 1,
+        "raw_total_files_changed": 32,
+        "singleton_groups": 13,
+        "singleton_ratio": 1.0,
+        "total_files_changed": 32,
+        "total_groups": 13
+      },
+      "name": "alertmanager-tracing",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/alertmanager/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 0.75,
+        "group_count": 1.0,
+        "infra_ratio": 0.6770833333333334,
+        "overall": 0.7015625000000001,
+        "singleton_ratio": 0.0
+      },
+      "thresholds": {
+        "max_groups": 30,
+        "max_infra_ratio": 0.4,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range b8af7ff858f9106a955f5e440f070b6db3417631..98364c31346ee162afe2ff886beb4262d18875d3",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.0,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 11,
+        "infra_ratio": 0.8461538461538461,
+        "max_group_size": 1,
+        "raw_total_files_changed": 13,
+        "singleton_groups": 2,
+        "singleton_ratio": 1.0,
+        "total_files_changed": 13,
+        "total_groups": 2
+      },
+      "name": "minikube-flock-refactor",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/minikube/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 0.2564102564102564,
+        "overall": 0.7384615384615385,
+        "singleton_ratio": 0.0
+      },
+      "thresholds": {
+        "max_groups": 15,
+        "max_infra_ratio": 0.4,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range ac01452bcafa0343ca1c48d3c0f358beb0db2b02..6707dc927412458a186474b87e2ee68851c86ada",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.0,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 25,
+        "infra_ratio": 0.625,
+        "max_group_size": 1,
+        "raw_total_files_changed": 40,
+        "singleton_groups": 15,
+        "singleton_ratio": 1.0,
+        "total_files_changed": 40,
+        "total_groups": 15
+      },
+      "name": "nushell-testing-refactor",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/nushell/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 0.625,
+        "overall": 0.7937500000000001,
+        "singleton_ratio": 0.0
+      },
+      "thresholds": {
+        "max_groups": 25,
+        "max_infra_ratio": 0.4,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range 0d15620d903f152cc2197e7c2a1b801217a66c2d..db4b00ecf7b5d88eeb8937e5ce366c1b019378c8",
+      "golden": {
+        "failures": [
+          "group_count_max failed: expected <= 50, got 53"
+        ],
+        "satisfied_checks": 1,
+        "score": 0.5,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 2.018867924528302,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 1,
+        "golden_score": 0.5,
+        "ignored_files": 0,
+        "infra_files": 6,
+        "infra_ratio": 0.05309734513274336,
+        "max_group_size": 11,
+        "raw_total_files_changed": 113,
+        "singleton_groups": 11,
+        "singleton_ratio": 0.20754716981132076,
+        "total_files_changed": 113,
+        "total_groups": 53
+      },
+      "name": "payload-eval-suite",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/payload/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 0.5,
+        "group_count": 1.0,
+        "infra_ratio": 1.0,
+        "overall": 0.8,
+        "singleton_ratio": 1.0
+      },
+      "thresholds": {
+        "max_groups": 60,
+        "max_infra_ratio": 0.4,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range 49b2f1c47d9ce77d2e19e42ad4f2ea717e8b6e84..484eb7c0edea31266802149d9a3244ac8643681f",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.4736842105263157,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 25,
+        "infra_ratio": 0.4716981132075472,
+        "max_group_size": 5,
+        "raw_total_files_changed": 53,
+        "singleton_groups": 14,
+        "singleton_ratio": 0.7368421052631579,
+        "total_files_changed": 53,
+        "total_groups": 19
+      },
+      "name": "saleor-pydantic-editorjs",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/saleor/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 0.8805031446540881,
+        "overall": 0.9110228401191659,
+        "singleton_ratio": 0.5263157894736843
+      },
+      "thresholds": {
+        "max_groups": 30,
+        "max_infra_ratio": 0.4,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range b22123ef862247f36baec556f25872d04c7cfbcd..45809c8f5479e167ac79221c7480b2d7b94ff03d",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.0,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 44,
+        "infra_ratio": 0.7719298245614035,
+        "max_group_size": 1,
+        "raw_total_files_changed": 57,
+        "singleton_groups": 13,
+        "singleton_ratio": 1.0,
+        "total_files_changed": 57,
+        "total_groups": 13
+      },
+      "name": "gitea-actions-permissions",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 0.3801169590643275,
+        "overall": 0.7570175438596491,
+        "singleton_ratio": 0.0
+      },
+      "thresholds": {
+        "max_groups": 30,
+        "max_infra_ratio": 0.4,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range f69d83e5f9280371d5c8544f293f67fe45aadc4e..c2bb9474976b6963f70b7f228e4f1270f553a1a9",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.0,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 64,
+        "infra_ratio": 0.9411764705882353,
+        "max_group_size": 1,
+        "raw_total_files_changed": 68,
+        "singleton_groups": 4,
+        "singleton_ratio": 1.0,
+        "total_files_changed": 68,
+        "total_groups": 4
+      },
+      "name": "rust-analyzer-internals",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/rust-analyzer/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 0.0980392156862745,
+        "overall": 0.7147058823529412,
+        "singleton_ratio": 0.0
+      },
+      "thresholds": {
+        "max_groups": 35,
+        "max_infra_ratio": 0.4,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range d9a482b8e613981549efa23df12ebe86d4caf88f..e3a6bae82a312b1eed2c51a7f6daee5458c788f6",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.5625,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 42,
+        "infra_ratio": 0.45652173913043476,
+        "max_group_size": 5,
+        "raw_total_files_changed": 92,
+        "singleton_groups": 21,
+        "singleton_ratio": 0.65625,
+        "total_files_changed": 92,
+        "total_groups": 32
+      },
+      "name": "saleor-recent-changes",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/saleor/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 0.9057971014492754,
+        "overall": 0.9389945652173913,
+        "singleton_ratio": 0.6875
+      },
+      "thresholds": {
+        "max_groups": 40,
+        "max_infra_ratio": 0.4,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range c96cc701445cfe31fce65dc4ff667ab49f218857..d5a89805d90d31465ac10fdf3d1a9119b669e8be",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.08,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 75,
+        "infra_ratio": 0.7352941176470589,
+        "max_group_size": 2,
+        "raw_total_files_changed": 102,
+        "singleton_groups": 23,
+        "singleton_ratio": 0.92,
+        "total_files_changed": 102,
+        "total_groups": 25
+      },
+      "name": "gitea-recent-changes",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 0.44117647058823517,
+        "overall": 0.7901764705882353,
+        "singleton_ratio": 0.15999999999999992
+      },
+      "thresholds": {
+        "max_groups": 45,
+        "max_infra_ratio": 0.4,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range 3bbeaad50d6bd771398b3ef066078a069863e607..87fb2abf59d9a2d04d703be714c531218cb54d8d",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.7096774193548387,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 96,
+        "infra_ratio": 0.4752475247524752,
+        "max_group_size": 4,
+        "raw_total_files_changed": 202,
+        "singleton_groups": 23,
+        "singleton_ratio": 0.3709677419354839,
+        "total_files_changed": 202,
+        "total_groups": 62
+      },
+      "name": "calcom-large-range",
+      "passed": true,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/cal.com/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 1.0,
+        "overall": 1.0,
+        "singleton_ratio": 1.0
+      },
+      "thresholds": {
+        "max_groups": 80,
+        "max_infra_ratio": 0.5,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range a188556e99d94c96266671b2129e5c8cb05e46a5..1a0f4d028715e6ceae58acebca7884b268f298e7",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.8289473684210527,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 149,
+        "infra_ratio": 0.5173611111111112,
+        "max_group_size": 11,
+        "raw_total_files_changed": 288,
+        "singleton_groups": 26,
+        "singleton_ratio": 0.34210526315789475,
+        "total_files_changed": 288,
+        "total_groups": 76
+      },
+      "name": "payload-large-range",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/payload/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 0.9652777777777777,
+        "overall": 0.9947916666666666,
+        "singleton_ratio": 1.0
+      },
+      "thresholds": {
+        "max_groups": 100,
+        "max_infra_ratio": 0.5,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range 068d7a513aef1d9b037122b99ded889b1774aa8e..d5a89805d90d31465ac10fdf3d1a9119b669e8be",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.0784313725490196,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 195,
+        "infra_ratio": 0.78,
+        "max_group_size": 2,
+        "raw_total_files_changed": 250,
+        "singleton_groups": 47,
+        "singleton_ratio": 0.9215686274509803,
+        "total_files_changed": 250,
+        "total_groups": 51
+      },
+      "name": "gitea-large-range",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 0.43999999999999995,
+        "overall": 0.7895294117647059,
+        "singleton_ratio": 0.15686274509803932
+      },
+      "thresholds": {
+        "max_groups": 90,
+        "max_infra_ratio": 0.5,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range 6506e9121b9b10b65bdaae4477aeb145c34ff14b..adc2b2b2556d6b9d0bb3f8551f0be7dfb5e4eded",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 2,
+        "score": 1.0,
+        "total_checks": 2
+      },
+      "metrics": {
+        "avg_group_size": 1.8854166666666667,
+        "duplicate_file_entries": 0,
+        "files_accounted": true,
+        "golden_checks": 2,
+        "golden_satisfied": 2,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 430,
+        "infra_ratio": 0.7037643207855974,
+        "max_group_size": 8,
+        "raw_total_files_changed": 611,
+        "singleton_groups": 19,
+        "singleton_ratio": 0.19791666666666666,
+        "total_files_changed": 611,
+        "total_groups": 96
+      },
+      "name": "nushell-large-range",
+      "passed": false,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/nushell/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 0.7405891980360065,
+        "overall": 0.961088379705401,
+        "singleton_ratio": 1.0
+      },
+      "thresholds": {
+        "max_groups": 150,
+        "max_infra_ratio": 0.6,
+        "max_singleton_ratio": 0.5
+      }
+    },
+    {
+      "diff_spec": "range 2ef8528c4a5d60c045251ce5a270ec4993607327..884272b11751fea85e9703cf276114837e592147",
+      "golden": {
+        "failures": [],
+        "satisfied_checks": 4,
+        "score": 1.0,
+        "total_checks": 4
+      },
+      "metrics": {
+        "avg_group_size": 1.986206896551724,
+        "duplicate_file_entries": 1,
+        "files_accounted": true,
+        "golden_checks": 4,
+        "golden_satisfied": 4,
+        "golden_score": 1.0,
+        "ignored_files": 0,
+        "infra_files": 3196,
+        "infra_ratio": 0.9173363949483353,
+        "max_group_size": 23,
+        "raw_total_files_changed": 3485,
+        "singleton_groups": 35,
+        "singleton_ratio": 0.2413793103448276,
+        "total_files_changed": 3484,
+        "total_groups": 145
+      },
+      "name": "octospark-services-large-history",
+      "passed": true,
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/octospark-services/",
+      "scores": {
+        "file_accounting": 1.0,
+        "golden": 1.0,
+        "group_count": 1.0,
+        "infra_ratio": 1.0,
+        "overall": 1.0,
+        "singleton_ratio": 1.0
+      },
+      "thresholds": {
+        "max_groups": 200,
+        "max_infra_ratio": 0.92,
+        "max_singleton_ratio": 0.35
+      }
+    }
+  ]
+}

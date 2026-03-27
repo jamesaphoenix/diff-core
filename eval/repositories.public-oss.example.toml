@@ -1,0 +1,172 @@
+[defaults]
+max_groups = 200
+max_infra_ratio = 0.45
+max_singleton_ratio = 0.60
+
+[corpus]
+min_repos_per_language = 5
+
+# TypeScript / JavaScript
+[[repos]]
+name = "octospark-services"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/octospark-services"
+language = "typescript"
+notes = "Local private benchmark; pin commit ranges for goldens as you stabilize them."
+
+[[repos]]
+name = "cal.com"
+path = "/absolute/path/to/flowdiff-eval-corpus/typescript/cal.com"
+repo_url = "https://github.com/calcom/cal.com"
+language = "typescript"
+base = "main"
+head = "HEAD"
+
+[[repos]]
+name = "payload"
+path = "/absolute/path/to/flowdiff-eval-corpus/typescript/payload"
+repo_url = "https://github.com/payloadcms/payload"
+language = "typescript"
+base = "main"
+head = "HEAD"
+
+[[repos]]
+name = "medusa"
+path = "/absolute/path/to/flowdiff-eval-corpus/typescript/medusa"
+repo_url = "https://github.com/medusajs/medusa"
+language = "typescript"
+base = "develop"
+head = "HEAD"
+
+[[repos]]
+name = "appsmith"
+path = "/absolute/path/to/flowdiff-eval-corpus/typescript/appsmith"
+repo_url = "https://github.com/appsmithorg/appsmith"
+language = "typescript"
+base = "release"
+head = "HEAD"
+
+# Python
+[[repos]]
+name = "full-stack-fastapi-template"
+path = "/absolute/path/to/flowdiff-eval-corpus/python/full-stack-fastapi-template"
+repo_url = "https://github.com/fastapi/full-stack-fastapi-template"
+language = "python"
+base = "master"
+head = "HEAD"
+
+[[repos]]
+name = "sentry"
+path = "/absolute/path/to/flowdiff-eval-corpus/python/sentry"
+repo_url = "https://github.com/getsentry/sentry"
+language = "python"
+base = "master"
+head = "HEAD"
+
+[[repos]]
+name = "saleor"
+path = "/absolute/path/to/flowdiff-eval-corpus/python/saleor"
+repo_url = "https://github.com/saleor/saleor"
+language = "python"
+base = "main"
+head = "HEAD"
+
+[[repos]]
+name = "airflow"
+path = "/absolute/path/to/flowdiff-eval-corpus/python/airflow"
+repo_url = "https://github.com/apache/airflow"
+language = "python"
+base = "main"
+head = "HEAD"
+
+[[repos]]
+name = "awx"
+path = "/absolute/path/to/flowdiff-eval-corpus/python/awx"
+repo_url = "https://github.com/ansible/awx"
+language = "python"
+base = "devel"
+head = "HEAD"
+
+# Go
+[[repos]]
+name = "gitea"
+path = "/absolute/path/to/flowdiff-eval-corpus/go/gitea"
+repo_url = "https://github.com/go-gitea/gitea"
+language = "go"
+base = "main"
+head = "HEAD"
+
+[[repos]]
+name = "cilium"
+path = "/absolute/path/to/flowdiff-eval-corpus/go/cilium"
+repo_url = "https://github.com/cilium/cilium"
+language = "go"
+base = "main"
+head = "HEAD"
+
+[[repos]]
+name = "minikube"
+path = "/absolute/path/to/flowdiff-eval-corpus/go/minikube"
+repo_url = "https://github.com/kubernetes/minikube"
+language = "go"
+base = "master"
+head = "HEAD"
+
+[[repos]]
+name = "alertmanager"
+path = "/absolute/path/to/flowdiff-eval-corpus/go/alertmanager"
+repo_url = "https://github.com/prometheus/alertmanager"
+language = "go"
+base = "main"
+head = "HEAD"
+
+[[repos]]
+name = "loki"
+path = "/absolute/path/to/flowdiff-eval-corpus/go/loki"
+repo_url = "https://github.com/grafana/loki"
+language = "go"
+base = "main"
+head = "HEAD"
+
+# Rust
+[[repos]]
+name = "rust-analyzer"
+path = "/absolute/path/to/flowdiff-eval-corpus/rust/rust-analyzer"
+repo_url = "https://github.com/rust-lang/rust-analyzer"
+language = "rust"
+base = "master"
+head = "HEAD"
+
+[[repos]]
+name = "zed"
+path = "/absolute/path/to/flowdiff-eval-corpus/rust/zed"
+repo_url = "https://github.com/zed-industries/zed"
+language = "rust"
+base = "main"
+head = "HEAD"
+
+[[repos]]
+name = "starship"
+path = "/absolute/path/to/flowdiff-eval-corpus/rust/starship"
+repo_url = "https://github.com/starship/starship"
+language = "rust"
+base = "master"
+head = "HEAD"
+
+[[repos]]
+name = "nushell"
+path = "/absolute/path/to/flowdiff-eval-corpus/rust/nushell"
+repo_url = "https://github.com/nushell/nushell"
+language = "rust"
+base = "main"
+head = "HEAD"
+
+[[repos]]
+name = "vector"
+path = "/absolute/path/to/flowdiff-eval-corpus/rust/vector"
+repo_url = "https://github.com/vectordotdev/vector"
+language = "rust"
+base = "master"
+head = "HEAD"
+
+# Run:
+#   flowdiff eval --manifest eval/repositories.public-oss.example.toml

@@ -25,3 +25,5 @@ proptest-regressions/
 # Temporary files
 *.tmp
 loop.sh
+.fastembed_cache/
+.claude/scheduled_tasks.lock

@@ -1,0 +1,36 @@
+[defaults]
+max_groups = 200
+max_infra_ratio = 0.40
+max_singleton_ratio = 0.55
+
+[corpus]
+# Enable this once your manifest has balanced language coverage.
+# min_repos_per_language = 5
+
+[[repos]]
+name = "octospark-services-large-history"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/octospark-services"
+language = "typescript"
+range = "2ef8528c4a5d60c045251ce5a270ec4993607327..884272b11751fea85e9703cf276114837e592147"
+notes = "Pinned historical diff used to tune the deterministic grouping cap and the VCR/cassette merge heuristics."
+
+[repos.thresholds]
+max_groups = 200
+max_infra_ratio = 0.92
+max_singleton_ratio = 0.35
+
+[repos.expectations]
+group_count_max = 200
+same_group = [
+  [
+    "packages/services/evaluation-framework/src/vcr/cassette-invalidation.test.ts",
+    "packages/services/evaluation-framework/src/vcr/cassette.test.ts",
+  ],
+]
+non_infrastructure = [
+  "packages/services/evaluation-framework/src/vcr/cassette-invalidation.test.ts",
+  "packages/services/evaluation-framework/src/vcr/cassette.test.ts",
+]
+
+# Run:
+#   flowdiff eval --manifest eval/repositories.example.toml
