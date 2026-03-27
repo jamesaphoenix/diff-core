@@ -1249,6 +1249,11 @@ fn is_true_infrastructure(path: &str) -> bool {
         return true;
     }
 
+    // Signing keys and binary infra
+    if filename.ends_with(".snk") || filename.ends_with(".pfx") || filename.ends_with(".pem") {
+        return true;
+    }
+
     // Docker
     if filename.starts_with("dockerfile") || filename.starts_with("docker-compose") || filename == ".dockerignore" {
         return true;
