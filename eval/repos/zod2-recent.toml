@@ -1,0 +1,37 @@
+# TypeScript — colinhacks/zod, ~11 files
+[[repos]]
+name = "zod2-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/zod2"
+language = "typescript"
+range = "eaa3c2c3633a5e6494d8ac03c14365d181794e71..c7805073fef5b6b8857307c3d4b3597a70613bc2"
+notes = "SMALL. 9-commit range: httpUrl strict validation, multipleOf sci-notation fix, abort semantics in refine, sponsor updates, tsconfig cleanup. ~11 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 4
+same_group = [
+  ["packages/zod/src/v4/core/regexes.ts", "packages/zod/src/v4/classic/schemas.ts", "packages/zod/src/v4/mini/schemas.ts"],
+  ["packages/zod/src/v4/core/util.ts", "packages/zod/src/v4/classic/tests/number.test.ts"],
+  ["packages/zod/src/v4/core/schemas.ts", "packages/zod/src/v4/classic/tests/string.test.ts"],
+]
+infrastructure = [
+  ".configs/tsconfig.base.json",
+  "packages/docs/components/bronze.tsx",
+  "packages/docs/components/silver.tsx",
+  "packages/zod/README.md",
+]
+non_infrastructure = [
+  "packages/zod/src/v4/classic/schemas.ts",
+  "packages/zod/src/v4/classic/tests/number.test.ts",
+  "packages/zod/src/v4/classic/tests/string.test.ts",
+  "packages/zod/src/v4/core/regexes.ts",
+  "packages/zod/src/v4/core/schemas.ts",
+  "packages/zod/src/v4/core/util.ts",
+  "packages/zod/src/v4/mini/schemas.ts",
+]

@@ -1,0 +1,64 @@
+# Go — golang/mock, ~37 files
+[[repos]]
+name = "gomock-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gomock"
+language = "go"
+range = "cf7e215abf3e189b43034e015c6982f778ca82d4..674a1c4a938e7b453416052327872571656801b7"
+notes = "MEDIUM. 9-commit range: generics support (source mode), variadic Do/DoAndReturn fix, SetArg map support, deprecation notice, CI overhaul, min Go version bump. ~37 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 7
+same_group = [
+  ["gomock/call.go", "gomock/call_test.go"],
+  ["mockgen/generic_go118.go", "mockgen/generic_notgo118.go"],
+  ["mockgen/mockgen.go", "mockgen/parse.go", "mockgen/model/model.go"],
+  ["mockgen/internal/tests/generics/generics.go", "mockgen/internal/tests/generics/external.go", "mockgen/internal/tests/generics/source/mock_generics_test.go", "mockgen/internal/tests/generics/source/mock_external_test.go"],
+]
+infrastructure = [
+  ".github/workflows/test.yaml",
+  ".gitignore",
+  "README.md",
+  "ci/check_go_fmt.sh",
+  "ci/check_go_generate.sh",
+  "ci/check_go_lint.sh",
+  "ci/check_go_mod.sh",
+  "ci/test.sh",
+  "go.mod",
+  "go.sum",
+  "gomock/doc.go",
+  "gomock/controller.go",
+  "gomock/controller_113_test.go",
+  "gomock/controller_114_test.go",
+  "gomock/controller_test.go",
+  "mockgen/version.go",
+  "mockgen/internal/tests/generics/go.mod",
+  "mockgen/internal/tests/generics/go.sum",
+  "mockgen/internal/tests/overlapping_methods/go.mod",
+  "mockgen/internal/tests/overlapping_methods/go.sum",
+  "mockgen/internal/tests/overlapping_methods/interfaces.go",
+  "mockgen/internal/tests/overlapping_methods/overlap.go",
+  "mockgen/internal/tests/overlapping_methods/overlap_test.go",
+  "mockgen/internal/tests/mock_in_test_package/mock_test.go",
+]
+non_infrastructure = [
+  "gomock/call.go",
+  "gomock/call_test.go",
+  "mockgen/generic_go118.go",
+  "mockgen/generic_notgo118.go",
+  "mockgen/mockgen.go",
+  "mockgen/model/model.go",
+  "mockgen/parse.go",
+  "mockgen/parse_test.go",
+  "mockgen/internal/tests/generics/external.go",
+  "mockgen/internal/tests/generics/generics.go",
+  "mockgen/internal/tests/generics/other/other.go",
+  "mockgen/internal/tests/generics/source/mock_external_test.go",
+  "mockgen/internal/tests/generics/source/mock_generics_test.go",
+]

@@ -1,0 +1,45 @@
+# Go — uber-go/zap, ~19 files
+[[repos]]
+name = "zap-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/zap"
+language = "go"
+range = "6d482535bdd97f4d97b2f9573ac308f1cf9b574e..0ab0d5aae5986395e2ca497385d977ccd7cdfc5e"
+notes = "SMALL. 9-commit range: nil-safe Object field, WithLazy race fix, CheckPreWriteHook, yaml dep swap, CI Go version bump. ~19 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5
+same_group = [
+  ["field.go", "field_test.go"],
+  ["zapcore/entry.go", "zapcore/entry_test.go"],
+  ["zapcore/lazy_with.go", "zapcore/lazy_with_test.go"],
+]
+infrastructure = [
+  ".github/workflows/go.yml",
+  ".golangci.yml",
+  "CHANGELOG.md",
+  "benchmarks/go.sum",
+  "exp/go.sum",
+  "go.mod",
+  "go.sum",
+  "tools/go.mod",
+  "tools/go.sum",
+  "zapgrpc/internal/test/go.sum",
+]
+non_infrastructure = [
+  "benchmarks/zap_test.go",
+  "field.go",
+  "field_test.go",
+  "zapcore/encoder_test.go",
+  "zapcore/entry.go",
+  "zapcore/entry_test.go",
+  "zapcore/field_test.go",
+  "zapcore/lazy_with.go",
+  "zapcore/lazy_with_test.go",
+]

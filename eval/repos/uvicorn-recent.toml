@@ -1,0 +1,41 @@
+# Python — encode/uvicorn, ~15 files
+[[repos]]
+name = "uvicorn-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/uvicorn"
+language = "python"
+range = "2fc0efcdd958abd3adbe6ea19682408d6b2e1b18..02bed6f8c38e74f684bb0e572977a9bfdc1f6fea"
+notes = "SMALL. 9-commit range: bytearray body accumulation, httptools regex fix, websockets sansio fixes, CodSpeed benchmark suite. ~15 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5
+same_group = [
+  ["uvicorn/protocols/http/h11_impl.py", "uvicorn/protocols/http/httptools_impl.py"],
+  ["tests/benchmarks/http.py", "tests/benchmarks/test_http.py"],
+  ["tests/benchmarks/ws.py", "tests/benchmarks/test_ws.py"],
+]
+infrastructure = [
+  ".github/workflows/benchmark.yml",
+  ".gitignore",
+  "docs/release-notes.md",
+  "pyproject.toml",
+  "uv.lock",
+  "uvicorn/__init__.py",
+  "tests/benchmarks/__init__.py",
+]
+non_infrastructure = [
+  "tests/benchmarks/http.py",
+  "tests/benchmarks/test_http.py",
+  "tests/benchmarks/test_ws.py",
+  "tests/benchmarks/ws.py",
+  "tests/protocols/test_http.py",
+  "uvicorn/protocols/http/h11_impl.py",
+  "uvicorn/protocols/http/httptools_impl.py",
+  "uvicorn/protocols/websockets/websockets_sansio_impl.py",
+]

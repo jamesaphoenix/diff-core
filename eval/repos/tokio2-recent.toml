@@ -1,0 +1,45 @@
+# Rust — tokio-rs/tokio, ~19 files
+[[repos]]
+name = "tokio2-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/tokio2"
+language = "rust"
+range = "961757f5483e394ec3c99a4c2ab5a6e705a0b740..a8435c0fc8612bbdf38d3ad8b2ba96d5dbc848d9"
+notes = "SMALL. 9-commit range: stream collect for std collections, worker_index API, fs OpenOptionsExt mock fix, remote_spawn bench, FD prewarm example. ~19 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 6
+same_group = [
+  ["tokio-stream/src/stream_ext/collect.rs", "tokio-stream/tests/stream_collect.rs"],
+  ["tokio/src/runtime/context.rs", "tokio/src/runtime/scheduler/multi_thread/worker.rs"],
+  ["tokio/src/fs/open_options.rs", "tokio/src/fs/open_options/mock_open_options.rs"],
+]
+infrastructure = [
+  ".cirrus.yml",
+  ".github/workflows/ci.yml",
+  "Cargo.toml",
+  "benches/Cargo.toml",
+  "examples/Cargo.toml",
+  "spellcheck.dic",
+  "tokio/src/lib.rs",
+]
+non_infrastructure = [
+  "benches/remote_spawn.rs",
+  "examples/prewarm-fd-table.rs",
+  "tokio-stream/src/stream_ext/collect.rs",
+  "tokio-stream/tests/stream_collect.rs",
+  "tokio/src/fs/open_options.rs",
+  "tokio/src/fs/open_options/mock_open_options.rs",
+  "tokio/src/fs/open_options/uring_open_options.rs",
+  "tokio/src/runtime/context.rs",
+  "tokio/src/runtime/mod.rs",
+  "tokio/src/runtime/scheduler/mod.rs",
+  "tokio/src/runtime/scheduler/multi_thread/worker.rs",
+  "tokio/tests/rt_worker_index.rs",
+]
