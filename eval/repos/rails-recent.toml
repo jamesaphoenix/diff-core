@@ -1,0 +1,35 @@
+# Ruby — Rails framework, ~9 files
+# 10-commit range: debug exceptions layout, MySQL adapter, number helper, CI template.
+[[repos]]
+name = "rails-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/ruby/rails"
+language = "ruby"
+range = "12db70157c45a4b47a6f53ddad1217674fb2bb32..da9383d68372075dda25f7512e3d975e97a7c1c3"
+notes = "SMALL. 10-commit range: debug layout, MySQL adapter, number helper. ~9 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5
+same_group = [
+  ["activerecord/lib/active_record/connection_adapters/abstract_mysql_adapter.rb", "activerecord/test/cases/adapters/mysql2/mysql2_adapter_test.rb"],
+  ["actionpack/lib/action_dispatch/middleware/templates/rescues/layout.erb", "actionpack/test/dispatch/debug_exceptions_test.rb"],
+]
+infrastructure = [
+  "activerecord/CHANGELOG.md",
+  "guides/source/active_record_basics.md",
+  "railties/lib/rails/generators/rails/app/templates/github/ci.yml.tt",
+  "railties/lib/rails/generators/rails/plugin/templates/github/ci.yml.tt",
+]
+non_infrastructure = [
+  "actionpack/lib/action_dispatch/middleware/templates/rescues/layout.erb",
+  "actionpack/test/dispatch/debug_exceptions_test.rb",
+  "activerecord/lib/active_record/connection_adapters/abstract_mysql_adapter.rb",
+  "activerecord/test/cases/adapters/mysql2/mysql2_adapter_test.rb",
+  "activesupport/lib/active_support/number_helper/number_to_delimited_converter.rb",
+]
