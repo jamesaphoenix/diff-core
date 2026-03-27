@@ -1,0 +1,35 @@
+# C — jq JSON processor, ~9 files
+# 10-commit range: builtin functions, linker, test improvements.
+[[repos]]
+name = "jq-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/c/jq"
+language = "c"
+range = "36b6ae00b1c1e18a22a9b6ad36d7f095aeb997b7..cec6b0f34603edc5cd12db1f63dacdf547b4bb4a"
+notes = "SMALL. 10-commit range: builtins, linker, tests. ~9 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 4
+same_group = [
+  ["src/builtin.c", "src/execute.c"],
+  ["src/jq_test.c", "tests/jq.test"],
+]
+infrastructure = [
+  ".github/dependabot.yml",
+  ".github/workflows/ci.yml",
+]
+non_infrastructure = [
+  "src/builtin.c",
+  "src/execute.c",
+  "src/jq_test.c",
+  "src/linker.c",
+  "tests/jq.test",
+  "tests/jq_fuzz_parse_stream.c",
+  "tests/uri.test",
+]
