@@ -1,0 +1,122 @@
+# C# — Humanizer pre-v3 analyzer compatibility, Portuguese locale additions, and API restore work.
+# 5-commit historical range: analyzer loading across Roslyn/SDK versions, Portuguese data/time-unit translations,
+# restored `ToQuantity(int, ...)` overloads, a small string humanize perf tweak, and a version bump.
+[[repos]]
+name = "humanizer-pre-v3-analyzers-locales"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/csharp/humanizer"
+language = "csharp"
+range = "29973f32a2847c8f02025e1ac059c3d22a9d19cb..3052891c4a98c36fe61e866ef3e6c6671ad493c5"
+notes = "SMALL. 5-commit historical range: multi-Roslyn analyzer packaging/loading, Portuguese resource additions, ToQuantity int overload restore, one string-humanize optimization, and release metadata."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.70
+max_singleton_ratio = 0.70
+
+[repos.expectations]
+group_count_min = 5
+group_count_max = 6
+
+same_group = [
+  ["src/Humanizer.Analyzers/Humanizer.Analyzers.csproj", "src/Humanizer.Analyzers/build/Humanizer.Core.targets"],
+  ["src/Humanizer.Analyzers/NamespaceMigrationAnalyzer.cs", "src/Humanizer.Analyzers/NamespaceMigrationCodeFixProvider.cs"],
+  ["src/Humanizer/ToQuantityExtensions.cs", "src/Humanizer.Tests/ToQuantityTests.cs"],
+  ["src/Humanizer/ToQuantityExtensions.cs", "src/Humanizer.Tests/ApiApprover/PublicApiApprovalTest.Approve_Public_Api.DotNet10_0.verified.txt"],
+  ["src/Humanizer/Properties/Resources.pt.resx", "src/Humanizer.Tests/Localisation/pt/Bytes/ByteSizeExtensionsTests.cs"],
+  ["src/Humanizer/Properties/Resources.pt-BR.resx", "src/Humanizer.Tests/Localisation/pt-BR/TimeUnitToSymbolTests.cs"],
+]
+
+separate_group = [
+  ["src/Humanizer/StringHumanizeExtensions.cs", "src/Humanizer/ToQuantityExtensions.cs"],
+  ["src/Humanizer/StringHumanizeExtensions.cs", "src/Humanizer.Analyzers/NamespaceMigrationAnalyzer.cs"],
+]
+
+infrastructure = [
+  "NuSpecs/Humanizer.Core.nuspec",
+  "docs/v3-namespace-migration.md",
+  "src/Humanizer.Analyzers/Humanizer.Analyzers.csproj",
+  "src/Humanizer.Analyzers/README.md",
+  "src/Humanizer.Analyzers/build/Humanizer.Core.targets",
+  "src/Humanizer.Tests/ApiApprover/PublicApiApprovalTest.Approve_Public_Api.DotNet10_0.verified.txt",
+  "src/Humanizer.Tests/ApiApprover/PublicApiApprovalTest.Approve_Public_Api.DotNet8_0.verified.txt",
+  "src/Humanizer.Tests/ApiApprover/PublicApiApprovalTest.Approve_Public_Api.Net4_8.verified.txt",
+  "src/Humanizer/Humanizer.csproj",
+  "verify-packages.ps1",
+  "version.json",
+]
+
+non_infrastructure = [
+  "src/Humanizer.Analyzers.Tests/AnalyzerAssemblyCompatibilityTests.cs",
+  "src/Humanizer.Analyzers/NamespaceMigrationAnalyzer.cs",
+  "src/Humanizer.Analyzers/NamespaceMigrationCodeFixProvider.cs",
+  "src/Humanizer.Tests/Localisation/pt-BR/Bytes/ByteSizeExtensionsTests.cs",
+  "src/Humanizer.Tests/Localisation/pt-BR/TimeUnitToSymbolTests.cs",
+  "src/Humanizer.Tests/Localisation/pt/Bytes/ByteSizeExtensionsTests.cs",
+  "src/Humanizer.Tests/Localisation/pt/TimeUnitToSymbolTests.cs",
+  "src/Humanizer.Tests/ToQuantityTests.cs",
+  "src/Humanizer/Properties/Resources.pt-BR.resx",
+  "src/Humanizer/Properties/Resources.pt.resx",
+  "src/Humanizer/StringHumanizeExtensions.cs",
+  "src/Humanizer/ToQuantityExtensions.cs",
+]
+
+[repos.ml]
+dataset_version = 1
+underlying_repo = "humanizer"
+range_id = "humanizer-pre-v3-analyzers-locales"
+label_source = "sub-agent"
+review_status = "draft"
+
+[[repos.ml.groups]]
+id = "analyzer-multi-roslyn-packaging"
+kind = "feature"
+files = [
+  "NuSpecs/Humanizer.Core.nuspec",
+  "docs/v3-namespace-migration.md",
+  "src/Humanizer.Analyzers.Tests/AnalyzerAssemblyCompatibilityTests.cs",
+  "src/Humanizer.Analyzers/Humanizer.Analyzers.csproj",
+  "src/Humanizer.Analyzers/NamespaceMigrationAnalyzer.cs",
+  "src/Humanizer.Analyzers/NamespaceMigrationCodeFixProvider.cs",
+  "src/Humanizer.Analyzers/README.md",
+  "src/Humanizer.Analyzers/build/Humanizer.Core.targets",
+  "src/Humanizer/Humanizer.csproj",
+  "verify-packages.ps1",
+]
+
+[[repos.ml.groups]]
+id = "toquantity-int-overloads-and-api-baselines"
+kind = "feature"
+files = [
+  "src/Humanizer.Tests/ApiApprover/PublicApiApprovalTest.Approve_Public_Api.DotNet10_0.verified.txt",
+  "src/Humanizer.Tests/ApiApprover/PublicApiApprovalTest.Approve_Public_Api.DotNet8_0.verified.txt",
+  "src/Humanizer.Tests/ApiApprover/PublicApiApprovalTest.Approve_Public_Api.Net4_8.verified.txt",
+  "src/Humanizer.Tests/ToQuantityTests.cs",
+  "src/Humanizer/ToQuantityExtensions.cs",
+]
+
+[[repos.ml.groups]]
+id = "portuguese-localization-data-and-tests"
+kind = "feature"
+files = [
+  "src/Humanizer/Properties/Resources.pt-BR.resx",
+  "src/Humanizer/Properties/Resources.pt.resx",
+  "src/Humanizer.Tests/Localisation/pt-BR/Bytes/ByteSizeExtensionsTests.cs",
+  "src/Humanizer.Tests/Localisation/pt-BR/TimeUnitToSymbolTests.cs",
+  "src/Humanizer.Tests/Localisation/pt/Bytes/ByteSizeExtensionsTests.cs",
+  "src/Humanizer.Tests/Localisation/pt/TimeUnitToSymbolTests.cs",
+]
+
+[[repos.ml.groups]]
+id = "string-humanize-separator-optimization"
+kind = "refactor"
+files = [
+  "src/Humanizer/StringHumanizeExtensions.cs",
+]
+
+[[repos.ml.groups]]
+id = "release-version-bump"
+kind = "release"
+files = [
+  "version.json",
+]
