@@ -731,6 +731,11 @@ fn is_config_like_filename(path: &str) -> bool {
         return true;
     }
 
+    // PHP config tools (rector, phpstan, phpunit)
+    if matches!(filename, "rector.php" | "phpstan.neon" | "phpunit.xml" | "phpunit.xml.dist") {
+        return true;
+    }
+
     // Version constant files (auto-bumped, not feature code)
     if matches!(filename, "version.go" | "version.ts" | "version.js" | "version.py" | "version.rb")
         || filename == "version_current.go"
