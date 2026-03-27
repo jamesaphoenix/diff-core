@@ -1,0 +1,70 @@
+# Java — Spring Boot petclinic, ~39 files
+# 20-commit range: Java 17 support, dependency upgrades, jspecify removal, test naming conventions.
+[[repos]]
+name = "spring-petclinic-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/java/spring-petclinic"
+language = "java"
+range = "828940e5a1bc51ce1e49410bc1dcf6c4139ea51f..edf4db28affcc4741c79850a3d95bc3f177b5ff9"
+notes = "MEDIUM. 20-commit range: dependency upgrades, jspecify @Nullable removal, test method renames. ~39 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 4
+group_count_max = 7
+same_group = [
+  ["src/main/java/org/springframework/samples/petclinic/model/BaseEntity.java", "src/main/java/org/springframework/samples/petclinic/model/NamedEntity.java"],
+  ["src/main/java/org/springframework/samples/petclinic/owner/Owner.java", "src/main/java/org/springframework/samples/petclinic/owner/Pet.java"],
+  ["src/main/java/org/springframework/samples/petclinic/vet/Vet.java", "src/main/java/org/springframework/samples/petclinic/vet/Vets.java"],
+  ["src/test/java/org/springframework/samples/petclinic/owner/OwnerControllerTests.java", "src/test/java/org/springframework/samples/petclinic/owner/PetControllerTests.java"],
+  ["src/test/java/org/springframework/samples/petclinic/MySqlIntegrationTests.java", "src/test/java/org/springframework/samples/petclinic/MysqlTestApplication.java"],
+  ["pom.xml", "build.gradle"],
+  ["docker-compose.yml", "k8s/db.yml"],
+]
+infrastructure = [
+  ".mvn/wrapper/maven-wrapper.properties",
+  "README.md",
+  "build.gradle",
+  "docker-compose.yml",
+  "k8s/db.yml",
+  "pom.xml",
+  "src/main/resources/application.properties",
+  "src/main/resources/db/hsqldb/data.sql",
+  "src/main/resources/db/hsqldb/schema.sql",
+]
+non_infrastructure = [
+  "src/main/java/org/springframework/samples/petclinic/PetClinicRuntimeHints.java",
+  "src/main/java/org/springframework/samples/petclinic/model/BaseEntity.java",
+  "src/main/java/org/springframework/samples/petclinic/model/NamedEntity.java",
+  "src/main/java/org/springframework/samples/petclinic/model/Person.java",
+  "src/main/java/org/springframework/samples/petclinic/model/package-info.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/Owner.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/Pet.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/PetController.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/PetTypeFormatter.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/Visit.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/package-info.java",
+  "src/main/java/org/springframework/samples/petclinic/package-info.java",
+  "src/main/java/org/springframework/samples/petclinic/system/package-info.java",
+  "src/main/java/org/springframework/samples/petclinic/vet/Vet.java",
+  "src/main/java/org/springframework/samples/petclinic/vet/Vets.java",
+  "src/main/java/org/springframework/samples/petclinic/vet/package-info.java",
+  "src/test/java/org/springframework/samples/petclinic/MySqlIntegrationTests.java",
+  "src/test/java/org/springframework/samples/petclinic/MysqlTestApplication.java",
+  "src/test/java/org/springframework/samples/petclinic/PetClinicIntegrationTests.java",
+  "src/test/java/org/springframework/samples/petclinic/PostgresIntegrationTests.java",
+  "src/test/java/org/springframework/samples/petclinic/owner/OwnerControllerTests.java",
+  "src/test/java/org/springframework/samples/petclinic/owner/PetControllerTests.java",
+  "src/test/java/org/springframework/samples/petclinic/owner/PetValidatorTests.java",
+  "src/test/java/org/springframework/samples/petclinic/owner/VisitControllerTests.java",
+  "src/test/java/org/springframework/samples/petclinic/system/CrashControllerIntegrationTests.java",
+  "src/test/java/org/springframework/samples/petclinic/system/CrashControllerTests.java",
+  "src/test/java/org/springframework/samples/petclinic/system/I18nPropertiesSyncTest.java",
+  "src/test/java/org/springframework/samples/petclinic/vet/VetControllerTests.java",
+  "src/test/java/org/springframework/samples/petclinic/vet/VetTests.java",
+]
