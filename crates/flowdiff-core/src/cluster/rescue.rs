@@ -25,13 +25,10 @@ pub(super) fn rescue_non_infra_files(
     for file in infra_files {
         let category = classify_by_convention(file);
         if category == InfraCategory::Documentation {
-            if !is_semantic_doc_candidate(file, root_docs_batch_count) {
-                true_infra.push(file.clone());
-                continue;
-            }
-
-            if let Some(group_idx) = find_group_by_semantic_doc_affinity(file, groups) {
+            if let Some(group_idx) = find_group_by_topic_affinity(file, groups) {
                 rescued.push((group_idx, file.clone()));
+            } else if !is_semantic_doc_candidate(file, root_docs_batch_count) {
+                true_infra.push(file.clone());
             } else if is_semantic_doc_fallback_candidate(file, root_docs_batch_count) {
                 if let Some(largest_idx) = groups
                     .iter()
@@ -49,6 +46,15 @@ pub(super) fn rescue_non_infra_files(
             continue;
         }
 
+        if matches!(category, InfraCategory::Schema | InfraCategory::Generated) {
+            if let Some(group_idx) = find_group_by_topic_affinity(file, groups) {
+                rescued.push((group_idx, file.clone()));
+            } else {
+                true_infra.push(file.clone());
+            }
+            continue;
+        }
+
         // Only rescue files that are Unclassified (source code) or DirectoryGroup
         // Everything else (Infrastructure, Schema, Migration, etc.) stays in infra
         if category != InfraCategory::Unclassified && category != InfraCategory::DirectoryGroup {
@@ -58,7 +64,9 @@ pub(super) fn rescue_non_infra_files(
             true_infra.push(file.clone());
         } else {
             // This looks like source code — assign to nearest group by directory
-            match find_nearest_group_by_directory(file, groups) {
+            match find_nearest_group_by_directory(file, groups)
+                .or_else(|| find_group_by_topic_affinity(file, groups))
+            {
                 Some(group_idx) => rescued.push((group_idx, file.clone())),
                 None => {
                     // No directory match. Only use fallback (largest group) for files
@@ -151,7 +159,7 @@ fn is_localized_docs_tree(lower: &str) -> bool {
             .all(|ch| ch.is_ascii_lowercase() || ch == '-')
 }
 
-fn find_group_by_semantic_doc_affinity(file: &str, groups: &[FlowGroup]) -> Option<usize> {
+fn find_group_by_topic_affinity(file: &str, groups: &[FlowGroup]) -> Option<usize> {
     let doc_tokens = path_topic_tokens(file);
     if doc_tokens.is_empty() {
         return None;
@@ -340,7 +348,7 @@ mod tests {
         )];
 
         assert_eq!(
-            find_group_by_semantic_doc_affinity("docs/tutorial/where.md", &groups),
+            find_group_by_topic_affinity("docs/tutorial/where.md", &groups),
             Some(0)
         );
     }
@@ -364,6 +372,37 @@ mod tests {
             vec![
                 (0, "src/cluster.c".to_string()),
                 (0, "src/stream.h".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn topic_affinity_rescues_source_adjacent_text_artifacts() {
+        let groups = vec![group_with_file("src/blib2to3/pgen2/parse.py")];
+        let infra_files = vec!["src/blib2to3/Grammar.txt".to_string()];
+
+        let (true_infra, rescued) = rescue_non_infra_files(&infra_files, &groups);
+
+        assert!(true_infra.is_empty());
+        assert_eq!(rescued, vec![(0, "src/blib2to3/Grammar.txt".to_string())]);
+    }
+
+    #[test]
+    fn topic_affinity_rescues_schema_and_generated_artifacts() {
+        let groups = vec![group_with_file("internal/tfplugin6/plugin.go")];
+        let infra_files = vec![
+            "docs/plugin-protocol/tfplugin6.proto".to_string(),
+            "internal/tfplugin6/tfplugin6.pb.go".to_string(),
+        ];
+
+        let (true_infra, rescued) = rescue_non_infra_files(&infra_files, &groups);
+
+        assert!(true_infra.is_empty());
+        assert_eq!(
+            rescued,
+            vec![
+                (0, "docs/plugin-protocol/tfplugin6.proto".to_string()),
+                (0, "internal/tfplugin6/tfplugin6.pb.go".to_string())
             ]
         );
     }
