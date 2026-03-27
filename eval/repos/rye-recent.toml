@@ -1,0 +1,44 @@
+# Rust — Rye Python toolchain manager, ~19 files
+# 10-commit range: bootstrap, python downloads, CI updates.
+[[repos]]
+name = "rye-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/rye"
+language = "rust"
+range = "e5d3225ca58ba7bfd4f0fb4f50bd2116f9a9543f..62ec9edbe471958a05a70418b19f3acd54f0484d"
+notes = "SMALL. 10-commit range: bootstrap, python downloads, CI. ~19 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.70
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 4
+same_group = [
+  ["rye/src/bootstrap.rs", "rye/src/sources/py.rs"],
+]
+infrastructure = [
+  ".github/workflows/clippy.yml",
+  ".github/workflows/release.yml",
+  ".github/workflows/tests.yml",
+  "CHANGELOG.md",
+  "Cargo.lock",
+  "README.md",
+  "docs/.overrides/main.html",
+  "docs/guide/installation.md",
+  "docs/guide/uv.md",
+  "docs/index.md",
+  "mkdocs.yml",
+  "rust-toolchain.toml",
+  "rye/Cargo.toml",
+  "rye/src/sources/generated/python_downloads.inc",
+  "rye/src/sources/generated/uv_downloads.inc",
+]
+non_infrastructure = [
+  "rye/src/bootstrap.rs",
+  "rye/src/sources/py.rs",
+  "rye/tests/common/mod.rs",
+  "rye/tests/test_ruff.rs",
+]
