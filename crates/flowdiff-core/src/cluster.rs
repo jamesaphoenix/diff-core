@@ -1269,6 +1269,8 @@ fn is_true_infrastructure(path: &str) -> bool {
         || filename == "bitbucket-pipelines.yml"
         || lower.contains(".changeset/")
         || lower.starts_with(".changeset/")
+        || lower.contains(".changes/")
+        || lower.starts_with(".changes/")
     {
         return true;
     }

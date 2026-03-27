@@ -1,0 +1,29 @@
+# Python — boto3 AWS SDK, ~7 files
+# 10-commit range: version bumps, changelog.
+[[repos]]
+name = "boto3-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/boto3"
+language = "python"
+range = "70f04aebf5d4d49a410943db45cb68e18ced995d..8c30411a442a21b8bccc9eb2fde60ab76751ef35"
+notes = "SMALL. 10-commit range: version bumps, changelog. ~7 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.90
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 1
+group_count_max = 2
+infrastructure = [
+  ".changes/1.42.75.json",
+  ".changes/1.42.76.json",
+  ".changes/1.42.77.json",
+  "CHANGELOG.rst",
+  "setup.cfg",
+  "setup.py",
+]
+non_infrastructure = [
+  "boto3/__init__.py",
+]

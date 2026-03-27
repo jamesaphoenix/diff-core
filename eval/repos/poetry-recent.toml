@@ -1,0 +1,39 @@
+# Python — Poetry dependency manager, ~13 files
+# 10-commit range: env activate, installer, show command, git backend.
+[[repos]]
+name = "poetry-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/poetry"
+language = "python"
+range = "9eac0a9e741b4d7d404d96555e6563aedeba8112..40bec93fec0425563b52e3175dfcc3d07b936cc4"
+notes = "SMALL. 10-commit range: env activate, installer, show, git. ~13 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5
+same_group = [
+  ["src/poetry/console/commands/env/activate.py", "tests/console/commands/env/test_activate.py"],
+  ["src/poetry/installation/installer.py", "tests/installation/test_installer.py"],
+]
+infrastructure = [
+  ".pre-commit-config.yaml",
+  "docs/_index.md",
+  "docs/pyproject.md",
+]
+non_infrastructure = [
+  "src/poetry/console/commands/env/activate.py",
+  "src/poetry/console/commands/self/self_command.py",
+  "src/poetry/console/commands/show.py",
+  "src/poetry/installation/installer.py",
+  "src/poetry/utils/constants.py",
+  "src/poetry/vcs/git/backend.py",
+  "tests/console/commands/env/test_activate.py",
+  "tests/console/commands/self/test_show.py",
+  "tests/installation/test_installer.py",
+  "tests/test_helpers.py",
+]
