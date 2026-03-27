@@ -306,6 +306,12 @@ pub fn cluster_files(
         }
         for file in &infra_files {
             if is_test_file_name(file) {
+                // Don't rescue test files that are in classified infra categories
+                // (migrations, generated, scripts, etc.) — only rescue Unclassified tests
+                let cat = classify_by_convention(file);
+                if cat != InfraCategory::Unclassified && cat != InfraCategory::DirectoryGroup {
+                    continue;
+                }
                 let stem = test_impl_stem(file);
                 if let Some(&g_idx) = impl_by_stem.get(&stem) {
                     infra_rescued.push((g_idx, file.clone()));
