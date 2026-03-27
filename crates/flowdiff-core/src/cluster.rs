@@ -399,9 +399,34 @@ fn merge_groups_by_stem(mut groups: Vec<FlowGroup>) -> Vec<FlowGroup> {
             }
         }
 
+        // Also try merging small groups that share a full directory path.
+        // E.g., modules/httplib/serve.go and modules/httplib/content_disposition.go
+        // should be in the same group even without matching stems.
+        if best_merge.is_none() {
+            let mut dir_locations: HashMap<String, Vec<usize>> = HashMap::new();
+            for (g_idx, group) in groups.iter().enumerate() {
+                if group.files.len() > SMALL_GROUP_THRESHOLD {
+                    continue;
+                }
+                for fc in &group.files {
+                    if let Some(dir) = fc.path.rsplit_once('/').map(|(d, _)| d.to_string()) {
+                        dir_locations.entry(dir).or_default().push(g_idx);
+                    }
+                }
+            }
+            for (_dir, indices) in &dir_locations {
+                let unique: HashSet<&usize> = indices.iter().collect();
+                if unique.len() >= 2 {
+                    let mut sorted: Vec<usize> = unique.into_iter().copied().collect();
+                    sorted.sort();
+                    best_merge = Some((sorted[0], sorted[1]));
+                    break;
+                }
+            }
+        }
+
         if let Some((keep_idx, donor_idx)) = best_merge {
             let donor = groups.remove(donor_idx);
-            // Adjust keep_idx if donor was before it
             let keep_idx = if donor_idx < keep_idx {
                 keep_idx - 1
             } else {
