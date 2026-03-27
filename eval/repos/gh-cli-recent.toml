@@ -1,0 +1,73 @@
+# Go — GitHub CLI, ~43 files
+# 30-commit range: PR create improvements, issue labels, prompter accessibility, feature detection.
+[[repos]]
+name = "gh-cli-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gh-cli"
+language = "go"
+range = "69d89a6590a711d4a214c012adeff467046f19cb..b62671151b7c98852b7023dd672f5092d1c9dab0"
+notes = "MEDIUM. 30-commit range: PR create, issue edit, prompter refactor. ~43 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 10
+same_group = [
+  ["pkg/cmd/pr/create/create.go", "pkg/cmd/pr/create/create_test.go"],
+  ["pkg/cmd/issue/create/create.go", "pkg/cmd/issue/create/create_test.go"],
+  ["pkg/cmd/issue/edit/edit.go", "pkg/cmd/issue/edit/edit_test.go"],
+  ["pkg/cmd/pr/edit/edit.go", "pkg/cmd/pr/edit/edit_test.go"],
+  ["internal/featuredetection/feature_detection.go", "internal/featuredetection/feature_detection_test.go"],
+  ["internal/prompter/huh_prompter.go", "internal/prompter/huh_prompter_test.go"],
+]
+infrastructure = [
+  ".github/workflows/deployment.yml",
+  ".github/workflows/homebrew-bump.yml",
+  "docs/triage.md",
+  "go.mod",
+  "go.sum",
+]
+non_infrastructure = [
+  "acceptance/acceptance_test.go",
+  "acceptance/testdata/pr/pr-create-guesses-remote-from-sha-with-branch-name-slash.txtar",
+  "acceptance/testdata/pr/pr-create-guesses-remote-from-sha.txtar",
+  "acceptance/testdata/pr/pr-create-push-default-upstream-no-merge-ref-fork.txtar",
+  "acceptance/testdata/pr/pr-create-remote-ref-with-branch-name-slash.txtar",
+  "acceptance/testdata/pr/pr-create-respects-branch-pushremote.txtar",
+  "acceptance/testdata/pr/pr-create-respects-push-destination.txtar",
+  "acceptance/testdata/pr/pr-create-respects-remote-pushdefault.txtar",
+  "acceptance/testdata/pr/pr-create-respects-simple-pushdefault.txtar",
+  "acceptance/testdata/pr/pr-create-respects-user-colon-branch-syntax.txtar",
+  "acceptance/testdata/workflow/run-download-traversal.txtar",
+  "api/queries_issue.go",
+  "api/queries_pr.go",
+  "api/queries_repo.go",
+  "api/query_builder.go",
+  "internal/codespaces/portforwarder/port_forwarder.go",
+  "internal/featuredetection/feature_detection.go",
+  "internal/featuredetection/feature_detection_test.go",
+  "internal/prompter/accessible_prompter_test.go",
+  "internal/prompter/huh_prompter.go",
+  "internal/prompter/huh_prompter_test.go",
+  "internal/prompter/multi_select_with_search.go",
+  "internal/prompter/prompter.go",
+  "pkg/cmd/factory/default.go",
+  "pkg/cmd/issue/create/create.go",
+  "pkg/cmd/issue/create/create_test.go",
+  "pkg/cmd/issue/edit/edit.go",
+  "pkg/cmd/issue/edit/edit_test.go",
+  "pkg/cmd/pr/create/create.go",
+  "pkg/cmd/pr/create/create_test.go",
+  "pkg/cmd/pr/edit/edit.go",
+  "pkg/cmd/pr/edit/edit_test.go",
+  "pkg/cmd/pr/shared/editable.go",
+  "pkg/cmd/pr/shared/editable_http.go",
+  "pkg/cmd/pr/shared/params.go",
+  "pkg/cmd/pr/shared/state.go",
+  "pkg/cmd/pr/shared/survey.go",
+  "pkg/iostreams/iostreams.go",
+]

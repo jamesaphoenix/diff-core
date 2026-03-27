@@ -1,0 +1,61 @@
+# TypeScript — React Router, ~39 files
+# 10-commit range: changeset releases, docs updates, lib fixes.
+[[repos]]
+name = "react-router-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/react-router"
+language = "typescript"
+range = "5096d6974ed113e0e45de3f94f0a19de9a0a381a..7b21212c8044e7a541f101b62dc2496911fbc2d2"
+notes = "MEDIUM. 10-commit range: changeset releases, docs, lib fixes. ~39 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.90
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 1
+group_count_max = 5
+infrastructure = [
+  ".changeset/cold-schools-relate.md",
+  ".changeset/fix-createRoutesStub-component-type.md",
+  ".changeset/fix-dev-socket-file-crash.md",
+  ".changeset/gentle-doors-visit.md",
+  ".changeset/kind-shirts-turn.md",
+  ".changeset/passthrough-reqeusts.md",
+  ".changeset/pre.json",
+  ".changeset/remove-agnostic-types.md",
+  ".changeset/sweet-houses-kick.md",
+  ".changeset/twelve-snails-wait.md",
+  ".changeset/unstable-url.md",
+  ".github/workflows/preview.yml",
+  "contributors.yml",
+  "packages/create-react-router/CHANGELOG.md",
+  "packages/create-react-router/package.json",
+  "packages/react-router-architect/CHANGELOG.md",
+  "packages/react-router-architect/package.json",
+  "packages/react-router-cloudflare/CHANGELOG.md",
+  "packages/react-router-cloudflare/package.json",
+  "packages/react-router-dev/CHANGELOG.md",
+  "packages/react-router-dev/package.json",
+  "packages/react-router-dom/CHANGELOG.md",
+  "packages/react-router-dom/package.json",
+  "packages/react-router-express/CHANGELOG.md",
+  "packages/react-router-express/package.json",
+  "packages/react-router-fs-routes/CHANGELOG.md",
+  "packages/react-router-fs-routes/package.json",
+  "packages/react-router-node/CHANGELOG.md",
+  "packages/react-router-node/package.json",
+  "packages/react-router-remix-routes-option-adapter/CHANGELOG.md",
+  "packages/react-router-remix-routes-option-adapter/package.json",
+  "packages/react-router-serve/CHANGELOG.md",
+  "packages/react-router-serve/package.json",
+  "packages/react-router/CHANGELOG.md",
+  "packages/react-router/package.json",
+]
+non_infrastructure = [
+  "docs/api/hooks/useViewTransitionState.md",
+  "docs/explanation/state-management.md",
+  "docs/upgrading/remix.md",
+  "packages/react-router/lib/dom/lib.tsx",
+]
