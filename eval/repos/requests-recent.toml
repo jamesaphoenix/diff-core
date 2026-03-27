@@ -1,0 +1,41 @@
+# Python — Requests HTTP library, ~15 files
+# 20-commit range: adapter improvements, session fixes, doc updates.
+[[repos]]
+name = "requests-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/requests"
+language = "python"
+range = "47914226c2968802f2cdee3f6f0f6e06e4472f64..bc04dfd6dad4cb02cd92f5daa81eb562d280a761"
+notes = "SMALL. 20-commit range: adapter/session improvements, docs. ~15 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 4
+same_group = [
+  ["src/requests/adapters.py", "src/requests/sessions.py"],
+  ["src/requests/sessions.py", "src/requests/utils.py"],
+]
+infrastructure = [
+  ".github/CODEOWNERS",
+  ".github/workflows/codeql-analysis.yml",
+  ".github/workflows/publish.yml",
+  "HISTORY.md",
+  "README.md",
+  "docs/api.rst",
+  "docs/community/faq.rst",
+  "docs/user/advanced.rst",
+  "docs/user/quickstart.rst",
+  "pyproject.toml",
+  "src/requests/__version__.py",
+]
+non_infrastructure = [
+  "src/requests/__init__.py",
+  "src/requests/adapters.py",
+  "src/requests/sessions.py",
+  "src/requests/utils.py",
+]
