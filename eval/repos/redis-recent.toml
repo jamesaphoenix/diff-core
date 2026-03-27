@@ -1,0 +1,54 @@
+# C — Redis in-memory database, ~27 files
+# 10-commit range: cluster commands, hash/stream improvements, memory prefetch, module API.
+[[repos]]
+name = "redis-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/c/redis"
+language = "c"
+range = "63d841c3ae8760668a33c41acd2255f61669fe85..f88746484009bd2d4d340fd96923b1542825bbb3"
+notes = "MEDIUM. 10-commit range: cluster commands, hash/stream, memory prefetch. ~27 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 8
+same_group = [
+  ["src/cluster.c", "src/commands/cluster-info.json"],
+  ["src/t_hash.c", "src/db.c"],
+  ["src/notify.c", "tests/modules/keymeta_notify.c"],
+]
+infrastructure = [
+  "modules/Makefile",
+  "src/commands.def",
+  "src/commands/cluster-count-failure-reports.json",
+  "src/commands/cluster-info.json",
+  "src/commands/cluster-keyslot.json",
+  "src/commands/cluster-links.json",
+  "src/commands/cluster-myid.json",
+  "src/commands/cluster-myshardid.json",
+  "src/commands/cluster-nodes.json",
+  "src/commands/cluster-replicas.json",
+  "src/commands/cluster-slaves.json",
+  "tests/modules/Makefile",
+]
+non_infrastructure = [
+  "src/cluster.c",
+  "src/db.c",
+  "src/memory_prefetch.c",
+  "src/notify.c",
+  "src/rdb.c",
+  "src/stream.h",
+  "src/t_hash.c",
+  "src/t_stream.c",
+  "tests/integration/replication.tcl",
+  "tests/modules/keymeta_notify.c",
+  "tests/unit/info.tcl",
+  "tests/unit/memefficiency.tcl",
+  "tests/unit/moduleapi/ksn_notify_side_effect.tcl",
+  "tests/unit/moduleapi/moduleauth.tcl",
+  "tests/unit/moduleapi/propagate.tcl",
+]
