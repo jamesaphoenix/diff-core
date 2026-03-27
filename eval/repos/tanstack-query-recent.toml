@@ -1,0 +1,183 @@
+# TypeScript — TanStack Query data fetching library, 133 files
+# v5.95.0-5.95.2 release: eslint-plugin exhaustive-deps overhaul with allowlist,
+# query-core timeoutManager leak fix, example app type-safety cleanups, version bumps.
+[[repos]]
+name = "tanstack-query-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/tanstack-query"
+language = "typescript"
+range = "8fe71e4fe7bc34e8b7b551d20ac1f70906572529..1047cdc393fac7c98822c993d70c28f58833c63d"
+notes = "133 files. Release: eslint exhaustive-deps allowlist feature, timeoutManager leak fix, example type-safety. ~80% version-bump infra."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.90
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 10
+
+# ESLint rule source + tests + utils should be grouped together
+same_group = [
+  [
+    "packages/eslint-plugin-query/src/rules/exhaustive-deps/exhaustive-deps.rule.ts",
+    "packages/eslint-plugin-query/src/rules/exhaustive-deps/exhaustive-deps.utils.ts",
+  ],
+  [
+    "packages/eslint-plugin-query/src/rules/exhaustive-deps/exhaustive-deps.rule.ts",
+    "packages/eslint-plugin-query/src/__tests__/exhaustive-deps.test.ts",
+  ],
+  [
+    "packages/eslint-plugin-query/src/rules/exhaustive-deps/exhaustive-deps.rule.ts",
+    "packages/eslint-plugin-query/src/utils/ast-utils.ts",
+  ],
+]
+
+infrastructure = [
+  # Example package.json files — version bumps only
+  "examples/angular/auto-refetching/package.json",
+  "examples/angular/basic-persister/package.json",
+  "examples/angular/basic/package.json",
+  "examples/angular/devtools-panel/package.json",
+  "examples/angular/infinite-query-with-max-pages/package.json",
+  "examples/angular/optimistic-updates/package.json",
+  "examples/angular/pagination/package.json",
+  "examples/angular/query-options-from-a-service/package.json",
+  "examples/angular/router/package.json",
+  "examples/angular/rxjs/package.json",
+  "examples/angular/simple/package.json",
+  "examples/react/algolia/package.json",
+  "examples/react/auto-refetching/package.json",
+  "examples/react/basic-graphql-request/package.json",
+  "examples/react/basic/package.json",
+  "examples/react/chat/package.json",
+  "examples/react/default-query-function/package.json",
+  "examples/react/devtools-panel/package.json",
+  "examples/react/eslint-legacy/package.json",
+  "examples/react/eslint-plugin-demo/package.json",
+  "examples/react/infinite-query-with-max-pages/package.json",
+  "examples/react/load-more-infinite-scroll/package.json",
+  "examples/react/nextjs-app-prefetching/package.json",
+  "examples/react/nextjs-suspense-streaming/package.json",
+  "examples/react/nextjs/package.json",
+  "examples/react/offline/package.json",
+  "examples/react/optimistic-updates-cache/package.json",
+  "examples/react/optimistic-updates-ui/package.json",
+  "examples/react/pagination/package.json",
+  "examples/react/playground/package.json",
+  "examples/react/prefetching/package.json",
+  "examples/react/react-native/package.json",
+  "examples/react/react-router/package.json",
+  "examples/react/rick-morty/package.json",
+  "examples/react/shadow-dom/package.json",
+  "examples/react/simple/package.json",
+  "examples/react/star-wars/package.json",
+  "examples/react/suspense/package.json",
+  "examples/solid/astro/package.json",
+  "examples/solid/basic-graphql-request/package.json",
+  "examples/solid/basic/package.json",
+  "examples/solid/default-query-function/package.json",
+  "examples/solid/offline/package.json",
+  "examples/solid/simple/package.json",
+  "examples/solid/solid-start-streaming/package.json",
+  "examples/svelte/auto-refetching/package.json",
+  "examples/svelte/basic/package.json",
+  "examples/svelte/load-more-infinite-scroll/package.json",
+  "examples/svelte/optimistic-updates/package.json",
+  "examples/svelte/playground/package.json",
+  "examples/svelte/simple/package.json",
+  "examples/svelte/ssr/package.json",
+  "examples/svelte/star-wars/package.json",
+  "examples/vue/basic/package.json",
+  "examples/vue/dependent-queries/package.json",
+  "examples/vue/persister/package.json",
+  "examples/vue/simple/package.json",
+  "integrations/angular-cli-20/package.json",
+  # Package changelogs — release notes only
+  "packages/angular-query-experimental/CHANGELOG.md",
+  "packages/angular-query-persist-client/CHANGELOG.md",
+  "packages/eslint-plugin-query/CHANGELOG.md",
+  "packages/preact-query-devtools/CHANGELOG.md",
+  "packages/preact-query-persist-client/CHANGELOG.md",
+  "packages/preact-query/CHANGELOG.md",
+  "packages/query-async-storage-persister/CHANGELOG.md",
+  "packages/query-broadcast-client-experimental/CHANGELOG.md",
+  "packages/query-core/CHANGELOG.md",
+  "packages/query-devtools/CHANGELOG.md",
+  "packages/query-persist-client-core/CHANGELOG.md",
+  "packages/query-sync-storage-persister/CHANGELOG.md",
+  "packages/react-query-devtools/CHANGELOG.md",
+  "packages/react-query-next-experimental/CHANGELOG.md",
+  "packages/react-query-persist-client/CHANGELOG.md",
+  "packages/react-query/CHANGELOG.md",
+  "packages/solid-query-devtools/CHANGELOG.md",
+  "packages/solid-query-persist-client/CHANGELOG.md",
+  "packages/solid-query/CHANGELOG.md",
+  "packages/svelte-query-devtools/CHANGELOG.md",
+  "packages/svelte-query-persist-client/CHANGELOG.md",
+  "packages/svelte-query/CHANGELOG.md",
+  "packages/vue-query-devtools/CHANGELOG.md",
+  "packages/vue-query/CHANGELOG.md",
+  # Package version bumps
+  "packages/angular-query-experimental/package.json",
+  "packages/angular-query-persist-client/package.json",
+  "packages/eslint-plugin-query/package.json",
+  "packages/preact-query-devtools/package.json",
+  "packages/preact-query-persist-client/package.json",
+  "packages/preact-query/package.json",
+  "packages/query-async-storage-persister/package.json",
+  "packages/query-broadcast-client-experimental/package.json",
+  "packages/query-core/package.json",
+  "packages/query-devtools/package.json",
+  "packages/query-persist-client-core/package.json",
+  "packages/query-sync-storage-persister/package.json",
+  "packages/react-query-devtools/package.json",
+  "packages/react-query-next-experimental/package.json",
+  "packages/react-query-persist-client/package.json",
+  "packages/react-query/package.json",
+  "packages/solid-query-devtools/package.json",
+  "packages/solid-query-persist-client/package.json",
+  "packages/solid-query/package.json",
+  "packages/svelte-query-devtools/package.json",
+  "packages/svelte-query-persist-client/package.json",
+  "packages/svelte-query/package.json",
+  "packages/vue-query-devtools/package.json",
+  "packages/vue-query/package.json",
+  # Build config tweaks
+  "packages/preact-query/tsconfig.prod.json",
+  "packages/query-core/tsconfig.prod.json",
+  "packages/react-query/tsconfig.prod.json",
+  "packages/solid-query/tsconfig.prod.json",
+  # Root config
+  "package.json",
+  "pnpm-lock.yaml",
+  "knip.json",
+]
+
+non_infrastructure = [
+  # ESLint plugin exhaustive-deps feature — rule, utils, tests, docs, demo
+  "packages/eslint-plugin-query/src/rules/exhaustive-deps/exhaustive-deps.rule.ts",
+  "packages/eslint-plugin-query/src/rules/exhaustive-deps/exhaustive-deps.utils.ts",
+  "packages/eslint-plugin-query/src/__tests__/exhaustive-deps.test.ts",
+  "packages/eslint-plugin-query/src/utils/ast-utils.ts",
+  "docs/eslint/exhaustive-deps.md",
+  "examples/react/eslint-plugin-demo/eslint.config.js",
+  "examples/react/eslint-plugin-demo/src/allowlist-demo.tsx",
+  "examples/react/eslint-plugin-demo/tsconfig.json",
+  # query-core timeoutManager leak fix
+  "packages/query-core/src/timeoutManager.ts",
+  # Example app type-safety fixes (rootElement null check pattern)
+  "examples/react/algolia/src/index.tsx",
+  "examples/react/basic-graphql-request/src/index.tsx",
+  "examples/react/chat/src/index.tsx",
+  "examples/react/default-query-function/src/index.tsx",
+  "examples/react/devtools-panel/src/index.tsx",
+  "examples/react/eslint-legacy/src/index.tsx",
+  "examples/react/offline/src/index.tsx",
+  "examples/react/playground/src/index.tsx",
+  "examples/react/react-router/src/index.tsx",
+  "examples/react/suspense/src/index.tsx",
+  # Star Wars example — type narrowing fix
+  "examples/react/star-wars/src/Film.tsx",
+]
