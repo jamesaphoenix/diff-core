@@ -802,8 +802,11 @@ fn is_config_like_filename(path: &str) -> bool {
         return true;
     }
 
-    // Scripts directory
-    if lower.starts_with("scripts/") {
+    // Scripts and packaging directories
+    if lower.starts_with("scripts/")
+        || lower.contains("/pkg/brew/")
+        || lower.starts_with("pkg/brew/")
+    {
         return true;
     }
 
