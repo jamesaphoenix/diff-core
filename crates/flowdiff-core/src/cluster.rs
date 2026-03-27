@@ -552,12 +552,17 @@ fn is_test_file_name(path: &str) -> bool {
         return true;
     }
 
-    // Directory patterns: files in tests/, test/, __tests__/ directories
+    // Directory patterns: files in tests/, test/, __tests__/, testscripts/, specs/ directories
     if lower.contains("/tests/")
         || lower.contains("/test/")
         || lower.contains("/__tests__/")
+        || lower.contains("/testscripts/")
+        || lower.contains("/testdata/")
+        || lower.contains("/specs/")
         || lower.starts_with("tests/")
         || lower.starts_with("test/")
+        || lower.starts_with("testscripts/")
+        || lower.starts_with("specs/")
     {
         return true;
     }
