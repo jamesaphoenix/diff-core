@@ -1,0 +1,53 @@
+# Go — chi HTTP router, ~23 files
+# 15-commit range: middleware improvements, path value handling, pattern matching.
+[[repos]]
+name = "chi-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/chi"
+language = "go"
+range = "9b9fb55def404397748a9fc7e044efe9db1d618e..a54874f0e2f12647a19e82ee70dfa8185014100c"
+notes = "MEDIUM. 15-commit range: middleware, path values, pattern matching. ~23 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 7
+same_group = [
+  ["middleware/compress.go", "middleware/compress_test.go"],
+  ["middleware/strip.go", "middleware/strip_test.go"],
+  ["middleware/route_headers.go", "middleware/route_headers_test.go"],
+  ["tree.go", "tree_test.go"],
+  ["mux.go", "mux_test.go"],
+  ["path_value.go", "path_value_test.go"],
+]
+infrastructure = [
+  ".github/workflows/ci.yml",
+  "go.mod",
+]
+non_infrastructure = [
+  "_examples/graceful/main.go",
+  "_examples/router-walk/main.go",
+  "chi.go",
+  "middleware/compress.go",
+  "middleware/compress_test.go",
+  "middleware/content_charset.go",
+  "middleware/request_id.go",
+  "middleware/route_headers.go",
+  "middleware/route_headers_test.go",
+  "middleware/strip.go",
+  "middleware/strip_test.go",
+  "middleware/throttle_test.go",
+  "mux.go",
+  "mux_test.go",
+  "path_value.go",
+  "path_value_fallback.go",
+  "path_value_test.go",
+  "pattern.go",
+  "pattern_fallback.go",
+  "tree.go",
+  "tree_test.go",
+]
