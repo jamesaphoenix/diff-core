@@ -1,0 +1,85 @@
+# Java — Spring Boot petclinic historical range, ~51 files
+# 9-commit range: build/toolchain upgrades, localized error-page messaging, NullAway/JSpecify migration.
+[[repos]]
+name = "spring-petclinic-boot4-i18n"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/java/spring-petclinic"
+language = "java"
+range = "f9399b7a9fe3a244ba75e83bf2bc6f2cb32b3011..a0aea8e8f8ccc8ff85e97f418484ca9d0d29012f"
+notes = "MEDIUM. 9-commit range: Maven/Gradle and wrapper upgrades for Boot 4.0.0-M2, localized status-specific error-page messaging, and a broad NullAway/JSpecify source migration. 51 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 5
+same_group = [
+  ["build.gradle", "pom.xml"],
+  ["mvnw", "mvnw.cmd"],
+  ["src/main/resources/templates/error.html", "src/main/resources/messages/messages.properties"],
+  ["src/main/java/org/springframework/samples/petclinic/model/BaseEntity.java", "src/main/java/org/springframework/samples/petclinic/model/NamedEntity.java"],
+  ["src/test/java/org/springframework/samples/petclinic/MySqlIntegrationTests.java", "src/test/java/org/springframework/samples/petclinic/PostgresIntegrationTests.java"],
+]
+separate_group = [
+  ["build.gradle", "src/main/resources/templates/error.html"],
+  ["build.gradle", "src/main/java/org/springframework/samples/petclinic/model/BaseEntity.java"],
+  ["src/main/resources/templates/error.html", "src/main/java/org/springframework/samples/petclinic/model/BaseEntity.java"],
+]
+infrastructure = [
+  ".gitattributes",
+  ".github/workflows/gradle-build.yml",
+  ".github/workflows/maven-build.yml",
+  ".mvn/jvm.config",
+  ".mvn/wrapper/maven-wrapper.properties",
+  "README.md",
+  "build.gradle",
+  "docker-compose.yml",
+  "gradle/wrapper/gradle-wrapper.properties",
+  "k8s/db.yml",
+  "mvnw",
+  "mvnw.cmd",
+  "pom.xml",
+  "src/main/resources/static/resources/css/petclinic.css",
+]
+non_infrastructure = [
+  "src/main/java/org/springframework/samples/petclinic/PetClinicRuntimeHints.java",
+  "src/main/java/org/springframework/samples/petclinic/model/BaseEntity.java",
+  "src/main/java/org/springframework/samples/petclinic/model/NamedEntity.java",
+  "src/main/java/org/springframework/samples/petclinic/model/Person.java",
+  "src/main/java/org/springframework/samples/petclinic/model/package-info.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/Owner.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/OwnerRepository.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/Pet.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/PetController.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/PetTypeFormatter.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/PetTypeRepository.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/Visit.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/VisitController.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/package-info.java",
+  "src/main/java/org/springframework/samples/petclinic/package-info.java",
+  "src/main/java/org/springframework/samples/petclinic/system/CacheConfiguration.java",
+  "src/main/java/org/springframework/samples/petclinic/system/package-info.java",
+  "src/main/java/org/springframework/samples/petclinic/vet/Vet.java",
+  "src/main/java/org/springframework/samples/petclinic/vet/Vets.java",
+  "src/main/java/org/springframework/samples/petclinic/vet/package-info.java",
+  "src/main/resources/messages/messages.properties",
+  "src/main/resources/messages/messages_de.properties",
+  "src/main/resources/messages/messages_es.properties",
+  "src/main/resources/messages/messages_fa.properties",
+  "src/main/resources/messages/messages_ko.properties",
+  "src/main/resources/messages/messages_pt.properties",
+  "src/main/resources/messages/messages_ru.properties",
+  "src/main/resources/messages/messages_tr.properties",
+  "src/main/resources/templates/error.html",
+  "src/test/java/org/springframework/samples/petclinic/MySqlIntegrationTests.java",
+  "src/test/java/org/springframework/samples/petclinic/PetClinicIntegrationTests.java",
+  "src/test/java/org/springframework/samples/petclinic/PostgresIntegrationTests.java",
+  "src/test/java/org/springframework/samples/petclinic/owner/PetControllerTests.java",
+  "src/test/java/org/springframework/samples/petclinic/service/ClinicServiceTests.java",
+  "src/test/java/org/springframework/samples/petclinic/service/EntityUtils.java",
+  "src/test/java/org/springframework/samples/petclinic/system/CrashControllerIntegrationTests.java",
+]
