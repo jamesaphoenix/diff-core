@@ -382,7 +382,9 @@ fn merge_groups_by_stem(mut groups: Vec<FlowGroup>) -> Vec<FlowGroup> {
         let mut best_merge: Option<(usize, usize)> = None;
         for (_stem, locations) in &stem_locations {
             let group_indices: HashSet<usize> = locations.iter().map(|(g, _)| *g).collect();
-            if group_indices.len() < 2 {
+            // Only merge if stem appears in exactly 2 groups.
+            // Stems in 3+ groups are too common and cause cascade-merging.
+            if group_indices.len() != 2 {
                 continue;
             }
             let has_test = locations.iter().any(|(_, t)| *t);
