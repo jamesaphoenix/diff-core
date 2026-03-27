@@ -499,6 +499,7 @@ async fn run_refinement(
             .key_cmd
             .clone()
             .or_else(|| config.llm.key_cmd.clone()),
+        key: config.llm.key.clone(),
         ..Default::default()
     };
 
@@ -1133,7 +1134,7 @@ mod tests {
                 provider: Some("anthropic".to_string()),
                 model: Some("claude-sonnet-4-6".to_string()),
                 key_cmd: Some("echo main-key".to_string()),
-                key: None,
+                key: Some("main-inline-key".to_string()),
                 refinement: flowdiff_core::config::RefinementConfig {
                     enabled: true,
                     provider: Some("openai".to_string()),
@@ -1164,6 +1165,7 @@ mod tests {
                 .key_cmd
                 .clone()
                 .or_else(|| config.llm.key_cmd.clone()),
+            key: config.llm.key.clone(),
             ..Default::default()
         };
 
@@ -1172,6 +1174,10 @@ mod tests {
         assert_eq!(
             refinement_llm_config.key_cmd,
             Some("echo refinement-key".to_string())
+        );
+        assert_eq!(
+            refinement_llm_config.key,
+            Some("main-inline-key".to_string())
         );
     }
 
@@ -1182,7 +1188,7 @@ mod tests {
                 provider: Some("anthropic".to_string()),
                 model: Some("claude-sonnet-4-6".to_string()),
                 key_cmd: Some("echo main-key".to_string()),
-                key: None,
+                key: Some("main-inline-key".to_string()),
                 refinement: flowdiff_core::config::RefinementConfig {
                     enabled: true,
                     provider: None,
@@ -1213,6 +1219,7 @@ mod tests {
                 .key_cmd
                 .clone()
                 .or_else(|| config.llm.key_cmd.clone()),
+            key: config.llm.key.clone(),
             ..Default::default()
         };
 
@@ -1227,6 +1234,10 @@ mod tests {
         assert_eq!(
             refinement_llm_config.key_cmd,
             Some("echo main-key".to_string())
+        );
+        assert_eq!(
+            refinement_llm_config.key,
+            Some("main-inline-key".to_string())
         );
     }
 

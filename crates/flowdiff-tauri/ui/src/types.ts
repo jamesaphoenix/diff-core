@@ -204,6 +204,31 @@ export interface LlmSettings {
   claude_authenticated: boolean;
 }
 
+export interface AsyncLlmJobStart {
+  job_id: string;
+  stream_url: string;
+  operation: string;
+  provider: string;
+  model: string;
+  title: string;
+}
+
+export interface LlmActivityEntry {
+  source: string;
+  level: string;
+  message: string;
+  event_type?: string | null;
+  timestamp_ms: number;
+}
+
+export interface LlmActivityJob {
+  job_id: string;
+  operation: string;
+  provider: string;
+  model: string;
+  title: string;
+}
+
 // ── LLM Refinement Types ──
 
 /** Result of an LLM refinement pass. */

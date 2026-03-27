@@ -10,6 +10,7 @@
 #![deny(clippy::print_stderr)]
 
 mod commands;
+mod activity_stream;
 
 use commands::AppState;
 
@@ -40,9 +41,10 @@ fn main() {
     if let Err(e) = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(AppState::new())
-        .setup(|_app| {
+        .setup(|app| {
             #[cfg(target_os = "macos")]
             set_macos_dock_icon();
+            let _ = app;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -50,8 +52,11 @@ fn main() {
             commands::get_last_analysis,
             commands::get_mermaid,
             commands::get_file_diff,
+            commands::start_annotate_overview,
             commands::annotate_overview,
+            commands::start_annotate_group,
             commands::annotate_group,
+            commands::start_refine_groups,
             commands::list_branches,
             commands::list_worktrees,
             commands::get_branch_status,

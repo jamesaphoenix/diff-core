@@ -1,10 +1,11 @@
 use std::path::PathBuf;
-use std::process::Command as StdCommand;
+use std::process::{Command as StdCommand, Stdio};
 
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use tokio::process::Command;
-use tokio::time::{timeout, Duration};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::time::{sleep, Duration};
 
 use super::schema;
 use super::{
@@ -49,12 +50,13 @@ impl ClaudeCliProvider {
         user_prompt: String,
         json_schema: serde_json::Value,
     ) -> Result<T, LlmError> {
-        let status = detect_status();
-        if !status.installed {
+        let Some(claude_path) = super::resolve_cli_executable("claude") else {
             return Err(LlmError::CommandUnavailable(
                 "claude CLI is not installed".to_string(),
             ));
-        }
+        };
+
+        let status = detect_status();
         if !status.authenticated {
             return Err(LlmError::AuthError(
                 "Claude Code is installed but not logged in. Run `claude auth login`.".to_string(),
@@ -64,12 +66,13 @@ impl ClaudeCliProvider {
         let schema_text = serde_json::to_string(&schema::flatten_json_schema(json_schema))
             .map_err(|e| LlmError::ParseResponse(format!("Failed to serialize schema: {}", e)))?;
 
-        let mut command = Command::new("claude");
+        let mut command = Command::new(&claude_path);
         command
             .current_dir(self.workdir())
             .arg("--print")
             .arg("--output-format")
-            .arg("json")
+            .arg("stream-json")
+            .arg("--verbose")
             .arg("--json-schema")
             .arg(schema_text)
             .arg("--system-prompt")
@@ -80,35 +83,65 @@ impl ClaudeCliProvider {
             command.arg("--model").arg(model);
         }
 
-        let output = timeout(Duration::from_secs(CLI_TIMEOUT_SECS), command.output())
-            .await
-            .map_err(|_| LlmError::Timeout(CLI_TIMEOUT_SECS))?
-            .map_err(|e| LlmError::CommandFailed(format!("Failed to launch claude: {}", e)))?;
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        super::emit_activity(super::ActivityUpdate::info(
+            "claude",
+            "Launching Claude Code",
+            Some("claude.launch".to_string()),
+        ));
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut child = command
+            .spawn()
+            .map_err(|e| LlmError::CommandFailed(format!("Failed to launch claude: {}", e)))?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            LlmError::CommandFailed("Failed to capture claude stdout".to_string())
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            LlmError::CommandFailed("Failed to capture claude stderr".to_string())
+        })?;
+        let activity_callback = super::current_activity_callback();
+
+        let stdout_activity_callback = activity_callback.clone();
+        let stdout_task = tokio::spawn(async move {
+            collect_claude_stream(stdout, "stdout", true, stdout_activity_callback).await
+        });
+        let stderr_task = tokio::spawn(async move {
+            collect_claude_stream(stderr, "stderr", false, activity_callback).await
+        });
+
+        let timeout_sleep = sleep(Duration::from_secs(CLI_TIMEOUT_SECS));
+        tokio::pin!(timeout_sleep);
+
+        let status = tokio::select! {
+            result = child.wait() => result.map_err(|e| LlmError::CommandFailed(format!("Failed to wait for claude: {}", e)))?,
+            _ = &mut timeout_sleep => {
+                let _ = child.kill().await;
+                return Err(LlmError::Timeout(CLI_TIMEOUT_SECS));
+            }
+        };
+
+        let stdout = stdout_task
+            .await
+            .map_err(|e| LlmError::CommandFailed(format!("Failed to join claude stdout task: {}", e)))?
+            .map_err(|e| LlmError::CommandFailed(format!("Failed to read claude stdout: {}", e)))?;
+        let stderr = stderr_task
+            .await
+            .map_err(|e| LlmError::CommandFailed(format!("Failed to join claude stderr task: {}", e)))?
+            .map_err(|e| LlmError::CommandFailed(format!("Failed to read claude stderr: {}", e)))?;
+
+        if !status.success() {
             let combined = format!("{}\n{}", stderr, stdout);
             let message = redact_api_keys(&truncate_to_token_budget(&combined, 400));
             return Err(LlmError::CommandFailed(format!(
                 "claude --print exited with {}: {}",
-                output.status, message
+                status, message
             )));
         }
 
-        let response_text = String::from_utf8_lossy(&output.stdout).to_string();
-        let parsed: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
-            LlmError::ParseResponse(format!(
-                "Failed to parse Claude response envelope: {} — response: {}",
-                e,
-                redact_api_keys(&truncate_to_token_budget(&response_text, 400))
-            ))
-        })?;
-
-        let structured = parsed.get("structured_output").cloned().ok_or_else(|| {
+        let structured = parse_claude_structured_output(&stdout).ok_or_else(|| {
             LlmError::ParseResponse(format!(
                 "Claude response did not include structured_output: {}",
-                redact_api_keys(&truncate_to_token_budget(&response_text, 400))
+                redact_api_keys(&truncate_to_token_budget(&stdout, 400))
             ))
         })?;
 
@@ -116,7 +149,7 @@ impl ClaudeCliProvider {
             LlmError::ParseResponse(format!(
                 "Failed to parse Claude structured output: {} — response: {}",
                 e,
-                redact_api_keys(&truncate_to_token_budget(&response_text, 400))
+                redact_api_keys(&truncate_to_token_budget(&stdout, 400))
             ))
         })
     }
@@ -177,7 +210,17 @@ impl LlmProvider for ClaudeCliProvider {
 }
 
 pub fn detect_status() -> BackendStatus {
-    let output = StdCommand::new("claude").arg("auth").arg("status").output();
+    let Some(claude_path) = super::resolve_cli_executable("claude") else {
+        return BackendStatus {
+            installed: false,
+            authenticated: false,
+        };
+    };
+
+    let output = StdCommand::new(claude_path)
+        .arg("auth")
+        .arg("status")
+        .output();
 
     match output {
         Ok(output) => {
@@ -199,5 +242,207 @@ pub fn detect_status() -> BackendStatus {
             installed: false,
             authenticated: false,
         },
+    }
+}
+
+async fn collect_claude_stream<R>(
+    reader: R,
+    stream_name: &str,
+    parse_json: bool,
+    activity_callback: Option<super::ActivityCallback>,
+) -> Result<String, std::io::Error>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut output = String::new();
+    let mut lines = BufReader::new(reader).lines();
+    while let Some(line) = lines.next_line().await? {
+        if !line.is_empty() {
+            output.push_str(&line);
+            output.push('\n');
+        }
+        if let Some(update) = summarize_claude_line(&line, stream_name, parse_json) {
+            if let Some(callback) = &activity_callback {
+                callback(update);
+            } else {
+                super::emit_activity(update);
+            }
+        }
+    }
+    Ok(output)
+}
+
+fn summarize_claude_line(
+    line: &str,
+    stream_name: &str,
+    parse_json: bool,
+) -> Option<super::ActivityUpdate> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if !parse_json {
+        return Some(super::ActivityUpdate::warning(
+            "claude",
+            truncate_for_activity(trimmed),
+            Some(format!("{}.stderr", stream_name)),
+        ));
+    }
+
+    let parsed = serde_json::from_str::<serde_json::Value>(trimmed).ok()?;
+    let event_type = parsed
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+
+    match event_type.as_deref() {
+        Some("system") => match parsed
+            .get("subtype")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+        {
+            "init" => Some(super::ActivityUpdate::info(
+                "claude",
+                "Claude session initialized",
+                Some("system.init".to_string()),
+            )),
+            "api_retry" => {
+                let attempt = parsed
+                    .get("attempt")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0);
+                let max_retries = parsed
+                    .get("max_retries")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0);
+                Some(super::ActivityUpdate::warning(
+                    "claude",
+                    format!("Claude retrying request ({}/{})", attempt, max_retries),
+                    Some("system.api_retry".to_string()),
+                ))
+            }
+            other => Some(super::ActivityUpdate::info(
+                "claude",
+                format!("Claude system event: {}", other),
+                event_type,
+            )),
+        },
+        Some("assistant") => summarize_claude_assistant(&parsed),
+        Some("result") => {
+            let subtype = parsed
+                .get("subtype")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("result");
+            let is_error = parsed
+                .get("is_error")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if is_error {
+                Some(super::ActivityUpdate::error(
+                    "claude",
+                    format!("Claude finished with {}", subtype),
+                    event_type,
+                ))
+            } else {
+                Some(super::ActivityUpdate::info(
+                    "claude",
+                    "Claude completed the response",
+                    event_type,
+                ))
+            }
+        }
+        Some("rate_limit_event") => Some(super::ActivityUpdate::warning(
+            "claude",
+            "Claude reported a rate limit event",
+            event_type,
+        )),
+        _ => None,
+    }
+}
+
+fn summarize_claude_assistant(parsed: &serde_json::Value) -> Option<super::ActivityUpdate> {
+    let content = parsed
+        .get("message")
+        .and_then(|message| message.get("content"))
+        .and_then(serde_json::Value::as_array)?;
+
+    let first_item = content.first()?;
+    let content_type = first_item
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("assistant");
+
+    match content_type {
+        "thinking" => Some(super::ActivityUpdate::info(
+            "claude",
+            "Claude is reasoning",
+            Some("assistant.thinking".to_string()),
+        )),
+        "text" => Some(super::ActivityUpdate::info(
+            "claude",
+            truncate_for_activity(
+                first_item
+                    .get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("Claude sent text"),
+            ),
+            Some("assistant.text".to_string()),
+        )),
+        "tool_use" => {
+            let tool_name = first_item
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("tool");
+            let description = first_item
+                .get("input")
+                .and_then(|input| input.get("description"))
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| {
+                    first_item
+                        .get("input")
+                        .and_then(|input| input.get("prompt"))
+                        .and_then(serde_json::Value::as_str)
+                })
+                .map(truncate_for_activity);
+            let message = match description {
+                Some(description) => format!("Claude used {}: {}", tool_name, description),
+                None => format!("Claude used {}", tool_name),
+            };
+            Some(super::ActivityUpdate::info(
+                "claude",
+                message,
+                Some(format!("assistant.tool_use.{}", tool_name)),
+            ))
+        }
+        other => Some(super::ActivityUpdate::info(
+            "claude",
+            format!("Claude emitted {}", other),
+            Some(format!("assistant.{}", other)),
+        )),
+    }
+}
+
+fn parse_claude_structured_output(output: &str) -> Option<serde_json::Value> {
+    for line in output.lines().rev() {
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if parsed.get("type").and_then(serde_json::Value::as_str) == Some("result") {
+            if let Some(structured) = parsed.get("structured_output") {
+                return Some(structured.clone());
+            }
+        }
+    }
+    None
+}
+
+fn truncate_for_activity(text: &str) -> String {
+    const MAX_LEN: usize = 180;
+    if text.chars().count() <= MAX_LEN {
+        text.to_string()
+    } else {
+        let truncated: String = text.chars().take(MAX_LEN).collect();
+        format!("{}...", truncated)
     }
 }

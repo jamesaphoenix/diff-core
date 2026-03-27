@@ -10,6 +10,9 @@ import type {
   BranchInfo,
   LlmSettings,
   LlmProvider,
+  AsyncLlmJobStart,
+  LlmActivityEntry,
+  LlmActivityJob,
   RefinementResult,
   RefinementResponse,
   ReviewComment,
@@ -41,6 +44,44 @@ const PROVIDER_LABELS: Record<LlmProvider, string> = {
   gemini: "Gemini API",
 };
 
+type OnboardingStep = "recommended" | "api";
+type SubscriptionProvider = "codex" | "claude";
+type RightPanelTab = "activity" | "annotations";
+type ActivityKind =
+  | "system"
+  | "search"
+  | "read"
+  | "command"
+  | "reasoning"
+  | "result"
+  | "warning"
+  | "error";
+
+const API_PROVIDER_OPTIONS: LlmProvider[] = ["openai", "anthropic", "gemini"];
+
+const SUBSCRIPTION_BACKENDS: Array<{
+  provider: SubscriptionProvider;
+  title: string;
+  description: string;
+  installCommand: string;
+  loginCommand: string;
+}> = [
+  {
+    provider: "codex",
+    title: "Codex CLI",
+    description: "Best path if you already use Codex. flowdiff can reuse that login and let Codex inspect the repo directly.",
+    installCommand: "npm install -g @openai/codex",
+    loginCommand: "codex login",
+  },
+  {
+    provider: "claude",
+    title: "Claude Code",
+    description: "Use your Claude Code subscription instead of pasting a separate Anthropic key into every repo.",
+    installCommand: "brew install claude-code",
+    loginCommand: "claude auth login",
+  },
+];
+
 function isApiProvider(provider: string): boolean {
   return provider === "anthropic" || provider === "openai" || provider === "gemini";
 }
@@ -63,6 +104,11 @@ export default function App() {
   const [deepAnalyzing, setDeepAnalyzing] = useState(false);
   // Counter to track concurrent deep analysis requests — prevents premature loading state clear
   const deepAnalyzingCount = useRef(0);
+  const [activityJob, setActivityJob] = useState<LlmActivityJob | null>(null);
+  const [activityEntries, setActivityEntries] = useState<LlmActivityEntry[]>([]);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const activitySourceRef = useRef<EventSource | null>(null);
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("annotations");
 
   // Repo and git state
   const [repoPath, setRepoPath] = useState(IS_TAURI ? "" : "/demo/repo");
@@ -76,6 +122,9 @@ export default function App() {
   // LLM settings
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aiSetupOpen, setAiSetupOpen] = useState(false);
+  const [aiSetupStep, setAiSetupStep] = useState<OnboardingStep>("recommended");
+  const [apiProviderDraft, setApiProviderDraft] = useState<LlmProvider>("openai");
   const [apiKeyInput, setApiKeyInput] = useState("");
 
   // Ignore paths state
@@ -96,6 +145,7 @@ export default function App() {
   const [refinementResponse, setRefinementResponse] = useState<RefinementResponse | null>(null);
   const [refinementProvider, setRefinementProvider] = useState<string | null>(null);
   const [refinementModel, setRefinementModel] = useState<string | null>(null);
+  const [refinementHadChanges, setRefinementHadChanges] = useState<boolean | null>(null);
   const [showRefined, setShowRefined] = useState(false);
   const [refining, setRefining] = useState(false);
 
@@ -127,7 +177,8 @@ export default function App() {
 
   // Demo mode: auto-load mock data on mount when not in Tauri
   const demoLoaded = useRef(false);
-  const onboardingPrompted = useRef(false);
+  const demoLlmSettingsRef = useRef<LlmSettings>(MOCK_LLM_SETTINGS);
+  const aiSetupDismissed = useRef(false);
 
   // Refs for keyboard nav to access latest state without re-registering listener
   const selectedGroupRef = useRef(selectedGroup);
@@ -154,10 +205,13 @@ export default function App() {
           repoPath: path,
         });
       } else {
-        settings = MOCK_LLM_SETTINGS;
+        settings = demoLlmSettingsRef.current;
       }
       setLlmSettings(settings);
       setHasApiKey(settings.has_api_key);
+      if (isApiProvider(settings.provider)) {
+        setApiProviderDraft(settings.provider as LlmProvider);
+      }
     } catch {
       // Non-fatal
     }
@@ -167,21 +221,29 @@ export default function App() {
   const saveLlmSettings = useCallback(async (settings: LlmSettings) => {
     setLlmSettings(settings);
     setHasApiKey(settings.has_api_key);
-    if (IS_TAURI && repoPath) {
-      try {
-        await tauriInvoke("save_llm_settings", {
-          repoPath,
-          settings,
-        });
-        // Re-check API key availability after save
-        const updated = await tauriInvoke<LlmSettings>("get_llm_settings", {
-          repoPath,
-        });
-        setLlmSettings(updated);
-        setHasApiKey(updated.has_api_key);
-      } catch {
-        // Non-fatal: settings are still applied in-memory
+    if (isApiProvider(settings.provider)) {
+      setApiProviderDraft(settings.provider as LlmProvider);
+    }
+    if (!IS_TAURI) {
+      demoLlmSettingsRef.current = settings;
+      return;
+    }
+    try {
+      await tauriInvoke("save_llm_settings", {
+        repoPath: repoPath || "",
+        settings,
+      });
+      // Re-check API key availability after save
+      const updated = await tauriInvoke<LlmSettings>("get_llm_settings", {
+        repoPath: repoPath || null,
+      });
+      setLlmSettings(updated);
+      setHasApiKey(updated.has_api_key);
+      if (isApiProvider(updated.provider)) {
+        setApiProviderDraft(updated.provider as LlmProvider);
       }
+    } catch {
+      // Non-fatal: settings are still applied in-memory
     }
   }, [repoPath]);
 
@@ -230,12 +292,161 @@ export default function App() {
   }, [repoPath, loadRepoInfo]);
 
   useEffect(() => {
-    if (!repoPath || !llmSettings || onboardingPrompted.current) return;
-    if (!llmSettings.has_api_key) {
-      onboardingPrompted.current = true;
-      setSettingsOpen(true);
+    if (!repoPath) {
+      loadLlmSettings(null);
     }
-  }, [repoPath, llmSettings]);
+  }, [repoPath, loadLlmSettings]);
+
+  useEffect(() => {
+    if (!llmSettings) return;
+    if (
+      llmSettings.has_api_key
+      || llmSettings.codex_authenticated
+      || llmSettings.claude_authenticated
+    ) {
+      setAiSetupOpen(false);
+      return;
+    }
+    if (aiSetupDismissed.current) return;
+    setAiSetupOpen(true);
+    setAiSetupStep("recommended");
+  }, [llmSettings]);
+
+  const closeActivityStream = useCallback(() => {
+    if (activitySourceRef.current) {
+      activitySourceRef.current.close();
+      activitySourceRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => closeActivityStream(), [closeActivityStream]);
+
+  useEffect(() => {
+    if (activityJob || activityEntries.length > 0 || activityError) {
+      setRightPanelTab("activity");
+    }
+  }, [activityEntries.length, activityError, activityJob]);
+
+  const appendActivityEntry = useCallback((entry: LlmActivityEntry) => {
+    setActivityEntries((prev) => {
+      const next = [...prev, entry];
+      return next.slice(-80);
+    });
+  }, []);
+
+  const runMockActivityJob = useCallback(
+    async <T,>(
+      job: LlmActivityJob,
+      entries: Array<Omit<LlmActivityEntry, "timestamp_ms">>,
+      result: T,
+      onComplete: (value: T) => void,
+    ) => {
+      closeActivityStream();
+      setActivityJob(job);
+      setActivityEntries([]);
+      setActivityError(null);
+      for (const [index, entry] of entries.entries()) {
+        await new Promise((resolve) => setTimeout(resolve, index === 0 ? 120 : 220));
+        appendActivityEntry({ ...entry, timestamp_ms: Date.now() });
+      }
+      onComplete(result);
+      setActivityJob(null);
+    },
+    [appendActivityEntry, closeActivityStream],
+  );
+
+  const runStreamingJob = useCallback(
+    async <T,>(
+      command: string,
+      args: Record<string, unknown>,
+      onComplete: (value: T) => void,
+    ) => {
+      closeActivityStream();
+      setActivityEntries([]);
+      setActivityError(null);
+
+      const start = await tauriInvoke<AsyncLlmJobStart>(command, args);
+      setActivityJob({
+        job_id: start.job_id,
+        operation: start.operation,
+        provider: start.provider,
+        model: start.model,
+        title: start.title,
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        const source = new EventSource(start.stream_url);
+        activitySourceRef.current = source;
+
+        source.addEventListener("job_started", (event) => {
+          try {
+            const payload = JSON.parse((event as MessageEvent).data) as { title: string; provider: string; model: string; job_id: string; operation: string };
+            setActivityJob({
+              job_id: payload.job_id,
+              operation: payload.operation,
+              provider: payload.provider,
+              model: payload.model,
+              title: payload.title,
+            });
+          } catch {
+            // Ignore malformed status events
+          }
+        });
+
+        source.addEventListener("activity", (event) => {
+          try {
+            const payload = JSON.parse((event as MessageEvent).data) as { entry: LlmActivityEntry };
+            appendActivityEntry(payload.entry);
+          } catch {
+            // Ignore malformed activity events
+          }
+        });
+
+        source.addEventListener("completed", (event) => {
+          closeActivityStream();
+          try {
+            const payload = JSON.parse((event as MessageEvent).data) as { result: T };
+            onComplete(payload.result);
+            setActivityJob(null);
+            resolve();
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setActivityError(message);
+            reject(new Error(message));
+          }
+        });
+
+        source.addEventListener("failed", (event) => {
+          closeActivityStream();
+          try {
+            const payload = JSON.parse((event as MessageEvent).data) as { error: string };
+            setActivityError(payload.error);
+            appendActivityEntry({
+              source: "flowdiff",
+              level: "error",
+              message: payload.error,
+              event_type: "job.failed",
+              timestamp_ms: Date.now(),
+            });
+            setActivityJob(null);
+            reject(new Error(payload.error));
+          } catch {
+            setActivityError("Activity stream failed");
+            setActivityJob(null);
+            reject(new Error("Activity stream failed"));
+          }
+        });
+
+        source.onerror = () => {
+          closeActivityStream();
+          setActivityError("Activity stream disconnected");
+          setActivityJob(null);
+          reject(new Error("Activity stream disconnected"));
+        };
+      });
+    },
+    [appendActivityEntry, closeActivityStream],
+  );
 
   const handleSelectFile = useCallback(
     async (path: string) => {
@@ -325,12 +536,18 @@ export default function App() {
     // Reset LLM state on new analysis
     setOverview(null);
     setDeepAnalyses({});
+    closeActivityStream();
+    setActivityJob(null);
+    setActivityEntries([]);
+    setActivityError(null);
+    setRightPanelTab("annotations");
     // Reset refinement state
     setOriginalGroups(null);
     setRefinedGroups(null);
     setRefinementResponse(null);
     setRefinementProvider(null);
     setRefinementModel(null);
+    setRefinementHadChanges(null);
     setShowRefined(false);
     // Reset review tick-off state
     setReviewedGroupIds(new Set());
@@ -378,31 +595,67 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [repoPath, baseRef, handleSelectGroup]);
+  }, [repoPath, baseRef, handleSelectGroup, closeActivityStream]);
+
+  const recommendedSubscriptionProvider: SubscriptionProvider | null = llmSettings?.codex_authenticated
+    ? "codex"
+    : llmSettings?.claude_authenticated
+      ? "claude"
+      : null;
+  const resolvedPrimaryProvider = resolveInteractiveProvider(
+    llmSettings?.provider ?? null,
+    recommendedSubscriptionProvider,
+  );
+  const resolvedPrimaryModel = resolveInteractiveModel(
+    llmSettings?.model ?? null,
+    llmSettings?.provider ?? null,
+    resolvedPrimaryProvider,
+  );
+  const resolvedRefinementProvider = resolveInteractiveProvider(
+    llmSettings?.refinement_provider ?? llmSettings?.provider ?? null,
+    recommendedSubscriptionProvider,
+  );
+  const resolvedRefinementModel = resolveInteractiveModel(
+    llmSettings?.refinement_model ?? llmSettings?.model ?? null,
+    llmSettings?.refinement_provider ?? llmSettings?.provider ?? null,
+    resolvedRefinementProvider,
+  );
+  const aiAccessReady = hasApiKey || !!recommendedSubscriptionProvider;
+  const annotationsEnabled = (llmSettings?.annotations_enabled ?? false) || !!recommendedSubscriptionProvider;
 
   /** Run LLM Pass 1: overview annotation for all groups. */
   const runAnnotateOverview = useCallback(async () => {
     setAnnotating(true);
     setError(null);
     try {
-      let result: Pass1Response;
       if (IS_TAURI) {
-        result = await tauriInvoke<Pass1Response>("annotate_overview", {
+        await runStreamingJob<Pass1Response>("start_annotate_overview", {
           repoPath: repoPath || null,
-          llmProvider: llmSettings?.provider ?? null,
-          llmModel: llmSettings?.model ?? null,
+          llmProvider: resolvedPrimaryProvider,
+          llmModel: resolvedPrimaryModel,
+        }, (result) => {
+          setOverview(result);
         });
       } else {
-        await new Promise((r) => setTimeout(r, 800));
-        result = MOCK_PASS1;
+        await runMockActivityJob<Pass1Response>(
+          {
+            job_id: "mock-overview",
+            operation: "overview",
+            provider: resolvedPrimaryProvider ?? "codex",
+            model: resolvedPrimaryModel ?? "default",
+            title: "Summarizing PR",
+          },
+          buildMockActivityEntries("overview", resolvedPrimaryProvider ?? "codex"),
+          MOCK_PASS1,
+          (result) => setOverview(result),
+        );
       }
-      setOverview(result);
     } catch (e) {
       setError(`Annotation failed: ${String(e)}`);
     } finally {
       setAnnotating(false);
     }
-  }, [repoPath, llmSettings]);
+  }, [repoPath, resolvedPrimaryModel, resolvedPrimaryProvider, runMockActivityJob, runStreamingJob]);
 
   /** Run LLM Pass 2: deep analysis for the selected group. */
   const runDeepAnalysis = useCallback(async () => {
@@ -411,9 +664,8 @@ export default function App() {
     setDeepAnalyzing(true);
     setError(null);
     try {
-      let result: Pass2Response;
       if (IS_TAURI) {
-        result = await tauriInvoke<Pass2Response>("annotate_group", {
+        await runStreamingJob<Pass2Response>("start_annotate_group", {
           groupId: selectedGroup.id,
           repoPath,
           base: baseRef || "main",
@@ -421,19 +673,30 @@ export default function App() {
           range: null,
           staged: false,
           unstaged: false,
-          llmProvider: llmSettings?.provider ?? null,
-          llmModel: llmSettings?.model ?? null,
+          llmProvider: resolvedPrimaryProvider,
+          llmModel: resolvedPrimaryModel,
+        }, (result) => {
+          setDeepAnalyses((prev) => ({ ...prev, [selectedGroup.id]: result }));
         });
       } else {
-        await new Promise((r) => setTimeout(r, 600));
-        result = MOCK_PASS2[selectedGroup.id] || {
-          group_id: selectedGroup.id,
-          flow_narrative: "No deep analysis available for this group in demo mode.",
-          file_annotations: [],
-          cross_cutting_concerns: [],
-        };
+        await runMockActivityJob<Pass2Response>(
+          {
+            job_id: `mock-group-${selectedGroup.id}`,
+            operation: "group",
+            provider: resolvedPrimaryProvider ?? "codex",
+            model: resolvedPrimaryModel ?? "default",
+            title: `Analyzing ${selectedGroup.id}`,
+          },
+          buildMockActivityEntries("group", resolvedPrimaryProvider ?? "codex"),
+          MOCK_PASS2[selectedGroup.id] || {
+            group_id: selectedGroup.id,
+            flow_narrative: "No deep analysis available for this group in demo mode.",
+            file_annotations: [],
+            cross_cutting_concerns: [],
+          },
+          (result) => setDeepAnalyses((prev) => ({ ...prev, [selectedGroup.id]: result })),
+        );
       }
-      setDeepAnalyses((prev) => ({ ...prev, [selectedGroup.id]: result }));
     } catch (e) {
       setError(`Deep analysis failed: ${String(e)}`);
     } finally {
@@ -444,7 +707,52 @@ export default function App() {
         setDeepAnalyzing(false);
       }
     }
-  }, [selectedGroup, repoPath, baseRef, llmSettings]);
+  }, [selectedGroup, repoPath, baseRef, resolvedPrimaryModel, resolvedPrimaryProvider, runMockActivityJob, runStreamingJob]);
+
+  /** Show a toast notification that auto-dismisses. */
+  const showToast = useCallback((message: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(message);
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  const applyRefinementResult = useCallback((result: RefinementResult) => {
+    if (!analysis) return;
+
+    if (!originalGroups) {
+      setOriginalGroups(analysis.groups);
+    }
+
+    setRefinedGroups(result.refined_groups);
+    setRefinementResponse(result.refinement_response);
+    setRefinementProvider(result.provider);
+    setRefinementModel(result.model);
+    setRefinementHadChanges(result.had_changes);
+
+    if (result.had_changes) {
+      setShowRefined(true);
+      setAnalysis((prev) =>
+        prev
+          ? {
+              ...prev,
+              groups: result.refined_groups,
+              infrastructure_group: result.infrastructure_group ?? prev.infrastructure_group,
+            }
+          : prev,
+      );
+      setReviewedGroupIds(new Set());
+      showToast("Groups updated by refinement \u2014 review state reset");
+      const sorted = [...result.refined_groups].sort(
+        (a, b) => a.review_order - b.review_order,
+      );
+      if (sorted.length > 0) {
+        handleSelectGroup(sorted[0]);
+      }
+    } else {
+      setShowRefined(false);
+      showToast("Refinement kept the existing grouping");
+    }
+  }, [analysis, originalGroups, handleSelectGroup, showToast]);
 
   /** Run LLM refinement pass on the current analysis groups. */
   const runRefinement = useCallback(async () => {
@@ -452,57 +760,34 @@ export default function App() {
     setRefining(true);
     setError(null);
     try {
-      let result: RefinementResult;
       if (IS_TAURI) {
-        result = await tauriInvoke<RefinementResult>("refine_groups", {
+        await runStreamingJob<RefinementResult>("start_refine_groups", {
           repoPath: repoPath || null,
-          llmProvider: llmSettings?.refinement_provider ?? llmSettings?.provider ?? null,
-          llmModel: llmSettings?.refinement_model ?? llmSettings?.model ?? null,
+          llmProvider: resolvedRefinementProvider,
+          llmModel: resolvedRefinementModel,
+        }, (result) => {
+          applyRefinementResult(result);
         });
       } else {
-        await new Promise((r) => setTimeout(r, 1200));
-        result = MOCK_REFINEMENT;
-      }
-
-      // Store original groups before switching
-      if (!originalGroups) {
-        setOriginalGroups(analysis.groups);
-      }
-
-      setRefinedGroups(result.refined_groups);
-      setRefinementResponse(result.refinement_response);
-      setRefinementProvider(result.provider);
-      setRefinementModel(result.model);
-
-      if (result.had_changes) {
-        // Switch to refined view and update the analysis
-        setShowRefined(true);
-        setAnalysis((prev) =>
-          prev
-            ? {
-                ...prev,
-                groups: result.refined_groups,
-                infrastructure_group: result.infrastructure_group ?? prev.infrastructure_group,
-              }
-            : prev,
+        await runMockActivityJob<RefinementResult>(
+          {
+            job_id: "mock-refinement",
+            operation: "refinement",
+            provider: resolvedRefinementProvider ?? "claude",
+            model: resolvedRefinementModel ?? "default",
+            title: "Refining groups",
+          },
+          buildMockActivityEntries("refinement", resolvedRefinementProvider ?? "claude"),
+          MOCK_REFINEMENT,
+          (result) => applyRefinementResult(result),
         );
-        // Reset reviewed state — groups have been reorganized
-        setReviewedGroupIds(new Set());
-        showToast("Groups updated by refinement \u2014 review state reset");
-        // Re-select first group in refined view
-        const sorted = [...result.refined_groups].sort(
-          (a, b) => a.review_order - b.review_order,
-        );
-        if (sorted.length > 0) {
-          handleSelectGroup(sorted[0]);
-        }
       }
     } catch (e) {
       setError(`Refinement failed: ${String(e)}`);
     } finally {
       setRefining(false);
     }
-  }, [analysis, repoPath, llmSettings, originalGroups, handleSelectGroup]);
+  }, [analysis, repoPath, resolvedRefinementModel, resolvedRefinementProvider, runMockActivityJob, runStreamingJob, applyRefinementResult]);
 
   /** Toggle between original and refined groups. */
   const toggleRefinedView = useCallback(
@@ -539,15 +824,27 @@ export default function App() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (window as any).__TEST_API__ = {
       setRepoInfo: (data: RepoInfo | null) => setRepoInfo(data),
-      setLlmSettings: (data: LlmSettings) => { setLlmSettings(data); setHasApiKey(data.has_api_key); },
+      setLlmSettings: (data: LlmSettings) => {
+        demoLlmSettingsRef.current = data;
+        setLlmSettings(data);
+        setHasApiKey(data.has_api_key);
+        if (isApiProvider(data.provider)) {
+          setApiProviderDraft(data.provider as LlmProvider);
+        }
+      },
       setAnalysis: (data: AnalysisOutput | null) => { setAnalysis(data); if (data && data.groups.length > 0) { const sorted = [...data.groups].sort((a, b) => a.review_order - b.review_order); handleSelectGroup(sorted[0]); } },
       setError: (msg: string | null) => setError(msg),
-      clearAnalysis: () => { setAnalysis(null); setSelectedGroup(null); setSelectedFile(null); setFileDiff(null); setOverview(null); setDeepAnalyses({}); setOriginalGroups(null); setRefinedGroups(null); setRefinementResponse(null); setShowRefined(false); setReviewedGroupIds(new Set()); setComments([]); setCommentInput(null); setCommentText(""); },
+      clearAnalysis: () => { setAnalysis(null); setSelectedGroup(null); setSelectedFile(null); setFileDiff(null); setOverview(null); setDeepAnalyses({}); setOriginalGroups(null); setRefinedGroups(null); setRefinementResponse(null); setRefinementProvider(null); setRefinementModel(null); setRefinementHadChanges(null); setShowRefined(false); setReviewedGroupIds(new Set()); setComments([]); setCommentInput(null); setCommentText(""); setRightPanelTab("annotations"); setActivityJob(null); setActivityEntries([]); setActivityError(null); },
+      openAiSetup: (step: OnboardingStep = "recommended") => openAiSetup(step),
+      dismissAiSetup: () => dismissAiSetup(),
+      getAiSetupState: () => ({ open: aiSetupOpen, step: aiSetupStep }),
       enterReplay: () => enterReplay(),
       exitReplay: () => exitReplay(),
       getReplayState: () => ({ active: replayActive, step: replayStep, visited: Array.from(replayVisited) }),
       toggleGroupReviewed: (id: string) => toggleGroupReviewed(id),
       getReviewedGroupIds: () => Array.from(reviewedGroupIds),
+      getActivityEntries: () => activityEntries,
+      getActivityJob: () => activityJob,
       crashPanel: (name: string | null) => setCrashPanel(name),
       copyFilePath: (path: string) => copyFilePath(path),
       getToast: () => toast,
@@ -615,6 +912,9 @@ export default function App() {
         const provider = value as LlmProvider;
         const models = MODELS_BY_PROVIDER[provider] ?? [];
         updated.model = models[0] ?? "";
+        if (isApiProvider(provider)) {
+          setApiProviderDraft(provider);
+        }
       }
       if (field === "refinement_provider") {
         const provider = value as LlmProvider;
@@ -626,27 +926,56 @@ export default function App() {
     [llmSettings, saveLlmSettings],
   );
 
+  const selectedApiModel = useMemo(
+    () => MODELS_BY_PROVIDER[apiProviderDraft]?.[0] ?? "default",
+    [apiProviderDraft],
+  );
+
   /** Save an API key to the shared flowdiff config and refresh settings. */
   const handleSaveApiKey = useCallback(async () => {
     const key = apiKeyInput.trim();
-    if (!key) return;
+    if (!key || !llmSettings) return;
+    const updated: LlmSettings = {
+      ...llmSettings,
+      annotations_enabled: true,
+      provider: apiProviderDraft,
+      model: selectedApiModel,
+      api_key_source: "~/.flowdiff/config.toml",
+      has_api_key: true,
+      refinement_provider: apiProviderDraft,
+      refinement_model: selectedApiModel,
+    };
     try {
+      await saveLlmSettings(updated);
       if (IS_TAURI) {
         await tauriInvoke("save_api_key", { repoPath: repoPath || "", apiKey: key });
+      } else {
+        demoLlmSettingsRef.current = updated;
       }
       setApiKeyInput("");
+      setAiSetupOpen(false);
       // Refresh settings to pick up the new key
       await loadLlmSettings(repoPath || null);
     } catch {
       setError("Failed to save API key");
     }
-  }, [apiKeyInput, repoPath, loadLlmSettings]);
+  }, [apiKeyInput, apiProviderDraft, llmSettings, repoPath, loadLlmSettings, saveLlmSettings, selectedApiModel]);
 
   /** Clear the stored API key from the shared flowdiff config and refresh settings. */
   const handleClearApiKey = useCallback(async () => {
     try {
       if (IS_TAURI) {
         await tauriInvoke("clear_api_key", { repoPath: repoPath || "" });
+      } else if (llmSettings) {
+        const updated: LlmSettings = {
+          ...llmSettings,
+          api_key_source: "none",
+          has_api_key: false,
+          annotations_enabled: false,
+        };
+        demoLlmSettingsRef.current = updated;
+        setLlmSettings(updated);
+        setHasApiKey(false);
       }
       setApiKeyInput("");
       // Refresh settings to reflect removal
@@ -654,7 +983,7 @@ export default function App() {
     } catch {
       setError("Failed to clear API key");
     }
-  }, [repoPath, loadLlmSettings]);
+  }, [llmSettings, repoPath, loadLlmSettings]);
 
   /** Add an ignore path pattern and persist to .flowdiff.toml. */
   const handleAddIgnorePath = useCallback(async () => {
@@ -709,6 +1038,93 @@ export default function App() {
     ? deepAnalyses[selectedGroup.id]
     : undefined;
 
+  const activityProvider = activityJob?.provider
+    ?? refinementProvider
+    ?? resolvedRefinementProvider
+    ?? resolvedPrimaryProvider
+    ?? null;
+  const activityTimeline = useMemo(
+    () => activityEntries.map((entry, index) => ({
+      id: `${entry.timestamp_ms}-${index}`,
+      entry,
+      presentation: describeActivityEntry(entry),
+    })),
+    [activityEntries],
+  );
+  const activityStats = useMemo(() => summarizeActivityTimeline(activityTimeline), [activityTimeline]);
+  const activitySupportsToolStreaming = providerSupportsToolActivity(activityProvider);
+  const refinementVerdict = useMemo(() => {
+    if (!refinementResponse || !refinementProvider) return null;
+    return {
+      provider: refinementProvider,
+      model: refinementModel ?? "default",
+      hadChanges: refinementHadChanges === true,
+      title: refinementHadChanges
+        ? "Applied structural changes"
+        : "Kept the current grouping",
+      reasoning: refinementResponse.reasoning?.trim() || null,
+    };
+  }, [refinementHadChanges, refinementModel, refinementProvider, refinementResponse]);
+
+  const openAiSetup = useCallback((step: OnboardingStep = "recommended") => {
+    aiSetupDismissed.current = false;
+    setAiSetupStep(step);
+    setAiSetupOpen(true);
+    setSettingsOpen(false);
+  }, []);
+
+  const dismissAiSetup = useCallback(() => {
+    aiSetupDismissed.current = true;
+    setAiSetupOpen(false);
+  }, []);
+
+  const refreshAiAccess = useCallback(async () => {
+    await loadLlmSettings(repoPath || null);
+  }, [loadLlmSettings, repoPath]);
+
+  const activateSubscriptionProvider = useCallback(async (provider: SubscriptionProvider) => {
+    if (!llmSettings) return;
+    const model = MODELS_BY_PROVIDER[provider]?.[0] ?? "default";
+    const updated: LlmSettings = {
+      ...llmSettings,
+      annotations_enabled: true,
+      provider,
+      model,
+      api_key_source: provider === "codex" ? "Codex CLI login" : "Claude Code subscription",
+      has_api_key: true,
+      refinement_provider: provider,
+      refinement_model: model,
+    };
+    await saveLlmSettings(updated);
+    setAiSetupOpen(false);
+  }, [llmSettings, saveLlmSettings]);
+
+  const activatePreferredActivityProvider = useCallback(async () => {
+    if (!recommendedSubscriptionProvider || !llmSettings) return;
+    const model = MODELS_BY_PROVIDER[recommendedSubscriptionProvider]?.[0] ?? "default";
+    const updated: LlmSettings = {
+      ...llmSettings,
+      annotations_enabled: true,
+      provider: recommendedSubscriptionProvider,
+      model,
+      api_key_source: recommendedSubscriptionProvider === "codex" ? "Codex CLI login" : "Claude Code subscription",
+      has_api_key: true,
+      refinement_provider: recommendedSubscriptionProvider,
+      refinement_model: model,
+    };
+    await saveLlmSettings(updated);
+    showToast(`Using ${PROVIDER_LABELS[recommendedSubscriptionProvider]} for live AI jobs`);
+  }, [llmSettings, recommendedSubscriptionProvider, saveLlmSettings, showToast]);
+
+  const openApiKeyFallback = useCallback(() => {
+    if (llmSettings && isApiProvider(llmSettings.provider)) {
+      setApiProviderDraft(llmSettings.provider as LlmProvider);
+    } else {
+      setApiProviderDraft("openai");
+    }
+    openAiSetup("api");
+  }, [llmSettings, openAiSetup]);
+
   /** Toggle reviewed state for a flow group. */
   const toggleGroupReviewed = useCallback((groupId: string) => {
     setReviewedGroupIds((prev) => {
@@ -720,13 +1136,6 @@ export default function App() {
       }
       return next;
     });
-  }, []);
-
-  /** Show a toast notification that auto-dismisses. */
-  const showToast = useCallback((message: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(message);
-    toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
   /** Build the absolute file path from repo path + relative path. */
@@ -1332,6 +1741,317 @@ export default function App() {
   // Status display
   const statusText = formatBranchStatus(repoInfo);
 
+  const annotationsTabContent = selectedGroup ? (
+    <>
+      <div className="annotation-section" data-testid="annotations-panel">
+        <h3>Flow Group</h3>
+        <p className="group-detail-name">{selectedGroup.name}</p>
+        {selectedGroup.entrypoint && (
+          <p className="entrypoint-info">
+            Entrypoint: {selectedGroup.entrypoint.symbol} (
+            {selectedGroup.entrypoint.entrypoint_type})
+          </p>
+        )}
+        <p>
+          Risk: <strong>{selectedGroup.risk_score.toFixed(2)}</strong>{" "}
+          | Files: <strong>{selectedGroup.files.length}</strong> |
+          Review order: <strong>#{selectedGroup.review_order}</strong>
+        </p>
+        {selectedGroup.files.length > 1 && !replayActive && (
+          <button
+            className="btn btn-replay"
+            onClick={enterReplay}
+            title="Step through files in data flow order (r)"
+          >
+            &#9654; Replay Flow
+          </button>
+        )}
+        {replayActive && (
+          <button
+            className="btn btn-replay-exit"
+            onClick={exitReplay}
+            title="Exit replay mode (Esc)"
+          >
+            &#10005; Exit Replay
+          </button>
+        )}
+      </div>
+
+      {refinementVerdict && (
+        <div className="annotation-section refinement-verdict-section" data-testid="refinement-verdict">
+          <h3>Refinement Verdict</h3>
+          <p className="refinement-verdict-title">{refinementVerdict.title}</p>
+          <p className="refinement-verdict-meta">
+            {PROVIDER_LABELS[refinementVerdict.provider as LlmProvider] ?? refinementVerdict.provider}/{refinementVerdict.model}
+          </p>
+          {refinementVerdict.reasoning && (
+            <p className="refinement-verdict-reasoning">{refinementVerdict.reasoning}</p>
+          )}
+        </div>
+      )}
+
+      {overview && !groupAnnotation && (
+        <div className="annotation-section llm-section">
+          <h3>LLM Overview</h3>
+          <p className="llm-summary">{overview.overall_summary}</p>
+        </div>
+      )}
+
+      {groupAnnotation && (
+        <div className="annotation-section llm-section">
+          <h3>LLM Summary</h3>
+          <p className="llm-summary">{groupAnnotation.summary}</p>
+          <p className="llm-rationale">
+            <strong>Review rationale:</strong> {groupAnnotation.review_order_rationale}
+          </p>
+          {groupAnnotation.risk_flags.length > 0 && (
+            <div className="risk-flags">
+              {groupAnnotation.risk_flags.map((flag, i) => (
+                <span key={i} className="risk-flag">{flag}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {overview && groupAnnotation && (
+        <div className="annotation-section llm-section">
+          <h3>Overall Summary</h3>
+          <p className="llm-summary">{overview.overall_summary}</p>
+        </div>
+      )}
+
+      {groupDeepAnalysis && (
+        <>
+          <div className="annotation-section llm-section">
+            <h3>Flow Narrative</h3>
+            <p className="llm-narrative">{groupDeepAnalysis.flow_narrative}</p>
+          </div>
+
+          {groupDeepAnalysis.file_annotations.length > 0 && (
+            <div className="annotation-section llm-section">
+              <h3>File Annotations</h3>
+              {groupDeepAnalysis.file_annotations.map((fa, i) => (
+                <div key={i} className="file-annotation">
+                  <div className="file-annotation-header">
+                    <span className="file-annotation-path">{shortPath(fa.file)}</span>
+                    <span className="file-annotation-role">{fa.role_in_flow}</span>
+                  </div>
+                  <p className="file-annotation-changes">{fa.changes_summary}</p>
+                  {fa.risks.length > 0 && (
+                    <div className="file-annotation-list">
+                      <span className="annotation-label risk-label">Risks:</span>
+                      <ul>
+                        {fa.risks.map((r, j) => (
+                          <li key={j}>{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {fa.suggestions.length > 0 && (
+                    <div className="file-annotation-list">
+                      <span className="annotation-label suggestion-label">Suggestions:</span>
+                      <ul>
+                        {fa.suggestions.map((s, j) => (
+                          <li key={j}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {groupDeepAnalysis.cross_cutting_concerns.length > 0 && (
+            <div className="annotation-section llm-section">
+              <h3>Cross-Cutting Concerns</h3>
+              <ul className="concerns-list">
+                {groupDeepAnalysis.cross_cutting_concerns.map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+
+      {selectedGroup.edges.length > 0 && (
+        <div className={`annotation-section flow-graph-section ${graphCollapsed ? "flow-graph-collapsed" : ""}`}>
+          <button
+            className="section-toggle"
+            onClick={() => setGraphCollapsed(!graphCollapsed)}
+            aria-expanded={!graphCollapsed}
+          >
+            <span className="section-toggle-icon">{graphCollapsed ? "\u25B6" : "\u25BC"}</span>
+            <span className="section-toggle-label">Flow Graph</span>
+          </button>
+          <div className="collapsible-body collapsible-graph">
+            <ErrorBoundary panelName="Flow Graph">
+              <CrashTest panel="Flow Graph" />
+              <FlowGraph
+                edges={selectedGroup.edges}
+                files={selectedGroup.files}
+                onNodeClick={handleGraphNodeClick}
+                replayNodeId={replayActive && selectedGroup.files[replayStep] ? selectedGroup.files[replayStep].path : null}
+              />
+            </ErrorBoundary>
+          </div>
+        </div>
+      )}
+
+      {selectedGroup.edges.length > 0 && (
+        <div className={`annotation-section edges-section ${edgesCollapsed ? "edges-collapsed" : ""}`}>
+          <button
+            className="section-toggle"
+            onClick={() => setEdgesCollapsed(!edgesCollapsed)}
+            aria-expanded={!edgesCollapsed}
+          >
+            <span className="section-toggle-icon">{edgesCollapsed ? "\u25B6" : "\u25BC"}</span>
+            <span className="section-toggle-label">Edges</span>
+            <span className="section-toggle-count">{selectedGroup.edges.length}</span>
+          </button>
+          <div className="collapsible-body collapsible-edges">
+            <ul className="edge-list">
+              {selectedGroup.edges.map((edge, i) => (
+                <li key={i} className="edge-item">
+                  <span className="edge-type">{edge.edge_type}</span>
+                  <span className="edge-from">{shortSymbol(edge.from)}</span>
+                  <span className="edge-arrow">&rarr;</span>
+                  <span className="edge-to">{shortSymbol(edge.to)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+    </>
+  ) : (
+    <div className="empty-state">
+      Select a group to see annotations.
+    </div>
+  );
+
+  const activityTabContent = (
+    <>
+      <div className="annotation-section activity-hero-section" data-testid="activity-panel">
+        <div className="activity-hero">
+          <div>
+            <p className="activity-hero-eyebrow">AI Activity</p>
+            <p className="activity-hero-title">
+              {activityJob
+                ? activityJob.title
+                : activityTimeline.length > 0
+                  ? "Latest AI run"
+                  : "No AI activity yet"}
+            </p>
+            <p className="activity-hero-subtitle">
+              {activityJob
+                ? `${PROVIDER_LABELS[activityJob.provider as LlmProvider] ?? activityJob.provider}/${activityJob.model}`
+                : activityProvider
+                  ? `${PROVIDER_LABELS[activityProvider as LlmProvider] ?? activityProvider}${activitySupportsToolStreaming ? " can stream repo activity live." : " is running in direct API mode."}`
+                  : "Run Summarize PR, Analyze This Flow, or Refine to inspect AI work."}
+            </p>
+          </div>
+          {activityJob ? (
+            <span className="activity-live-badge">Live</span>
+          ) : activityTimeline.length > 0 ? (
+            <span className="activity-live-badge activity-live-idle">Saved</span>
+          ) : null}
+        </div>
+
+        {(activityJob || activityTimeline.length > 0) && (
+          <div className="activity-stats" data-testid="activity-stats">
+            <div className="activity-stat">
+              <span className="activity-stat-value">{activityStats.total}</span>
+              <span className="activity-stat-label">events</span>
+            </div>
+            <div className="activity-stat">
+              <span className="activity-stat-value">{activityStats.search}</span>
+              <span className="activity-stat-label">search</span>
+            </div>
+            <div className="activity-stat">
+              <span className="activity-stat-value">{activityStats.read}</span>
+              <span className="activity-stat-label">reads</span>
+            </div>
+            <div className="activity-stat">
+              <span className="activity-stat-value">{activityStats.command}</span>
+              <span className="activity-stat-label">commands</span>
+            </div>
+          </div>
+        )}
+
+        {!activitySupportsToolStreaming && (
+          <div className="activity-callout" data-testid="activity-direct-api-note">
+            <p className="activity-callout-title">Direct API mode</p>
+            <p className="activity-callout-body">
+              OpenAI, Anthropic, and Gemini only emit high-level progress. File reads, grep searches,
+              and shell steps appear when Flowdiff routes the job through Codex CLI or Claude Code.
+            </p>
+            {recommendedSubscriptionProvider && (
+              <button className="btn" onClick={activatePreferredActivityProvider}>
+                Use {PROVIDER_LABELS[recommendedSubscriptionProvider]}
+              </button>
+            )}
+          </div>
+        )}
+
+        {activitySupportsToolStreaming && activityProvider && (
+          <div className="activity-callout activity-callout-positive">
+            <p className="activity-callout-title">Live repo activity enabled</p>
+            <p className="activity-callout-body">
+              {PROVIDER_LABELS[activityProvider as LlmProvider] ?? activityProvider} can inspect the repo directly,
+              so file reads, searches, and shell commands stream here while you wait.
+            </p>
+          </div>
+        )}
+
+        {refinementVerdict && (
+          <div className={`activity-callout ${refinementVerdict.hadChanges ? "activity-callout-positive" : ""}`} data-testid="activity-refinement-verdict">
+            <p className="activity-callout-title">{refinementVerdict.title}</p>
+            <p className="activity-callout-body">
+              {PROVIDER_LABELS[refinementVerdict.provider as LlmProvider] ?? refinementVerdict.provider}/{refinementVerdict.model}
+            </p>
+            {refinementVerdict.reasoning && (
+              <p className="activity-callout-body">{refinementVerdict.reasoning}</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="annotation-section activity-section" data-testid="activity-log-panel">
+        <div className="activity-log-header">
+          <h3>Timeline</h3>
+          {activityError && <span className="activity-error-inline">{activityError}</span>}
+        </div>
+        <div className="activity-log activity-log-rich" data-testid="activity-log">
+          {activityTimeline.length === 0 && (
+            <div className="activity-empty">
+              Activity will appear here once an AI job starts.
+            </div>
+          )}
+          {activityTimeline.map(({ id, entry, presentation }) => (
+            <div
+              key={id}
+              className={`activity-card activity-card-${presentation.kind} activity-${entry.level}`}
+              data-testid="activity-entry"
+            >
+              <div className="activity-card-meta">
+                <span className={`activity-kind-badge activity-kind-${presentation.kind}`}>{presentation.badge}</span>
+                <span className="activity-source-pill">{presentation.sourceLabel}</span>
+                <span className="activity-time">{formatActivityTimestamp(entry.timestamp_ms)}</span>
+              </div>
+              <p className="activity-card-title">{presentation.title}</p>
+              {presentation.detail && (
+                <p className="activity-card-detail">{presentation.detail}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+
   /** Test-only component that throws during render to exercise ErrorBoundary. */
   function CrashTest({ panel }: { panel: string }) {
     if (crashPanel === panel) {
@@ -1345,7 +2065,7 @@ export default function App() {
       {/* Top bar */}
       <header className="top-bar">
         <div className="top-bar-left">
-          <span className="logo">flowdiff</span>
+          <span className="logo">Flowdiff</span>
         </div>
         <div className="top-bar-center">
           <input
@@ -1403,6 +2123,15 @@ export default function App() {
           </button>
         </div>
         <div className="top-bar-right">
+          {!aiAccessReady && llmSettings && (
+            <button
+              className="btn btn-ai-setup"
+              onClick={() => openAiSetup("recommended")}
+              title="Choose Codex CLI, Claude Code, or a direct API key"
+            >
+              Setup AI
+            </button>
+          )}
           {/* Settings gear icon */}
           <button
             className="btn btn-settings"
@@ -1447,6 +2176,170 @@ export default function App() {
         </div>
       </header>
 
+      {aiSetupOpen && llmSettings && (
+        <div className="ai-setup-overlay" onClick={dismissAiSetup}>
+          <div
+            className="ai-setup-modal"
+            data-testid="ai-onboarding"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="ai-setup-header">
+              <div>
+                <h2>Set up AI access</h2>
+                <p>
+                  Start with a repo-aware CLI if you already have one. Only fall back to an API key if you want direct API calls.
+                </p>
+              </div>
+              <button className="btn-close" onClick={dismissAiSetup} title="Close onboarding">
+                &times;
+              </button>
+            </div>
+            <div className="ai-setup-body">
+              <div className={`ai-setup-status ${aiAccessReady ? "ready" : "missing"}`}>
+                <span className="api-key-dot" />
+                <span>
+                  {aiAccessReady
+                    ? `Ready via ${llmSettings.api_key_source}`
+                    : "No active AI backend selected yet"}
+                </span>
+              </div>
+              <p className="ai-setup-path">
+                Shared config lives in <code>{llmSettings.global_config_path}</code>, so new repos reuse the same setup.
+              </p>
+
+              <section className="ai-setup-section">
+                <div className="ai-setup-section-header">
+                  <h3>Use an existing subscription</h3>
+                  <p>If you already use Codex CLI or Claude Code, flowdiff can reuse that login. No separate API key is required.</p>
+                </div>
+                <div className="ai-backend-grid">
+                  {SUBSCRIPTION_BACKENDS.map((backend) => {
+                    const available = backend.provider === "codex"
+                      ? llmSettings.codex_available
+                      : llmSettings.claude_available;
+                    const authenticated = backend.provider === "codex"
+                      ? llmSettings.codex_authenticated
+                      : llmSettings.claude_authenticated;
+                    const statusLabel = authenticated
+                      ? "Ready"
+                      : available
+                        ? "Needs login"
+                        : "Not found";
+                    const statusDetail = authenticated
+                      ? `Use ${backend.title} as the primary backend for summaries and flow analysis.`
+                      : available
+                        ? `Finish setup with \`${backend.loginCommand}\`, then recheck.`
+                        : `Install it with \`${backend.installCommand}\`, then recheck.`;
+
+                    return (
+                      <article
+                        key={backend.provider}
+                        className={`ai-backend-card ${authenticated ? "ready" : available ? "login" : "missing"} ${llmSettings.provider === backend.provider ? "selected" : ""}`}
+                        data-testid={`ai-card-${backend.provider}`}
+                      >
+                        <div className="ai-backend-header">
+                          <div>
+                            <h4>{backend.title}</h4>
+                            <p>{backend.description}</p>
+                          </div>
+                          <span className={`ai-backend-badge ${authenticated ? "ready" : available ? "login" : "missing"}`}>
+                            {statusLabel}
+                          </span>
+                        </div>
+                        <p className="ai-backend-detail">{statusDetail}</p>
+                        {!authenticated && (
+                          <code className="ai-backend-command">
+                            {available ? backend.loginCommand : backend.installCommand}
+                          </code>
+                        )}
+                        <div className="ai-backend-actions">
+                          {authenticated ? (
+                            <button
+                              className={`btn ${recommendedSubscriptionProvider === backend.provider ? "btn-primary" : ""}`}
+                              onClick={() => activateSubscriptionProvider(backend.provider)}
+                            >
+                              Use {backend.title}
+                            </button>
+                          ) : (
+                            <button className="btn" onClick={refreshAiAccess}>
+                              Recheck
+                            </button>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className={`ai-setup-section ai-api-section ${aiSetupStep === "api" ? "expanded" : ""}`}>
+                <div className="ai-setup-section-header">
+                  <h3>Direct API fallback</h3>
+                  <p>Use this only when you want flowdiff to talk to OpenAI, Anthropic, or Gemini directly.</p>
+                </div>
+                {aiSetupStep !== "api" ? (
+                  <button className="btn" onClick={openApiKeyFallback}>
+                    Use API key instead
+                  </button>
+                ) : (
+                  <>
+                    <div className="settings-row" style={{ marginTop: 0 }}>
+                      <label>Provider</label>
+                    </div>
+                    <select
+                      className="settings-select"
+                      value={apiProviderDraft}
+                      onChange={(e) => setApiProviderDraft(e.target.value as LlmProvider)}
+                      data-testid="api-provider-select"
+                    >
+                      {API_PROVIDER_OPTIONS.map((provider) => (
+                        <option key={provider} value={provider}>
+                          {PROVIDER_LABELS[provider]}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="api-key-input-row">
+                      <input
+                        type="password"
+                        className="settings-input api-key-input"
+                        placeholder={`Paste your ${PROVIDER_LABELS[apiProviderDraft]} key`}
+                        value={apiKeyInput}
+                        onChange={(e) => setApiKeyInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && apiKeyInput.trim()) {
+                            handleSaveApiKey();
+                          }
+                        }}
+                        data-testid="api-key-input"
+                      />
+                      <button
+                        className="btn btn-save-key"
+                        disabled={!apiKeyInput.trim()}
+                        onClick={handleSaveApiKey}
+                        data-testid="api-key-save"
+                      >
+                        Save and continue
+                      </button>
+                    </div>
+                    <p className="settings-hint">
+                      flowdiff will save the provider choice and key globally, then reuse it for future repos.
+                    </p>
+                  </>
+                )}
+              </section>
+            </div>
+            <div className="ai-setup-footer">
+              <button className="btn" onClick={dismissAiSetup}>
+                Continue without AI
+              </button>
+              <button className="btn" onClick={refreshAiAccess}>
+                Recheck setup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Settings Panel Overlay */}
       {settingsOpen && llmSettings && (
         <div className="settings-overlay" onClick={() => setSettingsOpen(false)}>
@@ -1460,12 +2353,19 @@ export default function App() {
             <div className="settings-body">
               {/* LLM Access / Onboarding */}
               <div className="settings-section">
-                <h3>LLM Access</h3>
-                <div className={`api-key-status ${llmSettings.has_api_key ? "configured" : "missing"}`}>
+                <div className="settings-section-title-row">
+                  <h3>AI Access</h3>
+                  <button className="btn btn-inline-setup" onClick={() => openAiSetup("recommended")}>
+                    Open setup flow
+                  </button>
+                </div>
+                <div className={`api-key-status ${aiAccessReady ? "configured" : "missing"}`}>
                   <span className="api-key-dot" />
                   <span>
-                    {llmSettings.has_api_key
-                      ? `Ready via ${llmSettings.api_key_source}`
+                    {aiAccessReady
+                      ? `Ready via ${recommendedSubscriptionProvider
+                        ? PROVIDER_LABELS[recommendedSubscriptionProvider]
+                        : llmSettings.api_key_source}`
                       : "Not configured yet"}
                   </span>
                 </div>
@@ -1473,8 +2373,28 @@ export default function App() {
                   Saved globally in <code>{llmSettings.global_config_path}</code>, so new projects reuse the same setup.
                 </p>
                 <p className="settings-hint">
-                  Codex CLI: {llmSettings.codex_authenticated ? "ready" : llmSettings.codex_available ? "installed, needs login" : "not installed"}
-                  {" "}· Claude Code: {llmSettings.claude_authenticated ? "ready" : llmSettings.claude_available ? "installed, needs login" : "not installed"}
+                  Prefer Codex CLI or Claude Code if you already use them. Direct API keys are the fallback path.
+                </p>
+                {resolvedPrimaryProvider && (
+                  <p className="settings-hint">
+                    Effective summary backend on this machine: <strong>{PROVIDER_LABELS[resolvedPrimaryProvider as LlmProvider]}/{resolvedPrimaryModel ?? "default"}</strong>
+                  </p>
+                )}
+                {llmSettings.refinement_enabled && resolvedRefinementProvider && (
+                  <p className="settings-hint">
+                    Effective refinement backend on this machine: <strong>{PROVIDER_LABELS[resolvedRefinementProvider as LlmProvider]}/{resolvedRefinementModel ?? "default"}</strong>
+                  </p>
+                )}
+                {recommendedSubscriptionProvider && isApiProvider(llmSettings.provider) && (
+                  <p className="settings-hint">
+                    Flowdiff will prefer {PROVIDER_LABELS[recommendedSubscriptionProvider]} for live jobs on this machine,
+                    so file reads, greps, and shell commands can stream into the Activity tab while API keys stay available
+                    as fallback.
+                  </p>
+                )}
+                <p className="settings-hint">
+                  Codex CLI: {llmSettings.codex_authenticated ? "ready" : llmSettings.codex_available ? "installed, needs login" : "not found"}
+                  {" "}· Claude Code: {llmSettings.claude_authenticated ? "ready" : llmSettings.claude_available ? "installed, needs login" : "not found"}
                 </p>
                 <div className="settings-row">
                   <label>Primary backend</label>
@@ -1506,9 +2426,9 @@ export default function App() {
                     ),
                   )}
                 </select>
-                {!isApiProvider(llmSettings.provider) && (
+                {!isApiProvider(resolvedPrimaryProvider ?? llmSettings.provider) && (
                   <p className="settings-hint">
-                    No API key needed here. flowdiff will call {PROVIDER_LABELS[llmSettings.provider as LlmProvider]}
+                    No API key needed here. flowdiff will call {PROVIDER_LABELS[(resolvedPrimaryProvider ?? llmSettings.provider) as LlmProvider]}
                     {" "}inside the repo so it can inspect the filesystem before producing structured output.
                   </p>
                 )}
@@ -1551,6 +2471,11 @@ export default function App() {
                       env var (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>GEMINI_API_KEY</code>), or
                       configure <code>key_cmd</code> in <code>~/.flowdiff/config.toml</code>.
                     </p>
+                    {recommendedSubscriptionProvider && (
+                      <button className="btn" onClick={activatePreferredActivityProvider}>
+                        Use {PROVIDER_LABELS[recommendedSubscriptionProvider]} instead
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -1583,7 +2508,9 @@ export default function App() {
                   <span>Enable LLM refinement</span>
                 </label>
                 <p className="settings-hint">
-                  Refines deterministic groupings using an LLM pass. Can use a different provider/model.
+                  Refines deterministic groupings using an LLM pass. This is still useful with Codex CLI or Claude Code:
+                  the provider changes, but the refinement step is what decides whether the deterministic groups should be
+                  split, merged, re-ranked, or kept as-is.
                 </p>
                 {llmSettings.refinement_enabled && (
                   <>
@@ -1716,13 +2643,13 @@ export default function App() {
           </div>
           <div className="panel-body">
             {/* Refinement banner — shown after analysis when LLM access is available */}
-            {analysis && !refinedGroups && !refining && hasApiKey && llmSettings?.refinement_enabled && (
+            {analysis && !refinedGroups && !refining && aiAccessReady && llmSettings?.refinement_enabled && (
               <div className="refinement-banner">
                 <span>AI can improve these groupings</span>
                 <button
                   className="btn btn-refine"
                   onClick={runRefinement}
-                  title={`Refine groupings using ${llmSettings?.refinement_provider ?? "anthropic"} (${llmSettings?.refinement_model ?? "default"})`}
+                  title={`Refine groupings using ${resolvedRefinementProvider ?? "anthropic"} (${resolvedRefinementModel ?? "default"})`}
                 >
                   Refine
                 </button>
@@ -1734,7 +2661,7 @@ export default function App() {
               <div className="refinement-loading">
                 <span className="refine-spinner" />
                 <span>
-                  Refining with {llmSettings?.refinement_provider ?? "anthropic"}/{llmSettings?.refinement_model ?? "..."}
+                  Refining with {resolvedRefinementProvider ?? "anthropic"}/{resolvedRefinementModel ?? "..."}
                 </span>
               </div>
             )}
@@ -2205,260 +3132,94 @@ export default function App() {
           })()}
         </main>
 
-        {/* Right panel: Annotations & Graph */}
+        {/* Right panel: Activity + Annotations */}
         <aside className="panel panel-right">
-          <div className="panel-header">Annotations</div>
-          <div className="panel-body">
-            {/* Risk heatmap — hidden (Phase 9.4). Component kept for future re-enablement. */}
-            {selectedGroup && (
-              <>
-                {/* Deterministic group info */}
-                <div className="annotation-section">
-                  <h3>Flow Group</h3>
-                  <p className="group-detail-name">{selectedGroup.name}</p>
-                  {selectedGroup.entrypoint && (
-                    <p className="entrypoint-info">
-                      Entrypoint: {selectedGroup.entrypoint.symbol} (
-                      {selectedGroup.entrypoint.entrypoint_type})
-                    </p>
-                  )}
-                  <p>
-                    Risk: <strong>{selectedGroup.risk_score.toFixed(2)}</strong>{" "}
-                    | Files: <strong>{selectedGroup.files.length}</strong> |
-                    Review order: <strong>#{selectedGroup.review_order}</strong>
-                  </p>
-                  {selectedGroup.files.length > 1 && !replayActive && (
-                    <button
-                      className="btn btn-replay"
-                      onClick={enterReplay}
-                      title="Step through files in data flow order (r)"
-                    >
-                      &#9654; Replay Flow
-                    </button>
-                  )}
-                  {replayActive && (
-                    <button
-                      className="btn btn-replay-exit"
-                      onClick={exitReplay}
-                      title="Exit replay mode (Esc)"
-                    >
-                      &#10005; Exit Replay
-                    </button>
-                  )}
-                </div>
+          <div className="panel-header panel-header-tabs" data-testid="right-panel-tabs">
+            <button
+              className={`panel-tab ${rightPanelTab === "activity" ? "active" : ""}`}
+              onClick={() => setRightPanelTab("activity")}
+              data-testid="activity-tab"
+            >
+              Activity
+              {(activityJob || activityTimeline.length > 0) && (
+                <span className="panel-tab-count">{activityTimeline.length || 1}</span>
+              )}
+            </button>
+            <button
+              className={`panel-tab ${rightPanelTab === "annotations" ? "active" : ""}`}
+              onClick={() => setRightPanelTab("annotations")}
+              data-testid="annotations-tab"
+            >
+              Annotations
+            </button>
+          </div>
+          <div className="panel-body panel-body-right">
+            {rightPanelTab === "activity" ? activityTabContent : annotationsTabContent}
 
-                {/* LLM Overview (Pass 1) — Overall summary shown once */}
-                {overview && !groupAnnotation && (
-                  <div className="annotation-section llm-section">
-                    <h3>LLM Overview</h3>
-                    <p className="llm-summary">{overview.overall_summary}</p>
-                  </div>
-                )}
-
-                {/* LLM Group Annotation (Pass 1) */}
-                {groupAnnotation && (
-                  <div className="annotation-section llm-section">
-                    <h3>LLM Summary</h3>
-                    <p className="llm-summary">{groupAnnotation.summary}</p>
-                    <p className="llm-rationale">
-                      <strong>Review rationale:</strong> {groupAnnotation.review_order_rationale}
-                    </p>
-                    {groupAnnotation.risk_flags.length > 0 && (
-                      <div className="risk-flags">
-                        {groupAnnotation.risk_flags.map((flag, i) => (
-                          <span key={i} className="risk-flag">{flag}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Overall summary (shown when overview exists and group annotation exists) */}
-                {overview && groupAnnotation && (
-                  <div className="annotation-section llm-section">
-                    <h3>Overall Summary</h3>
-                    <p className="llm-summary">{overview.overall_summary}</p>
-                  </div>
-                )}
-
-                {/* LLM Deep Analysis (Pass 2) */}
-                {groupDeepAnalysis && (
-                  <>
-                    <div className="annotation-section llm-section">
-                      <h3>Flow Narrative</h3>
-                      <p className="llm-narrative">{groupDeepAnalysis.flow_narrative}</p>
-                    </div>
-
-                    {groupDeepAnalysis.file_annotations.length > 0 && (
-                      <div className="annotation-section llm-section">
-                        <h3>File Annotations</h3>
-                        {groupDeepAnalysis.file_annotations.map((fa, i) => (
-                          <div key={i} className="file-annotation">
-                            <div className="file-annotation-header">
-                              <span className="file-annotation-path">{shortPath(fa.file)}</span>
-                              <span className="file-annotation-role">{fa.role_in_flow}</span>
-                            </div>
-                            <p className="file-annotation-changes">{fa.changes_summary}</p>
-                            {fa.risks.length > 0 && (
-                              <div className="file-annotation-list">
-                                <span className="annotation-label risk-label">Risks:</span>
-                                <ul>
-                                  {fa.risks.map((r, j) => (
-                                    <li key={j}>{r}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                            {fa.suggestions.length > 0 && (
-                              <div className="file-annotation-list">
-                                <span className="annotation-label suggestion-label">Suggestions:</span>
-                                <ul>
-                                  {fa.suggestions.map((s, j) => (
-                                    <li key={j}>{s}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {groupDeepAnalysis.cross_cutting_concerns.length > 0 && (
-                      <div className="annotation-section llm-section">
-                        <h3>Cross-Cutting Concerns</h3>
-                        <ul className="concerns-list">
-                          {groupDeepAnalysis.cross_cutting_concerns.map((c, i) => (
-                            <li key={i}>{c}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Flow graph (React Flow) — smooth collapse */}
-                {selectedGroup.edges.length > 0 && (
-                  <div className={`annotation-section flow-graph-section ${graphCollapsed ? "flow-graph-collapsed" : ""}`}>
-                    <button
-                      className="section-toggle"
-                      onClick={() => setGraphCollapsed(!graphCollapsed)}
-                      aria-expanded={!graphCollapsed}
-                    >
-                      <span className="section-toggle-icon">{graphCollapsed ? "\u25B6" : "\u25BC"}</span>
-                      <span className="section-toggle-label">Flow Graph</span>
-                    </button>
-                    <div className="collapsible-body collapsible-graph">
-                      <ErrorBoundary panelName="Flow Graph">
-                        <CrashTest panel="Flow Graph" />
-                        <FlowGraph
-                          edges={selectedGroup.edges}
-                          files={selectedGroup.files}
-                          onNodeClick={handleGraphNodeClick}
-                          replayNodeId={replayActive && selectedGroup.files[replayStep] ? selectedGroup.files[replayStep].path : null}
-                        />
-                      </ErrorBoundary>
-                    </div>
-                  </div>
-                )}
-
-                {/* Edge list — smooth collapse, collapsed by default */}
-                {selectedGroup.edges.length > 0 && (
-                  <div className={`annotation-section edges-section ${edgesCollapsed ? "edges-collapsed" : ""}`}>
-                    <button
-                      className="section-toggle"
-                      onClick={() => setEdgesCollapsed(!edgesCollapsed)}
-                      aria-expanded={!edgesCollapsed}
-                    >
-                      <span className="section-toggle-icon">{edgesCollapsed ? "\u25B6" : "\u25BC"}</span>
-                      <span className="section-toggle-label">Edges</span>
-                      <span className="section-toggle-count">{selectedGroup.edges.length}</span>
-                    </button>
-                    <div className="collapsible-body collapsible-edges">
-                      <ul className="edge-list">
-                        {selectedGroup.edges.map((edge, i) => (
-                          <li key={i} className="edge-item">
-                            <span className="edge-type">{edge.edge_type}</span>
-                            <span className="edge-from">{shortSymbol(edge.from)}</span>
-                            <span className="edge-arrow">&rarr;</span>
-                            <span className="edge-to">{shortSymbol(edge.to)}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                )}
-
-                {/* Comments now shown in the comment strip below the diff viewer */}
-
-                {/* LLM loading indicators */}
-                {annotating && (
-                  <div className="annotation-section llm-loading">
-                    <span className="spinner" /> Generating overview...
-                  </div>
-                )}
-                {deepAnalyzing && (
-                  <div className="annotation-section llm-loading">
-                    <span className="spinner" /> Analyzing flow group...
-                  </div>
-                )}
-                {!hasApiKey && llmSettings && (
-                  <div className="annotation-section llm-loading">
-                    Connect {PROVIDER_LABELS.codex}, {PROVIDER_LABELS.claude}, or an API key in Settings to unlock summaries and refinement.
-                  </div>
-                )}
-
-                {/* LLM action buttons */}
-                <div className="annotation-section annotation-actions">
-                  {overview && !annotating && (
-                    <button
-                      className="btn btn-copy-comments-footer"
-                      onClick={copyPrDescription}
-                      title="Copy the generated summary as a PR description"
-                    >
-                      Copy PR Description
-                    </button>
-                  )}
-                  {!overview && !annotating && (
-                    <button
-                      className={`btn btn-summarize ${!hasApiKey ? "no-api-key" : ""}`}
-                      onClick={runAnnotateOverview}
-                      disabled={annotating || !hasApiKey || !(llmSettings?.annotations_enabled ?? false)}
-                      title={
-                        hasApiKey
-                          ? `Run LLM Pass 1 via ${llmSettings?.provider ?? "codex"} (${llmSettings?.model ?? "default"}): generate an overview summary of all flow groups.`
-                          : "LLM setup required — click the gear icon to configure Codex, Claude Code, or an API key"
-                      }
-                    >
-                      {hasApiKey ? "Summarize PR" : "Summarize PR (Setup required)"}
-                    </button>
-                  )}
-                  {!groupDeepAnalysis && !deepAnalyzing && (
-                    <button
-                      className={`btn btn-analyze-flow ${!hasApiKey ? "no-api-key" : ""}`}
-                      onClick={runDeepAnalysis}
-                      disabled={deepAnalyzing || !hasApiKey || !(llmSettings?.annotations_enabled ?? false)}
-                      title={
-                        hasApiKey
-                          ? `Run LLM Pass 2 via ${llmSettings?.provider ?? "codex"} (${llmSettings?.model ?? "default"}): deep analysis of this flow group.`
-                          : "LLM setup required — click the gear icon to configure Codex, Claude Code, or an API key"
-                      }
-                    >
-                      {hasApiKey ? "Analyze This Flow" : "Analyze Flow (Setup required)"}
-                    </button>
-                  )}
-                  {/* Provider/model indicator */}
-                  {hasApiKey && llmSettings && (
-                    <span className="llm-provider-badge">
-                      {PROVIDER_LABELS[llmSettings.provider as LlmProvider]}/{llmSettings.model}
-                    </span>
-                  )}
-                </div>
-              </>
+            {(annotating || deepAnalyzing || refining) && rightPanelTab === "activity" && (
+              <div className="annotation-section llm-loading">
+                <span className="spinner" />
+                {annotating
+                  ? "Generating overview..."
+                  : deepAnalyzing
+                    ? "Analyzing flow group..."
+                    : "Refining groups..."}
+              </div>
             )}
-            {!selectedGroup && (
-              <div className="empty-state">
-                Select a group to see annotations.
+
+            {!aiAccessReady && llmSettings && (
+              <div className="annotation-section llm-loading llm-setup-cta">
+                <span>Connect {PROVIDER_LABELS.codex}, {PROVIDER_LABELS.claude}, or a direct API key to unlock summaries and refinement.</span>
+                <button className="btn" onClick={() => openAiSetup("recommended")}>
+                  Setup AI
+                </button>
+              </div>
+            )}
+
+            {selectedGroup && (
+              <div className="annotation-section annotation-actions">
+                {overview && !annotating && (
+                  <button
+                    className="btn btn-copy-comments-footer"
+                    onClick={copyPrDescription}
+                    title="Copy the generated summary as a PR description"
+                  >
+                    Copy PR Description
+                  </button>
+                )}
+                {!overview && !annotating && (
+                  <button
+                    className={`btn btn-summarize ${!aiAccessReady ? "no-api-key" : ""}`}
+                    onClick={runAnnotateOverview}
+                    disabled={annotating || !aiAccessReady || !annotationsEnabled}
+                    title={
+                      aiAccessReady
+                        ? `Run LLM Pass 1 via ${resolvedPrimaryProvider ?? "codex"} (${resolvedPrimaryModel ?? "default"}): generate an overview summary of all flow groups.`
+                        : "AI setup required — choose Codex CLI, Claude Code, or a direct API key"
+                    }
+                  >
+                    {aiAccessReady ? "Summarize PR" : "Summarize PR (Setup required)"}
+                  </button>
+                )}
+                {!groupDeepAnalysis && !deepAnalyzing && (
+                  <button
+                    className={`btn btn-analyze-flow ${!aiAccessReady ? "no-api-key" : ""}`}
+                    onClick={runDeepAnalysis}
+                    disabled={deepAnalyzing || !aiAccessReady || !annotationsEnabled}
+                    title={
+                      aiAccessReady
+                        ? `Run LLM Pass 2 via ${resolvedPrimaryProvider ?? "codex"} (${resolvedPrimaryModel ?? "default"}): deep analysis of this flow group.`
+                        : "AI setup required — choose Codex CLI, Claude Code, or a direct API key"
+                    }
+                  >
+                    {aiAccessReady ? "Analyze This Flow" : "Analyze Flow (Setup required)"}
+                  </button>
+                )}
+                {aiAccessReady && resolvedPrimaryProvider && (
+                  <span className="llm-provider-badge">
+                    {PROVIDER_LABELS[resolvedPrimaryProvider as LlmProvider]}/{resolvedPrimaryModel ?? "default"}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -2586,6 +3347,304 @@ function riskLevel(score: number): string {
   if (score >= 0.7) return "high";
   if (score >= 0.4) return "medium";
   return "low";
+}
+
+interface ActivityPresentation {
+  kind: ActivityKind;
+  badge: string;
+  title: string;
+  detail?: string;
+  sourceLabel: string;
+}
+
+function providerSupportsToolActivity(provider: string | null | undefined): boolean {
+  return provider === "codex" || provider === "claude";
+}
+
+function resolveInteractiveProvider(
+  configuredProvider: string | null,
+  preferredProvider: SubscriptionProvider | null,
+): LlmProvider | null {
+  if (preferredProvider && configuredProvider && isApiProvider(configuredProvider)) {
+    return preferredProvider;
+  }
+  if (configuredProvider && LLM_PROVIDERS.includes(configuredProvider as LlmProvider)) {
+    return configuredProvider as LlmProvider;
+  }
+  return preferredProvider;
+}
+
+function resolveInteractiveModel(
+  configuredModel: string | null,
+  configuredProvider: string | null,
+  resolvedProvider: LlmProvider | null,
+): string | null {
+  if (!resolvedProvider) return configuredModel;
+  if (configuredProvider === resolvedProvider && configuredModel) {
+    return configuredModel;
+  }
+  return MODELS_BY_PROVIDER[resolvedProvider]?.[0] ?? configuredModel ?? "default";
+}
+
+function buildMockActivityEntries(
+  operation: "overview" | "group" | "refinement",
+  provider: string,
+): Array<Omit<LlmActivityEntry, "timestamp_ms">> {
+  const toolBacked = providerSupportsToolActivity(provider);
+  const source = toolBacked ? provider : "flowdiff";
+  const providerName = provider === "claude" ? "Claude" : "Codex";
+
+  const sharedStart: Array<Omit<LlmActivityEntry, "timestamp_ms">> = [
+    {
+      source: "flowdiff",
+      level: "info",
+      message: `Preparing ${operation === "group" ? "deep analysis" : operation} request`,
+      event_type: "flowdiff.prepare",
+    },
+  ];
+
+  if (!toolBacked) {
+    return [
+      ...sharedStart,
+      {
+        source: "flowdiff",
+        level: "info",
+        message: "Direct API mode only streams high-level progress. Switch to Codex CLI or Claude Code for file reads, grep, and shell activity.",
+        event_type: "flowdiff.direct_api",
+      },
+      {
+        source: provider,
+        level: "info",
+        message: operation === "refinement" ? "Reviewing current groups and producing a structured verdict" : "Submitting structured request to the API provider",
+        event_type: "provider.request",
+      },
+      {
+        source: provider,
+        level: "info",
+        message: operation === "refinement" ? "Refinement rationale: keep the current grouping because the changed files already form coherent review flows." : "Structured response ready",
+        event_type: "provider.result",
+      },
+    ];
+  }
+
+  if (operation === "overview") {
+    return [
+      ...sharedStart,
+      {
+        source,
+        level: "info",
+        message: `${providerName} is running rg --files crates/flowdiff-tauri/ui/src`,
+        event_type: "stdout.command_execution",
+      },
+      {
+        source,
+        level: "info",
+        message: `${providerName} is running sed -n '1,240p' crates/flowdiff-tauri/ui/src/App.tsx`,
+        event_type: "stdout.command_execution",
+      },
+      {
+        source,
+        level: "info",
+        message: "Writing PR-ready summary",
+        event_type: "provider.summary",
+      },
+    ];
+  }
+
+  if (operation === "group") {
+    return [
+      ...sharedStart,
+      {
+        source,
+        level: "info",
+        message: `${providerName} is running rg \"UserService|CreateUserInput\" -n crates/flowdiff-tauri/ui/src`,
+        event_type: "stdout.command_execution",
+      },
+      {
+        source,
+        level: "info",
+        message: `${providerName} is running sed -n '1,220p' crates/flowdiff-tauri/ui/src/mock.ts`,
+        event_type: "stdout.command_execution",
+      },
+      {
+        source,
+        level: "info",
+        message: "Assembling cross-cutting concerns",
+        event_type: "provider.cross_cutting",
+      },
+    ];
+  }
+
+  return [
+    ...sharedStart,
+    {
+      source,
+      level: "info",
+      message: `${providerName} is running rg --files /demo/repo | head -n 40`,
+      event_type: "stdout.command_execution",
+    },
+    {
+      source,
+      level: "info",
+      message: `${providerName} is running sed -n '1,220p' /demo/repo/src/routes/users.ts`,
+      event_type: "stdout.command_execution",
+    },
+    {
+      source,
+      level: "info",
+      message: "Refinement rationale: keep the current grouping because the changed files already form coherent review flows.",
+      event_type: "refinement.reasoning",
+    },
+  ];
+}
+
+function describeActivityEntry(entry: LlmActivityEntry): ActivityPresentation {
+  const sourceLabel = activitySourceLabel(entry.source);
+  const message = entry.message.trim();
+  const lowerMessage = message.toLowerCase();
+  const eventType = entry.event_type?.toLowerCase() ?? "";
+  const command = extractCommandFromActivity(message);
+
+  if (entry.level === "error") {
+    return { kind: "error", badge: "ERROR", title: message, sourceLabel };
+  }
+
+  if (entry.level === "warning") {
+    return { kind: "warning", badge: "WARN", title: message, sourceLabel };
+  }
+
+  if (command) {
+    if (isSearchCommand(command) || eventType.includes("search") || eventType.includes("grep")) {
+      return {
+        kind: "search",
+        badge: "SEARCH",
+        title: lowerMessage.includes("finished") ? "Repo search finished" : "Searching the repo",
+        detail: command,
+        sourceLabel,
+      };
+    }
+    if (isReadCommand(command) || eventType.includes("read") || eventType.includes("open") || eventType.includes("view")) {
+      return {
+        kind: "read",
+        badge: "READ",
+        title: lowerMessage.includes("finished") ? "Finished reading files" : "Reading files",
+        detail: command,
+        sourceLabel,
+      };
+    }
+    return {
+      kind: "command",
+      badge: "CMD",
+      title: lowerMessage.includes("finished") ? "Shell command finished" : "Running shell command",
+      detail: command,
+      sourceLabel,
+    };
+  }
+
+  if (eventType.includes("tool_use")) {
+    const toolName = eventType.split(".").pop() ?? "tool";
+    if (isSearchCommand(toolName)) {
+      return { kind: "search", badge: "SEARCH", title: `${sourceLabel} searched the repo`, detail: toolName, sourceLabel };
+    }
+    if (isReadCommand(toolName)) {
+      return { kind: "read", badge: "READ", title: `${sourceLabel} inspected files`, detail: toolName, sourceLabel };
+    }
+    return { kind: "command", badge: "TOOL", title: `${sourceLabel} used ${toolName}`, sourceLabel };
+  }
+
+  if (lowerMessage.includes("reasoning") || eventType.includes("thinking")) {
+    return {
+      kind: "reasoning",
+      badge: "THINK",
+      title: `${sourceLabel} is reasoning`,
+      detail: message === "Claude is reasoning" ? undefined : message,
+      sourceLabel,
+    };
+  }
+
+  if (
+    lowerMessage.includes("structured response ready")
+    || lowerMessage.includes("prepared structured output")
+    || lowerMessage.includes("writing pr-ready summary")
+    || lowerMessage.includes("completed the response")
+    || lowerMessage.includes("finished its turn")
+  ) {
+    return {
+      kind: "result",
+      badge: "RESULT",
+      title: message,
+      sourceLabel,
+    };
+  }
+
+  if (lowerMessage.includes("preparing")) {
+    return { kind: "system", badge: "PLAN", title: message, sourceLabel };
+  }
+
+  if (lowerMessage.includes("using ")) {
+    return { kind: "system", badge: "MODEL", title: message, sourceLabel };
+  }
+
+  return { kind: "system", badge: "STEP", title: message, sourceLabel };
+}
+
+function summarizeActivityTimeline(
+  timeline: Array<{ presentation: ActivityPresentation }>,
+): { total: number; search: number; read: number; command: number } {
+  return timeline.reduce(
+    (summary, item) => {
+      summary.total += 1;
+      if (item.presentation.kind === "search") summary.search += 1;
+      if (item.presentation.kind === "read") summary.read += 1;
+      if (item.presentation.kind === "command") summary.command += 1;
+      return summary;
+    },
+    { total: 0, search: 0, read: 0, command: 0 },
+  );
+}
+
+function formatActivityTimestamp(timestampMs: number): string {
+  return new Date(timestampMs).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function activitySourceLabel(source: string): string {
+  if (source in PROVIDER_LABELS) {
+    return PROVIDER_LABELS[source as LlmProvider];
+  }
+  if (source.toLowerCase() === "flowdiff") {
+    return "Flowdiff";
+  }
+  return source.toUpperCase();
+}
+
+function extractCommandFromActivity(message: string): string | null {
+  const match = message.match(/(?:is running|finished)\s+(.+)$/i);
+  return match?.[1]?.trim() ?? null;
+}
+
+function isSearchCommand(command: string): boolean {
+  const lower = command.toLowerCase();
+  return lower.includes("rg")
+    || lower.includes("grep")
+    || lower.includes("fd")
+    || lower.includes("find")
+    || lower.includes("glob")
+    || lower.includes("search");
+}
+
+function isReadCommand(command: string): boolean {
+  const lower = command.toLowerCase();
+  return lower.includes("cat")
+    || lower.includes("sed")
+    || lower.includes("head")
+    || lower.includes("tail")
+    || lower.includes("read")
+    || lower.includes("open")
+    || lower.includes("view");
 }
 
 function shortPath(path: string): string {

@@ -1,11 +1,12 @@
 use std::path::PathBuf;
-use std::process::Command as StdCommand;
+use std::process::{Command as StdCommand, Stdio};
 
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use tempfile::NamedTempFile;
 use tokio::process::Command;
-use tokio::time::{timeout, Duration};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::time::{sleep, Duration};
 
 use super::schema;
 use super::{
@@ -50,12 +51,13 @@ impl CodexCliProvider {
         user_prompt: String,
         json_schema: serde_json::Value,
     ) -> Result<T, LlmError> {
-        let status = detect_status();
-        if !status.installed {
+        let Some(codex_path) = super::resolve_cli_executable("codex") else {
             return Err(LlmError::CommandUnavailable(
                 "codex CLI is not installed".to_string(),
             ));
-        }
+        };
+
+        let status = detect_status();
         if !status.authenticated {
             return Err(LlmError::AuthError(
                 "Codex CLI is installed but not logged in. Run `codex login`.".to_string(),
@@ -76,7 +78,7 @@ impl CodexCliProvider {
 
         let prompt = format!("{}\n\n{}\n\n{}", system_prompt, AGENT_ADDENDUM, user_prompt);
 
-        let mut command = Command::new("codex");
+        let mut command = Command::new(&codex_path);
         command
             .arg("exec")
             .arg("-C")
@@ -86,6 +88,7 @@ impl CodexCliProvider {
             .arg("--skip-git-repo-check")
             .arg("--output-schema")
             .arg(schema_file.path())
+            .arg("--json")
             .arg("-o")
             .arg(output_file.path())
             .arg(prompt);
@@ -94,19 +97,58 @@ impl CodexCliProvider {
             command.arg("--model").arg(model);
         }
 
-        let output = timeout(Duration::from_secs(CLI_TIMEOUT_SECS), command.output())
-            .await
-            .map_err(|_| LlmError::Timeout(CLI_TIMEOUT_SECS))?
-            .map_err(|e| LlmError::CommandFailed(format!("Failed to launch codex: {}", e)))?;
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        super::emit_activity(super::ActivityUpdate::info(
+            "codex",
+            "Launching Codex CLI",
+            Some("codex.launch".to_string()),
+        ));
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut child = command
+            .spawn()
+            .map_err(|e| LlmError::CommandFailed(format!("Failed to launch codex: {}", e)))?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            LlmError::CommandFailed("Failed to capture codex stdout".to_string())
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            LlmError::CommandFailed("Failed to capture codex stderr".to_string())
+        })?;
+        let activity_callback = super::current_activity_callback();
+
+        let stdout_activity_callback = activity_callback.clone();
+        let stdout_task = tokio::spawn(async move {
+            collect_codex_stream(stdout, "stdout", stdout_activity_callback).await
+        });
+        let stderr_task = tokio::spawn(async move {
+            collect_codex_stream(stderr, "stderr", activity_callback).await
+        });
+
+        let timeout_sleep = sleep(Duration::from_secs(CLI_TIMEOUT_SECS));
+        tokio::pin!(timeout_sleep);
+
+        let status = tokio::select! {
+            result = child.wait() => result.map_err(|e| LlmError::CommandFailed(format!("Failed to wait for codex: {}", e)))?,
+            _ = &mut timeout_sleep => {
+                let _ = child.kill().await;
+                return Err(LlmError::Timeout(CLI_TIMEOUT_SECS));
+            }
+        };
+
+        let stdout = stdout_task
+            .await
+            .map_err(|e| LlmError::CommandFailed(format!("Failed to join codex stdout task: {}", e)))?
+            .map_err(|e| LlmError::CommandFailed(format!("Failed to read codex stdout: {}", e)))?;
+        let stderr = stderr_task
+            .await
+            .map_err(|e| LlmError::CommandFailed(format!("Failed to join codex stderr task: {}", e)))?
+            .map_err(|e| LlmError::CommandFailed(format!("Failed to read codex stderr: {}", e)))?;
+
+        if !status.success() {
             let combined = format!("{}\n{}", stderr, stdout);
             let message = redact_api_keys(&truncate_to_token_budget(&combined, 400));
             return Err(LlmError::CommandFailed(format!(
                 "codex exec exited with {}: {}",
-                output.status, message
+                status, message
             )));
         }
 
@@ -179,7 +221,17 @@ impl LlmProvider for CodexCliProvider {
 }
 
 pub fn detect_status() -> BackendStatus {
-    let output = StdCommand::new("codex").arg("login").arg("status").output();
+    let Some(codex_path) = super::resolve_cli_executable("codex") else {
+        return BackendStatus {
+            installed: false,
+            authenticated: false,
+        };
+    };
+
+    let output = StdCommand::new(codex_path)
+        .arg("login")
+        .arg("status")
+        .output();
 
     match output {
         Ok(output) => {
@@ -196,4 +248,186 @@ pub fn detect_status() -> BackendStatus {
             authenticated: false,
         },
     }
+}
+
+async fn collect_codex_stream<R>(
+    reader: R,
+    stream_name: &str,
+    activity_callback: Option<super::ActivityCallback>,
+) -> Result<String, std::io::Error>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut output = String::new();
+    let mut lines = BufReader::new(reader).lines();
+    while let Some(line) = lines.next_line().await? {
+        if !line.is_empty() {
+            output.push_str(&line);
+            output.push('\n');
+        }
+        if let Some(update) = summarize_codex_line(&line, stream_name) {
+            if let Some(callback) = &activity_callback {
+                callback(update);
+            } else {
+                super::emit_activity(update);
+            }
+        }
+    }
+    Ok(output)
+}
+
+fn summarize_codex_line(line: &str, stream_name: &str) -> Option<super::ActivityUpdate> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let parsed = serde_json::from_str::<serde_json::Value>(trimmed).ok()?;
+    let event_type = parsed
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+
+    match event_type.as_deref() {
+        Some("thread.started") => Some(super::ActivityUpdate::info(
+            "codex",
+            "Started Codex session",
+            event_type,
+        )),
+        Some("turn.started") => Some(super::ActivityUpdate::info(
+            "codex",
+            "Codex started working",
+            event_type,
+        )),
+        Some("turn.completed") => Some(super::ActivityUpdate::info(
+            "codex",
+            "Codex finished its turn",
+            event_type,
+        )),
+        Some("item.started") => summarize_codex_item(parsed.get("item")?, stream_name, true),
+        Some("item.completed") => summarize_codex_item(parsed.get("item")?, stream_name, false),
+        _ => Some(super::ActivityUpdate::info(
+            "codex",
+            truncate_for_activity(trimmed),
+            event_type,
+        )),
+    }
+}
+
+fn summarize_codex_item(
+    item: &serde_json::Value,
+    stream_name: &str,
+    in_progress: bool,
+) -> Option<super::ActivityUpdate> {
+    let item_type = item
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("item");
+
+    match item_type {
+        "agent_message" => {
+            let text = item
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Codex produced a response");
+            let message = if looks_like_structured_json(text) {
+                "Codex prepared structured output".to_string()
+            } else {
+                truncate_for_activity(text)
+            };
+            Some(super::ActivityUpdate::info(
+                "codex",
+                message,
+                Some(format!("{}.{}", stream_name, item_type)),
+            ))
+        }
+        "command_execution" => {
+            let command = item
+                .get("command")
+                .and_then(serde_json::Value::as_str)
+                .map(pretty_codex_command)
+                .unwrap_or_else(|| "a shell command".to_string());
+            let message = if in_progress {
+                format!("Codex is running {}", command)
+            } else {
+                format!("Codex finished {}", command)
+            };
+            Some(super::ActivityUpdate::info(
+                "codex",
+                message,
+                Some(format!("{}.{}", stream_name, item_type)),
+            ))
+        }
+        other => {
+            let verb = if in_progress { "Started" } else { "Completed" };
+            let detail = item
+                .get("path")
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| item.get("file").and_then(serde_json::Value::as_str))
+                .map(truncate_for_activity);
+            let base_message = if other.contains("search") || other.contains("grep") || other.contains("find") {
+                if in_progress {
+                    "Searching the repo".to_string()
+                } else {
+                    "Finished searching the repo".to_string()
+                }
+            } else if other.contains("read") || other.contains("open") || other.contains("view") {
+                if in_progress {
+                    "Inspecting a file".to_string()
+                } else {
+                    "Finished inspecting a file".to_string()
+                }
+            } else {
+                format!("{} {}", verb, humanize_event_name(other))
+            };
+            let message = detail
+                .map(|detail| format!("{}: {}", base_message, detail))
+                .unwrap_or(base_message);
+            Some(super::ActivityUpdate::info(
+                "codex",
+                message,
+                Some(format!("{}.{}", stream_name, other)),
+            ))
+        }
+    }
+}
+
+fn humanize_event_name(value: &str) -> String {
+    value.replace('_', " ")
+}
+
+fn pretty_codex_command(command: &str) -> String {
+    let trimmed = command.trim();
+    let zsh_prefix = "/bin/zsh -lc ";
+    let sh_prefix = "/bin/sh -lc ";
+
+    let unwrapped = if let Some(rest) = trimmed.strip_prefix(zsh_prefix) {
+        rest
+    } else if let Some(rest) = trimmed.strip_prefix(sh_prefix) {
+        rest
+    } else {
+        trimmed
+    };
+
+    let cleaned = unwrapped
+        .strip_prefix('\'')
+        .and_then(|rest| rest.strip_suffix('\''))
+        .unwrap_or(unwrapped);
+
+    truncate_for_activity(cleaned)
+}
+
+fn truncate_for_activity(text: &str) -> String {
+    const MAX_LEN: usize = 180;
+    if text.chars().count() <= MAX_LEN {
+        text.to_string()
+    } else {
+        let truncated: String = text.chars().take(MAX_LEN).collect();
+        format!("{}...", truncated)
+    }
+}
+
+fn looks_like_structured_json(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.starts_with('{') && trimmed.ends_with('}')
 }

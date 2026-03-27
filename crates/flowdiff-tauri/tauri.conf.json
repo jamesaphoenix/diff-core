@@ -1,5 +1,5 @@
 {
-  "productName": "flowdiff",
+  "productName": "Flowdiff",
   "version": "0.2.0",
   "identifier": "com.flowdiff.app",
   "build": {
@@ -10,12 +10,12 @@
   },
   "app": {
     "security": {
-      "csp": "default-src 'self' tauri: asset: ipc: http://ipc.localhost; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset:; connect-src ipc: http://ipc.localhost tauri: https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com; font-src 'self' data:; worker-src 'self' blob:;"
+      "csp": "default-src 'self' tauri: asset: ipc: http://ipc.localhost; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset:; connect-src ipc: http://ipc.localhost tauri: http://127.0.0.1:* http://localhost:* https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com; font-src 'self' data:; worker-src 'self' blob:;"
     },
     "windows": [
       {
         "label": "main",
-        "title": "flowdiff",
+        "title": "Flowdiff",
         "width": 1440,
         "height": 900,
         "minWidth": 960,

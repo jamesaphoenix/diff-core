@@ -18,10 +18,12 @@ pub mod refinement;
 pub mod schema;
 pub mod vcr;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use std::future::Future;
 
 use crate::config::LlmConfig;
 use schema::{
@@ -77,6 +79,182 @@ pub enum LlmError {
 pub struct BackendStatus {
     pub installed: bool,
     pub authenticated: bool,
+}
+
+/// Human-readable activity updates emitted while a provider is working.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ActivityUpdate {
+    pub source: String,
+    pub level: String,
+    pub message: String,
+    pub event_type: Option<String>,
+    pub timestamp_ms: u64,
+}
+
+impl ActivityUpdate {
+    pub fn info(
+        source: impl Into<String>,
+        message: impl Into<String>,
+        event_type: Option<String>,
+    ) -> Self {
+        Self {
+            source: source.into(),
+            level: "info".to_string(),
+            message: message.into(),
+            event_type,
+            timestamp_ms: timestamp_ms(),
+        }
+    }
+
+    pub fn warning(
+        source: impl Into<String>,
+        message: impl Into<String>,
+        event_type: Option<String>,
+    ) -> Self {
+        Self {
+            source: source.into(),
+            level: "warning".to_string(),
+            message: message.into(),
+            event_type,
+            timestamp_ms: timestamp_ms(),
+        }
+    }
+
+    pub fn error(
+        source: impl Into<String>,
+        message: impl Into<String>,
+        event_type: Option<String>,
+    ) -> Self {
+        Self {
+            source: source.into(),
+            level: "error".to_string(),
+            message: message.into(),
+            event_type,
+            timestamp_ms: timestamp_ms(),
+        }
+    }
+}
+
+pub(crate) type ActivityCallback = Arc<dyn Fn(ActivityUpdate) + Send + Sync + 'static>;
+
+tokio::task_local! {
+    static ACTIVITY_CALLBACK: ActivityCallback;
+}
+
+pub async fn with_activity_callback<F, T>(
+    callback: ActivityCallback,
+    future: F,
+) -> T
+where
+    F: Future<Output = T>,
+{
+    ACTIVITY_CALLBACK.scope(callback, future).await
+}
+
+pub(crate) fn emit_activity(update: ActivityUpdate) {
+    let _ = ACTIVITY_CALLBACK.try_with(|callback| callback(update));
+}
+
+pub(crate) fn current_activity_callback() -> Option<ActivityCallback> {
+    ACTIVITY_CALLBACK.try_with(Arc::clone).ok()
+}
+
+/// Resolve a CLI executable path for GUI-launched app processes.
+///
+/// Desktop apps on macOS often inherit a minimal PATH, so `Command::new("codex")`
+/// can fail even when the tool is installed and available in the user's shell.
+/// We therefore search common install locations and fall back to a login shell.
+pub(crate) fn resolve_cli_executable(binary: &str) -> Option<PathBuf> {
+    find_binary_in_path(binary)
+        .or_else(|| candidate_cli_paths(binary).into_iter().find(|path| is_executable_file(path)))
+        .or_else(|| resolve_via_login_shell(binary))
+}
+
+fn find_binary_in_path(binary: &str) -> Option<PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    std::env::split_paths(&path_var)
+        .map(|entry| entry.join(binary))
+        .find(|path| is_executable_file(path))
+}
+
+fn candidate_cli_paths(binary: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        for rel in [
+            ".npm-global/bin",
+            ".npm/bin",
+            ".local/bin",
+            ".cargo/bin",
+            "bin",
+        ] {
+            candidates.push(home.join(rel).join(binary));
+        }
+    }
+
+    for prefix in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
+        candidates.push(PathBuf::from(prefix).join(binary));
+    }
+
+    candidates
+}
+
+fn resolve_via_login_shell(binary: &str) -> Option<PathBuf> {
+    for shell in ["zsh", "bash", "sh"] {
+        let Ok(output) = Command::new(shell)
+            .arg("-lc")
+            .arg(format!("command -v {}", binary))
+            .output()
+        else {
+            continue;
+        };
+
+        if !output.status.success() {
+            continue;
+        }
+
+        let resolved = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if resolved.is_empty() {
+            continue;
+        }
+
+        let path = PathBuf::from(resolved);
+        if is_executable_file(&path) {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+
+    if !metadata.is_file() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        metadata.permissions().mode() & 0o111 != 0
+    }
+
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+fn timestamp_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Provider-agnostic LLM client trait.

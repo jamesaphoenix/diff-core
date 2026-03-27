@@ -3,10 +3,11 @@
 //! Each `#[tauri::command]` function is callable from the frontend via `invoke()`.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use log::warn;
 
+use crate::activity_stream::{self, ActivityEntry, JobHandle};
 use flowdiff_core::cache;
 use flowdiff_core::cluster;
 use flowdiff_core::config::FlowdiffConfig;
@@ -28,6 +29,10 @@ pub struct AppState {
     pub last_analysis: Mutex<Option<AnalysisOutput>>,
     /// Cached diff result from the most recent analysis, for instant file diff lookups.
     pub last_diff: Mutex<Option<CachedDiff>>,
+    /// Background LLM job manager for live SSE activity streams.
+    pub activity_manager: Arc<activity_stream::ActivityManager>,
+    /// Base URL for the embedded localhost SSE server.
+    pub activity_stream_base_url: Mutex<Option<String>>,
 }
 
 /// Cached diff result with the parameters that produced it, for cache invalidation.
@@ -42,7 +47,71 @@ impl AppState {
         Self {
             last_analysis: Mutex::new(None),
             last_diff: Mutex::new(None),
+            activity_manager: Arc::new(activity_stream::ActivityManager::new()),
+            activity_stream_base_url: Mutex::new(None),
         }
+    }
+
+    pub fn init_activity_stream(&self) -> Result<(), CommandError> {
+        let mut base_url = self
+            .activity_stream_base_url
+            .lock()
+            .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?;
+        if base_url.is_none() {
+            *base_url = Some(
+                activity_stream::spawn_sse_server(Arc::clone(&self.activity_manager))
+                    .map_err(|e| CommandError::Io(format!("Failed to start SSE server: {}", e)))?,
+            );
+        }
+        Ok(())
+    }
+
+    pub fn create_llm_job(
+        &self,
+        operation: &str,
+        provider: &str,
+        model: &str,
+        title: &str,
+    ) -> Result<(JobHandle, AsyncLlmJobStart), CommandError> {
+        self.init_activity_stream()?;
+        let base_url = self
+            .activity_stream_base_url
+            .lock()
+            .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?
+            .clone()
+            .ok_or_else(|| CommandError::Io("Activity SSE server was not initialized".to_string()))?;
+
+        let manager = Arc::clone(&self.activity_manager);
+        let operation = operation.to_string();
+        let provider = provider.to_string();
+        let model = model.to_string();
+        let title = title.to_string();
+        let job_operation = operation.clone();
+        let job_provider = provider.clone();
+        let job_model = model.clone();
+        let job_title = title.clone();
+
+        let handle = tauri::async_runtime::block_on(async move {
+            manager
+                .create_job(
+                    job_operation,
+                    job_provider,
+                    job_model,
+                    job_title,
+                )
+                .await
+        });
+
+        let start = AsyncLlmJobStart {
+            job_id: handle.job_id().to_string(),
+            stream_url: format!("{}/llm/jobs/{}/events", base_url, handle.job_id()),
+            operation,
+            provider,
+            model,
+            title,
+        };
+
+        Ok((handle, start))
     }
 }
 
@@ -388,6 +457,527 @@ pub fn get_file_diff_uncached(
         new_content: file_diff.new_content.clone().unwrap_or_default(),
         language: detect_language(&file_diff.path()),
     })
+}
+
+fn load_cached_analysis(state: &tauri::State<'_, AppState>) -> Result<AnalysisOutput, CommandError> {
+    let last = state
+        .last_analysis
+        .lock()
+        .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?;
+    last.clone()
+        .ok_or_else(|| CommandError::Analysis("No analysis available. Run analyze first.".into()))
+}
+
+fn build_pass1_request(analysis: &AnalysisOutput) -> llm::schema::Pass1Request {
+    let flow_groups: Vec<llm::schema::Pass1GroupInput> = analysis
+        .groups
+        .iter()
+        .map(|g| llm::schema::Pass1GroupInput {
+            id: g.id.clone(),
+            name: g.name.clone(),
+            entrypoint: g
+                .entrypoint
+                .as_ref()
+                .map(|ep| format!("{}::{}", ep.file, ep.symbol)),
+            files: g.files.iter().map(|f| f.path.clone()).collect(),
+            risk_score: g.risk_score,
+            edge_summary: g
+                .edges
+                .iter()
+                .map(|e| format!("{} -> {}", e.from, e.to))
+                .collect::<Vec<_>>()
+                .join(", "),
+        })
+        .collect();
+
+    llm::schema::Pass1Request {
+        diff_summary: format!(
+            "{} files changed across {} groups",
+            analysis.summary.total_files_changed, analysis.summary.total_groups,
+        ),
+        flow_groups,
+        graph_summary: format!(
+            "{} groups, {} total files",
+            analysis.summary.total_groups, analysis.summary.total_files_changed,
+        ),
+    }
+}
+
+fn build_pass2_request(
+    analysis: &AnalysisOutput,
+    group_id: &str,
+    repo_path: &str,
+    base: Option<String>,
+    head: Option<String>,
+    range: Option<String>,
+    staged: bool,
+    unstaged: bool,
+) -> Result<llm::schema::Pass2Request, CommandError> {
+    let group = analysis
+        .groups
+        .iter()
+        .find(|g| g.id == group_id)
+        .ok_or_else(|| CommandError::Analysis(format!("Group '{}' not found", group_id)))?
+        .clone();
+
+    let repo_path_buf = PathBuf::from(repo_path);
+    let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
+        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
+    let repo = git2::Repository::discover(&repo_path_buf)
+        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
+
+    let (diff_result, _) = extract_diff(&repo, base, head, range, staged, unstaged, false)?;
+
+    let files: Vec<llm::schema::Pass2FileInput> = group
+        .files
+        .iter()
+        .map(|f| {
+            let file_diff = diff_result.files.iter().find(|d| d.path() == f.path);
+            let diff_text = file_diff
+                .map(|d| {
+                    let old = d.old_content.as_deref().unwrap_or("");
+                    let new = d.new_content.as_deref().unwrap_or("");
+                    format!(
+                        "--- a/{}\n+++ b/{}\n{}",
+                        f.path,
+                        f.path,
+                        simple_unified_diff(old, new)
+                    )
+                })
+                .unwrap_or_default();
+            let new_content = file_diff.and_then(|d| d.new_content.clone());
+
+            llm::schema::Pass2FileInput {
+                path: f.path.clone(),
+                diff: diff_text,
+                new_content,
+                role: format!("{:?}", f.role),
+            }
+        })
+        .collect();
+
+    let graph_context = group
+        .edges
+        .iter()
+        .map(|e| format!("{} --{:?}--> {}", e.from, e.edge_type, e.to))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(llm::schema::Pass2Request {
+        group_id: group.id.clone(),
+        group_name: group.name.clone(),
+        files,
+        graph_context,
+    })
+}
+
+fn make_activity_callback(
+    job: JobHandle,
+) -> Arc<dyn Fn(llm::ActivityUpdate) + Send + Sync + 'static> {
+    Arc::new(move |update| {
+        let job = job.clone();
+        tauri::async_runtime::spawn(async move {
+            job.emit(ActivityEntry {
+                source: update.source,
+                level: update.level,
+                message: update.message,
+                event_type: update.event_type,
+                timestamp_ms: update.timestamp_ms,
+            })
+            .await;
+        });
+    })
+}
+
+async fn emit_flowdiff_activity(job: &JobHandle, message: impl Into<String>) {
+    job.emit(ActivityEntry::info("flowdiff", message, None)).await;
+}
+
+fn provider_supports_tool_activity(provider: &str) -> bool {
+    matches!(provider, "codex" | "claude")
+}
+
+async fn emit_direct_api_activity_notice(job: &JobHandle, provider: &str) {
+    if provider_supports_tool_activity(provider) {
+        return;
+    }
+
+    emit_flowdiff_activity(
+        job,
+        "Direct API mode only shows high-level progress. Switch to Codex CLI or Claude Code to stream file reads, greps, and shell activity.",
+    )
+    .await;
+}
+
+fn refinement_reasoning_excerpt(reasoning: &str) -> Option<String> {
+    let trimmed = reasoning.split_whitespace().collect::<Vec<_>>().join(" ");
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let sentence_end = trimmed.find(". ").map(|index| index + 1);
+    let excerpt = sentence_end
+        .map(|index| trimmed[..index].trim().to_string())
+        .unwrap_or_else(|| trimmed.chars().take(220).collect::<String>());
+
+    if excerpt.is_empty() {
+        None
+    } else if excerpt.chars().count() < trimmed.chars().count() && sentence_end.is_none() {
+        Some(format!("{}...", excerpt))
+    } else {
+        Some(excerpt)
+    }
+}
+
+fn refinement_operations_summary(response: &RefinementResponse) -> String {
+    let mut parts = Vec::new();
+
+    if !response.splits.is_empty() {
+        parts.push(format!("{} split{}", response.splits.len(), if response.splits.len() == 1 { "" } else { "s" }));
+    }
+    if !response.merges.is_empty() {
+        parts.push(format!("{} merge{}", response.merges.len(), if response.merges.len() == 1 { "" } else { "s" }));
+    }
+    if !response.re_ranks.is_empty() {
+        parts.push(format!("{} re-rank{}", response.re_ranks.len(), if response.re_ranks.len() == 1 { "" } else { "s" }));
+    }
+    if !response.reclassifications.is_empty() {
+        parts.push(format!(
+            "{} reclassification{}",
+            response.reclassifications.len(),
+            if response.reclassifications.len() == 1 { "" } else { "s" }
+        ));
+    }
+
+    if parts.is_empty() {
+        "no structural changes".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+async fn run_overview_with_activity(
+    analysis: AnalysisOutput,
+    llm_config: flowdiff_core::config::LlmConfig,
+    workdir: Option<PathBuf>,
+    job: JobHandle,
+) -> Result<Pass1Response, CommandError> {
+    emit_flowdiff_activity(&job, "Preparing overview request").await;
+    let request = build_pass1_request(&analysis);
+    let provider = llm::create_provider_for_workdir(&llm_config, workdir.as_deref())
+        .map_err(|e| CommandError::Llm(format!("{}", e)))?;
+    let provider_name = provider.name().to_string();
+    let provider_model = provider.model().to_string();
+    emit_flowdiff_activity(
+        &job,
+        format!("Using {} / {}", provider_name, provider_model),
+    )
+    .await;
+    emit_direct_api_activity_notice(&job, &provider_name).await;
+
+    llm::with_activity_callback(make_activity_callback(job), async {
+        provider.annotate_overview(&request).await
+    })
+    .await
+    .map_err(|e| CommandError::Llm(format!("{}", e)))
+}
+
+async fn run_group_with_activity(
+    request: llm::schema::Pass2Request,
+    llm_config: flowdiff_core::config::LlmConfig,
+    workdir: Option<PathBuf>,
+    job: JobHandle,
+) -> Result<Pass2Response, CommandError> {
+    emit_flowdiff_activity(&job, "Preparing deep analysis request").await;
+    let provider = llm::create_provider_for_workdir(&llm_config, workdir.as_deref())
+        .map_err(|e| CommandError::Llm(format!("{}", e)))?;
+    let provider_name = provider.name().to_string();
+    let provider_model = provider.model().to_string();
+    emit_flowdiff_activity(
+        &job,
+        format!("Using {} / {}", provider_name, provider_model),
+    )
+    .await;
+    emit_direct_api_activity_notice(&job, &provider_name).await;
+
+    llm::with_activity_callback(make_activity_callback(job), async {
+        provider.annotate_group(&request).await
+    })
+    .await
+    .map_err(|e| CommandError::Llm(format!("{}", e)))
+}
+
+async fn run_refinement_with_activity(
+    analysis: AnalysisOutput,
+    refinement_llm_config: flowdiff_core::config::LlmConfig,
+    workdir: Option<PathBuf>,
+    job: JobHandle,
+) -> Result<RefinementResult, CommandError> {
+    emit_flowdiff_activity(&job, "Preparing refinement request").await;
+    let provider = llm::create_provider_for_workdir(&refinement_llm_config, workdir.as_deref())
+        .map_err(|e| CommandError::Llm(format!("{}", e)))?;
+    let provider_name = provider.name().to_string();
+    let provider_model = provider.model().to_string();
+    emit_flowdiff_activity(
+        &job,
+        format!("Using {} / {}", provider_name, provider_model),
+    )
+    .await;
+    emit_direct_api_activity_notice(&job, &provider_name).await;
+
+    let analysis_json = serde_json::to_string_pretty(&analysis)
+        .map_err(|e| CommandError::Llm(format!("Failed to serialize analysis: {}", e)))?;
+    let diff_summary = format!(
+        "{} files changed across {} groups",
+        analysis.summary.total_files_changed, analysis.summary.total_groups,
+    );
+    let request =
+        refinement::build_refinement_request(&analysis.groups, &analysis_json, &diff_summary);
+
+    let response = llm::with_activity_callback(make_activity_callback(job.clone()), async {
+        provider.refine_groups(&request).await
+    })
+    .await
+    .map_err(|e| CommandError::Llm(format!("{}", e)))?;
+
+    if let Some(reasoning) = refinement_reasoning_excerpt(&response.reasoning) {
+        job.emit(ActivityEntry::info(
+            provider_name.clone(),
+            format!("Refinement rationale: {}", reasoning),
+            Some("refinement.reasoning".to_string()),
+        ))
+        .await;
+    }
+
+    let provider_name = refinement_llm_config
+        .provider
+        .clone()
+        .unwrap_or_else(|| "anthropic".to_string());
+    let model_name = refinement_llm_config
+        .model
+        .clone()
+        .unwrap_or_else(|| default_model_for_provider(&provider_name).to_string());
+
+    if !refinement::has_refinements(&response) {
+        emit_flowdiff_activity(&job, "Refinement kept the current grouping").await;
+        return Ok(RefinementResult {
+            refined_groups: analysis.groups.clone(),
+            infrastructure_group: analysis.infrastructure_group.clone(),
+            refinement_response: response,
+            provider: provider_name,
+            model: model_name,
+            had_changes: false,
+        });
+    }
+
+    let (refined_groups, infra) = refinement::apply_refinement(
+        &analysis.groups,
+        analysis.infrastructure_group.as_ref(),
+        &response,
+    )
+    .map_err(|e| CommandError::Llm(format!("Refinement validation failed: {}", e)))?;
+
+    emit_flowdiff_activity(
+        &job,
+        format!(
+            "Refinement proposed {}",
+            refinement_operations_summary(&response)
+        ),
+    )
+    .await;
+
+    Ok(RefinementResult {
+        refined_groups,
+        infrastructure_group: infra,
+        refinement_response: response,
+        provider: provider_name,
+        model: model_name,
+        had_changes: true,
+    })
+}
+
+#[tauri::command]
+pub fn start_annotate_overview(
+    repo_path: Option<String>,
+    llm_provider: Option<String>,
+    llm_model: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<AsyncLlmJobStart, CommandError> {
+    let analysis = load_cached_analysis(&state)?;
+    let (mut config, workdir) = load_config_from_path(repo_path.as_deref());
+    if let Some(provider) = llm_provider {
+        config.llm.provider = Some(provider);
+    }
+    if let Some(model) = llm_model {
+        config.llm.model = Some(model);
+    }
+
+    let provider_name = config
+        .llm
+        .provider
+        .clone()
+        .unwrap_or_else(|| "anthropic".to_string());
+    let model_name = config
+        .llm
+        .model
+        .clone()
+        .unwrap_or_else(|| default_model_for_provider(&provider_name).to_string());
+    let (job, start) =
+        state.create_llm_job("overview", &provider_name, &model_name, "Summarizing PR")?;
+    let llm_config = config.llm.clone();
+
+    tauri::async_runtime::spawn(async move {
+        match run_overview_with_activity(analysis, llm_config, workdir, job.clone()).await {
+            Ok(response) => match serde_json::to_value(&response) {
+                Ok(value) => job.complete("overview", value).await,
+                Err(error) => {
+                    job.fail(format!("Failed to serialize overview response: {}", error))
+                        .await
+                }
+            },
+            Err(error) => job.fail(error.to_string()).await,
+        }
+    });
+
+    Ok(start)
+}
+
+#[tauri::command]
+pub fn start_annotate_group(
+    group_id: String,
+    repo_path: String,
+    base: Option<String>,
+    head: Option<String>,
+    range: Option<String>,
+    staged: bool,
+    unstaged: bool,
+    llm_provider: Option<String>,
+    llm_model: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<AsyncLlmJobStart, CommandError> {
+    let analysis = load_cached_analysis(&state)?;
+    let request = build_pass2_request(
+        &analysis,
+        &group_id,
+        &repo_path,
+        base,
+        head,
+        range,
+        staged,
+        unstaged,
+    )?;
+    let (mut config, workdir) = load_config_from_path(Some(&repo_path));
+    if let Some(provider) = llm_provider {
+        config.llm.provider = Some(provider);
+    }
+    if let Some(model) = llm_model {
+        config.llm.model = Some(model);
+    }
+
+    let provider_name = config
+        .llm
+        .provider
+        .clone()
+        .unwrap_or_else(|| "anthropic".to_string());
+    let model_name = config
+        .llm
+        .model
+        .clone()
+        .unwrap_or_else(|| default_model_for_provider(&provider_name).to_string());
+    let (job, start) = state.create_llm_job(
+        "group",
+        &provider_name,
+        &model_name,
+        &format!("Analyzing {}", group_id),
+    )?;
+    let llm_config = config.llm.clone();
+
+    tauri::async_runtime::spawn(async move {
+        match run_group_with_activity(request, llm_config, workdir, job.clone()).await {
+            Ok(response) => match serde_json::to_value(&response) {
+                Ok(value) => job.complete("group", value).await,
+                Err(error) => {
+                    job.fail(format!("Failed to serialize group response: {}", error))
+                        .await
+                }
+            },
+            Err(error) => job.fail(error.to_string()).await,
+        }
+    });
+
+    Ok(start)
+}
+
+#[tauri::command]
+pub fn start_refine_groups(
+    repo_path: Option<String>,
+    llm_provider: Option<String>,
+    llm_model: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<AsyncLlmJobStart, CommandError> {
+    let analysis = load_cached_analysis(&state)?;
+    let (mut config, workdir) = load_config_from_path(repo_path.as_deref());
+    if let Some(provider) = llm_provider {
+        config.llm.refinement.provider = Some(provider.clone());
+        if config.llm.provider.is_none() {
+            config.llm.provider = Some(provider);
+        }
+    }
+    if let Some(model) = llm_model {
+        config.llm.refinement.model = Some(model.clone());
+        if config.llm.model.is_none() {
+            config.llm.model = Some(model);
+        }
+    }
+
+    let refinement_llm_config = flowdiff_core::config::LlmConfig {
+        provider: config
+            .llm
+            .refinement
+            .provider
+            .clone()
+            .or(config.llm.provider.clone()),
+        model: config
+            .llm
+            .refinement
+            .model
+            .clone()
+            .or(config.llm.model.clone()),
+        key_cmd: config
+            .llm
+            .refinement
+            .key_cmd
+            .clone()
+            .or(config.llm.key_cmd.clone()),
+        key: config.llm.key.clone(),
+        refinement: config.llm.refinement.clone(),
+    };
+
+    let provider_name = refinement_llm_config
+        .provider
+        .clone()
+        .unwrap_or_else(|| "anthropic".to_string());
+    let model_name = refinement_llm_config
+        .model
+        .clone()
+        .unwrap_or_else(|| default_model_for_provider(&provider_name).to_string());
+    let (job, start) =
+        state.create_llm_job("refinement", &provider_name, &model_name, "Refining groups")?;
+
+    tauri::async_runtime::spawn(async move {
+        match run_refinement_with_activity(analysis, refinement_llm_config, workdir, job.clone()).await {
+            Ok(response) => match serde_json::to_value(&response) {
+                Ok(value) => job.complete("refinement", value).await,
+                Err(error) => {
+                    job.fail(format!("Failed to serialize refinement response: {}", error))
+                        .await
+                }
+            },
+            Err(error) => job.fail(error.to_string()).await,
+        }
+    });
+
+    Ok(start)
 }
 
 /// Run LLM Pass 1 (overview annotation) on the cached analysis.
@@ -754,6 +1344,17 @@ pub struct RefinementResult {
     pub had_changes: bool,
 }
 
+/// Background LLM job registration payload returned before SSE streaming begins.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AsyncLlmJobStart {
+    pub job_id: String,
+    pub stream_url: String,
+    pub operation: String,
+    pub provider: String,
+    pub model: String,
+    pub title: String,
+}
+
 /// List all local branches in the repository.
 ///
 /// Returns branches sorted with current branch first, then alphabetically.
@@ -817,15 +1418,11 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
     let codex_status = llm::codex_cli::detect_status();
     let claude_status = llm::claude_cli::detect_status();
 
+    let configured_provider = config.llm.provider.as_deref();
     let provider =
-        config.llm.provider.clone().unwrap_or_else(|| {
-            default_provider_for_machine(&codex_status, &claude_status).to_string()
-        });
-    let model = config
-        .llm
-        .model
-        .clone()
-        .unwrap_or_else(|| default_model_for_provider(&provider).to_string());
+        preferred_provider_for_runtime(configured_provider, &codex_status, &claude_status);
+    let model =
+        preferred_model_for_runtime(config.llm.model.clone(), configured_provider, &provider);
 
     let has_api_key = match provider.as_str() {
         "codex" => codex_status.authenticated,
@@ -866,18 +1463,22 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
         }
     };
 
-    let refinement_provider = config
-        .llm
-        .refinement
-        .provider
-        .clone()
-        .unwrap_or_else(|| provider.clone());
-    let refinement_model = config
-        .llm
-        .refinement
-        .model
-        .clone()
-        .unwrap_or_else(|| default_model_for_provider(&refinement_provider).to_string());
+    let configured_refinement_provider = config.llm.refinement.provider.as_deref().or(configured_provider);
+    let refinement_provider = preferred_provider_for_runtime(
+        configured_refinement_provider,
+        &codex_status,
+        &claude_status,
+    );
+    let refinement_model = preferred_model_for_runtime(
+        config
+            .llm
+            .refinement
+            .model
+            .clone()
+            .or(config.llm.model.clone()),
+        configured_refinement_provider,
+        &refinement_provider,
+    );
 
     Ok(LlmSettings {
         annotations_enabled: has_api_key,
@@ -1269,6 +1870,41 @@ fn default_provider_for_machine(
         "claude"
     } else {
         "anthropic"
+    }
+}
+
+fn preferred_provider_for_runtime(
+    configured_provider: Option<&str>,
+    codex_status: &llm::BackendStatus,
+    claude_status: &llm::BackendStatus,
+) -> String {
+    match configured_provider {
+        Some("codex") if codex_status.authenticated => "codex".to_string(),
+        Some("claude") if claude_status.authenticated => "claude".to_string(),
+        Some(provider) if provider_supports_tool_activity(provider) => {
+            default_provider_for_machine(codex_status, claude_status).to_string()
+        }
+        Some(provider) => {
+            if codex_status.authenticated || claude_status.authenticated {
+                default_provider_for_machine(codex_status, claude_status).to_string()
+            } else {
+                provider.to_string()
+            }
+        }
+        None => default_provider_for_machine(codex_status, claude_status).to_string(),
+    }
+}
+
+fn preferred_model_for_runtime(
+    configured_model: Option<String>,
+    configured_provider: Option<&str>,
+    resolved_provider: &str,
+) -> String {
+    if configured_provider == Some(resolved_provider) {
+        configured_model
+            .unwrap_or_else(|| default_model_for_provider(resolved_provider).to_string())
+    } else {
+        default_model_for_provider(resolved_provider).to_string()
     }
 }
 
@@ -1886,6 +2522,47 @@ mod tests {
         assert_eq!(default_model_for_provider("openai"), "gpt-4.1");
         assert_eq!(default_model_for_provider("gemini"), "gemini-2.5-flash");
         assert_eq!(default_model_for_provider("unknown"), "default");
+    }
+
+    #[test]
+    fn test_preferred_provider_for_runtime_prefers_authenticated_codex_over_direct_api() {
+        let codex = llm::BackendStatus {
+            installed: true,
+            authenticated: true,
+        };
+        let claude = llm::BackendStatus {
+            installed: true,
+            authenticated: false,
+        };
+
+        assert_eq!(
+            preferred_provider_for_runtime(Some("openai"), &codex, &claude),
+            "codex"
+        );
+        assert_eq!(
+            preferred_provider_for_runtime(Some("anthropic"), &codex, &claude),
+            "codex"
+        );
+    }
+
+    #[test]
+    fn test_preferred_model_for_runtime_resets_to_provider_default_when_backend_changes() {
+        assert_eq!(
+            preferred_model_for_runtime(
+                Some("gpt-5.4".to_string()),
+                Some("openai"),
+                "codex"
+            ),
+            "default"
+        );
+        assert_eq!(
+            preferred_model_for_runtime(
+                Some("default".to_string()),
+                Some("codex"),
+                "codex"
+            ),
+            "default"
+        );
     }
 
     #[test]

@@ -6,6 +6,9 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
+  optimizeDeps: {
+    exclude: ["monaco-editor", "@monaco-editor/react"],
+  },
   server: {
     port: 5173,
     strictPort: true,

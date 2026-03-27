@@ -278,8 +278,20 @@ cargo test -p flowdiff-tauri
 # Playwright E2E tests for the Tauri UI
 cd crates/flowdiff-tauri/ui && npx playwright test
 
-# Live LLM integration tests (requires API keys)
+# Focused browser E2E for the new AI activity transcript
+cd crates/flowdiff-tauri/ui && npx playwright test tests/e2e/activity-stream.spec.ts
+
+# SSE transport integration for live activity streaming
+cargo test -p flowdiff-tauri --test activity_stream_integration -- --nocapture
+
+# Smoke test the built macOS bundle stays alive during startup
+FLOWDIFF_RUN_APP_LAUNCH_TESTS=1 cargo test -p flowdiff-tauri --test app_launch_smoke -- --nocapture
+
+# Live LLM integration tests (API keys and/or authenticated CLIs)
 FLOWDIFF_RUN_LIVE_LLM_TESTS=1 cargo test -p flowdiff-core -- --ignored
+
+# Live Codex CLI / Claude Code activity tests
+FLOWDIFF_RUN_LIVE_LLM_TESTS=1 cargo test -p flowdiff-core --test cli_activity_live -- --nocapture
 ```
 
 ## Contributing
