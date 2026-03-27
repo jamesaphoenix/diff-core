@@ -165,7 +165,8 @@ pub struct RepoEvalExpectations {
     /// Optional upper bound that is more specific than the global thresholds.
     #[serde(default)]
     pub group_count_max: Option<usize>,
-    /// Each set must resolve to the same semantic group (not infrastructure).
+    /// Each set must resolve to the same review destination.
+    /// This may be a semantic group or the same infrastructure bucket/subgroup.
     #[serde(default)]
     pub same_group: Vec<Vec<String>>,
     /// Each set must resolve to distinct destinations.
@@ -828,10 +829,10 @@ fn evaluate_repo_expectations(
 
     for files in &expectations.same_group {
         total_checks += 1;
-        match shared_semantic_group(files, &file_locations) {
+        match shared_review_destination(files, &file_locations) {
             Ok(true) => satisfied_checks += 1,
             Ok(false) => failures.push(format!(
-                "same_group failed: expected [{}] to share a semantic group",
+                "same_group failed: expected [{}] to share a review destination",
                 files.join(", ")
             )),
             Err(missing) => failures.push(format!(
@@ -993,7 +994,7 @@ fn is_any_infra_location(location: &str) -> bool {
     location == "infra" || location.starts_with("infra:")
 }
 
-fn shared_semantic_group(
+fn shared_review_destination(
     files: &[String],
     file_locations: &HashMap<String, String>,
 ) -> Result<bool, String> {
@@ -1002,9 +1003,6 @@ fn shared_semantic_group(
         let Some(location) = file_locations.get(path) else {
             return Err(path.clone());
         };
-        if location == "infra" {
-            return Ok(false);
-        }
         locations.insert(location.as_str());
     }
 
@@ -1456,6 +1454,44 @@ mod tests {
         let golden = evaluate_repo_expectations(&output, Some(&expectations));
         assert_eq!(golden.total_checks, 11);
         assert_eq!(golden.satisfied_checks, 11);
+        assert!(golden.failures.is_empty());
+    }
+
+    #[test]
+    fn test_evaluate_repo_expectations_counts_flat_infra_as_same_destination() {
+        let output = make_output(
+            vec![make_group("g1", &["src/requests/utils.py"])],
+            vec![
+                "pyproject.toml",
+                "setup.py",
+                "tox.ini",
+                ".github/workflows/codeql-analysis.yml",
+            ],
+            5,
+        );
+        let expectations = RepoEvalExpectations {
+            group_count_min: Some(2),
+            group_count_max: Some(1),
+            same_group: vec![
+                vec!["pyproject.toml".to_string(), "setup.py".to_string()],
+                vec!["pyproject.toml".to_string(), "tox.ini".to_string()],
+            ],
+            separate_group: vec![vec![
+                "src/requests/utils.py".to_string(),
+                "pyproject.toml".to_string(),
+            ]],
+            infrastructure: vec![
+                "pyproject.toml".to_string(),
+                "setup.py".to_string(),
+                "tox.ini".to_string(),
+                ".github/workflows/codeql-analysis.yml".to_string(),
+            ],
+            non_infrastructure: vec!["src/requests/utils.py".to_string()],
+        };
+
+        let golden = evaluate_repo_expectations(&output, Some(&expectations));
+        assert_eq!(golden.total_checks, 10);
+        assert_eq!(golden.satisfied_checks, 10);
         assert!(golden.failures.is_empty());
     }
 
