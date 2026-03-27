@@ -448,6 +448,8 @@ fn merge_groups_by_stem(mut groups: Vec<FlowGroup>) -> Vec<FlowGroup> {
 }
 
 /// Extract bare filename stem (no directory, no extension, no test suffix).
+/// Returns empty string for common infra filenames to prevent cascade-merging
+/// in monorepos (e.g., 37 package.json files would merge all groups via stem "package").
 fn bare_stem(path: &str) -> String {
     let filename = path.rsplit('/').next().unwrap_or(path);
     let base = filename
@@ -459,7 +461,20 @@ fn bare_stem(path: &str) -> String {
         .replace(".integration-test.", ".");
     let stem = base.rsplit_once('.').map(|(s, _)| s).unwrap_or(&base);
     let stem = stem.strip_prefix("test_").unwrap_or(stem);
-    stem.to_lowercase()
+    let lower = stem.to_lowercase();
+
+    // Exclude common infra filenames that appear in many packages
+    // to prevent cascade-merging in monorepos.
+    if matches!(
+        lower.as_str(),
+        "package" | "changelog" | "readme" | "license" | "index"
+            | "mod" | "lib" | "main" | "init" | "__init__"
+            | "version" | "setup" | "config" | "tsconfig"
+    ) {
+        return String::new();
+    }
+
+    lower
 }
 
 /// Move test files to the same group as their corresponding implementation files.
