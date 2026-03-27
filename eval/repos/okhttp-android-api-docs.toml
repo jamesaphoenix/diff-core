@@ -1,0 +1,126 @@
+# Kotlin — OkHttp Android API tasking and API/docs maintenance, 22 files
+# 10-commit range: WebSocket queue docs, Interceptor.Chain timeout signature
+# narrowing, Android API check/dump tasking, 5.x docs link refresh, and build/header churn.
+[[repos]]
+name = "okhttp-android-api-docs"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/kotlin/okhttp"
+language = "kotlin"
+range = "e81e7a2472241d14d654fb8f031ecab34f99b35a..1694f67f48c8a6fb57c65e0f51d432db77e9259e"
+notes = "SMALL. 10-commit historical range: WebSocket queue/backpressure docs, Interceptor.Chain timeout API narrowing with regenerated signatures, Android API validation tasking, 5.x site-link refresh, and minor build/header housekeeping."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.80
+max_singleton_ratio = 0.70
+
+[repos.expectations]
+group_count_min = 4
+group_count_max = 6
+
+same_group = [
+  ["okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt", "okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http/RealInterceptorChain.kt"],
+  ["okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt", "okhttp/src/jvmTest/kotlin/okhttp3/InterceptorOverridesTest.kt"],
+  ["okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt", "okhttp/src/jvmTest/kotlin/okhttp3/KotlinSourceModernTest.kt"],
+  ["okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt", "okhttp/api/android/okhttp.api"],
+  ["okhttp/api/android/okhttp.api", "okhttp/api/jvm/okhttp.api"],
+]
+
+separate_group = [
+  ["okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt", "okhttp/src/commonJvmAndroid/kotlin/okhttp3/WebSocket.kt"],
+  ["okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt", "docs/features/calls.md"],
+  ["okhttp/src/commonJvmAndroid/kotlin/okhttp3/WebSocket.kt", "gradle/libs.versions.toml"],
+]
+
+infrastructure = [
+  ".gitignore",
+  "build-logic/src/main/kotlin/okhttp.publish-conventions.gradle.kts",
+  "build-logic/src/main/kotlin/okhttp3/buildsupport/OkHttpBuildUtils.kt",
+  "docs/features/caching.md",
+  "docs/features/calls.md",
+  "docs/features/connections.md",
+  "docs/features/events.md",
+  "docs/features/https.md",
+  "docs/recipes.md",
+  "gradle/libs.versions.toml",
+  "mockwebserver-deprecated/build.gradle.kts",
+  "okhttp-tls/README.md",
+  "okhttp-zstd/README.md",
+  "okhttp/api/android/okhttp.api",
+  "okhttp/api/jvm/okhttp.api",
+  "test_docs.sh",
+]
+
+non_infrastructure = [
+  "okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt",
+  "okhttp/src/commonJvmAndroid/kotlin/okhttp3/WebSocket.kt",
+  "okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http/RealInterceptorChain.kt",
+  "okhttp/src/jvmTest/kotlin/okhttp3/InterceptorOverridesTest.kt",
+  "okhttp/src/jvmTest/kotlin/okhttp3/KotlinSourceModernTest.kt",
+  "samples/static-server/src/main/java/okhttp3/sample/SampleServer.java",
+]
+
+[repos.ml]
+dataset_version = 1
+underlying_repo = "okhttp"
+range_id = "okhttp-android-api-docs"
+label_source = "sub-agent"
+review_status = "draft"
+
+[[repos.ml.groups]]
+id = "interceptor-timeout-api-signature"
+kind = "feature"
+files = [
+  "okhttp/api/android/okhttp.api",
+  "okhttp/api/jvm/okhttp.api",
+  "okhttp/src/commonJvmAndroid/kotlin/okhttp3/Interceptor.kt",
+  "okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http/RealInterceptorChain.kt",
+  "okhttp/src/jvmTest/kotlin/okhttp3/InterceptorOverridesTest.kt",
+  "okhttp/src/jvmTest/kotlin/okhttp3/KotlinSourceModernTest.kt",
+]
+
+[[repos.ml.groups]]
+id = "android-api-build-validation"
+kind = "infrastructure"
+files = [
+  "build-logic/src/main/kotlin/okhttp.publish-conventions.gradle.kts",
+]
+
+[[repos.ml.groups]]
+id = "docs-site-and-api-link-refresh"
+kind = "infrastructure"
+files = [
+  ".gitignore",
+  "docs/features/caching.md",
+  "docs/features/calls.md",
+  "docs/features/connections.md",
+  "docs/features/events.md",
+  "docs/features/https.md",
+  "docs/recipes.md",
+  "okhttp-tls/README.md",
+  "okhttp-zstd/README.md",
+  "test_docs.sh",
+]
+
+[[repos.ml.groups]]
+id = "build-toolchain-maintenance"
+kind = "infrastructure"
+files = [
+  "gradle/libs.versions.toml",
+  "mockwebserver-deprecated/build.gradle.kts",
+]
+
+[[repos.ml.groups]]
+id = "license-header-normalization"
+kind = "refactor"
+files = [
+  "build-logic/src/main/kotlin/okhttp3/buildsupport/OkHttpBuildUtils.kt",
+  "samples/static-server/src/main/java/okhttp3/sample/SampleServer.java",
+]
+
+[[repos.ml.groups]]
+id = "websocket-queue-backpressure-docs"
+kind = "feature"
+files = [
+  "okhttp/src/commonJvmAndroid/kotlin/okhttp3/WebSocket.kt",
+]
