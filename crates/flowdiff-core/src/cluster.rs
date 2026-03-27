@@ -808,10 +808,15 @@ fn is_config_like_filename(path: &str) -> bool {
         return true;
     }
 
-    // Scripts and packaging directories
+    // Scripts, packaging, and vendored dependency directories
     if lower.starts_with("scripts/")
         || lower.contains("/pkg/brew/")
         || lower.starts_with("pkg/brew/")
+        || lower.starts_with("vendor/")
+        || lower.contains("/vendor/")
+        || lower.starts_with("third_party/")
+        || lower.contains("/third_party/")
+        || lower.starts_with("node_modules/")
     {
         return true;
     }
