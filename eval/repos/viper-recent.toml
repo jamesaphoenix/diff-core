@@ -1,0 +1,44 @@
+# Go — Viper configuration library, ~17 files
+# 10-commit range: encoding codecs, bind struct, finder, error handling.
+[[repos]]
+name = "viper-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/viper"
+language = "go"
+range = "196113234fe04cbaae663b8bb992988a71353e42..528f7416c4b56a4948673984b190bf8713f0c3c4"
+notes = "MEDIUM. 10-commit range: encoding codecs, bind struct, finder. ~17 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5
+same_group = [
+  ["internal/encoding/json/codec.go", "internal/encoding/toml/codec.go"],
+  ["internal/features/bind_struct.go", "internal/features/bind_struct_default.go"],
+  ["internal/features/finder.go", "internal/features/finder_default.go"],
+]
+infrastructure = [
+  ".github/octoslash/policies/triager.cedar",
+  ".github/workflows/octoslash.yaml",
+  ".github/workflows/stale.yaml",
+  ".golangci.yaml",
+  "README.md",
+]
+non_infrastructure = [
+  "encoding.go",
+  "errors.go",
+  "internal/encoding/dotenv/codec.go",
+  "internal/encoding/json/codec.go",
+  "internal/encoding/toml/codec.go",
+  "internal/encoding/yaml/codec.go",
+  "internal/features/bind_struct.go",
+  "internal/features/bind_struct_default.go",
+  "internal/features/finder.go",
+  "internal/features/finder_default.go",
+  "remote.go",
+  "viper.go",
+]
