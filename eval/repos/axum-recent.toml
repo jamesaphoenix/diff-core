@@ -1,0 +1,61 @@
+# Rust — Axum web framework, 21 files
+# 10-commit range: multipart body-limit errors, deprecated vpath validation,
+# tower-http deprecation cleanup, example dependency bumps, and consolidated state docs.
+[[repos]]
+name = "axum-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/axum"
+language = "rust"
+range = "6a03c63f5cf7e2368cebf0e095fb3b035f7f7594..7c7a03927af82ccd4c7d71a1603b7e4ec094ea58"
+notes = "SMALL. 10-commit range: multipart body-limit fix, deprecated vpath rejection, state docs consolidation, and Rust dependency/example churn."
+
+[repos.thresholds]
+max_groups = 20
+max_infra_ratio = 0.55
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 5
+group_count_max = 8
+
+same_group = [
+  ["axum-extra/src/extract/multipart.rs", "axum/src/extract/multipart.rs"],
+  ["axum-core/src/extract/from_ref.rs", "axum/src/extract/state.rs"],
+  ["axum/src/extract/state.rs", "axum/src/docs/routing/with_state.md"],
+  ["axum/src/extract/state.rs", "axum/src/lib.rs"],
+  ["axum/src/handler/mod.rs", "axum/src/routing/tests/mod.rs"],
+  ["axum/src/routing/method_routing.rs", "axum/src/routing/tests/merge.rs"],
+]
+
+separate_group = [
+  ["axum/src/extract/multipart.rs", "axum/src/lib.rs"],
+  ["axum-extra/src/routing/mod.rs", "axum/src/extract/multipart.rs"],
+  ["axum/src/lib.rs", "axum/src/routing/method_routing.rs"],
+]
+
+infrastructure = [
+  ".github/workflows/CI.yml",
+  "Cargo.lock",
+  "ECOSYSTEM.md",
+  "axum-extra/CHANGELOG.md",
+  "axum/Cargo.toml",
+  "examples/Cargo.lock",
+  "examples/diesel-async-postgres/Cargo.toml",
+  "examples/mongodb/Cargo.toml",
+  "examples/testing-websockets/Cargo.toml",
+  "examples/websockets/Cargo.toml",
+]
+
+non_infrastructure = [
+  "axum-core/src/extract/from_ref.rs",
+  "axum-extra/src/extract/multipart.rs",
+  "axum-extra/src/routing/mod.rs",
+  "axum/src/docs/routing/with_state.md",
+  "axum/src/extract/multipart.rs",
+  "axum/src/extract/state.rs",
+  "axum/src/handler/mod.rs",
+  "axum/src/lib.rs",
+  "axum/src/routing/method_routing.rs",
+  "axum/src/routing/tests/merge.rs",
+  "axum/src/routing/tests/mod.rs",
+]
