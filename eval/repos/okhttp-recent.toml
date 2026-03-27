@@ -1,0 +1,44 @@
+# Kotlin — OkHttp HTTP client, ~17 files
+# 10-commit range: HTTP/2 header limits, cache NPE fix, cookie trimming, Gradle upgrades.
+[[repos]]
+name = "okhttp-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/kotlin/okhttp"
+language = "kotlin"
+range = "1694f67f48c8a6fb57c65e0f51d432db77e9259e..21ad1aa6aa4d5de7f5f52956f0841a5c304ab849"
+notes = "SMALL. 10-commit range: HTTP/2 header limits, cache NPE fix, cookie trimming. ~17 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 2
+group_count_max = 5
+same_group = [
+  ["okhttp/src/commonJvmAndroid/kotlin/okhttp3/Cache.kt", "okhttp/src/jvmTest/kotlin/okhttp3/CacheTest.kt"],
+  ["okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http2/Hpack.kt", "okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http2/Http2Reader.kt"],
+  ["okhttp-java-net-cookiejar/src/main/kotlin/okhttp3/java/net/cookiejar/JavaNetCookieJar.kt", "okhttp/src/jvmTest/kotlin/okhttp3/CookiesTest.kt"],
+]
+infrastructure = [
+  ".gitignore",
+  ".vscode/settings.json",
+  "build-logic/build.gradle.kts",
+  "gradle.properties",
+  "gradle/libs.versions.toml",
+  "gradle/wrapper/gradle-wrapper.properties",
+  "gradlew",
+]
+non_infrastructure = [
+  "okhttp-java-net-cookiejar/src/main/kotlin/okhttp3/java/net/cookiejar/JavaNetCookieJar.kt",
+  "okhttp/src/commonJvmAndroid/kotlin/okhttp3/Cache.kt",
+  "okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/-HeadersCommon.kt",
+  "okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http1/HeadersReader.kt",
+  "okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http2/Hpack.kt",
+  "okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http2/Http2Reader.kt",
+  "okhttp/src/jvmTest/kotlin/okhttp3/CacheTest.kt",
+  "okhttp/src/jvmTest/kotlin/okhttp3/CallLimitsTest.kt",
+  "okhttp/src/jvmTest/kotlin/okhttp3/CallTest.kt",
+  "okhttp/src/jvmTest/kotlin/okhttp3/CookiesTest.kt",
+]
