@@ -1183,6 +1183,7 @@ pub fn classify_by_convention(path: &str) -> InfraCategory {
     // not project documentation. Also skip www/docs/ which is often a docs website source.
     // But packages/docs/content/ (nested under a package) is still documentation.
     let is_site_content = lower.starts_with("docs/content/")
+        || lower.starts_with("content/")
         || lower.starts_with("www/docs/");
     // .md files inside src/docs/ directories are inline API documentation
     // tied to source code (e.g., axum/src/docs/routing/with_state.md).
