@@ -1,0 +1,157 @@
+# Python — Django runtime/docs/release prelude, 22 files
+# 10-commit range: mail connection-conflict validation, streaming-response
+# idempotency, Oracle JSONField coalesce fix, release verification script
+# consolidation, and a few docs/editorial/test cleanups.
+[[repos]]
+name = "django-streaming-mail-oracle"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/django"
+language = "python"
+range = "23f49c6b408d9b013e959f91c23813a7c0f6ed64..37284896f08e120505c8c01918b9d6bba03c2204"
+notes = "SMALL. 10-commit range: mail connection-conflict validation, streaming-response idempotency, Oracle JSONField coalesce fix, release verification script consolidation, and docs/editorial/test cleanups. 22 files."
+
+[repos.thresholds]
+max_groups = 20
+max_infra_ratio = 0.65
+max_singleton_ratio = 0.75
+
+[repos.expectations]
+group_count_min = 8
+group_count_max = 12
+
+same_group = [
+  ["django/core/mail/__init__.py", "django/core/mail/message.py"],
+  ["django/core/mail/__init__.py", "tests/mail/tests.py"],
+  ["django/utils/log.py", "tests/mail/tests.py"],
+  ["django/db/models/functions/comparison.py", "tests/model_fields/models.py"],
+  ["django/db/models/functions/comparison.py", "tests/model_fields/test_jsonfield.py"],
+  ["django/test/testcases.py", "tests/test_utils/tests.py"],
+  ["scripts/do_django_release.py", "scripts/verify_release.sh"],
+  ["scripts/confirm_release.sh", "scripts/verify_release.sh"],
+  ["scripts/test_new_version.sh", "scripts/verify_release.sh"],
+]
+
+separate_group = [
+  ["django/core/mail/__init__.py", "django/db/models/functions/comparison.py"],
+  ["django/core/mail/__init__.py", "django/test/testcases.py"],
+  ["django/db/models/functions/comparison.py", "tests/field_defaults/tests.py"],
+  ["tests/migrations/test_executor.py", "tests/test_utils/tests.py"],
+  ["scripts/verify_release.sh", "django/core/mail/__init__.py"],
+]
+
+infrastructure = [
+  ".github/workflows/check_commit_messages.yml",
+  "AUTHORS",
+  "docs/internals/contributing/accessibility.txt",
+  "docs/internals/howto-release-django.txt",
+  "docs/ref/contrib/gis/model-api.txt",
+  "docs/releases/6.1.txt",
+  "docs/topics/email.txt",
+  "scripts/confirm_release.sh",
+  "scripts/do_django_release.py",
+  "scripts/test_new_version.sh",
+  "scripts/verify_release.sh",
+]
+
+non_infrastructure = [
+  "django/core/mail/__init__.py",
+  "django/core/mail/message.py",
+  "django/db/models/functions/comparison.py",
+  "django/test/testcases.py",
+  "django/utils/log.py",
+  "tests/field_defaults/tests.py",
+  "tests/mail/tests.py",
+  "tests/migrations/test_executor.py",
+  "tests/model_fields/models.py",
+  "tests/model_fields/test_jsonfield.py",
+  "tests/test_utils/tests.py",
+]
+
+[repos.ml]
+dataset_version = 1
+underlying_repo = "django"
+range_id = "streaming-mail-oracle-release-prelude"
+label_source = "sub-agent"
+review_status = "draft"
+
+[[repos.ml.groups]]
+id = "commit-message-workflow-repo-guard"
+kind = "infrastructure"
+files = [
+  ".github/workflows/check_commit_messages.yml",
+]
+
+[[repos.ml.groups]]
+id = "authors-credit-update"
+kind = "infrastructure"
+files = [
+  "AUTHORS",
+]
+
+[[repos.ml.groups]]
+id = "docs-editorial-cleanups"
+kind = "infrastructure"
+files = [
+  "docs/internals/contributing/accessibility.txt",
+  "docs/ref/contrib/gis/model-api.txt",
+]
+
+[[repos.ml.groups]]
+id = "release-verification-script-consolidation"
+kind = "refactor"
+files = [
+  "docs/internals/howto-release-django.txt",
+  "scripts/confirm_release.sh",
+  "scripts/do_django_release.py",
+  "scripts/test_new_version.sh",
+  "scripts/verify_release.sh",
+]
+
+[[repos.ml.groups]]
+id = "mail-connection-conflict-validation"
+kind = "feature"
+files = [
+  "django/core/mail/__init__.py",
+  "django/core/mail/message.py",
+  "django/utils/log.py",
+  "docs/topics/email.txt",
+  "tests/mail/tests.py",
+]
+
+[[repos.ml.groups]]
+id = "django-6-1-release-notes-runtime-fixes"
+kind = "release"
+files = [
+  "docs/releases/6.1.txt",
+]
+
+[[repos.ml.groups]]
+id = "streaming-response-assert-idempotency"
+kind = "feature"
+files = [
+  "django/test/testcases.py",
+  "tests/test_utils/tests.py",
+]
+
+[[repos.ml.groups]]
+id = "oracle-jsonfield-coalesce-casting"
+kind = "feature"
+files = [
+  "django/db/models/functions/comparison.py",
+  "tests/model_fields/models.py",
+  "tests/model_fields/test_jsonfield.py",
+]
+
+[[repos.ml.groups]]
+id = "field-defaults-utc-test-cleanup"
+kind = "feature"
+files = [
+  "tests/field_defaults/tests.py",
+]
+
+[[repos.ml.groups]]
+id = "migration-executor-introspection-test-fix"
+kind = "feature"
+files = [
+  "tests/migrations/test_executor.py",
+]
