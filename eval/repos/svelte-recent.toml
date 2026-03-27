@@ -1,0 +1,103 @@
+# TypeScript — Svelte compiler framework, ~77 files
+# 10-commit range: async rendering, motion spring/tweened, HMR, docs updates.
+[[repos]]
+name = "svelte-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/svelte"
+language = "typescript"
+range = "7123bf3a131a53b1ba9414f0d44150a94d0132e3..669f6b45a3d02aa55b4011576b8d4ded2b5b7135"
+notes = "MEDIUM. 10-commit range: async rendering, motion, HMR, docs. ~77 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 5
+group_count_max = 8
+same_group = [
+  ["packages/svelte/src/motion/spring.js", "packages/svelte/src/motion/tweened.js"],
+  ["packages/svelte/src/compiler/phases/3-transform/client/visitors/shared/fragment.js", "packages/svelte/src/internal/client/dev/hmr.js"],
+]
+infrastructure = [
+  ".changeset/calm-mice-allow.md",
+  ".changeset/fix-memory-leak-boundary.md",
+  ".changeset/four-beers-like.md",
+  ".changeset/puny-masks-run.md",
+  ".changeset/spicy-teeth-tan.md",
+  ".changeset/tasty-carrots-tie.md",
+  ".changeset/two-onions-end.md",
+  "packages/svelte/CHANGELOG.md",
+  "packages/svelte/package.json",
+  "packages/svelte/src/version.js",
+]
+non_infrastructure = [
+  "documentation/docs/02-runes/03-$derived.md",
+  "documentation/docs/02-runes/04-$effect.md",
+  "documentation/docs/02-runes/05-$props.md",
+  "documentation/docs/02-runes/07-$inspect.md",
+  "documentation/docs/03-template-syntax/03-each.md",
+  "documentation/docs/03-template-syntax/06-snippet.md",
+  "documentation/docs/03-template-syntax/12-bind.md",
+  "documentation/docs/03-template-syntax/19-await-expressions.md",
+  "documentation/docs/06-runtime/02-context.md",
+  "packages/svelte/src/compiler/phases/3-transform/client/visitors/shared/fragment.js",
+  "packages/svelte/src/internal/client/dev/hmr.js",
+  "packages/svelte/src/motion/private.d.ts",
+  "packages/svelte/src/motion/public.d.ts",
+  "packages/svelte/src/motion/spring.js",
+  "packages/svelte/src/motion/tweened.js",
+  "packages/svelte/tests/runtime-runes/samples/async-hydrate-html-tag/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-hydrate-html-tag/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-1/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-1/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-2/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-2/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-3/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-3/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-4/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-4/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-5/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-5/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-6/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-6/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-7/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-7/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-fork-1/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-fork-1/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-fork-2/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-fork-2/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-fork-3/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-overlap-multiple-fork-3/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-1/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-1/Child.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-1/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-2/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-2/Child.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-2/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-3/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-3/Child.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-3/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-all-combinations/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-all-combinations/Child.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-all-combinations/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-1/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-1/Child.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-1/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-2/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-2/Child.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-2/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-3/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-3/Child.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-3/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-4/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-4/Child.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-4/main.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-5/_config.js",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-5/Child.svelte",
+  "packages/svelte/tests/runtime-runes/samples/async-state-new-branch-fork-5/main.svelte",
+  "packages/svelte/tests/suite.ts",
+  "packages/svelte/tests/types/motion.ts",
+  "packages/svelte/types/index.d.ts",
+]
