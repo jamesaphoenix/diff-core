@@ -1,0 +1,102 @@
+# Python — SQLModel docs/tutorial and dependency churn range, 10 files
+# 40-commit range: docs-site external-link behavior, new `in_()` tutorial example,
+# relationship-doc wording clarification, build/dependency updates, and release notes.
+[[repos]]
+name = "sqlmodel-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/sqlmodel"
+language = "python"
+range = "4f5700339f4a87f7576cf8c6bf8b52b0a7c34ec6..8b608382a0299acd892529764599939103e4fc3b"
+notes = "SMALL. 40-commit historical range: docs-site external-link behavior in JS/CSS, a new `in_()` tutorial example plus regression test, relationship-doc wording clarification, and dependency/release churn. 10 files."
+
+[repos.thresholds]
+max_groups = 20
+max_infra_ratio = 0.85
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 5
+group_count_max = 6
+
+same_group = [
+  ["docs/css/custom.css", "docs/js/custom.js"],
+  ["docs/tutorial/where.md", "docs_src/tutorial/where/tutorial006b_py310.py"],
+  ["docs/tutorial/where.md", "tests/test_tutorial/test_where/test_tutorial006b.py"],
+  ["docs_src/tutorial/where/tutorial006b_py310.py", "tests/test_tutorial/test_where/test_tutorial006b.py"],
+  ["pyproject.toml", "uv.lock"],
+]
+
+separate_group = [
+  [".github/workflows/build-docs.yml", "pyproject.toml"],
+  ["docs/tutorial/fastapi/relationships.md", "docs/tutorial/where.md"],
+  ["docs/release-notes.md", "docs/tutorial/where.md"],
+]
+
+infrastructure = [
+  ".github/workflows/build-docs.yml",
+  "docs/css/custom.css",
+  "docs/js/custom.js",
+  "docs/release-notes.md",
+  "pyproject.toml",
+  "uv.lock",
+]
+
+non_infrastructure = [
+  "docs/tutorial/fastapi/relationships.md",
+  "docs/tutorial/where.md",
+  "docs_src/tutorial/where/tutorial006b_py310.py",
+  "tests/test_tutorial/test_where/test_tutorial006b.py",
+]
+
+[repos.ml]
+dataset_version = 1
+underlying_repo = "sqlmodel"
+range_id = "sqlmodel-recent"
+label_source = "sub-agent"
+review_status = "draft"
+
+[[repos.ml.groups]]
+id = "docs-link-icons"
+kind = "infrastructure"
+files = [
+  "docs/css/custom.css",
+  "docs/js/custom.js",
+]
+
+[[repos.ml.groups]]
+id = "release-notes-update"
+kind = "infrastructure"
+files = [
+  "docs/release-notes.md",
+]
+
+[[repos.ml.groups]]
+id = "tutorial-where-in-operator-example"
+kind = "feature"
+files = [
+  "docs/tutorial/where.md",
+  "docs_src/tutorial/where/tutorial006b_py310.py",
+  "tests/test_tutorial/test_where/test_tutorial006b.py",
+]
+
+[[repos.ml.groups]]
+id = "relationships-doc-clarification"
+kind = "feature"
+files = [
+  "docs/tutorial/fastapi/relationships.md",
+]
+
+[[repos.ml.groups]]
+id = "dependency-bundle"
+kind = "infrastructure"
+files = [
+  "pyproject.toml",
+  "uv.lock",
+]
+
+[[repos.ml.groups]]
+id = "docs-build-workflow-update"
+kind = "infrastructure"
+files = [
+  ".github/workflows/build-docs.yml",
+]
