@@ -1,0 +1,50 @@
+# Rust — Pingora proxy framework (Cloudflare), ~23 files
+# 10-commit range: prometheus metrics, cache variance, server config.
+[[repos]]
+name = "pingora-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/pingora"
+language = "rust"
+range = "4dbd37d9dfe5d520c27d3e2b33af7035c5c3947d..9a4eee3ed45a1443ff4ace159817764772f27553"
+notes = "MEDIUM. 10-commit range: prometheus metrics, cache, server config. ~23 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.50
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 8
+same_group = [
+  ["pingora-core/src/apps/prometheus_http_app.rs", "pingora-core/src/apps/mod.rs"],
+  ["pingora-proxy/src/lib.rs", "pingora-proxy/src/proxy_trait.rs"],
+  ["pingora-core/tests/test_basic.rs", "pingora-core/tests/utils/mod.rs"],
+]
+infrastructure = [
+  ".bleep",
+  ".cargo/audit.toml",
+  "docs/user_guide/prom.md",
+  "pingora-core/Cargo.toml",
+  "pingora-proxy/Cargo.toml",
+  "pingora/Cargo.toml",
+]
+non_infrastructure = [
+  "pingora-cache/src/variance.rs",
+  "pingora-core/src/apps/mod.rs",
+  "pingora-core/src/apps/prometheus_http_app.rs",
+  "pingora-core/src/protocols/http/server.rs",
+  "pingora-core/src/protocols/http/v1/server.rs",
+  "pingora-core/src/server/bootstrap_services.rs",
+  "pingora-core/src/server/configuration/mod.rs",
+  "pingora-core/src/server/mod.rs",
+  "pingora-core/src/services/listening.rs",
+  "pingora-core/tests/test_basic.rs",
+  "pingora-core/tests/utils/mod.rs",
+  "pingora-load-balancing/src/lib.rs",
+  "pingora-proxy/examples/gateway.rs",
+  "pingora-proxy/src/lib.rs",
+  "pingora-proxy/src/proxy_trait.rs",
+  "pingora-runtime/src/lib.rs",
+  "pingora/examples/server.rs",
+]
