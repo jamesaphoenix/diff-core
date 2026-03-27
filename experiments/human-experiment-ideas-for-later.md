@@ -93,7 +93,7 @@ Ideas queued for testing in the autoresearch loop. Move items to `experiments.js
 
 **Schedule: 10 MACRO → 10 MICRO → 10 GROWING_DATA → repeat**
 
-**Current phase: MICRO (5/10)** — experiments #72-75 done (1 win, 2 neutral, 1 major revert)
+**Current phase: GROWING_DATA (0/10)** — MACRO+MICRO complete (0.9538→0.9600), expanding to 77 repos
 
 ### Macro (GLOBAL) — 10 experiments, generic approaches
 1. [x] **Diff-based embeddings** — embed change hunks not full content (#62, +0.0002 keep)
