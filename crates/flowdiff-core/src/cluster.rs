@@ -470,7 +470,15 @@ fn bare_stem(path: &str) -> String {
         .replace(".integration-test.", ".");
     let stem = base.rsplit_once('.').map(|(s, _)| s).unwrap_or(&base);
     let stem = stem.strip_prefix("test_").unwrap_or(stem);
-    let lower = stem.to_lowercase();
+    let mut lower = stem.to_lowercase();
+    // Strip Java/PHP/C# test suffixes: FooTest → Foo, FooTests → Foo, FooSpec → Foo
+    if lower.ends_with("tests") {
+        lower.truncate(lower.len() - 5);
+    } else if lower.ends_with("test") {
+        lower.truncate(lower.len() - 4);
+    } else if lower.ends_with("spec") {
+        lower.truncate(lower.len() - 4);
+    }
 
     // Exclude common infra filenames that appear in many packages
     // to prevent cascade-merging in monorepos.
@@ -576,6 +584,12 @@ fn is_test_file_name(path: &str) -> bool {
         return true;
     }
 
+    // Java/PHP/C# convention: FooTest.java, FooTests.java, FooSpec.java
+    let stem = filename.rsplit_once('.').map(|(s, _)| s).unwrap_or(filename);
+    if stem.ends_with("test") || stem.ends_with("tests") || stem.ends_with("spec") {
+        return true;
+    }
+
     // Directory patterns: files in tests/, test/, __tests__/, testscripts/, specs/ directories
     if lower.contains("/tests/")
         || lower.contains("/test/")
@@ -620,6 +634,13 @@ fn test_impl_stem(path: &str) -> String {
 
     // Also strip "test_" prefix (Python convention)
     let stem = stem.strip_prefix("test_").unwrap_or(stem);
+
+    // Strip Java/PHP/C# suffixes: FooTest → Foo, FooTests → Foo
+    let stem = stem
+        .strip_suffix("Tests")
+        .or_else(|| stem.strip_suffix("Test"))
+        .or_else(|| stem.strip_suffix("Spec"))
+        .unwrap_or(stem);
 
     // Combine directory context with stem for uniqueness
     // Use the last 2 directory components + stem
