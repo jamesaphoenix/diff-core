@@ -13,7 +13,8 @@ use crate::cluster::ClusterResult;
 use crate::git::DiffResult;
 use crate::rank::is_risk_path;
 use crate::types::{
-    AnalysisOutput, AnalysisSummary, DiffSource, DiffType, FlowGroup, RankedGroup,
+    AnalysisOutput, AnalysisSummary, DiffSource, DiffType, FlowGroup, InfraCategory, InfraSubGroup,
+    InfrastructureGroup, RankedGroup,
 };
 
 /// Errors from output operations.
@@ -51,13 +52,11 @@ pub fn build_analysis_output(
     };
 
     // Apply ranking to groups: update risk_score and review_order from ranked results.
-    let groups: Vec<FlowGroup> = cluster_result
+    let mut groups: Vec<FlowGroup> = cluster_result
         .groups
         .iter()
         .map(|group| {
-            let ranked = ranked_groups
-                .iter()
-                .find(|r| r.group_id == group.id);
+            let ranked = ranked_groups.iter().find(|r| r.group_id == group.id);
             FlowGroup {
                 risk_score: ranked.map_or(group.risk_score, |r| r.composite_score),
                 review_order: ranked.map_or(group.review_order, |r| r.review_order),
@@ -65,6 +64,8 @@ pub fn build_analysis_output(
             }
         })
         .collect();
+    let mut infrastructure_group = cluster_result.infrastructure.clone();
+    extract_forced_infrastructure(&mut groups, &mut infrastructure_group);
 
     let frameworks_detected = crate::flow::detect_frameworks(parsed_files);
 
@@ -80,9 +81,116 @@ pub fn build_analysis_output(
         diff_source,
         summary,
         groups,
-        infrastructure_group: cluster_result.infrastructure.clone(),
+        infrastructure_group,
         annotations: None,
     }
+}
+
+fn extract_forced_infrastructure(
+    groups: &mut Vec<FlowGroup>,
+    infrastructure_group: &mut Option<InfrastructureGroup>,
+) {
+    let mut moved_files: Vec<(String, InfraCategory)> = Vec::new();
+
+    for group in groups.iter_mut() {
+        let original_files = std::mem::take(&mut group.files);
+        let mut kept_files = Vec::with_capacity(original_files.len());
+        let mut kept_paths = HashSet::new();
+
+        for file in original_files {
+            if let Some(category) = forced_infra_category(&file.path) {
+                moved_files.push((file.path, category));
+            } else {
+                kept_paths.insert(file.path.clone());
+                kept_files.push(file);
+            }
+        }
+
+        for (idx, file) in kept_files.iter_mut().enumerate() {
+            file.flow_position = idx as u32;
+        }
+        group.files = kept_files;
+        group.edges.retain(|edge| {
+            let from_file = edge.from.split("::").next().unwrap_or(&edge.from);
+            let to_file = edge.to.split("::").next().unwrap_or(&edge.to);
+            kept_paths.contains(from_file) && kept_paths.contains(to_file)
+        });
+    }
+
+    groups.retain(|group| !group.files.is_empty());
+
+    if moved_files.is_empty() {
+        return;
+    }
+
+    let infra = infrastructure_group.get_or_insert_with(|| InfrastructureGroup {
+        files: Vec::new(),
+        sub_groups: Vec::new(),
+        reason: "Convention-classified infrastructure extracted from semantic groups".to_string(),
+    });
+
+    for (path, category) in moved_files {
+        if infra.files.iter().any(|existing| existing == &path) {
+            continue;
+        }
+
+        infra.files.push(path.clone());
+        append_to_infra_subgroups(&mut infra.sub_groups, path, category);
+    }
+
+    infra.files.sort();
+    for subgroup in &mut infra.sub_groups {
+        subgroup.files.sort();
+        subgroup.files.dedup();
+    }
+    infra.sub_groups.sort_by(|a, b| a.name.cmp(&b.name));
+}
+
+fn forced_infra_category(path: &str) -> Option<InfraCategory> {
+    let lower = path.to_lowercase();
+    let category = crate::cluster::classify_by_convention(path);
+
+    match category {
+        InfraCategory::Script | InfraCategory::Lint => Some(category),
+        InfraCategory::Infrastructure
+            if lower.starts_with(".github/")
+                || lower.contains("/.github/")
+                || lower.starts_with(".changeset/")
+                || lower.contains("/.changeset/")
+                || lower.starts_with(".changes/")
+                || lower.contains("/.changes/")
+                || lower.starts_with("vendor/")
+                || lower.contains("/vendor/")
+                || lower.starts_with("third_party/")
+                || lower.contains("/third_party/")
+                || lower.starts_with("node_modules/")
+                || lower.contains("/node_modules/") =>
+        {
+            Some(category)
+        }
+        _ => None,
+    }
+}
+
+fn append_to_infra_subgroups(
+    sub_groups: &mut Vec<InfraSubGroup>,
+    path: String,
+    category: InfraCategory,
+) {
+    let name = crate::cluster::category_display_name(&category);
+    if let Some(subgroup) = sub_groups
+        .iter_mut()
+        .find(|subgroup| subgroup.category == category && subgroup.name == name)
+    {
+        subgroup.files.push(path);
+        return;
+    }
+
+    sub_groups.push(InfraSubGroup {
+        name,
+        category,
+        files: vec![path],
+    });
 }
 
 /// Create a `DiffSource` for a branch comparison.
@@ -102,7 +210,11 @@ pub fn diff_source_branch(
 }
 
 /// Create a `DiffSource` for a commit range.
-pub fn diff_source_range(range: &str, base_sha: Option<&str>, head_sha: Option<&str>) -> DiffSource {
+pub fn diff_source_range(
+    range: &str,
+    base_sha: Option<&str>,
+    head_sha: Option<&str>,
+) -> DiffSource {
     DiffSource {
         diff_type: DiffType::CommitRange,
         base: Some(range.to_string()),
@@ -282,7 +394,13 @@ fn edge_type_label(edge_type: &crate::types::EdgeType) -> &'static str {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
     use crate::types::*;
@@ -497,9 +615,18 @@ mod tests {
             &sample_cluster_result(),
             &sample_ranked_groups(),
         );
-        assert!(output.summary.languages_detected.contains(&"typescript".to_string()));
-        assert!(output.summary.languages_detected.contains(&"python".to_string()));
-        assert!(!output.summary.languages_detected.contains(&"unknown".to_string()));
+        assert!(output
+            .summary
+            .languages_detected
+            .contains(&"typescript".to_string()));
+        assert!(output
+            .summary
+            .languages_detected
+            .contains(&"python".to_string()));
+        assert!(!output
+            .summary
+            .languages_detected
+            .contains(&"unknown".to_string()));
     }
 
     #[test]
@@ -601,6 +728,92 @@ mod tests {
     }
 
     #[test]
+    fn test_forced_infra_category_is_narrow() {
+        assert_eq!(
+            forced_infra_category(".changeset/release.md"),
+            Some(InfraCategory::Infrastructure)
+        );
+        assert_eq!(
+            forced_infra_category("vendor/github.com/acme/lib/file.go"),
+            Some(InfraCategory::Infrastructure)
+        );
+        assert_eq!(
+            forced_infra_category("scripts/release.py"),
+            Some(InfraCategory::Script)
+        );
+        assert_eq!(forced_infra_category("pyproject.toml"), None);
+        assert_eq!(forced_infra_category("docs/tutorial/where.md"), None);
+    }
+
+    #[test]
+    fn test_build_output_extracts_forced_infra_from_groups() {
+        let cluster = ClusterResult {
+            groups: vec![FlowGroup {
+                id: "group_1".to_string(),
+                name: "release prep".to_string(),
+                entrypoint: None,
+                files: vec![
+                    FileChange {
+                        path: ".changeset/release.md".to_string(),
+                        flow_position: 0,
+                        role: FileRole::Infrastructure,
+                        changes: ChangeStats {
+                            additions: 1,
+                            deletions: 0,
+                        },
+                        symbols_changed: vec![],
+                    },
+                    FileChange {
+                        path: "scripts/release.py".to_string(),
+                        flow_position: 1,
+                        role: FileRole::Infrastructure,
+                        changes: ChangeStats {
+                            additions: 8,
+                            deletions: 2,
+                        },
+                        symbols_changed: vec![],
+                    },
+                    FileChange {
+                        path: "src/release.rs".to_string(),
+                        flow_position: 2,
+                        role: FileRole::Service,
+                        changes: ChangeStats {
+                            additions: 12,
+                            deletions: 3,
+                        },
+                        symbols_changed: vec!["release".to_string()],
+                    },
+                ],
+                edges: vec![FlowEdge {
+                    from: "scripts/release.py::main".to_string(),
+                    to: "src/release.rs::release".to_string(),
+                    edge_type: EdgeType::Calls,
+                }],
+                risk_score: 0.0,
+                review_order: 0,
+            }],
+            infrastructure: None,
+        };
+
+        let output = build_analysis_output(
+            &sample_diff_result(3),
+            diff_source_staged(),
+            &sample_parsed_files(),
+            &cluster,
+            &[],
+        );
+
+        assert_eq!(output.summary.total_groups, 1);
+        assert_eq!(output.groups[0].files.len(), 1);
+        assert_eq!(output.groups[0].files[0].path, "src/release.rs");
+        assert!(output.groups[0].edges.is_empty());
+
+        let infra = output.infrastructure_group.as_ref().unwrap();
+        assert!(infra.files.contains(&".changeset/release.md".to_string()));
+        assert!(infra.files.contains(&"scripts/release.py".to_string()));
+    }
+
+    #[test]
     fn test_build_output_annotations_null() {
         let output = build_analysis_output(
             &sample_diff_result(1),
@@ -623,13 +836,7 @@ mod tests {
             groups: vec![],
             infrastructure: None,
         };
-        let output = build_analysis_output(
-            &diff,
-            diff_source_staged(),
-            &[],
-            &cluster,
-            &[],
-        );
+        let output = build_analysis_output(&diff, diff_source_staged(), &[], &cluster, &[]);
         assert_eq!(output.summary.total_files_changed, 0);
         assert_eq!(output.summary.total_groups, 0);
         assert!(output.groups.is_empty());
@@ -878,14 +1085,20 @@ mod tests {
                     path: "a.ts".to_string(),
                     flow_position: 0,
                     role: FileRole::Entrypoint,
-                    changes: ChangeStats { additions: 1, deletions: 0 },
+                    changes: ChangeStats {
+                        additions: 1,
+                        deletions: 0,
+                    },
                     symbols_changed: vec![],
                 },
                 FileChange {
                     path: "b.ts".to_string(),
                     flow_position: 1,
                     role: FileRole::Service,
-                    changes: ChangeStats { additions: 1, deletions: 0 },
+                    changes: ChangeStats {
+                        additions: 1,
+                        deletions: 0,
+                    },
                     symbols_changed: vec![],
                 },
             ],
@@ -907,7 +1120,10 @@ mod tests {
         let mermaid = generate_mermaid(&group);
         // Both edges are between the same files, so only one Mermaid edge.
         let arrow_count = mermaid.matches("-->").count();
-        assert_eq!(arrow_count, 1, "duplicate file-level edges should be deduplicated");
+        assert_eq!(
+            arrow_count, 1,
+            "duplicate file-level edges should be deduplicated"
+        );
     }
 
     #[test]
@@ -920,7 +1136,10 @@ mod tests {
                 path: "a.ts".to_string(),
                 flow_position: 0,
                 role: FileRole::Utility,
-                changes: ChangeStats { additions: 1, deletions: 0 },
+                changes: ChangeStats {
+                    additions: 1,
+                    deletions: 0,
+                },
                 symbols_changed: vec![],
             }],
             edges: vec![FlowEdge {
@@ -946,7 +1165,10 @@ mod tests {
                 path: "src/handlers/auth.ts".to_string(),
                 flow_position: 0,
                 role: FileRole::Handler,
-                changes: ChangeStats { additions: 1, deletions: 0 },
+                changes: ChangeStats {
+                    additions: 1,
+                    deletions: 0,
+                },
                 symbols_changed: vec![],
             }],
             edges: vec![],
@@ -981,14 +1203,20 @@ mod tests {
                         path: "a.ts".to_string(),
                         flow_position: 0,
                         role: FileRole::Utility,
-                        changes: ChangeStats { additions: 1, deletions: 0 },
+                        changes: ChangeStats {
+                            additions: 1,
+                            deletions: 0,
+                        },
                         symbols_changed: vec![],
                     },
                     FileChange {
                         path: "b.ts".to_string(),
                         flow_position: 1,
                         role: FileRole::Utility,
-                        changes: ChangeStats { additions: 1, deletions: 0 },
+                        changes: ChangeStats {
+                            additions: 1,
+                            deletions: 0,
+                        },
                         symbols_changed: vec![],
                     },
                 ],
@@ -1042,10 +1270,7 @@ mod tests {
 
     #[test]
     fn test_risk_flags_test_only_false_mixed() {
-        let flags = compute_group_risk_flags(&[
-            "src/service.ts",
-            "src/__tests__/service.test.ts",
-        ]);
+        let flags = compute_group_risk_flags(&["src/service.ts", "src/__tests__/service.test.ts"]);
         assert!(!flags.has_test_only);
     }
 
@@ -1093,7 +1318,10 @@ mod tests {
         // Also verify it serializes as null in JSON
         let json = to_json(&output).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert!(parsed["annotations"].is_null(), "annotations should serialize as null");
+        assert!(
+            parsed["annotations"].is_null(),
+            "annotations should serialize as null"
+        );
     }
 
     /// §13.3: `-o` flag writes to file correctly.
@@ -1151,9 +1379,15 @@ mod tests {
         assert_eq!(parsed["version"], "1.0.0");
 
         // Should end with newline (for clean terminal output)
-        assert!(written.ends_with('\n'), "stdout output should end with newline");
+        assert!(
+            written.ends_with('\n'),
+            "stdout output should end with newline"
+        );
 
         // Should be pretty-printed (contains indentation)
-        assert!(written.contains("  "), "stdout output should be pretty-printed");
+        assert!(
+            written.contains("  "),
+            "stdout output should be pretty-printed"
+        );
     }
 }
