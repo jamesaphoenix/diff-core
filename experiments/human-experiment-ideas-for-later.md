@@ -93,16 +93,16 @@ Ideas queued for testing in the autoresearch loop. Move items to `experiments.js
 
 **Schedule: 10 MACRO → 10 MICRO → 10 GROWING_DATA → repeat**
 
-**Current phase: MACRO (3/10)** — next: co-change mining or multi-signal fusion
+**Current phase: MACRO (7/10)** — next: import chain depth or hybrid BFS+embedding
 
 ### Macro (GLOBAL) — 10 experiments, generic approaches
 1. [x] **Diff-based embeddings** — embed change hunks not full content (#62, +0.0002 keep)
 2. [x] **Filename stem clustering** — bare-stem matching across dirs (#63, neutral revert)
 3. [ ] **Co-change mining** — `git log --name-only` co-change frequencies
-4. [ ] **Multi-signal fusion** — weighted similarity matrix (graph + embeddings + dir + name)
-5. [ ] **Learned merge policy** — train on 47 golden repos, learn optimal merges
-6. [ ] **Path-component embedding** — embed directory structure as a signal
-7. [ ] **Filename stem clustering** — group files with matching stems across directories
+4. [x] **Stem merge (breakthrough)** — bare-stem matching across groups (#64, +0.0021)
+5. [x] **Vitest suffix** — .vitest. test pattern (#65, +0.0002)
+6. [x] **Infra detection** — .changeset/, version files, zz_generated (#66, +0.0009)
+7. [x] **Package prefix merge** — monorepo prefix too aggressive (#67, -0.0002 revert)
 8. [ ] **Import chain depth weighting** — weight graph edges by import chain length
 9. [ ] **Embedding-based infra detection** — train a classifier on golden infra/non-infra labels
 10. [ ] **Hybrid BFS + embedding** — use embeddings to break ties in BFS assignment
