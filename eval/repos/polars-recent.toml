@@ -1,0 +1,91 @@
+# polars-recent
+[[repos]]
+name = "polars-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/polars"
+language = "rust"
+range = "7b69a190e223e185fd3f9a2bcb355bc794b227e1..0f3a1d570df6f3ace8268a4e085bfbe7a6079724"
+notes = "MEDIUM. 42 files: streaming cov/pearson reduction, sorted-unique streaming node, sortedness resolution refactor, Append-to-ConcatExpr IR merge, bug fixes (transpose cast, aggregation null counting, merge_sorted, rle BinaryOffset), Python unnest() default-all-structs, maturin version pin."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.60
+max_singleton_ratio = 0.60
+
+[repos.expectations]
+group_count_min = 5
+group_count_max = 12
+same_group = [
+  # Streaming covariance/pearson reduction: compute primitives + grouped reduction impl + module registration + conversion wiring
+  ["crates/polars-compute/src/moment.rs", "crates/polars-expr/src/reduce/cov.rs"],
+  ["crates/polars-expr/src/reduce/cov.rs", "crates/polars-expr/src/reduce/convert.rs"],
+  ["crates/polars-expr/src/reduce/cov.rs", "crates/polars-expr/src/reduce/mod.rs"],
+  # Sorted-unique streaming node: new node + module registration + physical plan wiring + to_graph
+  ["crates/polars-stream/src/nodes/sorted_unique.rs", "crates/polars-stream/src/nodes/mod.rs"],
+  ["crates/polars-stream/src/nodes/sorted_unique.rs", "crates/polars-stream/src/physical_plan/to_graph.rs"],
+  ["crates/polars-stream/src/physical_plan/mod.rs", "crates/polars-stream/src/physical_plan/lower_ir.rs"],
+  # Sortedness refactor: IRPlanSorted container + usage in lower_ir and skeleton
+  ["crates/polars-plan/src/plans/optimizer/sortedness.rs", "crates/polars-stream/src/physical_plan/lower_ir.rs"],
+  ["crates/polars-plan/src/plans/optimizer/sortedness.rs", "crates/polars-stream/src/skeleton.rs"],
+  # Append -> ConcatExpr IR merge: DSL function_expr + IR function_expr + conversion functions
+  ["crates/polars-plan/src/dsl/function_expr/mod.rs", "crates/polars-plan/src/plans/aexpr/function_expr/mod.rs"],
+  ["crates/polars-plan/src/plans/conversion/dsl_to_ir/functions.rs", "crates/polars-plan/src/plans/conversion/ir_to_dsl.rs"],
+  # Cargo.toml feature propagation for cov
+  ["crates/polars-lazy/Cargo.toml", "crates/polars-stream/Cargo.toml"],
+  # Python unnest() default-all-structs
+  ["py-polars/src/polars/dataframe/frame.py", "py-polars/src/polars/lazyframe/frame.py"],
+  ["py-polars/src/polars/dataframe/frame.py", "py-polars/tests/unit/datatypes/test_struct.py"],
+  # Aggregation null counting bug fix + tests
+  ["crates/polars-expr/src/expressions/aggregation.rs", "py-polars/tests/unit/operations/test_group_by.py"],
+  ["crates/polars-expr/src/expressions/aggregation.rs", "py-polars/tests/unit/operations/test_over.py"],
+  # Streaming sorted-unique tests
+  ["crates/polars-stream/src/nodes/sorted_unique.rs", "py-polars/tests/unit/streaming/test_streaming_unique.py"],
+  # Streaming cov lowering support
+  ["crates/polars-stream/src/physical_plan/lower_group_by.rs", "crates/polars-stream/src/physical_plan/lower_expr.rs"],
+]
+infrastructure = [
+  "crates/polars-lazy/Cargo.toml",
+  "crates/polars-stream/Cargo.toml",
+  "py-polars/requirements-dev.txt",
+  "pyo3-polars/example/derive_expression/requirements.txt",
+  "pyo3-polars/example/extend_polars_python_dispatch/requirements.txt",
+  "pyo3-polars/example/io_plugin/requirements.txt",
+  "crates/polars-plan/src/plans/optimizer/mod.rs",
+]
+non_infrastructure = [
+  "crates/polars-compute/src/moment.rs",
+  "crates/polars-core/src/frame/row/transpose.rs",
+  "crates/polars-expr/src/dispatch/misc.rs",
+  "crates/polars-expr/src/dispatch/mod.rs",
+  "crates/polars-expr/src/expressions/aggregation.rs",
+  "crates/polars-expr/src/reduce/convert.rs",
+  "crates/polars-expr/src/reduce/cov.rs",
+  "crates/polars-expr/src/reduce/mod.rs",
+  "crates/polars-ops/src/series/ops/rle.rs",
+  "crates/polars-plan/src/dsl/function_expr/mod.rs",
+  "crates/polars-plan/src/plans/aexpr/function_expr/mod.rs",
+  "crates/polars-plan/src/plans/aexpr/function_expr/schema.rs",
+  "crates/polars-plan/src/plans/conversion/dsl_to_ir/expr_expansion.rs",
+  "crates/polars-plan/src/plans/conversion/dsl_to_ir/functions.rs",
+  "crates/polars-plan/src/plans/conversion/ir_to_dsl.rs",
+  "crates/polars-plan/src/plans/optimizer/sortedness.rs",
+  "crates/polars-python/src/lazyframe/visitor/expr_nodes.rs",
+  "crates/polars-stream/src/nodes/merge_sorted.rs",
+  "crates/polars-stream/src/nodes/mod.rs",
+  "crates/polars-stream/src/nodes/sorted_unique.rs",
+  "crates/polars-stream/src/physical_plan/fmt.rs",
+  "crates/polars-stream/src/physical_plan/lower_expr.rs",
+  "crates/polars-stream/src/physical_plan/lower_group_by.rs",
+  "crates/polars-stream/src/physical_plan/lower_ir.rs",
+  "crates/polars-stream/src/physical_plan/mod.rs",
+  "crates/polars-stream/src/physical_plan/to_graph.rs",
+  "crates/polars-stream/src/skeleton.rs",
+  "py-polars/src/polars/dataframe/frame.py",
+  "py-polars/src/polars/lazyframe/frame.py",
+  "py-polars/tests/unit/dataframe/test_df.py",
+  "py-polars/tests/unit/datatypes/test_struct.py",
+  "py-polars/tests/unit/operations/test_group_by.py",
+  "py-polars/tests/unit/operations/test_over.py",
+  "py-polars/tests/unit/operations/test_statistics.py",
+  "py-polars/tests/unit/streaming/test_streaming_unique.py",
+]
