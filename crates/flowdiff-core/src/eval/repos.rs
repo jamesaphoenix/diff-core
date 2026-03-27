@@ -50,19 +50,13 @@ impl RepoEvalManifest {
             if repo_dir.is_dir() {
                 let mut entries: Vec<_> = std::fs::read_dir(&repo_dir)?
                     .filter_map(|e| e.ok())
-                    .filter(|e| {
-                        e.path()
-                            .extension()
-                            .map_or(false, |ext| ext == "toml")
-                    })
+                    .filter(|e| e.path().extension().map_or(false, |ext| ext == "toml"))
                     .collect();
                 entries.sort_by_key(|e| e.file_name());
                 for entry in entries {
                     let repo_contents = std::fs::read_to_string(entry.path())?;
                     let repo_manifest: RepoEvalManifest =
-                        toml::from_str(&repo_contents).map_err(|e| {
-                            RepoEvalError::Parse(e)
-                        })?;
+                        toml::from_str(&repo_contents).map_err(|e| RepoEvalError::Parse(e))?;
                     manifest.repos.extend(repo_manifest.repos);
                 }
             }
@@ -416,7 +410,7 @@ fn run_repo_target(
         })?
         .to_path_buf();
 
-    let config = FlowdiffConfig::load_from_dir(&workdir).unwrap_or_default();
+    let config = FlowdiffConfig::load_with_global_llm_from_dir(&workdir).unwrap_or_default();
     let (diff_result, diff_source, diff_spec) = extract_diff_for_target(&repo, target)?;
 
     let file_inputs: Vec<(&str, &str)> = diff_result
@@ -460,8 +454,7 @@ fn run_repo_target(
         .len()
         .saturating_sub(unique_changed_files.len());
 
-    let cluster_result =
-        cluster::cluster_files(&graph, &entrypoints, &changed_files);
+    let cluster_result = cluster::cluster_files(&graph, &entrypoints, &changed_files);
 
     // Optionally refine clustering with embedding similarity (requires `embeddings` feature).
     // Uses diff-based embeddings: embeds what CHANGED (added/removed lines) rather than
@@ -556,7 +549,11 @@ fn run_repo_target(
 fn compute_diff_text(fd: &crate::git::FileDiff) -> String {
     use std::collections::HashSet;
 
-    let path = fd.new_path.as_deref().or(fd.old_path.as_deref()).unwrap_or("unknown");
+    let path = fd
+        .new_path
+        .as_deref()
+        .or(fd.old_path.as_deref())
+        .unwrap_or("unknown");
 
     match (&fd.old_content, &fd.new_content) {
         (None, Some(new)) => {
@@ -571,7 +568,10 @@ fn compute_diff_text(fd: &crate::git::FileDiff) -> String {
             // Modified file — extract added lines (in new but not old)
             let old_lines: HashSet<&str> = old.lines().collect();
             let added: Vec<&str> = new.lines().filter(|l| !old_lines.contains(l)).collect();
-            let removed_count = old.lines().filter(|l| !new.lines().collect::<HashSet<_>>().contains(l)).count();
+            let removed_count = old
+                .lines()
+                .filter(|l| !new.lines().collect::<HashSet<_>>().contains(l))
+                .count();
             if added.is_empty() {
                 format!("// MODIFIED: {} (-{} lines)", path, removed_count)
             } else {

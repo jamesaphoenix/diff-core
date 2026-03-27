@@ -140,7 +140,28 @@ The app auto-discovers git branches, worktrees, and push status on launch. Enter
 
 ## Configuration
 
-Create `.flowdiff.toml` in your repo root. All fields are optional as flowdiff auto-detects languages, frameworks, and entrypoints.
+flowdiff now splits configuration into:
+
+- `~/.flowdiff/config.toml` for shared LLM/onboarding settings across all repos
+- `.flowdiff.toml` in the repo root for project-specific analysis settings
+
+New users can usually skip API keys entirely: the desktop app auto-detects `codex` and `claude`, and will use those subscriptions when available.
+
+Example global config:
+
+```toml
+[llm]
+provider = "codex"   # "codex", "claude", "anthropic", "openai", or "gemini"
+model = "default"
+
+[llm.refinement]
+enabled = true
+provider = "claude"
+model = "default"
+max_iterations = 1
+```
+
+Example repo-local config:
 
 ```toml
 [project]
@@ -160,16 +181,6 @@ ui = "src/components/**"
 [ignore]
 paths = ["**/*.test.ts", "**/*.spec.ts", "migrations/**"]
 
-[llm]
-provider = "anthropic"  # "anthropic", "openai", or "gemini"
-model = "claude-sonnet-4-6"
-
-[llm.refinement]
-enabled = false
-provider = "anthropic"
-model = "claude-sonnet-4-6"
-max_iterations = 1
-
 [ranking]
 risk = 0.35
 centrality = 0.25
@@ -179,11 +190,14 @@ uncertainty = 0.20
 
 ### API Key Resolution
 
-flowdiff checks for API keys in this order:
+When using direct API providers (`anthropic`, `openai`, `gemini`), flowdiff checks for API keys in this order:
 
-1. `key_cmd` in `.flowdiff.toml` (e.g., `op read op://vault/flowdiff/api-key`)
-2. `FLOWDIFF_API_KEY` environment variable
-3. Provider specific env var: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`
+1. `key_cmd` in `~/.flowdiff/config.toml` or `.flowdiff.toml`
+2. `key` in `~/.flowdiff/config.toml` or `.flowdiff.toml`
+3. `FLOWDIFF_API_KEY`
+4. Provider specific env var: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`
+
+When using `codex` or `claude`, flowdiff uses the local CLI login instead of an API key and lets that agent inspect the repository with structured output constraints.
 
 ## Architecture
 

@@ -6,6 +6,7 @@
 //! See spec §6.2 for the full config file format.
 
 use std::collections::HashMap;
+use std::env;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -177,6 +178,30 @@ pub enum ConfigError {
 }
 
 impl FlowdiffConfig {
+    /// Return the global flowdiff config path in the user's home directory.
+    ///
+    /// Resolution order:
+    /// 1. `FLOWDIFF_CONFIG_HOME`
+    /// 2. `HOME/.flowdiff`
+    pub fn global_config_path() -> Option<PathBuf> {
+        flowdiff_config_home().map(|dir| dir.join("config.toml"))
+    }
+
+    /// Load configuration from the user's global config file.
+    ///
+    /// Returns defaults when the file is missing or the home directory cannot be resolved.
+    pub fn load_global() -> Result<Self, ConfigError> {
+        if let Some(path) = Self::global_config_path() {
+            if path.exists() {
+                Self::from_file(&path)
+            } else {
+                Ok(Self::default())
+            }
+        } else {
+            Ok(Self::default())
+        }
+    }
+
     /// Load configuration from a `.flowdiff.toml` file at the given path.
     ///
     /// Returns `Ok(config)` with the parsed config, or `Err` on I/O or parse errors.
@@ -204,6 +229,35 @@ impl FlowdiffConfig {
         }
     }
 
+    /// Load repo-local config and merge in global LLM defaults from `~/.flowdiff/config.toml`.
+    ///
+    /// Repo-local project settings remain authoritative; only the `[llm]` section falls back
+    /// to the global config when values are not set locally.
+    pub fn load_with_global_llm_from_dir(dir: &Path) -> Result<Self, ConfigError> {
+        let mut local = Self::load_from_dir(dir)?;
+        let global = Self::load_global()?;
+        local.apply_global_llm_defaults(&global);
+        Ok(local)
+    }
+
+    /// Save configuration to the global flowdiff config in the user's home directory.
+    pub fn save_global(&self) -> Result<(), ConfigError> {
+        let Some(config_path) = Self::global_config_path() else {
+            return Err(ConfigError::Validation(
+                "Could not resolve a home directory for global config".to_string(),
+            ));
+        };
+
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let toml_str = toml::to_string_pretty(self)
+            .map_err(|e| ConfigError::Validation(format!("Failed to serialize config: {}", e)))?;
+        std::fs::write(&config_path, toml_str)?;
+        Ok(())
+    }
+
     /// Validate the configuration for consistency.
     fn validate(&self) -> Result<(), ConfigError> {
         // Validate ranking weights are non-negative
@@ -219,7 +273,7 @@ impl FlowdiffConfig {
 
         // Validate LLM provider if specified
         if let Some(ref provider) = self.llm.provider {
-            let valid = ["anthropic", "openai", "gemini"];
+            let valid = ["anthropic", "openai", "gemini", "codex", "claude"];
             if !valid.contains(&provider.as_str()) {
                 return Err(ConfigError::Validation(format!(
                     "Unknown LLM provider '{}'. Valid providers: {}",
@@ -231,7 +285,7 @@ impl FlowdiffConfig {
 
         // Validate refinement provider if specified
         if let Some(ref provider) = self.llm.refinement.provider {
-            let valid = ["anthropic", "openai", "gemini"];
+            let valid = ["anthropic", "openai", "gemini", "codex", "claude"];
             if !valid.contains(&provider.as_str()) {
                 return Err(ConfigError::Validation(format!(
                     "Unknown refinement provider '{}'. Valid providers: {}",
@@ -316,12 +370,79 @@ impl FlowdiffConfig {
         }
         None
     }
+
+    fn apply_global_llm_defaults(&mut self, global: &Self) {
+        self.llm.provider = self
+            .llm
+            .provider
+            .clone()
+            .or_else(|| global.llm.provider.clone());
+        self.llm.model = self.llm.model.clone().or_else(|| global.llm.model.clone());
+        self.llm.key_cmd = self
+            .llm
+            .key_cmd
+            .clone()
+            .or_else(|| global.llm.key_cmd.clone());
+        self.llm.key = self.llm.key.clone().or_else(|| global.llm.key.clone());
+
+        self.llm.refinement.enabled = self.llm.refinement.enabled || global.llm.refinement.enabled;
+        self.llm.refinement.provider = self
+            .llm
+            .refinement
+            .provider
+            .clone()
+            .or_else(|| global.llm.refinement.provider.clone());
+        self.llm.refinement.model = self
+            .llm
+            .refinement
+            .model
+            .clone()
+            .or_else(|| global.llm.refinement.model.clone());
+        self.llm.refinement.key_cmd = self
+            .llm
+            .refinement
+            .key_cmd
+            .clone()
+            .or_else(|| global.llm.refinement.key_cmd.clone());
+        if self.llm.refinement.max_iterations == default_max_iterations() {
+            self.llm.refinement.max_iterations = global.llm.refinement.max_iterations;
+        }
+    }
+}
+
+fn flowdiff_config_home() -> Option<PathBuf> {
+    env::var_os("FLOWDIFF_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".flowdiff")))
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
+
+    fn flowdiff_config_home_for_testing(
+        override_home: Option<&Path>,
+        fallback_home: Option<&Path>,
+    ) -> Option<PathBuf> {
+        override_home
+            .map(PathBuf::from)
+            .or_else(|| fallback_home.map(|path| path.join(".flowdiff")))
+    }
+
+    fn global_config_path_for_testing(
+        override_home: Option<&Path>,
+        fallback_home: Option<&Path>,
+    ) -> Option<PathBuf> {
+        flowdiff_config_home_for_testing(override_home, fallback_home)
+            .map(|dir| dir.join("config.toml"))
+    }
 
     // ── Spec §12.2 Config Layer Tests ──
 
@@ -371,10 +492,7 @@ uncertainty = 0.15
         assert_eq!(config.layers.get("ui").unwrap(), "src/components/**");
         assert_eq!(config.ignore.paths.len(), 3);
         assert_eq!(config.llm.provider, Some("anthropic".to_string()));
-        assert_eq!(
-            config.llm.model,
-            Some("claude-sonnet-4-6".to_string())
-        );
+        assert_eq!(config.llm.model, Some("claude-sonnet-4-6".to_string()));
         assert!((config.ranking.risk - 0.4).abs() < f64::EPSILON);
         assert!((config.ranking.centrality - 0.3).abs() < f64::EPSILON);
         assert!((config.ranking.surface_area - 0.15).abs() < f64::EPSILON);
@@ -386,6 +504,20 @@ uncertainty = 0.15
         let dir = tempfile::tempdir().unwrap();
         let config = FlowdiffConfig::load_from_dir(dir.path()).unwrap();
         assert_eq!(config, FlowdiffConfig::default());
+    }
+
+    #[test]
+    fn test_global_config_path_prefers_env_override() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("config.toml");
+        assert_eq!(
+            flowdiff_config_home_for_testing(Some(home.path()), None),
+            Some(home.path().to_path_buf())
+        );
+        assert_eq!(
+            global_config_path_for_testing(Some(home.path()), None),
+            Some(path)
+        );
     }
 
     #[test]
@@ -412,6 +544,67 @@ uncertainty = 0.0
         assert!(config.layers.is_empty());
         assert!(config.ignore.paths.is_empty());
         assert_eq!(config.llm.provider, None);
+    }
+
+    #[test]
+    fn test_load_with_global_llm_from_dir_uses_global_llm_defaults() {
+        let home = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+
+        let global_path = global_config_path_for_testing(Some(home.path()), None).unwrap();
+        std::fs::create_dir_all(global_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &global_path,
+            r#"
+[llm]
+provider = "codex"
+model = "default"
+
+[llm.refinement]
+enabled = true
+provider = "claude"
+model = "default"
+"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            repo.path().join(".flowdiff.toml"),
+            r#"
+[ignore]
+paths = ["dist/**"]
+"#,
+        )
+        .unwrap();
+
+        let local = FlowdiffConfig::load_from_dir(repo.path()).unwrap();
+        let global = FlowdiffConfig::from_file(&global_path).unwrap();
+        let mut merged = local.clone();
+        merged.apply_global_llm_defaults(&global);
+
+        assert_eq!(merged.ignore.paths, vec!["dist/**"]);
+        assert_eq!(merged.llm.provider, Some("codex".to_string()));
+        assert_eq!(merged.llm.model, Some("default".to_string()));
+        assert!(merged.llm.refinement.enabled);
+        assert_eq!(merged.llm.refinement.provider, Some("claude".to_string()));
+    }
+
+    #[test]
+    fn test_save_global_roundtrip_via_custom_home() {
+        let home = tempfile::tempdir().unwrap();
+        let path = global_config_path_for_testing(Some(home.path()), None).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+        let mut config = FlowdiffConfig::default();
+        config.llm.provider = Some("claude".to_string());
+        config.llm.model = Some("default".to_string());
+
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        std::fs::write(&path, toml_str).unwrap();
+
+        let loaded = FlowdiffConfig::from_file(&path).unwrap();
+        assert_eq!(loaded.llm.provider, Some("claude".to_string()));
+        assert_eq!(loaded.llm.model, Some("default".to_string()));
     }
 
     #[test]
@@ -632,10 +825,7 @@ provider = "anthropic"
 key = "sk-ant-test-key-12345"
 "#;
         let config = FlowdiffConfig::from_str(toml_str).unwrap();
-        assert_eq!(
-            config.llm.key,
-            Some("sk-ant-test-key-12345".to_string())
-        );
+        assert_eq!(config.llm.key, Some("sk-ant-test-key-12345".to_string()));
     }
 
     #[test]

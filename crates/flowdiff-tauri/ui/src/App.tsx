@@ -33,6 +33,18 @@ async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Prom
   return invoke<T>(cmd, args);
 }
 
+const PROVIDER_LABELS: Record<LlmProvider, string> = {
+  codex: "Codex CLI",
+  claude: "Claude Code",
+  anthropic: "Anthropic API",
+  openai: "OpenAI API",
+  gemini: "Gemini API",
+};
+
+function isApiProvider(provider: string): boolean {
+  return provider === "anthropic" || provider === "openai" || provider === "gemini";
+}
+
 /** Three-panel layout: flow groups | diff viewer | annotations */
 export default function App() {
   const [analysis, setAnalysis] = useState<AnalysisOutput | null>(null);
@@ -115,6 +127,7 @@ export default function App() {
 
   // Demo mode: auto-load mock data on mount when not in Tauri
   const demoLoaded = useRef(false);
+  const onboardingPrompted = useRef(false);
 
   // Refs for keyboard nav to access latest state without re-registering listener
   const selectedGroupRef = useRef(selectedGroup);
@@ -215,6 +228,14 @@ export default function App() {
       setRepoInfo(null);
     }
   }, [repoPath, loadRepoInfo]);
+
+  useEffect(() => {
+    if (!repoPath || !llmSettings || onboardingPrompted.current) return;
+    if (!llmSettings.has_api_key) {
+      onboardingPrompted.current = true;
+      setSettingsOpen(true);
+    }
+  }, [repoPath, llmSettings]);
 
   const handleSelectFile = useCallback(
     async (path: string) => {
@@ -605,32 +626,31 @@ export default function App() {
     [llmSettings, saveLlmSettings],
   );
 
-  /** Save an API key to .flowdiff.toml and refresh settings. */
+  /** Save an API key to the shared flowdiff config and refresh settings. */
   const handleSaveApiKey = useCallback(async () => {
     const key = apiKeyInput.trim();
-    if (!key || !repoPath) return;
+    if (!key) return;
     try {
       if (IS_TAURI) {
-        await tauriInvoke("save_api_key", { repoPath, apiKey: key });
+        await tauriInvoke("save_api_key", { repoPath: repoPath || "", apiKey: key });
       }
       setApiKeyInput("");
       // Refresh settings to pick up the new key
-      await loadLlmSettings(repoPath);
+      await loadLlmSettings(repoPath || null);
     } catch {
       setError("Failed to save API key");
     }
   }, [apiKeyInput, repoPath, loadLlmSettings]);
 
-  /** Clear the stored API key from .flowdiff.toml and refresh settings. */
+  /** Clear the stored API key from the shared flowdiff config and refresh settings. */
   const handleClearApiKey = useCallback(async () => {
-    if (!repoPath) return;
     try {
       if (IS_TAURI) {
-        await tauriInvoke("clear_api_key", { repoPath });
+        await tauriInvoke("clear_api_key", { repoPath: repoPath || "" });
       }
       setApiKeyInput("");
       // Refresh settings to reflect removal
-      await loadLlmSettings(repoPath);
+      await loadLlmSettings(repoPath || null);
     } catch {
       setError("Failed to clear API key");
     }
@@ -748,6 +768,40 @@ export default function App() {
     },
     [buildAbsolutePath, showToast],
   );
+
+  /** Export the overview as a PR-description-style brief. */
+  const copyPrDescription = useCallback(async () => {
+    if (!overview) {
+      showToast("Generate a summary first");
+      return;
+    }
+
+    const orderedGroups = overview.suggested_review_order
+      .map((id) => overview.groups.find((group) => group.id === id))
+      .filter((group): group is Pass1GroupAnnotation => Boolean(group));
+    const fallbackGroups = overview.groups.filter(
+      (group) => !orderedGroups.some((ordered) => ordered.id === group.id),
+    );
+
+    const lines = [
+      "# Summary",
+      "",
+      overview.overall_summary,
+      "",
+      "# Review Flow",
+      "",
+      ...[...orderedGroups, ...fallbackGroups].flatMap((group) => [
+        `- ${group.name}: ${group.summary}`,
+      ]),
+    ];
+
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      showToast("PR description copied to clipboard");
+    } catch {
+      showToast("Failed to copy PR description");
+    }
+  }, [overview, showToast]);
 
   /** Compute a simple hash of the analysis for comment scoping. */
   const analysisHash = analysis
@@ -1404,55 +1458,100 @@ export default function App() {
               </button>
             </div>
             <div className="settings-body">
-              {/* API Key Status */}
+              {/* LLM Access / Onboarding */}
               <div className="settings-section">
-                <h3>API Key</h3>
+                <h3>LLM Access</h3>
                 <div className={`api-key-status ${llmSettings.has_api_key ? "configured" : "missing"}`}>
                   <span className="api-key-dot" />
                   <span>
                     {llmSettings.has_api_key
-                      ? `Configured via ${llmSettings.api_key_source}`
-                      : "Not configured"}
+                      ? `Ready via ${llmSettings.api_key_source}`
+                      : "Not configured yet"}
                   </span>
                 </div>
-                {/* API Key Input */}
-                <div className="api-key-input-row">
-                  <input
-                    type="password"
-                    className="settings-input api-key-input"
-                    placeholder="Paste your API key"
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && apiKeyInput.trim()) {
-                        handleSaveApiKey();
-                      }
-                    }}
-                  />
-                  <button
-                    className="btn btn-save-key"
-                    disabled={!apiKeyInput.trim()}
-                    onClick={handleSaveApiKey}
-                    title="Save API key to .flowdiff.toml"
-                  >
-                    Save
-                  </button>
-                  {llmSettings.api_key_source === "config file" && (
-                    <button
-                      className="btn btn-clear-key"
-                      onClick={handleClearApiKey}
-                      title="Remove stored API key"
-                    >
-                      Clear
-                    </button>
-                  )}
+                <p className="settings-hint">
+                  Saved globally in <code>{llmSettings.global_config_path}</code>, so new projects reuse the same setup.
+                </p>
+                <p className="settings-hint">
+                  Codex CLI: {llmSettings.codex_authenticated ? "ready" : llmSettings.codex_available ? "installed, needs login" : "not installed"}
+                  {" "}· Claude Code: {llmSettings.claude_authenticated ? "ready" : llmSettings.claude_available ? "installed, needs login" : "not installed"}
+                </p>
+                <div className="settings-row">
+                  <label>Primary backend</label>
                 </div>
-                {!llmSettings.has_api_key && (
+                <select
+                  className="settings-select"
+                  value={llmSettings.provider}
+                  onChange={(e) => updateSetting("provider", e.target.value)}
+                >
+                  {LLM_PROVIDERS.map((p) => (
+                    <option key={p} value={p}>
+                      {PROVIDER_LABELS[p]}
+                    </option>
+                  ))}
+                </select>
+                <div className="settings-row" style={{ marginTop: 12 }}>
+                  <label>Model</label>
+                </div>
+                <select
+                  className="settings-select"
+                  value={llmSettings.model}
+                  onChange={(e) => updateSetting("model", e.target.value)}
+                >
+                  {(MODELS_BY_PROVIDER[llmSettings.provider as LlmProvider] ?? []).map(
+                    (m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ),
+                  )}
+                </select>
+                {!isApiProvider(llmSettings.provider) && (
                   <p className="settings-hint">
-                    Paste your key above, or set <code>FLOWDIFF_API_KEY</code>, a provider-specific env var
-                    (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>GEMINI_API_KEY</code>),
-                    or configure <code>key_cmd</code> in <code>.flowdiff.toml</code>.
+                    No API key needed here. flowdiff will call {PROVIDER_LABELS[llmSettings.provider as LlmProvider]}
+                    {" "}inside the repo so it can inspect the filesystem before producing structured output.
                   </p>
+                )}
+                {isApiProvider(llmSettings.provider) && (
+                  <>
+                    <div className="api-key-input-row">
+                      <input
+                        type="password"
+                        className="settings-input api-key-input"
+                        placeholder="Paste your API key"
+                        value={apiKeyInput}
+                        onChange={(e) => setApiKeyInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && apiKeyInput.trim()) {
+                            handleSaveApiKey();
+                          }
+                        }}
+                      />
+                      <button
+                        className="btn btn-save-key"
+                        disabled={!apiKeyInput.trim()}
+                        onClick={handleSaveApiKey}
+                        title="Save API key to ~/.flowdiff/config.toml"
+                      >
+                        Save
+                      </button>
+                      {llmSettings.api_key_source === "~/.flowdiff/config.toml" && (
+                        <button
+                          className="btn btn-clear-key"
+                          onClick={handleClearApiKey}
+                          title="Remove stored API key"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <p className="settings-hint">
+                      New users can usually skip keys by using Codex CLI or Claude Code if they are already signed in.
+                      If you prefer direct API calls, paste a key above, set <code>FLOWDIFF_API_KEY</code>, a provider-specific
+                      env var (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>GEMINI_API_KEY</code>), or
+                      configure <code>key_cmd</code> in <code>~/.flowdiff/config.toml</code>.
+                    </p>
+                  </>
                 )}
               </div>
 
@@ -1468,42 +1567,8 @@ export default function App() {
                   <span>Enable LLM annotations</span>
                 </label>
                 <p className="settings-hint">
-                  When enabled, "Summarize PR" and "Analyze This Flow" buttons are active.
+                  When enabled, flowdiff can generate a PR-ready summary plus deeper flow analysis.
                 </p>
-              </div>
-
-              {/* Provider Selector */}
-              <div className="settings-section">
-                <h3>Provider</h3>
-                <select
-                  className="settings-select"
-                  value={llmSettings.provider}
-                  onChange={(e) => updateSetting("provider", e.target.value)}
-                >
-                  {LLM_PROVIDERS.map((p) => (
-                    <option key={p} value={p}>
-                      {p.charAt(0).toUpperCase() + p.slice(1)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Model Selector */}
-              <div className="settings-section">
-                <h3>Model</h3>
-                <select
-                  className="settings-select"
-                  value={llmSettings.model}
-                  onChange={(e) => updateSetting("model", e.target.value)}
-                >
-                  {(MODELS_BY_PROVIDER[llmSettings.provider as LlmProvider] ?? []).map(
-                    (m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ),
-                  )}
-                </select>
               </div>
 
               {/* Refinement Section */}
@@ -1531,7 +1596,7 @@ export default function App() {
                       >
                         {LLM_PROVIDERS.map((p) => (
                           <option key={p} value={p}>
-                            {p.charAt(0).toUpperCase() + p.slice(1)}
+                            {PROVIDER_LABELS[p]}
                           </option>
                         ))}
                       </select>
@@ -1650,7 +1715,7 @@ export default function App() {
             )}
           </div>
           <div className="panel-body">
-            {/* Refinement banner — shown after analysis when API key is available */}
+            {/* Refinement banner — shown after analysis when LLM access is available */}
             {analysis && !refinedGroups && !refining && hasApiKey && llmSettings?.refinement_enabled && (
               <div className="refinement-banner">
                 <span>AI can improve these groupings</span>
@@ -2337,9 +2402,23 @@ export default function App() {
                     <span className="spinner" /> Analyzing flow group...
                   </div>
                 )}
+                {!hasApiKey && llmSettings && (
+                  <div className="annotation-section llm-loading">
+                    Connect {PROVIDER_LABELS.codex}, {PROVIDER_LABELS.claude}, or an API key in Settings to unlock summaries and refinement.
+                  </div>
+                )}
 
                 {/* LLM action buttons */}
                 <div className="annotation-section annotation-actions">
+                  {overview && !annotating && (
+                    <button
+                      className="btn btn-copy-comments-footer"
+                      onClick={copyPrDescription}
+                      title="Copy the generated summary as a PR description"
+                    >
+                      Copy PR Description
+                    </button>
+                  )}
                   {!overview && !annotating && (
                     <button
                       className={`btn btn-summarize ${!hasApiKey ? "no-api-key" : ""}`}
@@ -2347,11 +2426,11 @@ export default function App() {
                       disabled={annotating || !hasApiKey || !(llmSettings?.annotations_enabled ?? false)}
                       title={
                         hasApiKey
-                          ? `Run LLM Pass 1 via ${llmSettings?.provider ?? "anthropic"} (${llmSettings?.model ?? "default"}): generate an overview summary of all flow groups.`
-                          : "Requires API key — click the gear icon to configure LLM settings"
+                          ? `Run LLM Pass 1 via ${llmSettings?.provider ?? "codex"} (${llmSettings?.model ?? "default"}): generate an overview summary of all flow groups.`
+                          : "LLM setup required — click the gear icon to configure Codex, Claude Code, or an API key"
                       }
                     >
-                      {hasApiKey ? "Summarize PR" : "Summarize PR (API key required)"}
+                      {hasApiKey ? "Summarize PR" : "Summarize PR (Setup required)"}
                     </button>
                   )}
                   {!groupDeepAnalysis && !deepAnalyzing && (
@@ -2361,17 +2440,17 @@ export default function App() {
                       disabled={deepAnalyzing || !hasApiKey || !(llmSettings?.annotations_enabled ?? false)}
                       title={
                         hasApiKey
-                          ? `Run LLM Pass 2 via ${llmSettings?.provider ?? "anthropic"} (${llmSettings?.model ?? "default"}): deep analysis of this flow group.`
-                          : "Requires API key — click the gear icon to configure LLM settings"
+                          ? `Run LLM Pass 2 via ${llmSettings?.provider ?? "codex"} (${llmSettings?.model ?? "default"}): deep analysis of this flow group.`
+                          : "LLM setup required — click the gear icon to configure Codex, Claude Code, or an API key"
                       }
                     >
-                      {hasApiKey ? "Analyze This Flow" : "Analyze Flow (API key required)"}
+                      {hasApiKey ? "Analyze This Flow" : "Analyze Flow (Setup required)"}
                     </button>
                   )}
                   {/* Provider/model indicator */}
                   {hasApiKey && llmSettings && (
                     <span className="llm-provider-badge">
-                      {llmSettings.provider}/{llmSettings.model}
+                      {PROVIDER_LABELS[llmSettings.provider as LlmProvider]}/{llmSettings.model}
                     </span>
                   )}
                 </div>

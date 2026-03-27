@@ -197,6 +197,11 @@ export interface LlmSettings {
   refinement_provider: string;
   refinement_model: string;
   refinement_max_iterations: number;
+  global_config_path: string;
+  codex_available: boolean;
+  codex_authenticated: boolean;
+  claude_available: boolean;
+  claude_authenticated: boolean;
 }
 
 // ── LLM Refinement Types ──
@@ -290,11 +295,13 @@ export interface CommentInput {
 }
 
 /** Available LLM providers. */
-export const LLM_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
+export const LLM_PROVIDERS = ["codex", "claude", "anthropic", "openai", "gemini"] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
 /** Models available per provider. */
 export const MODELS_BY_PROVIDER: Record<LlmProvider, string[]> = {
+  codex: ["default", "gpt-5.4", "gpt-5.4-mini", "gpt-4.1", "o4-mini", "o3"],
+  claude: ["default", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
   anthropic: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
   openai: ["gpt-5.4", "gpt-5.4-mini", "gpt-4.1", "o4-mini", "o3"],
   gemini: [

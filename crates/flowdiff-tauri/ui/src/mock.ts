@@ -784,13 +784,18 @@ export const MOCK_REFINEMENT: RefinementResult = {
 export const MOCK_LLM_SETTINGS: LlmSettings = {
   annotations_enabled: true,
   refinement_enabled: false,
-  provider: "anthropic",
-  model: "claude-sonnet-4-6",
-  api_key_source: "ANTHROPIC_API_KEY",
+  provider: "codex",
+  model: "default",
+  api_key_source: "Codex CLI login",
   has_api_key: true,
-  refinement_provider: "anthropic",
-  refinement_model: "claude-sonnet-4-6",
+  refinement_provider: "claude",
+  refinement_model: "default",
   refinement_max_iterations: 1,
+  global_config_path: "~/.flowdiff/config.toml",
+  codex_available: true,
+  codex_authenticated: true,
+  claude_available: true,
+  claude_authenticated: true,
 };
 
 export const MOCK_REPO_INFO: RepoInfo = {

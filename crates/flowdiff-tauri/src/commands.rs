@@ -99,7 +99,7 @@ pub fn analyze(
         .to_path_buf();
 
     // Load config
-    let config = FlowdiffConfig::load_from_dir(&workdir)
+    let config = FlowdiffConfig::load_with_global_llm_from_dir(&workdir)
         .map_err(|e| CommandError::Config(format!("{}", e)))?;
 
     // Extract diff
@@ -141,7 +141,10 @@ pub fn analyze(
         };
         match state.last_analysis.lock() {
             Ok(mut last) => *last = Some(empty_output.clone()),
-            Err(e) => warn!("Failed to update last_analysis state (lock poisoned): {}", e),
+            Err(e) => warn!(
+                "Failed to update last_analysis state (lock poisoned): {}",
+                e
+            ),
         }
         return Ok(empty_output);
     }
@@ -151,7 +154,10 @@ pub fn analyze(
     if let Some(cached) = cache::load_cached(&workdir, &cache_key) {
         match state.last_analysis.lock() {
             Ok(mut last) => *last = Some(cached.clone()),
-            Err(e) => warn!("Failed to update last_analysis state (lock poisoned): {}", e),
+            Err(e) => warn!(
+                "Failed to update last_analysis state (lock poisoned): {}",
+                e
+            ),
         }
         return Ok(cached);
     }
@@ -230,8 +236,13 @@ pub fn analyze(
     let ranked = rank::rank_groups(&rank_inputs, &weights);
 
     // Build output
-    let analysis_output =
-        build_analysis_output(&diff_result, diff_source, &parsed_files, &cluster_result, &ranked);
+    let analysis_output = build_analysis_output(
+        &diff_result,
+        diff_source,
+        &parsed_files,
+        &cluster_result,
+        &ranked,
+    );
 
     // Cache the deterministic analysis result
     cache::store_cached(&workdir, &cache_key, &analysis_output);
@@ -239,7 +250,10 @@ pub fn analyze(
     // Store for subsequent queries
     match state.last_analysis.lock() {
         Ok(mut last) => *last = Some(analysis_output.clone()),
-        Err(e) => warn!("Failed to update last_analysis state (lock poisoned): {}", e),
+        Err(e) => warn!(
+            "Failed to update last_analysis state (lock poisoned): {}",
+            e
+        ),
     }
 
     Ok(analysis_output)
@@ -268,9 +282,9 @@ pub fn get_mermaid(
         .lock()
         .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?;
 
-    let analysis = last
-        .as_ref()
-        .ok_or_else(|| CommandError::Analysis("No analysis available. Run analyze first.".into()))?;
+    let analysis = last.as_ref().ok_or_else(|| {
+        CommandError::Analysis("No analysis available. Run analyze first.".into())
+    })?;
 
     let group = analysis
         .groups
@@ -394,12 +408,13 @@ pub async fn annotate_overview(
             .last_analysis
             .lock()
             .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?;
-        last.clone()
-            .ok_or_else(|| CommandError::Analysis("No analysis available. Run analyze first.".into()))?
+        last.clone().ok_or_else(|| {
+            CommandError::Analysis("No analysis available. Run analyze first.".into())
+        })?
     };
 
     // Load config from the repo directory (not default)
-    let (mut config, _) = load_config_from_path(repo_path.as_deref());
+    let (mut config, workdir) = load_config_from_path(repo_path.as_deref());
 
     // Apply frontend overrides if provided
     if let Some(p) = llm_provider {
@@ -410,7 +425,7 @@ pub async fn annotate_overview(
     }
 
     // Create LLM provider
-    let provider = llm::create_provider(&config.llm)
+    let provider = llm::create_provider_for_workdir(&config.llm, workdir.as_deref())
         .map_err(|e| CommandError::Llm(format!("{}", e)))?;
 
     // Build Pass 1 request
@@ -456,13 +471,15 @@ pub async fn annotate_overview(
     match state.last_analysis.lock() {
         Ok(mut last) => {
             if let Some(ref mut a) = *last {
-                a.annotations = Some(
-                    serde_json::to_value(&response)
-                        .map_err(|e| CommandError::Llm(format!("Failed to serialize response: {}", e)))?,
-                );
+                a.annotations = Some(serde_json::to_value(&response).map_err(|e| {
+                    CommandError::Llm(format!("Failed to serialize response: {}", e))
+                })?);
             }
         }
-        Err(e) => warn!("Failed to update last_analysis annotations (lock poisoned): {}", e),
+        Err(e) => warn!(
+            "Failed to update last_analysis annotations (lock poisoned): {}",
+            e
+        ),
     }
 
     Ok(response)
@@ -490,8 +507,9 @@ pub async fn annotate_group(
             .last_analysis
             .lock()
             .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?;
-        last.clone()
-            .ok_or_else(|| CommandError::Analysis("No analysis available. Run analyze first.".into()))?
+        last.clone().ok_or_else(|| {
+            CommandError::Analysis("No analysis available. Run analyze first.".into())
+        })?
     };
 
     let group = analysis
@@ -548,14 +566,14 @@ pub async fn annotate_group(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let (mut config, _) = load_config_from_path(Some(&repo_path));
+    let (mut config, workdir) = load_config_from_path(Some(&repo_path));
     if let Some(p) = llm_provider {
         config.llm.provider = Some(p);
     }
     if let Some(m) = llm_model {
         config.llm.model = Some(m);
     }
-    let provider = llm::create_provider(&config.llm)
+    let provider = llm::create_provider_for_workdir(&config.llm, workdir.as_deref())
         .map_err(|e| CommandError::Llm(format!("{}", e)))?;
 
     let request = llm::schema::Pass2Request {
@@ -595,12 +613,13 @@ pub async fn refine_groups(
             .last_analysis
             .lock()
             .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?;
-        last.clone()
-            .ok_or_else(|| CommandError::Analysis("No analysis available. Run analyze first.".into()))?
+        last.clone().ok_or_else(|| {
+            CommandError::Analysis("No analysis available. Run analyze first.".into())
+        })?
     };
 
     // Load config, applying frontend overrides
-    let (mut config, _) = load_config_from_path(repo_path.as_deref());
+    let (mut config, workdir) = load_config_from_path(repo_path.as_deref());
     // Use refinement-specific provider/model if set, otherwise fall back to overrides
     if let Some(p) = llm_provider {
         config.llm.refinement.provider = Some(p.clone());
@@ -617,14 +636,29 @@ pub async fn refine_groups(
 
     // Build LLM config for the refinement provider
     let refinement_llm_config = flowdiff_core::config::LlmConfig {
-        provider: config.llm.refinement.provider.clone().or(config.llm.provider.clone()),
-        model: config.llm.refinement.model.clone().or(config.llm.model.clone()),
-        key_cmd: config.llm.key_cmd.clone(),
+        provider: config
+            .llm
+            .refinement
+            .provider
+            .clone()
+            .or(config.llm.provider.clone()),
+        model: config
+            .llm
+            .refinement
+            .model
+            .clone()
+            .or(config.llm.model.clone()),
+        key_cmd: config
+            .llm
+            .refinement
+            .key_cmd
+            .clone()
+            .or(config.llm.key_cmd.clone()),
         key: config.llm.key.clone(),
         refinement: config.llm.refinement.clone(),
     };
 
-    let provider = llm::create_provider(&refinement_llm_config)
+    let provider = llm::create_provider_for_workdir(&refinement_llm_config, workdir.as_deref())
         .map_err(|e| CommandError::Llm(format!("{}", e)))?;
 
     // Serialize analysis for the refinement request
@@ -636,11 +670,8 @@ pub async fn refine_groups(
         analysis.summary.total_files_changed, analysis.summary.total_groups,
     );
 
-    let request = refinement::build_refinement_request(
-        &analysis.groups,
-        &analysis_json,
-        &diff_summary,
-    );
+    let request =
+        refinement::build_refinement_request(&analysis.groups, &analysis_json, &diff_summary);
 
     let response = provider
         .refine_groups(&request)
@@ -680,7 +711,10 @@ pub async fn refine_groups(
                         a.infrastructure_group = infra.clone();
                     }
                 }
-                Err(e) => warn!("Failed to update last_analysis with refinement (lock poisoned): {}", e),
+                Err(e) => warn!(
+                    "Failed to update last_analysis with refinement (lock poisoned): {}",
+                    e
+                ),
             }
 
             Ok(RefinementResult {
@@ -694,7 +728,10 @@ pub async fn refine_groups(
         }
         Err(e) => {
             // Validation failed — return original groups with error info
-            Err(CommandError::Llm(format!("Refinement validation failed: {}", e)))
+            Err(CommandError::Llm(format!(
+                "Refinement validation failed: {}",
+                e
+            )))
         }
     }
 }
@@ -721,27 +758,21 @@ pub struct RefinementResult {
 ///
 /// Returns branches sorted with current branch first, then alphabetically.
 #[tauri::command]
-pub fn list_branches(
-    repo_path: String,
-) -> Result<Vec<git::BranchInfo>, CommandError> {
+pub fn list_branches(repo_path: String) -> Result<Vec<git::BranchInfo>, CommandError> {
     let repo = open_repo(&repo_path)?;
     git::list_branches(&repo).map_err(|e| CommandError::Git(format!("{}", e)))
 }
 
 /// List all git worktrees for the repository.
 #[tauri::command]
-pub fn list_worktrees(
-    repo_path: String,
-) -> Result<Vec<git::WorktreeInfo>, CommandError> {
+pub fn list_worktrees(repo_path: String) -> Result<Vec<git::WorktreeInfo>, CommandError> {
     let repo = open_repo(&repo_path)?;
     git::list_worktrees(&repo).map_err(|e| CommandError::Git(format!("{}", e)))
 }
 
 /// Get the current branch's tracking status (ahead/behind upstream).
 #[tauri::command]
-pub fn get_branch_status(
-    repo_path: String,
-) -> Result<git::BranchStatus, CommandError> {
+pub fn get_branch_status(repo_path: String) -> Result<git::BranchStatus, CommandError> {
     let repo = open_repo(&repo_path)?;
     git::get_branch_status(&repo).map_err(|e| CommandError::Git(format!("{}", e)))
 }
@@ -750,18 +781,13 @@ pub fn get_branch_status(
 ///
 /// Returns a summary useful for the UI to set up initial state.
 #[tauri::command]
-pub fn get_repo_info(
-    repo_path: String,
-) -> Result<RepoInfo, CommandError> {
+pub fn get_repo_info(repo_path: String) -> Result<RepoInfo, CommandError> {
     let repo = open_repo(&repo_path)?;
 
     let current = git::current_branch(&repo);
-    let default_branch = git::detect_default_branch(&repo)
-        .unwrap_or_else(|_| "main".to_string());
-    let branches = git::list_branches(&repo)
-        .map_err(|e| CommandError::Git(format!("{}", e)))?;
-    let worktrees = git::list_worktrees(&repo)
-        .map_err(|e| CommandError::Git(format!("{}", e)))?;
+    let default_branch = git::detect_default_branch(&repo).unwrap_or_else(|_| "main".to_string());
+    let branches = git::list_branches(&repo).map_err(|e| CommandError::Git(format!("{}", e)))?;
+    let worktrees = git::list_worktrees(&repo).map_err(|e| CommandError::Git(format!("{}", e)))?;
     let status = git::get_branch_status(&repo).ok();
 
     Ok(RepoInfo {
@@ -773,81 +799,70 @@ pub fn get_repo_info(
     })
 }
 
-/// Check whether an LLM API key is configured and available.
+/// Check whether LLM access is configured and available.
 ///
-/// Attempts to resolve the API key using the same logic as `create_provider`:
-/// key_cmd > FLOWDIFF_API_KEY > provider-specific env var. Returns true if
-/// a key is available, false otherwise.
+/// This includes API-key-based providers plus subscription-backed Codex/Claude CLIs.
 #[tauri::command]
 pub fn check_api_key(repo_path: Option<String>) -> Result<bool, CommandError> {
-    let config = if let Some(ref path) = repo_path {
-        let repo_path = PathBuf::from(path);
-        if let Ok(canonical) = std::fs::canonicalize(&repo_path) {
-            if let Ok(repo) = git2::Repository::discover(&canonical) {
-                if let Some(workdir) = repo.workdir() {
-                    FlowdiffConfig::load_from_dir(workdir).unwrap_or_default()
-                } else {
-                    FlowdiffConfig::default()
-                }
-            } else {
-                FlowdiffConfig::default()
-            }
-        } else {
-            FlowdiffConfig::default()
-        }
-    } else {
-        FlowdiffConfig::default()
-    };
-
-    let provider_name = config
-        .llm
-        .provider
-        .as_deref()
-        .unwrap_or("anthropic");
-
-    Ok(llm::resolve_api_key(&config.llm, provider_name).is_ok())
+    Ok(get_llm_settings(repo_path)?.has_api_key)
 }
 
-/// Get LLM settings from the project's `.flowdiff.toml` and environment.
+/// Get LLM settings from the shared global config plus repo-local overrides.
 ///
-/// Reads the config file, resolves API key availability, and returns a
-/// unified `LlmSettings` struct for the settings panel.
+/// Reads `~/.flowdiff/config.toml`, merges in any repo-local `[llm]` overrides, resolves
+/// CLI/API availability, and returns a unified `LlmSettings` struct for the settings panel.
 #[tauri::command]
 pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, CommandError> {
     let (config, workdir) = load_config_from_path(repo_path.as_deref());
+    let codex_status = llm::codex_cli::detect_status();
+    let claude_status = llm::claude_cli::detect_status();
 
-    let provider = config
-        .llm
-        .provider
-        .clone()
-        .unwrap_or_else(|| "anthropic".to_string());
+    let provider =
+        config.llm.provider.clone().unwrap_or_else(|| {
+            default_provider_for_machine(&codex_status, &claude_status).to_string()
+        });
     let model = config
         .llm
         .model
         .clone()
         .unwrap_or_else(|| default_model_for_provider(&provider).to_string());
 
-    let has_api_key = llm::resolve_api_key(&config.llm, &provider).is_ok();
+    let has_api_key = match provider.as_str() {
+        "codex" => codex_status.authenticated,
+        "claude" => claude_status.authenticated,
+        _ => llm::resolve_api_key(&config.llm, &provider).is_ok(),
+    };
 
-    let api_key_source = if config.llm.key_cmd.is_some() {
-        "key_cmd".to_string()
-    } else if config.llm.key.as_ref().is_some_and(|k| !k.is_empty()) {
-        "config file".to_string()
-    } else if std::env::var("FLOWDIFF_API_KEY").is_ok() {
-        "FLOWDIFF_API_KEY".to_string()
-    } else {
-        let env_var = match provider.as_str() {
-            "anthropic" => "ANTHROPIC_API_KEY",
-            "openai" => "OPENAI_API_KEY",
-            "gemini" => "GEMINI_API_KEY",
-            _ => "none",
-        };
-        if std::env::var(env_var).is_ok() {
-            env_var.to_string()
-        } else if workdir.is_some() {
-            "none (configure in .flowdiff.toml or env)".to_string()
-        } else {
-            "none".to_string()
+    let api_key_source = match provider.as_str() {
+        "codex" => match (codex_status.installed, codex_status.authenticated) {
+            (true, true) => "Codex CLI login".to_string(),
+            (true, false) => "Codex CLI installed, not logged in".to_string(),
+            (false, _) => "Codex CLI not installed".to_string(),
+        },
+        "claude" => match (claude_status.installed, claude_status.authenticated) {
+            (true, true) => "Claude Code subscription".to_string(),
+            (true, false) => "Claude Code installed, not logged in".to_string(),
+            (false, _) => "Claude Code not installed".to_string(),
+        },
+        _ if config.llm.key_cmd.is_some() => "key_cmd".to_string(),
+        _ if config.llm.key.as_ref().is_some_and(|k| !k.is_empty()) => {
+            "~/.flowdiff/config.toml".to_string()
+        }
+        _ if std::env::var("FLOWDIFF_API_KEY").is_ok() => "FLOWDIFF_API_KEY".to_string(),
+        _ => {
+            let env_var = match provider.as_str() {
+                "anthropic" => "ANTHROPIC_API_KEY",
+                "openai" => "OPENAI_API_KEY",
+                "gemini" => "GEMINI_API_KEY",
+                _ => "none",
+            };
+            if std::env::var(env_var).is_ok() {
+                env_var.to_string()
+            } else if workdir.is_some() {
+                "none (configure in ~/.flowdiff/config.toml or env)".to_string()
+            } else {
+                "none".to_string()
+            }
         }
     };
 
@@ -874,29 +889,22 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
         refinement_provider,
         refinement_model,
         refinement_max_iterations: config.llm.refinement.max_iterations,
+        global_config_path: display_global_config_path(),
+        codex_available: codex_status.installed,
+        codex_authenticated: codex_status.authenticated,
+        claude_available: claude_status.installed,
+        claude_authenticated: claude_status.authenticated,
     })
 }
 
-/// Save LLM settings to the project's `.flowdiff.toml`.
+/// Save LLM settings to the shared global config.
 ///
-/// Loads the existing config (preserving non-LLM sections), updates the LLM
-/// section with the provided settings, and writes back.
+/// Loads the existing global config, updates the `[llm]` section with the provided
+/// settings, and writes back to `~/.flowdiff/config.toml`.
 #[tauri::command]
-pub fn save_llm_settings(
-    repo_path: String,
-    settings: LlmSettings,
-) -> Result<(), CommandError> {
-    let repo_path_buf = PathBuf::from(&repo_path);
-    let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
-        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
-    let repo = git2::Repository::discover(&repo_path_buf)
-        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| CommandError::Git("Bare repositories are not supported".to_string()))?;
-
-    let mut config = FlowdiffConfig::load_from_dir(workdir)
-        .map_err(|e| CommandError::Config(format!("{}", e)))?;
+pub fn save_llm_settings(_repo_path: String, settings: LlmSettings) -> Result<(), CommandError> {
+    let mut config =
+        FlowdiffConfig::load_global().map_err(|e| CommandError::Config(format!("{}", e)))?;
 
     // Update LLM section
     config.llm.provider = Some(settings.provider);
@@ -908,58 +916,40 @@ pub fn save_llm_settings(
     config.llm.refinement.max_iterations = settings.refinement_max_iterations;
 
     config
-        .save_to_dir(workdir)
+        .save_global()
         .map_err(|e| CommandError::Config(format!("Failed to save config: {}", e)))?;
 
     Ok(())
 }
 
-/// Save an API key to `.flowdiff.toml` under `[llm] key = "..."`.
+/// Save an API key to `~/.flowdiff/config.toml` under `[llm] key = "..."`.
 ///
 /// The key is stored directly in the config file. Precedence is maintained:
 /// `key_cmd` > `key` (config) > env vars.
 #[tauri::command]
-pub fn save_api_key(repo_path: String, api_key: String) -> Result<(), CommandError> {
-    let repo_path_buf = PathBuf::from(&repo_path);
-    let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
-        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
-    let repo = git2::Repository::discover(&repo_path_buf)
-        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| CommandError::Git("Bare repositories are not supported".to_string()))?;
-
-    let mut config = FlowdiffConfig::load_from_dir(workdir)
-        .map_err(|e| CommandError::Config(format!("{}", e)))?;
+pub fn save_api_key(_repo_path: String, api_key: String) -> Result<(), CommandError> {
+    let mut config =
+        FlowdiffConfig::load_global().map_err(|e| CommandError::Config(format!("{}", e)))?;
 
     config.llm.key = Some(api_key);
 
     config
-        .save_to_dir(workdir)
+        .save_global()
         .map_err(|e| CommandError::Config(format!("Failed to save config: {}", e)))?;
 
     Ok(())
 }
 
-/// Remove the stored API key from `.flowdiff.toml`.
+/// Remove the stored API key from `~/.flowdiff/config.toml`.
 #[tauri::command]
-pub fn clear_api_key(repo_path: String) -> Result<(), CommandError> {
-    let repo_path_buf = PathBuf::from(&repo_path);
-    let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
-        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
-    let repo = git2::Repository::discover(&repo_path_buf)
-        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| CommandError::Git("Bare repositories are not supported".to_string()))?;
-
-    let mut config = FlowdiffConfig::load_from_dir(workdir)
-        .map_err(|e| CommandError::Config(format!("{}", e)))?;
+pub fn clear_api_key(_repo_path: String) -> Result<(), CommandError> {
+    let mut config =
+        FlowdiffConfig::load_global().map_err(|e| CommandError::Config(format!("{}", e)))?;
 
     config.llm.key = None;
 
     config
-        .save_to_dir(workdir)
+        .save_global()
         .map_err(|e| CommandError::Config(format!("Failed to save config: {}", e)))?;
 
     Ok(())
@@ -1044,7 +1034,9 @@ pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandEr
                 // Use the CLI binary via the app bundle's bin/ path for proper workspace trust.
                 // `open -a` opens files as untrusted; the CLI opens in the existing workspace.
                 let cli_path = match editor.as_str() {
-                    "vscode" => "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+                    "vscode" => {
+                        "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+                    }
                     "cursor" => "/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
                     "zed" => "/Applications/Zed.app/Contents/MacOS/cli",
                     _ => unreachable!(),
@@ -1069,7 +1061,9 @@ pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandEr
                     "zed" => "zed",
                     _ => unreachable!(),
                 };
-                std::process::Command::new(bin).args(["--reuse-window", "--goto", &file_path]).spawn()
+                std::process::Command::new(bin)
+                    .args(["--reuse-window", "--goto", &file_path])
+                    .spawn()
             }
         }
         "vim" => {
@@ -1126,7 +1120,9 @@ pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandEr
             }
             #[cfg(target_os = "windows")]
             {
-                std::process::Command::new("cmd").args(["/c", "start", "cmd", "/k", &format!("cd /d {}", dir)]).spawn()
+                std::process::Command::new("cmd")
+                    .args(["/c", "start", "cmd", "/k", &format!("cd /d {}", dir)])
+                    .spawn()
             }
         }
         other => {
@@ -1241,23 +1237,45 @@ fn load_config_from_path(repo_path: Option<&str>) -> (FlowdiffConfig, Option<Pat
         if let Ok(canonical) = std::fs::canonicalize(&repo_path) {
             if let Ok(repo) = git2::Repository::discover(&canonical) {
                 if let Some(workdir) = repo.workdir() {
-                    let config = FlowdiffConfig::load_from_dir(workdir).unwrap_or_default();
+                    let config =
+                        FlowdiffConfig::load_with_global_llm_from_dir(workdir).unwrap_or_default();
                     return (config, Some(workdir.to_path_buf()));
                 }
             }
         }
     }
-    (FlowdiffConfig::default(), None)
+    (FlowdiffConfig::load_global().unwrap_or_default(), None)
 }
 
 /// Get the default model for a provider.
 fn default_model_for_provider(provider: &str) -> &str {
     match provider {
+        "codex" => "default",
+        "claude" => "default",
         "anthropic" => "claude-sonnet-4-6",
         "openai" => "gpt-4.1",
         "gemini" => "gemini-2.5-flash",
-        _ => "claude-sonnet-4-6",
+        _ => "default",
     }
+}
+
+fn default_provider_for_machine(
+    codex_status: &llm::BackendStatus,
+    claude_status: &llm::BackendStatus,
+) -> &'static str {
+    if codex_status.authenticated {
+        "codex"
+    } else if claude_status.authenticated {
+        "claude"
+    } else {
+        "anthropic"
+    }
+}
+
+fn display_global_config_path() -> String {
+    FlowdiffConfig::global_config_path()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|| "~/.flowdiff/config.toml".to_string())
 }
 
 /// LLM settings for the UI — surface for the settings panel.
@@ -1271,7 +1289,7 @@ pub struct LlmSettings {
     pub annotations_enabled: bool,
     /// Whether LLM refinement is enabled.
     pub refinement_enabled: bool,
-    /// Selected LLM provider: "anthropic", "openai", or "gemini".
+    /// Selected LLM backend: subscription-backed CLI or direct API provider.
     pub provider: String,
     /// Selected model identifier.
     pub model: String,
@@ -1285,6 +1303,16 @@ pub struct LlmSettings {
     pub refinement_model: String,
     /// Maximum refinement iterations.
     pub refinement_max_iterations: u32,
+    /// Where shared LLM settings are stored.
+    pub global_config_path: String,
+    /// Whether Codex CLI is installed.
+    pub codex_available: bool,
+    /// Whether Codex CLI is logged in and ready.
+    pub codex_authenticated: bool,
+    /// Whether Claude Code is installed.
+    pub claude_available: bool,
+    /// Whether Claude Code is logged in and ready.
+    pub claude_authenticated: bool,
 }
 
 /// Summary of repository state for the UI.
@@ -1343,22 +1371,16 @@ fn extract_diff(
     pr_preview: bool,
 ) -> Result<(git::DiffResult, flowdiff_core::types::DiffSource), CommandError> {
     if let Some(ref range) = range {
-        let diff = git::diff_range(repo, range)
-            .map_err(|e| CommandError::Git(format!("{}", e)))?;
-        let source = output::diff_source_range(
-            range,
-            diff.base_sha.as_deref(),
-            diff.head_sha.as_deref(),
-        );
+        let diff = git::diff_range(repo, range).map_err(|e| CommandError::Git(format!("{}", e)))?;
+        let source =
+            output::diff_source_range(range, diff.base_sha.as_deref(), diff.head_sha.as_deref());
         Ok((diff, source))
     } else if staged {
-        let diff = git::diff_staged(repo)
-            .map_err(|e| CommandError::Git(format!("{}", e)))?;
+        let diff = git::diff_staged(repo).map_err(|e| CommandError::Git(format!("{}", e)))?;
         let source = output::diff_source_staged();
         Ok((diff, source))
     } else if unstaged {
-        let diff = git::diff_unstaged(repo)
-            .map_err(|e| CommandError::Git(format!("{}", e)))?;
+        let diff = git::diff_unstaged(repo).map_err(|e| CommandError::Git(format!("{}", e)))?;
         let source = output::diff_source_unstaged();
         Ok((diff, source))
     } else if pr_preview {
@@ -1369,15 +1391,17 @@ fn extract_diff(
         } else {
             None
         };
-        let base_ref = base.as_deref()
+        let base_ref = base
+            .as_deref()
             .or(detected_default.as_deref())
             .unwrap_or("main");
         let head_ref = head.as_deref().unwrap_or("HEAD");
-        let diff = git::diff_merge_base(repo, base_ref, head_ref)
-            .map_err(|e| CommandError::Git(format!(
+        let diff = git::diff_merge_base(repo, base_ref, head_ref).map_err(|e| {
+            CommandError::Git(format!(
                 "Failed to compute merge-base diff between '{}' and '{}': {}",
                 base_ref, head_ref, e
-            )))?;
+            ))
+        })?;
         let source = output::diff_source_branch(
             base_ref,
             head_ref,
@@ -1462,8 +1486,9 @@ pub fn save_comment(
 
     // Ensure .flowdiff directory exists
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| CommandError::Io(format!("Failed to create .flowdiff directory: {}", e)))?;
+        std::fs::create_dir_all(parent).map_err(|e| {
+            CommandError::Io(format!("Failed to create .flowdiff directory: {}", e))
+        })?;
     }
 
     // Load existing comments or start fresh
@@ -1514,10 +1539,7 @@ pub fn load_comments(
 /// Includes absolute file paths, code snippets for code-level comments,
 /// and group context.
 #[tauri::command]
-pub fn export_comments(
-    repo_path: String,
-    analysis_hash: String,
-) -> Result<String, CommandError> {
+pub fn export_comments(repo_path: String, analysis_hash: String) -> Result<String, CommandError> {
     let path = comments_file_path(&repo_path)?;
     let comments_file = load_comments_from_file(&path, &analysis_hash);
 
@@ -1616,7 +1638,13 @@ fn detect_language(path: &str) -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
@@ -1811,41 +1839,53 @@ mod tests {
         let settings = LlmSettings {
             annotations_enabled: true,
             refinement_enabled: false,
-            provider: "anthropic".to_string(),
-            model: "claude-sonnet-4-6".to_string(),
-            api_key_source: "ANTHROPIC_API_KEY".to_string(),
+            provider: "codex".to_string(),
+            model: "default".to_string(),
+            api_key_source: "Codex CLI login".to_string(),
             has_api_key: true,
-            refinement_provider: "openai".to_string(),
-            refinement_model: "gpt-4.1".to_string(),
+            refinement_provider: "claude".to_string(),
+            refinement_model: "default".to_string(),
             refinement_max_iterations: 2,
+            global_config_path: "~/.flowdiff/config.toml".to_string(),
+            codex_available: true,
+            codex_authenticated: true,
+            claude_available: true,
+            claude_authenticated: true,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: LlmSettings = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.provider, "anthropic");
-        assert_eq!(back.model, "claude-sonnet-4-6");
+        assert_eq!(back.provider, "codex");
+        assert_eq!(back.model, "default");
         assert!(back.annotations_enabled);
         assert!(!back.refinement_enabled);
         assert!(back.has_api_key);
-        assert_eq!(back.refinement_provider, "openai");
-        assert_eq!(back.refinement_model, "gpt-4.1");
+        assert_eq!(back.refinement_provider, "claude");
+        assert_eq!(back.refinement_model, "default");
         assert_eq!(back.refinement_max_iterations, 2);
+        assert!(back.codex_available);
+        assert!(back.claude_authenticated);
     }
 
     #[test]
     fn test_llm_settings_all_providers() {
-        for provider in &["anthropic", "openai", "gemini"] {
+        for provider in &["codex", "claude", "anthropic", "openai", "gemini"] {
             let expected = default_model_for_provider(provider);
-            assert!(!expected.is_empty(), "Provider '{}' should have a default model", provider);
+            assert!(
+                !expected.is_empty(),
+                "Provider '{}' should have a default model",
+                provider
+            );
         }
     }
 
     #[test]
     fn test_default_model_for_provider() {
+        assert_eq!(default_model_for_provider("codex"), "default");
+        assert_eq!(default_model_for_provider("claude"), "default");
         assert_eq!(default_model_for_provider("anthropic"), "claude-sonnet-4-6");
         assert_eq!(default_model_for_provider("openai"), "gpt-4.1");
         assert_eq!(default_model_for_provider("gemini"), "gemini-2.5-flash");
-        // Unknown provider falls back to anthropic default
-        assert_eq!(default_model_for_provider("unknown"), "claude-sonnet-4-6");
+        assert_eq!(default_model_for_provider("unknown"), "default");
     }
 
     #[test]
@@ -1853,8 +1893,9 @@ mod tests {
         let result = get_llm_settings(None);
         assert!(result.is_ok());
         let settings = result.unwrap();
-        assert_eq!(settings.provider, "anthropic");
-        assert_eq!(settings.model, "claude-sonnet-4-6");
+        assert!(!settings.provider.is_empty());
+        assert!(!settings.model.is_empty());
+        assert!(!settings.global_config_path.is_empty());
     }
 
     #[test]
@@ -1862,21 +1903,18 @@ mod tests {
         let result = get_llm_settings(Some("/nonexistent/path".to_string()));
         assert!(result.is_ok());
         let settings = result.unwrap();
-        // Falls back to defaults
-        assert_eq!(settings.provider, "anthropic");
+        assert!(!settings.provider.is_empty());
     }
 
     #[test]
     fn test_load_config_from_path_none() {
-        let (config, workdir) = load_config_from_path(None);
-        assert_eq!(config, FlowdiffConfig::default());
+        let (_config, workdir) = load_config_from_path(None);
         assert!(workdir.is_none());
     }
 
     #[test]
     fn test_load_config_from_path_invalid() {
-        let (config, workdir) = load_config_from_path(Some("/nonexistent/path"));
-        assert_eq!(config, FlowdiffConfig::default());
+        let (_config, workdir) = load_config_from_path(Some("/nonexistent/path"));
         assert!(workdir.is_none());
     }
 
@@ -1909,8 +1947,8 @@ mod tests {
 
     #[test]
     fn test_refinement_result_with_changes() {
-        use flowdiff_core::llm::schema::{RefinementResponse, RefinementSplit, RefinementNewGroup};
-        use flowdiff_core::types::{FlowGroup, FileChange, FileRole, ChangeStats};
+        use flowdiff_core::llm::schema::{RefinementNewGroup, RefinementResponse, RefinementSplit};
+        use flowdiff_core::types::{ChangeStats, FileChange, FileRole, FlowGroup};
 
         let result = RefinementResult {
             refined_groups: vec![FlowGroup {
@@ -1921,7 +1959,10 @@ mod tests {
                     path: "test.ts".to_string(),
                     flow_position: 0,
                     role: FileRole::Entrypoint,
-                    changes: ChangeStats { additions: 10, deletions: 5 },
+                    changes: ChangeStats {
+                        additions: 10,
+                        deletions: 5,
+                    },
                     symbols_changed: vec![],
                 }],
                 edges: vec![],
@@ -2042,10 +2083,17 @@ mod tests {
 
     #[test]
     fn test_open_in_editor_nonexistent_file() {
-        let result = open_in_editor("vscode".to_string(), "/tmp/__nonexistent_file_12345__".to_string());
+        let result = open_in_editor(
+            "vscode".to_string(),
+            "/tmp/__nonexistent_file_12345__".to_string(),
+        );
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("File not found"), "Expected file-not-found error, got: {}", err);
+        assert!(
+            err.contains("File not found"),
+            "Expected file-not-found error, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -2053,11 +2101,18 @@ mod tests {
         // Create a temporary file to pass the file-exists check
         let tmp = std::env::temp_dir().join("flowdiff_test_open_editor");
         std::fs::write(&tmp, "test").unwrap();
-        let result = open_in_editor("unknown_editor".to_string(), tmp.to_str().unwrap().to_string());
+        let result = open_in_editor(
+            "unknown_editor".to_string(),
+            tmp.to_str().unwrap().to_string(),
+        );
         std::fs::remove_file(&tmp).ok();
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("Unknown editor"), "Expected unknown-editor error, got: {}", err);
+        assert!(
+            err.contains("Unknown editor"),
+            "Expected unknown-editor error, got: {}",
+            err
+        );
     }
 
     // ── Review comment tests ────────────────────────────────────────
@@ -2083,7 +2138,10 @@ mod tests {
         assert_eq!(back.file_path, Some("src/auth.ts".to_string()));
         assert_eq!(back.start_line, Some(42));
         assert_eq!(back.end_line, Some(58));
-        assert_eq!(back.selected_code, Some("function validate() {}".to_string()));
+        assert_eq!(
+            back.selected_code,
+            Some("function validate() {}".to_string())
+        );
         assert_eq!(back.text, "Missing validation");
     }
 
@@ -2235,7 +2293,11 @@ mod tests {
             created_at: "2026-03-20T14:30:00Z".to_string(),
         };
         let json = serde_json::to_string(&comment).unwrap();
-        assert!(json.contains("\"type\":\"code\""), "JSON should use 'type' not 'comment_type': {}", json);
+        assert!(
+            json.contains("\"type\":\"code\""),
+            "JSON should use 'type' not 'comment_type': {}",
+            json
+        );
         // Verify deserialization from "type" field
         let back: ReviewComment = serde_json::from_str(&json).unwrap();
         assert_eq!(back.comment_type, "code");

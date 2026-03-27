@@ -9,6 +9,8 @@
 //! - Pass 2: Deep analysis (on-demand, per-group)
 
 pub mod anthropic;
+pub mod claude_cli;
+pub mod codex_cli;
 pub mod gemini;
 pub mod judge;
 pub mod openai;
@@ -16,6 +18,7 @@ pub mod refinement;
 pub mod schema;
 pub mod vcr;
 
+use std::path::Path;
 use std::process::Command;
 
 use async_trait::async_trait;
@@ -29,7 +32,7 @@ use schema::{
 /// Errors that can occur during LLM operations.
 #[derive(Debug, thiserror::Error)]
 pub enum LlmError {
-    #[error("No API key found. Set FLOWDIFF_API_KEY env var, configure key_cmd in .flowdiff.toml, or set provider-specific env var ({0})")]
+    #[error("No API key found. Set FLOWDIFF_API_KEY, configure key_cmd in ~/.flowdiff/config.toml or .flowdiff.toml, or set provider-specific env var ({0})")]
     NoApiKey(String),
 
     #[error("HTTP request failed: {0}")]
@@ -50,14 +53,30 @@ pub enum LlmError {
     #[error("Authentication failed: {0}")]
     AuthError(String),
 
+    #[error("Required CLI is not installed: {0}")]
+    CommandUnavailable(String),
+
+    #[error("CLI invocation failed: {0}")]
+    CommandFailed(String),
+
     #[error("key_cmd execution failed: {0}")]
     KeyCmdError(String),
 
     #[error("Context window exceeded: input is {input_tokens} tokens, max is {max_tokens}")]
-    ContextWindowExceeded { input_tokens: usize, max_tokens: usize },
+    ContextWindowExceeded {
+        input_tokens: usize,
+        max_tokens: usize,
+    },
 
     #[error("Unsupported provider: {0}")]
     UnsupportedProvider(String),
+}
+
+/// Availability/authentication status for subscription-backed CLI providers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendStatus {
+    pub installed: bool,
+    pub authenticated: bool,
 }
 
 /// Provider-agnostic LLM client trait.
@@ -197,36 +216,86 @@ fn execute_key_cmd(cmd: &str) -> Result<String, LlmError> {
 ///
 /// Returns the appropriate provider client based on the config's provider field.
 pub fn create_provider(config: &LlmConfig) -> Result<Box<dyn LlmProvider>, LlmError> {
-    let provider_name = config
-        .provider
-        .as_deref()
-        .unwrap_or("anthropic");
+    create_provider_for_workdir(config, None)
+}
+
+/// Create an LLM provider from configuration, optionally anchored to a repository workdir.
+///
+/// CLI-backed providers use the workdir as their execution root so they can inspect the
+/// repository with read-only tools while producing structured JSON output.
+pub fn create_provider_for_workdir(
+    config: &LlmConfig,
+    workdir: Option<&Path>,
+) -> Result<Box<dyn LlmProvider>, LlmError> {
+    let provider_name = config.provider.as_deref().unwrap_or_else(|| {
+        if config.key_cmd.is_some()
+            || config.key.as_ref().is_some_and(|key| !key.is_empty())
+            || std::env::var("FLOWDIFF_API_KEY").is_ok()
+            || std::env::var("ANTHROPIC_API_KEY").is_ok()
+            || std::env::var("OPENAI_API_KEY").is_ok()
+            || std::env::var("GEMINI_API_KEY").is_ok()
+        {
+            "anthropic"
+        } else {
+            detect_default_provider()
+        }
+    });
+
+    if provider_name == "codex" {
+        return Ok(Box::new(codex_cli::CodexCliProvider::new(
+            config.model.clone(),
+            workdir.map(Path::to_path_buf),
+        )));
+    }
+
+    if provider_name == "claude" {
+        return Ok(Box::new(claude_cli::ClaudeCliProvider::new(
+            config.model.clone(),
+            workdir.map(Path::to_path_buf),
+        )));
+    }
 
     let api_key = resolve_api_key(config, provider_name)?;
 
     match provider_name {
         "anthropic" => {
-            let model = config
-                .model
-                .as_deref()
-                .unwrap_or("claude-sonnet-4-6");
-            Ok(Box::new(anthropic::AnthropicProvider::new(api_key, model.to_string())))
+            let model = config.model.as_deref().unwrap_or("claude-sonnet-4-6");
+            Ok(Box::new(anthropic::AnthropicProvider::new(
+                api_key,
+                model.to_string(),
+            )))
         }
         "openai" => {
-            let model = config
-                .model
-                .as_deref()
-                .unwrap_or("gpt-4.1");
-            Ok(Box::new(openai::OpenAIProvider::new(api_key, model.to_string())))
+            let model = config.model.as_deref().unwrap_or("gpt-4.1");
+            Ok(Box::new(openai::OpenAIProvider::new(
+                api_key,
+                model.to_string(),
+            )))
         }
         "gemini" => {
-            let model = config
-                .model
-                .as_deref()
-                .unwrap_or("gemini-2.5-flash");
-            Ok(Box::new(gemini::GeminiProvider::new(api_key, model.to_string())))
+            let model = config.model.as_deref().unwrap_or("gemini-2.5-flash");
+            Ok(Box::new(gemini::GeminiProvider::new(
+                api_key,
+                model.to_string(),
+            )))
         }
         other => Err(LlmError::UnsupportedProvider(other.to_string())),
+    }
+}
+
+/// Choose the best default provider for the current machine.
+///
+/// Preference order:
+/// 1. Codex CLI when installed and logged in
+/// 2. Claude Code when installed and logged in
+/// 3. Anthropic API fallback
+fn detect_default_provider() -> &'static str {
+    if codex_cli::detect_status().authenticated {
+        "codex"
+    } else if claude_cli::detect_status().authenticated {
+        "claude"
+    } else {
+        "anthropic"
     }
 }
 
@@ -343,6 +412,9 @@ pub fn pass1_system_prompt() -> String {
         "You are a senior software engineer reviewing a code diff. \
          Your task is to analyze the semantic flow groups identified by static analysis \
          and provide a high-level overview of the changes.\n\n\
+         Write the overall summary and each group summary so they can be reused in a pull request \
+         description or shared with a non-developer reviewer. Prefer concrete behavior changes, \
+         user impact, and review order rationale over jargon.\n\n\
          For each group, explain what it does, assess its risk, and suggest a review order.\n\n\
          {}",
         schema::pass1_schema_description()
@@ -375,7 +447,10 @@ pub fn pass1_user_prompt(request: &Pass1Request) -> String {
             group.edge_summary,
         ));
     }
-    prompt.push_str(&format!("\n## Graph Structure\n{}\n", request.graph_summary));
+    prompt.push_str(&format!(
+        "\n## Graph Structure\n{}\n",
+        request.graph_summary
+    ));
     prompt
 }
 
@@ -401,11 +476,7 @@ pub fn judge_user_prompt(request: &JudgeRequest) -> String {
 
     prompt.push_str("## Source Files\n");
     for file in &request.source_files {
-        let ext = file
-            .path
-            .rsplit('.')
-            .next()
-            .unwrap_or("txt");
+        let ext = file.path.rsplit('.').next().unwrap_or("txt");
         prompt.push_str(&format!(
             "\n### {}\n```{}\n{}\n```\n",
             file.path, ext, file.content,
@@ -420,8 +491,10 @@ pub fn judge_user_prompt(request: &JudgeRequest) -> String {
     prompt.push_str(&request.analysis_json);
     prompt.push_str("\n```\n");
 
-    prompt.push_str("\nEvaluate the analysis output against the source code and diff. \
-        Score each of the 5 criteria from 1-5.");
+    prompt.push_str(
+        "\nEvaluate the analysis output against the source code and diff. \
+        Score each of the 5 criteria from 1-5.",
+    );
 
     prompt
 }
@@ -491,7 +564,13 @@ pub fn pass2_user_prompt(request: &Pass2Request) -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
@@ -675,7 +754,7 @@ mod tests {
     fn test_truncate_preserves_line_boundary() {
         let text = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10";
         let result = truncate_to_token_budget(&text, 5); // ~20 chars
-        // Should end at a newline, not mid-line
+                                                         // Should end at a newline, not mid-line
         let before_truncation = result.split("\n\n...").next().unwrap();
         assert!(
             before_truncation.ends_with("line1")
@@ -694,7 +773,7 @@ mod tests {
         assert_eq!(estimate_tokens("abcd"), 1); // 4 chars = 1 token
         assert_eq!(estimate_tokens("abcde"), 2); // 5 chars = 2 tokens (ceiling)
         assert_eq!(estimate_tokens("abcdefgh"), 2); // 8 chars = 2 tokens
-        // Longer text
+                                                    // Longer text
         let long = "a".repeat(400);
         assert_eq!(estimate_tokens(&long), 100); // 400 chars / 4 = 100
     }
@@ -1110,7 +1189,11 @@ mod tests {
         let result = resolve_api_key(&config, "anthropic");
         let err_msg = format!("{}", result.unwrap_err());
         // Should NOT contain the literal command string
-        assert!(!err_msg.contains("'false'"), "Error should not echo the command: {}", err_msg);
+        assert!(
+            !err_msg.contains("'false'"),
+            "Error should not echo the command: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -1121,7 +1204,11 @@ mod tests {
         };
         let result = resolve_api_key(&config, "anthropic");
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(!err_msg.contains("printf"), "Error should not echo the command: {}", err_msg);
+        assert!(
+            !err_msg.contains("printf"),
+            "Error should not echo the command: {}",
+            err_msg
+        );
     }
 
     // ── Security: API key redaction from error bodies ──
@@ -1136,7 +1223,8 @@ mod tests {
 
     #[test]
     fn test_redact_openai_key() {
-        let body = r#"{"error":{"message":"Incorrect API key provided: sk-proj-abc1234567890ABCDEF"}}"#;
+        let body =
+            r#"{"error":{"message":"Incorrect API key provided: sk-proj-abc1234567890ABCDEF"}}"#;
         let redacted = redact_api_keys(body);
         assert!(!redacted.contains("sk-proj-abc"));
         assert!(redacted.contains("[REDACTED_OPENAI_KEY]"));
@@ -1144,7 +1232,8 @@ mod tests {
 
     #[test]
     fn test_redact_gemini_key() {
-        let body = r#"{"error":{"message":"API key not valid: AIzaXXtestfakekey00000000000000000000"}}"#;
+        let body =
+            r#"{"error":{"message":"API key not valid: AIzaXXtestfakekey00000000000000000000"}}"#;
         let redacted = redact_api_keys(body);
         assert!(!redacted.contains("AIzaSy"));
         assert!(redacted.contains("[REDACTED_GEMINI_KEY]"));
@@ -1186,11 +1275,7 @@ mod tests {
         for ch in DANGEROUS_SHELL_CHARS {
             let cmd = format!("echo test{}cmd", ch);
             let result = validate_key_cmd(&cmd);
-            assert!(
-                result.is_err(),
-                "Should reject char '{}' but didn't",
-                ch
-            );
+            assert!(result.is_err(), "Should reject char '{}' but didn't", ch);
         }
     }
 }

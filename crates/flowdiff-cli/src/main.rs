@@ -30,7 +30,10 @@ use flowdiff_core::rank;
 use flowdiff_core::types::{AnalysisOutput, GroupRankInput};
 
 #[derive(Parser)]
-#[command(name = "flowdiff", about = "Semantic diff review tool with ranked data-flow grouping")]
+#[command(
+    name = "flowdiff",
+    about = "Semantic diff review tool with ranked data-flow grouping"
+)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -254,15 +257,15 @@ fn main() {
 fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Resolve repo path
     let repo_path = std::fs::canonicalize(&args.repo)?;
-    let repo = Repository::discover(&repo_path)
-        .map_err(|e| format!("Not a git repository: {}", e))?;
+    let repo =
+        Repository::discover(&repo_path).map_err(|e| format!("Not a git repository: {}", e))?;
     let workdir = repo
         .workdir()
         .ok_or("Bare repositories are not supported")?
         .to_path_buf();
 
     // Load config
-    let mut config = FlowdiffConfig::load_from_dir(&workdir)
+    let mut config = FlowdiffConfig::load_with_global_llm_from_dir(&workdir)
         .map_err(|e| format!("Config error: {}", e))?;
 
     // Apply CLI overrides for refinement
@@ -307,7 +310,9 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
         .files
         .iter()
         .filter_map(|file_diff| {
-            let content = file_diff.new_content.as_deref()
+            let content = file_diff
+                .new_content
+                .as_deref()
                 .or(file_diff.old_content.as_deref())?;
             let path = file_diff.path();
             if config.is_ignored(path) {
@@ -360,7 +365,11 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .map(|group| {
             let risk_flags = output::compute_group_risk_flags(
-                &group.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
+                &group
+                    .files
+                    .iter()
+                    .map(|f| f.path.as_str())
+                    .collect::<Vec<_>>(),
             );
             let total_add: u32 = group.files.iter().map(|f| f.changes.additions).sum();
             let total_del: u32 = group.files.iter().map(|f| f.changes.deletions).sum();
@@ -397,7 +406,7 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Apply LLM refinement if enabled
     if config.llm.refinement.enabled {
         let rt = tokio::runtime::Runtime::new()?;
-        match rt.block_on(run_refinement(&config, &mut analysis_output)) {
+        match rt.block_on(run_refinement(&config, &workdir, &mut analysis_output)) {
             Ok(()) => {}
             Err(e) => {
                 warn!("LLM refinement failed, using deterministic groups: {}", e);
@@ -408,7 +417,7 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Apply LLM annotation if requested
     if args.annotate {
         let rt = tokio::runtime::Runtime::new()?;
-        match rt.block_on(run_annotation(&config, &mut analysis_output)) {
+        match rt.block_on(run_annotation(&config, &workdir, &mut analysis_output)) {
             Ok(()) => {}
             Err(e) => {
                 warn!("LLM annotation failed: {}", e);
@@ -430,11 +439,8 @@ fn extract_diff(
 ) -> Result<(git::DiffResult, flowdiff_core::types::DiffSource), Box<dyn std::error::Error>> {
     if let Some(ref range) = args.range {
         let diff = git::diff_range(repo, range)?;
-        let source = output::diff_source_range(
-            range,
-            diff.base_sha.as_deref(),
-            diff.head_sha.as_deref(),
-        );
+        let source =
+            output::diff_source_range(range, diff.base_sha.as_deref(), diff.head_sha.as_deref());
         Ok((diff, source))
     } else if args.staged {
         let diff = git::diff_staged(repo)?;
@@ -451,7 +457,9 @@ fn extract_diff(
         } else {
             None
         };
-        let base = args.base.as_deref()
+        let base = args
+            .base
+            .as_deref()
             .or(detected_default.as_deref())
             .unwrap_or("main");
         let head = args.head.as_deref().unwrap_or("HEAD");
@@ -468,24 +476,39 @@ fn extract_diff(
 
 async fn run_refinement(
     config: &FlowdiffConfig,
+    workdir: &std::path::Path,
     analysis_output: &mut AnalysisOutput,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Build a LlmConfig for the refinement provider
     let refinement_llm_config = flowdiff_core::config::LlmConfig {
-        provider: config.llm.refinement.provider.clone().or_else(|| config.llm.provider.clone()),
-        model: config.llm.refinement.model.clone().or_else(|| config.llm.model.clone()),
-        key_cmd: config.llm.refinement.key_cmd.clone().or_else(|| config.llm.key_cmd.clone()),
+        provider: config
+            .llm
+            .refinement
+            .provider
+            .clone()
+            .or_else(|| config.llm.provider.clone()),
+        model: config
+            .llm
+            .refinement
+            .model
+            .clone()
+            .or_else(|| config.llm.model.clone()),
+        key_cmd: config
+            .llm
+            .refinement
+            .key_cmd
+            .clone()
+            .or_else(|| config.llm.key_cmd.clone()),
         ..Default::default()
     };
 
-    let provider = llm::create_provider(&refinement_llm_config)?;
+    let provider = llm::create_provider_for_workdir(&refinement_llm_config, Some(workdir))?;
 
     // Build refinement request
     let analysis_json = serde_json::to_string_pretty(analysis_output)?;
     let diff_summary = format!(
         "{} files changed across {} groups",
-        analysis_output.summary.total_files_changed,
-        analysis_output.summary.total_groups,
+        analysis_output.summary.total_files_changed, analysis_output.summary.total_groups,
     );
 
     let request = refinement::build_refinement_request(
@@ -517,9 +540,10 @@ async fn run_refinement(
 
 async fn run_annotation(
     config: &FlowdiffConfig,
+    workdir: &std::path::Path,
     analysis_output: &mut AnalysisOutput,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let provider = llm::create_provider(&config.llm)?;
+    let provider = llm::create_provider_for_workdir(&config.llm, Some(workdir))?;
 
     // Build Pass 1 request
     let flow_groups: Vec<llm::schema::Pass1GroupInput> = analysis_output
@@ -528,7 +552,10 @@ async fn run_annotation(
         .map(|g| llm::schema::Pass1GroupInput {
             id: g.id.clone(),
             name: g.name.clone(),
-            entrypoint: g.entrypoint.as_ref().map(|ep| format!("{}::{}", ep.file, ep.symbol)),
+            entrypoint: g
+                .entrypoint
+                .as_ref()
+                .map(|ep| format!("{}::{}", ep.file, ep.symbol)),
             files: g.files.iter().map(|f| f.path.clone()).collect(),
             risk_score: g.risk_score,
             edge_summary: g
@@ -543,14 +570,12 @@ async fn run_annotation(
     let request = llm::schema::Pass1Request {
         diff_summary: format!(
             "{} files changed across {} groups",
-            analysis_output.summary.total_files_changed,
-            analysis_output.summary.total_groups,
+            analysis_output.summary.total_files_changed, analysis_output.summary.total_groups,
         ),
         flow_groups,
         graph_summary: format!(
             "{} groups, {} total files",
-            analysis_output.summary.total_groups,
-            analysis_output.summary.total_files_changed,
+            analysis_output.summary.total_groups, analysis_output.summary.total_files_changed,
         ),
     };
 
@@ -587,8 +612,8 @@ fn run_launch(args: LaunchArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     // Open the git repo
     let repo_path = std::fs::canonicalize(&args.repo)?;
-    let repo = Repository::discover(&repo_path)
-        .map_err(|e| format!("Not a git repository: {}", e))?;
+    let repo =
+        Repository::discover(&repo_path).map_err(|e| format!("Not a git repository: {}", e))?;
     let workdir = repo
         .workdir()
         .ok_or("Bare repositories are not supported")?
@@ -607,8 +632,8 @@ fn run_launch(args: LaunchArgs) -> Result<(), Box<dyn std::error::Error>> {
         .or(analysis.diff_source.head.as_deref());
 
     // Create temp directories for old (base) and new (head) versions
-    let tmp_dir = tempfile::tempdir()
-        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+    let tmp_dir =
+        tempfile::tempdir().map_err(|e| format!("Failed to create temp directory: {}", e))?;
     let base_dir = tmp_dir.path().join("base");
     let head_dir = tmp_dir.path().join("head");
     std::fs::create_dir_all(&base_dir)?;
@@ -625,10 +650,11 @@ fn run_launch(args: LaunchArgs) -> Result<(), Box<dyn std::error::Error>> {
                 .components()
                 .any(|c| c == std::path::Component::ParentDir)
         {
-            return Err(
-                format!("Unsafe file path in analysis JSON (path traversal rejected): {}", file_path)
-                    .into(),
-            );
+            return Err(format!(
+                "Unsafe file path in analysis JSON (path traversal rejected): {}",
+                file_path
+            )
+            .into());
         }
 
         // Get base content from git ref
@@ -676,9 +702,12 @@ fn run_launch(args: LaunchArgs) -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = std::process::Command::new(exe);
     cmd.arg(base_dir.as_os_str()).arg(head_dir.as_os_str());
 
-    let status = cmd
-        .status()
-        .map_err(|e| format!("Failed to launch '{}': {} (is it installed and in PATH?)", exe, e))?;
+    let status = cmd.status().map_err(|e| {
+        format!(
+            "Failed to launch '{}': {} (is it installed and in PATH?)",
+            exe, e
+        )
+    })?;
 
     if !status.success() {
         return Err(format!("{} exited with status {}", exe, status).into());
@@ -787,7 +816,9 @@ fn run_lint_goldens(args: LintGoldensArgs) {
 
 #[cfg(feature = "embeddings")]
 fn run_embed_diff(args: EmbedDiffArgs) -> Result<(), Box<dyn std::error::Error>> {
-    use flowdiff_core::embeddings::{embed_file_diffs, pairwise_similarities, cluster_by_similarity};
+    use flowdiff_core::embeddings::{
+        cluster_by_similarity, embed_file_diffs, pairwise_similarities,
+    };
 
     let repo = Repository::open(&args.repo)?;
     let diff = git::diff_range(&repo, &format!("{}..{}", args.base, args.head))?;
@@ -797,10 +828,11 @@ fn run_embed_diff(args: EmbedDiffArgs) -> Result<(), Box<dyn std::error::Error>>
         .files
         .iter()
         .filter_map(|fd| {
-            let path = fd.new_path.as_deref()
-                .or(fd.old_path.as_deref())?;
+            let path = fd.new_path.as_deref().or(fd.old_path.as_deref())?;
             // Use new content if available, fall back to old content for deletions
-            let content = fd.new_content.as_deref()
+            let content = fd
+                .new_content
+                .as_deref()
                 .or(fd.old_content.as_deref())
                 .unwrap_or("");
             if content.is_empty() {
@@ -813,8 +845,11 @@ fn run_embed_diff(args: EmbedDiffArgs) -> Result<(), Box<dyn std::error::Error>>
 
     println!("Embedding {} files...", file_diffs.len());
     let embeddings = embed_file_diffs(&file_diffs)?;
-    println!("Embedded {} files ({} dimensions)", embeddings.len(),
-        embeddings.first().map(|e| e.vector.len()).unwrap_or(0));
+    println!(
+        "Embedded {} files ({} dimensions)",
+        embeddings.len(),
+        embeddings.first().map(|e| e.vector.len()).unwrap_or(0)
+    );
 
     // Show pairwise similarities
     let sims = pairwise_similarities(&embeddings);
@@ -869,7 +904,13 @@ fn write_output(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout, clippy::print_stderr)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 mod tests {
     use super::*;
 
@@ -936,7 +977,13 @@ mod tests {
     #[test]
     fn test_parse_analyze_refine_model() {
         let cli = Cli::parse_from([
-            "flowdiff", "analyze", "--base", "main", "--refine", "--refine-model", "gpt-4.1",
+            "flowdiff",
+            "analyze",
+            "--base",
+            "main",
+            "--refine",
+            "--refine-model",
+            "gpt-4.1",
         ]);
         if let Commands::Analyze(args) = cli.command {
             assert!(args.refine);
@@ -949,7 +996,12 @@ mod tests {
     #[test]
     fn test_parse_analyze_refine_model_implies_refine() {
         let cli = Cli::parse_from([
-            "flowdiff", "analyze", "--base", "main", "--refine-model", "claude-sonnet-4-6",
+            "flowdiff",
+            "analyze",
+            "--base",
+            "main",
+            "--refine-model",
+            "claude-sonnet-4-6",
         ]);
         if let Commands::Analyze(args) = cli.command {
             assert_eq!(args.refine_model, Some("claude-sonnet-4-6".to_string()));
@@ -981,9 +1033,20 @@ mod tests {
     #[test]
     fn test_parse_analyze_all_flags() {
         let cli = Cli::parse_from([
-            "flowdiff", "analyze", "--base", "main", "--head", "feature",
-            "--annotate", "--refine", "--refine-model", "gpt-4.1",
-            "-o", "out.json", "--repo", "/tmp/myrepo",
+            "flowdiff",
+            "analyze",
+            "--base",
+            "main",
+            "--head",
+            "feature",
+            "--annotate",
+            "--refine",
+            "--refine-model",
+            "gpt-4.1",
+            "-o",
+            "out.json",
+            "--repo",
+            "/tmp/myrepo",
         ]);
         if let Commands::Analyze(args) = cli.command {
             assert_eq!(args.base, Some("main".to_string()));
@@ -1083,15 +1146,33 @@ mod tests {
         };
 
         let refinement_llm_config = flowdiff_core::config::LlmConfig {
-            provider: config.llm.refinement.provider.clone().or_else(|| config.llm.provider.clone()),
-            model: config.llm.refinement.model.clone().or_else(|| config.llm.model.clone()),
-            key_cmd: config.llm.refinement.key_cmd.clone().or_else(|| config.llm.key_cmd.clone()),
+            provider: config
+                .llm
+                .refinement
+                .provider
+                .clone()
+                .or_else(|| config.llm.provider.clone()),
+            model: config
+                .llm
+                .refinement
+                .model
+                .clone()
+                .or_else(|| config.llm.model.clone()),
+            key_cmd: config
+                .llm
+                .refinement
+                .key_cmd
+                .clone()
+                .or_else(|| config.llm.key_cmd.clone()),
             ..Default::default()
         };
 
         assert_eq!(refinement_llm_config.provider, Some("openai".to_string()));
         assert_eq!(refinement_llm_config.model, Some("gpt-4.1".to_string()));
-        assert_eq!(refinement_llm_config.key_cmd, Some("echo refinement-key".to_string()));
+        assert_eq!(
+            refinement_llm_config.key_cmd,
+            Some("echo refinement-key".to_string())
+        );
     }
 
     #[test]
@@ -1114,15 +1195,39 @@ mod tests {
         };
 
         let refinement_llm_config = flowdiff_core::config::LlmConfig {
-            provider: config.llm.refinement.provider.clone().or_else(|| config.llm.provider.clone()),
-            model: config.llm.refinement.model.clone().or_else(|| config.llm.model.clone()),
-            key_cmd: config.llm.refinement.key_cmd.clone().or_else(|| config.llm.key_cmd.clone()),
+            provider: config
+                .llm
+                .refinement
+                .provider
+                .clone()
+                .or_else(|| config.llm.provider.clone()),
+            model: config
+                .llm
+                .refinement
+                .model
+                .clone()
+                .or_else(|| config.llm.model.clone()),
+            key_cmd: config
+                .llm
+                .refinement
+                .key_cmd
+                .clone()
+                .or_else(|| config.llm.key_cmd.clone()),
             ..Default::default()
         };
 
-        assert_eq!(refinement_llm_config.provider, Some("anthropic".to_string()));
-        assert_eq!(refinement_llm_config.model, Some("claude-sonnet-4-6".to_string()));
-        assert_eq!(refinement_llm_config.key_cmd, Some("echo main-key".to_string()));
+        assert_eq!(
+            refinement_llm_config.provider,
+            Some("anthropic".to_string())
+        );
+        assert_eq!(
+            refinement_llm_config.model,
+            Some("claude-sonnet-4-6".to_string())
+        );
+        assert_eq!(
+            refinement_llm_config.key_cmd,
+            Some("echo main-key".to_string())
+        );
     }
 
     // ── Write Output Tests ──
@@ -1158,8 +1263,14 @@ mod tests {
     #[test]
     fn test_parse_launch_bcompare() {
         let cli = Cli::parse_from([
-            "flowdiff", "launch", "--tool", "bcompare", "--group", "group_1",
-            "--input", "review.json",
+            "flowdiff",
+            "launch",
+            "--tool",
+            "bcompare",
+            "--group",
+            "group_1",
+            "--input",
+            "review.json",
         ]);
         if let Commands::Launch(args) = cli.command {
             assert!(matches!(args.tool, DiffTool::Bcompare));
@@ -1174,8 +1285,7 @@ mod tests {
     #[test]
     fn test_parse_launch_meld() {
         let cli = Cli::parse_from([
-            "flowdiff", "launch", "--tool", "meld", "--group", "group_2",
-            "--input", "out.json",
+            "flowdiff", "launch", "--tool", "meld", "--group", "group_2", "--input", "out.json",
         ]);
         if let Commands::Launch(args) = cli.command {
             assert!(matches!(args.tool, DiffTool::Meld));
@@ -1188,8 +1298,7 @@ mod tests {
     #[test]
     fn test_parse_launch_kdiff3() {
         let cli = Cli::parse_from([
-            "flowdiff", "launch", "--tool", "kdiff3", "--group", "g1",
-            "--input", "a.json",
+            "flowdiff", "launch", "--tool", "kdiff3", "--group", "g1", "--input", "a.json",
         ]);
         if let Commands::Launch(args) = cli.command {
             assert!(matches!(args.tool, DiffTool::Kdiff3));
@@ -1201,8 +1310,7 @@ mod tests {
     #[test]
     fn test_parse_launch_code() {
         let cli = Cli::parse_from([
-            "flowdiff", "launch", "--tool", "code", "--group", "g1",
-            "--input", "a.json",
+            "flowdiff", "launch", "--tool", "code", "--group", "g1", "--input", "a.json",
         ]);
         if let Commands::Launch(args) = cli.command {
             assert!(matches!(args.tool, DiffTool::Code));
@@ -1214,8 +1322,7 @@ mod tests {
     #[test]
     fn test_parse_launch_opendiff() {
         let cli = Cli::parse_from([
-            "flowdiff", "launch", "--tool", "opendiff", "--group", "g1",
-            "--input", "a.json",
+            "flowdiff", "launch", "--tool", "opendiff", "--group", "g1", "--input", "a.json",
         ]);
         if let Commands::Launch(args) = cli.command {
             assert!(matches!(args.tool, DiffTool::Opendiff));
@@ -1227,8 +1334,16 @@ mod tests {
     #[test]
     fn test_parse_launch_with_repo() {
         let cli = Cli::parse_from([
-            "flowdiff", "launch", "--tool", "bcompare", "--group", "group_1",
-            "--input", "review.json", "--repo", "/tmp/myrepo",
+            "flowdiff",
+            "launch",
+            "--tool",
+            "bcompare",
+            "--group",
+            "group_1",
+            "--input",
+            "review.json",
+            "--repo",
+            "/tmp/myrepo",
         ]);
         if let Commands::Launch(args) = cli.command {
             assert_eq!(args.repo, PathBuf::from("/tmp/myrepo"));
@@ -1295,7 +1410,10 @@ mod tests {
     #[test]
     fn test_parse_eval_history_file() {
         let cli = Cli::parse_from([
-            "flowdiff", "eval", "--history-file", ".flowdiff/eval-history.jsonl",
+            "flowdiff",
+            "eval",
+            "--history-file",
+            ".flowdiff/eval-history.jsonl",
         ]);
         if let Commands::Eval(args) = cli.command {
             assert_eq!(
@@ -1310,11 +1428,16 @@ mod tests {
     #[test]
     fn test_parse_eval_all_flags() {
         let cli = Cli::parse_from([
-            "flowdiff", "eval",
-            "--fixture", "python-fastapi",
-            "--format", "json",
-            "--min-score", "0.80",
-            "--history-file", "/tmp/history.jsonl",
+            "flowdiff",
+            "eval",
+            "--fixture",
+            "python-fastapi",
+            "--format",
+            "json",
+            "--min-score",
+            "0.80",
+            "--history-file",
+            "/tmp/history.jsonl",
         ]);
         if let Commands::Eval(args) = cli.command {
             assert_eq!(args.fixture, Some("python-fastapi".to_string()));
