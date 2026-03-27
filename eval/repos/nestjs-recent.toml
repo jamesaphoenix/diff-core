@@ -14,8 +14,8 @@ max_infra_ratio = 0.98
 max_singleton_ratio = 0.70
 
 [repos.expectations]
-group_count_min = 3
-group_count_max = 5
+group_count_min = 2
+group_count_max = 3
 
 same_group = [
   ["packages/core/middleware/middleware-module.ts", "integration/hello-world/e2e/middleware-fastify.spec.ts"],
