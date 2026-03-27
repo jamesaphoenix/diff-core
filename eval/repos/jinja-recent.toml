@@ -1,0 +1,93 @@
+# Python — Jinja template engine, ~64 files
+# 10-commit range: uv migration, sandbox attr filter fix, pyupgrade sweep, identifier refresh, branding/docs updates.
+[[repos]]
+name = "jinja-recent"
+type = "real"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/jinja"
+language = "python"
+range = "6aeab5d1da0bc0793406d7b402693e779b6cca7a..5ef70112a1ff19c05324ff889dd30405b1002044"
+notes = "MEDIUM. 10-commit range: uv dependency-management migration, sandbox attr filter fix, pyupgrade/type cleanup across parser/runtime, identifier pattern refresh for Python 3.10, and branding/docs updates. ~64 files."
+
+[repos.thresholds]
+max_groups = 30
+max_infra_ratio = 0.65
+max_singleton_ratio = 0.70
+
+[repos.expectations]
+group_count_min = 3
+group_count_max = 6
+
+same_group = [
+  ["scripts/generate_identifier_pattern.py", "src/jinja2/_identifier.py"],
+  ["src/jinja2/filters.py", "tests/test_security.py"],
+]
+
+infrastructure = [
+  ".devcontainer/on-create-command.sh",
+  ".github/workflows/lock.yaml",
+  ".github/workflows/pre-commit.yaml",
+  ".github/workflows/publish.yaml",
+  ".github/workflows/tests.yaml",
+  ".gitignore",
+  ".pre-commit-config.yaml",
+  ".readthedocs.yaml",
+  "CHANGES.rst",
+  "CONTRIBUTING.rst",
+  "README.md",
+  "artwork/jinjalogo.svg",
+  "docs/_static/jinja-icon.svg",
+  "docs/_static/jinja-logo-sidebar.png",
+  "docs/_static/jinja-logo.png",
+  "docs/_static/jinja-logo.svg",
+  "docs/_static/jinja-name.svg",
+  "docs/conf.py",
+  "docs/index.rst",
+  "docs/intro.rst",
+  "pyproject.toml",
+  "requirements/build.in",
+  "requirements/build.txt",
+  "requirements/dev.in",
+  "requirements/dev.txt",
+  "requirements/docs.in",
+  "requirements/docs.txt",
+  "requirements/tests.in",
+  "requirements/tests.txt",
+  "requirements/typing.in",
+  "requirements/typing.txt",
+  "tox.ini",
+  "uv.lock",
+]
+
+non_infrastructure = [
+  "scripts/generate_identifier_pattern.py",
+  "src/jinja2/__init__.py",
+  "src/jinja2/_identifier.py",
+  "src/jinja2/async_utils.py",
+  "src/jinja2/bccache.py",
+  "src/jinja2/compiler.py",
+  "src/jinja2/debug.py",
+  "src/jinja2/defaults.py",
+  "src/jinja2/environment.py",
+  "src/jinja2/exceptions.py",
+  "src/jinja2/ext.py",
+  "src/jinja2/filters.py",
+  "src/jinja2/idtracking.py",
+  "src/jinja2/lexer.py",
+  "src/jinja2/loaders.py",
+  "src/jinja2/meta.py",
+  "src/jinja2/nativetypes.py",
+  "src/jinja2/nodes.py",
+  "src/jinja2/optimizer.py",
+  "src/jinja2/parser.py",
+  "src/jinja2/runtime.py",
+  "src/jinja2/sandbox.py",
+  "src/jinja2/utils.py",
+  "src/jinja2/visitor.py",
+  "tests/test_async.py",
+  "tests/test_core_tags.py",
+  "tests/test_debug.py",
+  "tests/test_ext.py",
+  "tests/test_filters.py",
+  "tests/test_lexnparse.py",
+  "tests/test_security.py",
+]
