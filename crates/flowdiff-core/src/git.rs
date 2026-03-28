@@ -2231,6 +2231,9 @@ mod tests {
     fn file_content_at_ref_reads_by_branch_name() {
         let (dir, repo) = init_repo();
         commit_files(&repo, dir.path(), &[("f.ts", "on main")], "init");
+        let default_branch = current_branch(&repo)
+            .or_else(|| detect_default_branch(&repo).ok())
+            .expect("test repo should have a default branch after the first commit");
 
         // Create a branch and commit different content
         let head = repo.head().unwrap().peel_to_commit().unwrap();
@@ -2243,7 +2246,7 @@ mod tests {
             "feature change",
         );
 
-        let main_content = file_content_at_ref(&repo, "main", "f.ts").unwrap();
+        let main_content = file_content_at_ref(&repo, &default_branch, "f.ts").unwrap();
         assert_eq!(main_content, Some("on main".to_string()));
 
         let feature_content = file_content_at_ref(&repo, "feature", "f.ts").unwrap();

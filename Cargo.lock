@@ -1552,7 +1552,7 @@ dependencies = [
 
 [[package]]
 name = "flowdiff-cli"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "clap",
  "env_logger",
@@ -1566,7 +1566,7 @@ dependencies = [
 
 [[package]]
 name = "flowdiff-core"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -1614,7 +1614,7 @@ dependencies = [
 
 [[package]]
 name = "flowdiff-tauri"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-stream",
  "axum",
