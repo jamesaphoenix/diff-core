@@ -65,7 +65,7 @@ fn merge_at_depth(groups: Vec<FlowGroup>, depth: usize) -> Vec<FlowGroup> {
     let mut no_merge: Vec<usize> = Vec::new();
 
     for (idx, group) in groups.iter().enumerate() {
-        if group.files.len() <= SMALL_GROUP_THRESHOLD {
+        if group.entrypoint.is_none() && group.files.len() <= SMALL_GROUP_THRESHOLD {
             if let Some(prefix) = group_dir_prefix(group, depth) {
                 buckets.entry(prefix).or_default().push(idx);
             } else {
@@ -226,6 +226,9 @@ pub(super) fn merge_groups_by_stem(mut groups: Vec<FlowGroup>) -> Vec<FlowGroup>
         if best_merge.is_none() {
             let mut dir_locations: HashMap<String, Vec<usize>> = HashMap::new();
             for (g_idx, group) in groups.iter().enumerate() {
+                if group.entrypoint.is_some() {
+                    continue;
+                }
                 if group.files.len() > SMALL_GROUP_THRESHOLD {
                     continue;
                 }

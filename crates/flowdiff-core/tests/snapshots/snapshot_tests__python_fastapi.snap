@@ -29,39 +29,45 @@ expression: v
           "path": "app/routes/items.py",
           "role": "Entrypoint",
           "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 1,
+          "path": "app/repositories/item_repo.py",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 2,
+          "path": "app/schemas/item.py",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 3,
+          "path": "app/services/item_service.py",
+          "role": "Infrastructure",
+          "symbols_changed": []
         }
       ],
       "id": "group_1",
       "name": "post_item route flow",
       "review_order": 1,
-      "risk_score": 0.3125
+      "risk_score": 0.4175
     }
   ],
-  "infrastructure_group": {
-    "files": [
-      "app/repositories/item_repo.py",
-      "app/schemas/item.py",
-      "app/services/item_service.py"
-    ],
-    "reason": "Not reachable from any detected entrypoint",
-    "sub_groups": [
-      {
-        "category": "Schema",
-        "files": [
-          "app/schemas/item.py"
-        ],
-        "name": "Schemas"
-      },
-      {
-        "category": "Unclassified",
-        "files": [
-          "app/repositories/item_repo.py",
-          "app/services/item_service.py"
-        ],
-        "name": "Unclassified"
-      }
-    ]
-  },
+  "infrastructure_group": null,
   "summary": {
     "frameworks_detected": [
       "FastAPI"

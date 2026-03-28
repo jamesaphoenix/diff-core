@@ -279,8 +279,12 @@ mod tests {
     fn test_run_eval_regression_detection() {
         let tmp = tempfile::TempDir::new().unwrap();
         let history_path = tmp.path().join("eval-history.jsonl");
+        let current = run_eval(&EvalConfig {
+            fixture_filter: Some("ts-express".to_string()),
+            ..Default::default()
+        });
 
-        // Write a fake high-score history entry
+        // Write a fake prior history entry that is safely above the current score.
         let fake_results = vec![(
             "ts-express".to_string(),
             "TS Express API".to_string(),
@@ -297,7 +301,7 @@ mod tests {
         report::append_history(
             &history_path,
             &fake_results,
-            1.0,
+            current.avg_overall + 0.10,
             true,
             "2026-03-18T12:00:00Z",
         )

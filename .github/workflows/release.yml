@@ -8,19 +8,55 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  validate-release-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify release tag matches checked-in app versions
+        run: |
+          set -euo pipefail
+
+          tag_version="${GITHUB_REF_NAME#v}"
+          workspace_version="$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -1)"
+          tauri_version="$(python3 -c 'import json; print(json.load(open("crates/flowdiff-tauri/tauri.conf.json"))["version"])')"
+
+          if [ "$tag_version" != "$workspace_version" ]; then
+            echo "::error::Release tag $tag_version does not match workspace version $workspace_version"
+            exit 1
+          fi
+
+          if [ "$tag_version" != "$tauri_version" ]; then
+            echo "::error::Release tag $tag_version does not match Tauri app version $tauri_version"
+            exit 1
+          fi
+
   build-macos:
+    needs: [verify, validate-release-version]
     runs-on: macos-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Install Node.js
         uses: actions/setup-node@v6
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: crates/flowdiff-tauri/ui/package-lock.json
 
       - name: Install UI dependencies
         working-directory: crates/flowdiff-tauri/ui
@@ -34,51 +70,75 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
-          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
-          security create-keychain -p "" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "" $KEYCHAIN_PATH
-          security import $CERTIFICATE_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security set-key-partition-list -S apple-tool:,apple: -k "" $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
+          CERTIFICATE_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$CERTIFICATE_PATH"
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
 
       - name: Write Apple API key
         env:
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
-          mkdir -p ~/private_keys
-          echo -n "$APPLE_API_KEY_CONTENT" > ~/private_keys/AuthKey_${APPLE_API_KEY}.p8
+          API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          echo -n "$APPLE_API_KEY_CONTENT" > "$API_KEY_PATH"
+          chmod 600 "$API_KEY_PATH"
 
       - name: Build Tauri app (Apple Silicon)
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
         run: cargo tauri build --target aarch64-apple-darwin --bundles dmg
 
-      - name: Verify code signing
+      - name: Verify code signing and notarization
         run: |
+          set -euo pipefail
+
+          MOUNT_DIR=""
+          cleanup() {
+            if [ -n "${MOUNT_DIR}" ] && mount | grep -q "${MOUNT_DIR}"; then
+              hdiutil detach "${MOUNT_DIR}" -quiet || true
+            fi
+          }
+          trap cleanup EXIT
+
           echo "::group::Locate .app bundle"
+          DMG_PATH=$(find target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" -type f | head -1)
+          if [ -z "$DMG_PATH" ]; then
+            echo "::error::No DMG found in bundle output"
+            exit 1
+          fi
+
           APP_PATH=$(find target/aarch64-apple-darwin/release/bundle -name "*.app" -type d | head -1)
           if [ -z "$APP_PATH" ]; then
             echo "No .app found in bundle dir, mounting DMG to verify..."
-            DMG_PATH=$(find target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
-            MOUNT_DIR=$(mktemp -d)
+            MOUNT_DIR="$(mktemp -d)"
             hdiutil attach "$DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
-            APP_PATH=$(find "$MOUNT_DIR" -name "*.app" -type d -maxdepth 1 | head -1)
+            APP_PATH=$(find "$MOUNT_DIR" -maxdepth 1 -name "*.app" -type d | head -1)
+          fi
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No .app found in bundle output or mounted DMG"
+            exit 1
           fi
           echo "Found app at: $APP_PATH"
+          echo "Found DMG at: $DMG_PATH"
           echo "::endgroup::"
+
           echo "::group::Verify app signature"
           codesign -dvvv "$APP_PATH"
           echo "::endgroup::"
+
           echo "::group::Verify signature validity"
           codesign --verify --deep --strict "$APP_PATH"
           echo "::endgroup::"
+
           echo "::group::Check signing identity"
           IDENTITY=$(codesign -dvvv "$APP_PATH" 2>&1 | grep "Authority=Developer ID Application" || true)
           if [ -z "$IDENTITY" ]; then
@@ -87,8 +147,17 @@ jobs:
           fi
           echo "Signed by: $IDENTITY"
           echo "::endgroup::"
-          echo "::group::Gatekeeper assessment"
-          spctl --assess --type execute --verbose "$APP_PATH" 2>&1 || echo "::warning::spctl assessment failed — notarization may still be in progress"
+
+          echo "::group::Gatekeeper assessment (.app)"
+          spctl --assess --type execute --verbose "$APP_PATH"
+          echo "::endgroup::"
+
+          echo "::group::Validate notarized DMG ticket"
+          xcrun stapler validate "$DMG_PATH"
+          echo "::endgroup::"
+
+          echo "::group::Gatekeeper assessment (.dmg)"
+          spctl --assess --type open --context context:primary-signature --verbose "$DMG_PATH"
           echo "::endgroup::"
 
       - name: Upload DMG artifact
@@ -98,7 +167,9 @@ jobs:
           path: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
 
   build-linux:
+    needs: [verify, validate-release-version]
     runs-on: ubuntu-22.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
 
@@ -110,10 +181,15 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Install Node.js
         uses: actions/setup-node@v6
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: crates/flowdiff-tauri/ui/package-lock.json
 
       - name: Install UI dependencies
         working-directory: crates/flowdiff-tauri/ui
@@ -134,17 +210,24 @@ jobs:
             target/release/bundle/appimage/*.AppImage
 
   build-windows:
+    needs: [verify, validate-release-version]
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Install Node.js
         uses: actions/setup-node@v6
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: crates/flowdiff-tauri/ui/package-lock.json
 
       - name: Install UI dependencies
         working-directory: crates/flowdiff-tauri/ui

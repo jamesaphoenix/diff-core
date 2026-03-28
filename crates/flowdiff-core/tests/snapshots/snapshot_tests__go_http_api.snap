@@ -29,6 +29,26 @@ expression: v
           "path": "internal/handlers/user.go",
           "role": "Entrypoint",
           "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 1,
+          "path": "internal/repositories/user_repo.go",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 2,
+          "path": "internal/services/user_service.go",
+          "role": "Infrastructure",
+          "symbols_changed": []
         }
       ],
       "id": "group_1",
@@ -37,23 +57,7 @@ expression: v
       "risk_score": 0.3125
     }
   ],
-  "infrastructure_group": {
-    "files": [
-      "internal/repositories/user_repo.go",
-      "internal/services/user_service.go"
-    ],
-    "reason": "Not reachable from any detected entrypoint",
-    "sub_groups": [
-      {
-        "category": "Unclassified",
-        "files": [
-          "internal/repositories/user_repo.go",
-          "internal/services/user_service.go"
-        ],
-        "name": "Unclassified"
-      }
-    ]
-  },
+  "infrastructure_group": null,
   "summary": {
     "frameworks_detected": [
       "Go net/http"

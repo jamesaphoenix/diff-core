@@ -13,30 +13,6 @@ expression: v
   },
   "groups": [
     {
-      "edges": [],
-      "entrypoint": {
-        "entrypoint_type": "HttpRoute",
-        "file": "backend/app/routes/analytics.py",
-        "symbol": "get_analytics"
-      },
-      "files": [
-        {
-          "changes": {
-            "additions": 0,
-            "deletions": 0
-          },
-          "flow_position": 0,
-          "path": "backend/app/routes/analytics.py",
-          "role": "Entrypoint",
-          "symbols_changed": []
-        }
-      ],
-      "id": "group_1",
-      "name": "get_analytics route flow",
-      "review_order": 1,
-      "risk_score": 0.3125
-    },
-    {
       "edges": [
         {
           "edge_type": "Imports",
@@ -76,27 +52,47 @@ expression: v
           "symbols_changed": []
         }
       ],
-      "id": "group_2",
+      "id": "group_1",
       "name": "getDashboard route flow",
+      "review_order": 1,
+      "risk_score": 0.3125
+    },
+    {
+      "edges": [],
+      "entrypoint": {
+        "entrypoint_type": "HttpRoute",
+        "file": "backend/app/routes/analytics.py",
+        "symbol": "get_analytics"
+      },
+      "files": [
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 0,
+          "path": "backend/app/routes/analytics.py",
+          "role": "Entrypoint",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 1,
+          "path": "backend/app/services/analytics_service.py",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        }
+      ],
+      "id": "group_2",
+      "name": "get_analytics route flow",
       "review_order": 2,
       "risk_score": 0.3125
     }
   ],
-  "infrastructure_group": {
-    "files": [
-      "backend/app/services/analytics_service.py"
-    ],
-    "reason": "Not reachable from any detected entrypoint",
-    "sub_groups": [
-      {
-        "category": "Unclassified",
-        "files": [
-          "backend/app/services/analytics_service.py"
-        ],
-        "name": "Unclassified"
-      }
-    ]
-  },
+  "infrastructure_group": null,
   "summary": {
     "frameworks_detected": [
       "Express",

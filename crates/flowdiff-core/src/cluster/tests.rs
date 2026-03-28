@@ -220,8 +220,12 @@ fn test_multiple_entrypoints() {
     assert_eq!(result.groups.len(), 2, "should produce two groups");
     assert!(result.infrastructure.is_none());
 
-    // Group 1 has route_a + service_a.
-    let g1_files: Vec<&str> = result.groups[0]
+    let group_a = result
+        .groups
+        .iter()
+        .find(|g| g.entrypoint.as_ref().unwrap().file == "src/route_a.ts")
+        .expect("should have group for route_a");
+    let g1_files: Vec<&str> = group_a
         .files
         .iter()
         .map(|f| f.path.as_str())
@@ -229,8 +233,12 @@ fn test_multiple_entrypoints() {
     assert!(g1_files.contains(&"src/route_a.ts"));
     assert!(g1_files.contains(&"src/service_a.ts"));
 
-    // Group 2 has route_b + service_b.
-    let g2_files: Vec<&str> = result.groups[1]
+    let group_b = result
+        .groups
+        .iter()
+        .find(|g| g.entrypoint.as_ref().unwrap().file == "src/route_b.ts")
+        .expect("should have group for route_b");
+    let g2_files: Vec<&str> = group_b
         .files
         .iter()
         .map(|f| f.path.as_str())
@@ -406,7 +414,7 @@ fn test_empty_diff() {
 
 #[test]
 fn test_all_infrastructure() {
-    // No entrypoints → everything goes to infrastructure.
+    // No entrypoints with connected source files falls back to a semantic component group.
     let graph = make_graph(
         &[
             ("src/a.ts", "src/a.ts", SymbolKind::Module),
@@ -418,17 +426,19 @@ fn test_all_infrastructure() {
     let files = changed(&["src/a.ts", "src/b.ts"]);
     let result = cluster_files(&graph, &[], &files);
 
-    assert!(result.groups.is_empty());
-    let infra = result
-        .infrastructure
-        .as_ref()
-        .expect("should have infrastructure");
-    assert_eq!(infra.files.len(), 2);
+    assert_eq!(result.groups.len(), 1);
+    assert!(result.infrastructure.is_none());
+    let grouped_files: Vec<&str> = result.groups[0]
+        .files
+        .iter()
+        .map(|f| f.path.as_str())
+        .collect();
+    assert_eq!(grouped_files, vec!["src/a.ts", "src/b.ts"]);
 }
 
 #[test]
 fn test_disconnected_components() {
-    // Three isolated files, no edges between them, no entrypoints.
+    // With no entrypoints and no graph edges, isolated source files fall back to directory groups.
     let graph = make_graph(
         &[
             ("src/a.ts", "src/a.ts", SymbolKind::Module),
@@ -441,12 +451,14 @@ fn test_disconnected_components() {
     let files = changed(&["src/a.ts", "src/b.ts", "src/c.ts"]);
     let result = cluster_files(&graph, &[], &files);
 
-    assert!(result.groups.is_empty());
-    let infra = result
-        .infrastructure
-        .as_ref()
-        .expect("should have infrastructure");
-    assert_eq!(infra.files.len(), 3);
+    assert_eq!(result.groups.len(), 1);
+    assert!(result.infrastructure.is_none());
+    let grouped_files: Vec<&str> = result.groups[0]
+        .files
+        .iter()
+        .map(|f| f.path.as_str())
+        .collect();
+    assert_eq!(grouped_files, vec!["src/a.ts", "src/b.ts", "src/c.ts"]);
 }
 
 #[test]
@@ -957,22 +969,28 @@ mod proptests {
             prop_assert!(result.infrastructure.is_none());
         }
 
-        /// No entrypoints → all files in infrastructure.
+        /// No entrypoints with disconnected source files still produces deterministic fallback groups.
         #[test]
-        fn prop_no_entrypoints_all_infra(
+        fn prop_no_entrypoints_falls_back_to_directory_groups(
             files in changed_files_strategy()
         ) {
             let graph = make_graph(&[], &[]);
             let result = cluster_files(&graph, &[], &files);
 
-            prop_assert!(result.groups.is_empty(),
-                "no entrypoints should produce no groups");
-
-            let infra = result.infrastructure.as_ref().unwrap();
+            prop_assert_eq!(result.groups.len(), 1,
+                "src/*.ts files should collapse into one fallback directory group");
+            prop_assert!(result.infrastructure.is_none(),
+                "disconnected source files should not be forced into infrastructure");
             let mut expected: Vec<String> = files.clone();
             expected.sort();
             expected.dedup();
-            prop_assert_eq!(&infra.files, &expected);
+            let mut grouped: Vec<String> = result.groups[0]
+                .files
+                .iter()
+                .map(|f| f.path.clone())
+                .collect();
+            grouped.sort();
+            prop_assert_eq!(grouped, expected);
         }
 
         /// Clustering is deterministic: same input → same output.

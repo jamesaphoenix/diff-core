@@ -5,7 +5,10 @@ use std::collections::{BTreeMap, HashMap};
 use crate::types::FlowGroup;
 
 use super::classify::{classify_by_convention, is_config_like_filename, is_top_level_doc};
-use super::has_semantic_source_extension;
+use super::{
+    is_semantic_fixture_project_config_candidate, is_semantic_fixture_source_candidate,
+    semantic_fixture_root,
+};
 use super::stem::{bare_stem, is_test_file_name, test_impl_stem};
 use crate::types::InfraCategory;
 
@@ -17,18 +20,60 @@ pub(super) fn rescue_non_infra_files(
 ) -> (Vec<String>, Vec<(usize, String)>) {
     let mut true_infra = Vec::new();
     let mut rescued: Vec<(usize, String)> = Vec::new();
+    let mut fixture_group_assignments: HashMap<String, usize> = HashMap::new();
     let root_docs_batch_count = infra_files
         .iter()
         .filter(|file| is_root_nonlocalized_docs_page(file))
         .count();
 
     for file in infra_files {
+        if !is_semantic_fixture_source_candidate(file) {
+            continue;
+        }
+
+        let target_group = semantic_fixture_root(file)
+            .and_then(|root| fixture_group_assignments.get(root).copied())
+            .or_else(|| find_group_by_fixture_root(file, groups))
+            .or_else(|| find_nearest_group_by_directory(file, groups))
+            .or_else(|| {
+                groups
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(_, g)| g.files.len())
+                    .map(|(idx, _)| idx)
+            });
+
+        if let Some(group_idx) = target_group {
+            rescued.push((group_idx, file.clone()));
+            if let Some(root) = semantic_fixture_root(file) {
+                fixture_group_assignments.insert(root.to_string(), group_idx);
+            }
+        } else {
+            true_infra.push(file.clone());
+        }
+    }
+
+    for file in infra_files {
+        if is_semantic_fixture_source_candidate(file) {
+            continue;
+        }
+
+        if is_semantic_fixture_project_config_candidate(file) {
+            if let Some(group_idx) = semantic_fixture_root(file)
+                .and_then(|root| fixture_group_assignments.get(root).copied())
+                .or_else(|| find_group_by_fixture_root(file, groups))
+            {
+                rescued.push((group_idx, file.clone()));
+                continue;
+            }
+        }
+
         let category = classify_by_convention(file);
         if category == InfraCategory::Documentation {
-            if !is_semantic_doc_candidate(file, root_docs_batch_count) {
-                true_infra.push(file.clone());
-            } else if let Some(group_idx) = find_group_by_topic_affinity(file, groups) {
+            if let Some(group_idx) = find_group_by_topic_affinity(file, groups) {
                 rescued.push((group_idx, file.clone()));
+            } else if !is_semantic_doc_candidate(file, root_docs_batch_count) {
+                true_infra.push(file.clone());
             } else if is_semantic_doc_fallback_candidate(file, root_docs_batch_count) {
                 if let Some(largest_idx) = groups
                     .iter()
@@ -46,6 +91,15 @@ pub(super) fn rescue_non_infra_files(
             continue;
         }
 
+        if matches!(category, InfraCategory::Schema | InfraCategory::Generated) {
+            if let Some(group_idx) = find_group_by_topic_affinity(file, groups) {
+                rescued.push((group_idx, file.clone()));
+            } else {
+                true_infra.push(file.clone());
+            }
+            continue;
+        }
+
         // Only rescue files that are Unclassified (source code) or DirectoryGroup
         // Everything else (Infrastructure, Schema, Migration, etc.) stays in infra
         if category != InfraCategory::Unclassified && category != InfraCategory::DirectoryGroup {
@@ -55,19 +109,14 @@ pub(super) fn rescue_non_infra_files(
             true_infra.push(file.clone());
         } else {
             // This looks like source code — assign to nearest group by directory
-            match find_nearest_group_by_directory(file, groups) {
+            match find_nearest_group_by_directory(file, groups)
+                .or_else(|| find_group_by_topic_affinity(file, groups))
+            {
                 Some(group_idx) => rescued.push((group_idx, file.clone())),
                 None => {
-                    // No directory match. Only use fallback (largest group) for files
-                    // with clear source code extensions — not for config-like files.
-                    if has_semantic_source_extension(file) && !is_top_level_doc(file) {
-                        if let Some(largest_idx) = groups
-                            .iter()
-                            .enumerate()
-                            .max_by_key(|(_, g)| g.files.len())
-                            .map(|(idx, _)| idx)
-                        {
-                            rescued.push((largest_idx, file.clone()));
+                    if is_native_source_or_header(file) {
+                        if let Some(group_idx) = find_group_by_exact_directory(file, groups) {
+                            rescued.push((group_idx, file.clone()));
                         } else {
                             true_infra.push(file.clone());
                         }
@@ -80,6 +129,97 @@ pub(super) fn rescue_non_infra_files(
     }
 
     (true_infra, rescued)
+}
+
+fn find_group_by_fixture_root(file: &str, groups: &[FlowGroup]) -> Option<usize> {
+    let root = semantic_fixture_root(file)?;
+    let mut best: Option<(usize, usize)> = None;
+    let mut tied = false;
+
+    for (idx, group) in groups.iter().enumerate() {
+        let same_root_source_count = group
+            .files
+            .iter()
+            .filter(|group_file| {
+                semantic_fixture_root(&group_file.path) == Some(root)
+                    && is_semantic_fixture_source_candidate(&group_file.path)
+            })
+            .count();
+
+        if same_root_source_count == 0 {
+            continue;
+        }
+
+        match best {
+            None => {
+                best = Some((idx, same_root_source_count));
+                tied = false;
+            }
+            Some((_, best_count)) if same_root_source_count > best_count => {
+                best = Some((idx, same_root_source_count));
+                tied = false;
+            }
+            Some((_, best_count)) if same_root_source_count == best_count => {
+                tied = true;
+            }
+            _ => {}
+        }
+    }
+
+    match best {
+        Some((idx, _)) if !tied => Some(idx),
+        _ => None,
+    }
+}
+
+fn is_native_source_or_header(path: &str) -> bool {
+    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    matches!(
+        ext.as_str(),
+        "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "h++"
+    )
+}
+
+fn find_group_by_exact_directory(file: &str, groups: &[FlowGroup]) -> Option<usize> {
+    let file_parent = parent_directory(file)?;
+    let mut best: Option<(usize, usize)> = None;
+    let mut tied = false;
+
+    for (idx, group) in groups.iter().enumerate() {
+        let same_dir_count = group
+            .files
+            .iter()
+            .filter(|group_file| parent_directory(&group_file.path) == Some(file_parent))
+            .count();
+
+        if same_dir_count == 0 {
+            continue;
+        }
+
+        match best {
+            None => {
+                best = Some((idx, same_dir_count));
+                tied = false;
+            }
+            Some((_, best_count)) if same_dir_count > best_count => {
+                best = Some((idx, same_dir_count));
+                tied = false;
+            }
+            Some((_, best_count)) if same_dir_count == best_count => {
+                tied = true;
+            }
+            _ => {}
+        }
+    }
+
+    match best {
+        Some((idx, _)) if !tied => Some(idx),
+        _ => None,
+    }
+}
+
+fn parent_directory(path: &str) -> Option<&str> {
+    path.rsplit_once('/').map(|(dir, _)| dir)
 }
 
 fn is_semantic_doc_candidate(path: &str, root_docs_batch_count: usize) -> bool {
@@ -297,7 +437,7 @@ pub(super) fn find_nearest_group_by_directory(file: &str, groups: &[FlowGroup]) 
         }
     }
 
-    best_match.map(|(idx, _)| idx)
+    best_match.and_then(|(idx, shared_depth)| (shared_depth >= 2).then_some(idx))
 }
 
 #[cfg(test)]

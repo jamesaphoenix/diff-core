@@ -22,32 +22,16 @@ pub fn classify_by_convention(path: &str) -> InfraCategory {
         return InfraCategory::Migration;
     }
 
-    // Schemas/Types — but NOT source code files in /types/ directories
-    // (Go, Rust, TS packages named "types" contain core application types, not infra)
-    let is_source_ext = matches!(
-        ext,
-        "go" | "rs"
-            | "ts"
-            | "tsx"
-            | "js"
-            | "jsx"
-            | "py"
-            | "java"
-            | "kt"
-            | "rb"
-            | "php"
-            | "cs"
-            | "swift"
-            | "scala"
-    );
-    if (lower.contains("/schemas/")
+    // Schemas/Types. In this project we treat `/types/` directories as schema-like
+    // contract surfaces so they can be grouped and scored consistently.
+    if lower.contains("/schemas/")
         || lower.starts_with("schemas/")
         || lower.contains("/schema/")
         || lower.starts_with("schema/")
         || filename.contains(".schema.")
-        || filename.contains(".dto."))
-        // /types/ only counts as schema for non-source files (JSON schemas, etc.)
-        || ((lower.contains("/types/") || lower.starts_with("types/")) && !is_source_ext)
+        || filename.contains(".dto.")
+        || lower.contains("/types/")
+        || lower.starts_with("types/")
     {
         return InfraCategory::Schema;
     }
@@ -337,7 +321,22 @@ pub(super) fn is_config_like_filename(path: &str) -> bool {
     // JS/TS config files with source extensions
     if matches!(
         filename,
-        "seed.ts"
+        "config.ts"
+            | "config.js"
+            | "config.mjs"
+            | "config.py"
+            | "config.go"
+            | "config.rs"
+            | "config.rb"
+            | "config.php"
+            | "config.java"
+            | "config.kt"
+            | "config.cs"
+            | "config.swift"
+            | "config.scala"
+            | "settings.ts"
+            | "settings.js"
+            | "seed.ts"
             | "seed.js"
             | "biome.json"
             | "eslint.config.js"
