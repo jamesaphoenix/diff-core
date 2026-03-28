@@ -98,6 +98,10 @@ jobs:
         run: cargo tauri build --target aarch64-apple-darwin --bundles dmg
 
       - name: Verify code signing and notarization
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
         run: |
           set -euo pipefail
 
@@ -150,6 +154,16 @@ jobs:
 
           echo "::group::Gatekeeper assessment (.app)"
           spctl --assess --type execute --verbose "$APP_PATH"
+          echo "::endgroup::"
+
+          echo "::group::Notarize and staple DMG"
+          xcrun notarytool submit \
+            "$DMG_PATH" \
+            --issuer "$APPLE_API_ISSUER" \
+            --key-id "$APPLE_API_KEY" \
+            --key "$APPLE_API_KEY_PATH" \
+            --wait
+          xcrun stapler staple "$DMG_PATH"
           echo "::endgroup::"
 
           echo "::group::Validate notarized DMG ticket"
