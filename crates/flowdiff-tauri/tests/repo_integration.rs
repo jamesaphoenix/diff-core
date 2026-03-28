@@ -13,7 +13,7 @@ use flowdiff_tauri::commands::{
 use git2::{Repository, Signature};
 
 /// Create a temporary git repo with TypeScript files and two branches.
-fn create_test_repo_with_branch() -> (tempfile::TempDir, String) {
+fn create_test_repo_with_branch() -> (tempfile::TempDir, String, String) {
     let tmp = tempfile::tempdir().unwrap();
     let repo = Repository::init(tmp.path()).unwrap();
     let sig = Signature::now("test", "test@test.com").unwrap();
@@ -52,6 +52,11 @@ fn create_test_repo_with_branch() -> (tempfile::TempDir, String) {
         .commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
         .unwrap();
     let main_commit = repo.find_commit(main_commit).unwrap();
+    let base_branch = repo
+        .head()
+        .ok()
+        .and_then(|head| head.shorthand().map(str::to_owned))
+        .expect("test repo should have a default branch after the first commit");
 
     // Create a feature branch
     repo.branch("feature/test", &main_commit, false).unwrap();
@@ -84,7 +89,7 @@ fn create_test_repo_with_branch() -> (tempfile::TempDir, String) {
     .unwrap();
 
     let path = tmp.path().to_str().unwrap().to_string();
-    (tmp, path)
+    (tmp, path, base_branch)
 }
 
 /// Create a minimal repo with just an initial commit.
@@ -112,14 +117,14 @@ fn create_minimal_repo() -> (tempfile::TempDir, String) {
 
 #[test]
 fn repo_info_returns_current_branch() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, _) = create_test_repo_with_branch();
     let info = get_repo_info(repo_path).unwrap();
     assert_eq!(info.current_branch, Some("feature/test".to_string()));
 }
 
 #[test]
 fn repo_info_lists_branches() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, _) = create_test_repo_with_branch();
     let info = get_repo_info(repo_path).unwrap();
 
     let branch_names: Vec<&str> = info.branches.iter().map(|b| b.name.as_str()).collect();
@@ -133,7 +138,7 @@ fn repo_info_lists_branches() {
 
 #[test]
 fn repo_info_has_worktrees() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, _) = create_test_repo_with_branch();
     let info = get_repo_info(repo_path).unwrap();
 
     // Should have at least the main worktree
@@ -165,7 +170,7 @@ fn repo_info_detects_default_branch() {
 
 #[test]
 fn list_branches_returns_all_branches() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, _) = create_test_repo_with_branch();
     let branches = list_branches(repo_path).unwrap();
 
     assert!(
@@ -177,7 +182,7 @@ fn list_branches_returns_all_branches() {
 
 #[test]
 fn list_branches_marks_current() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, _) = create_test_repo_with_branch();
     let branches = list_branches(repo_path).unwrap();
 
     let current_branches: Vec<_> = branches.iter().filter(|b| b.is_current).collect();
@@ -193,7 +198,7 @@ fn list_branches_marks_current() {
 
 #[test]
 fn list_worktrees_returns_main_worktree() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, _) = create_test_repo_with_branch();
     let worktrees = list_worktrees(repo_path).unwrap();
 
     assert!(
@@ -206,7 +211,7 @@ fn list_worktrees_returns_main_worktree() {
 
 #[test]
 fn branch_status_works_for_local_only_branch() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, _) = create_test_repo_with_branch();
 
     // Local branch with no upstream — should return a status (possibly with no upstream info)
     let result = get_branch_status(repo_path);
@@ -219,12 +224,12 @@ fn branch_status_works_for_local_only_branch() {
 
 #[test]
 fn file_diff_returns_content_for_changed_file() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, base_branch) = create_test_repo_with_branch();
 
     let diff = get_file_diff_uncached(
         repo_path,
         "src/main.ts".to_string(),
-        Some("main".to_string()), // base
+        Some(base_branch), // base
         None,                     // head (defaults to HEAD)
         None,                     // range
         false,                    // staged
@@ -246,12 +251,12 @@ fn file_diff_returns_content_for_changed_file() {
 
 #[test]
 fn file_diff_rejects_path_traversal() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, base_branch) = create_test_repo_with_branch();
 
     let result = get_file_diff_uncached(
         repo_path,
         "../../../etc/passwd".to_string(),
-        Some("main".to_string()),
+        Some(base_branch),
         None,
         None,
         false,
@@ -269,12 +274,12 @@ fn file_diff_rejects_path_traversal() {
 
 #[test]
 fn file_diff_rejects_absolute_path() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, base_branch) = create_test_repo_with_branch();
 
     let result = get_file_diff_uncached(
         repo_path,
         "/etc/passwd".to_string(),
-        Some("main".to_string()),
+        Some(base_branch),
         None,
         None,
         false,
@@ -292,12 +297,12 @@ fn file_diff_rejects_absolute_path() {
 
 #[test]
 fn file_diff_errors_on_nonexistent_file() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, base_branch) = create_test_repo_with_branch();
 
     let result = get_file_diff_uncached(
         repo_path,
         "nonexistent/file.ts".to_string(),
-        Some("main".to_string()),
+        Some(base_branch),
         None,
         None,
         false,
@@ -309,12 +314,12 @@ fn file_diff_errors_on_nonexistent_file() {
 
 #[test]
 fn file_diff_detects_language_correctly() {
-    let (_tmp, repo_path) = create_test_repo_with_branch();
+    let (_tmp, repo_path, base_branch) = create_test_repo_with_branch();
 
     let diff = get_file_diff_uncached(
         repo_path,
         "src/main.ts".to_string(),
-        Some("main".to_string()),
+        Some(base_branch),
         None,
         None,
         false,

@@ -1,6 +1,6 @@
 {
   "productName": "Flowdiff",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "identifier": "com.flowdiff.app",
   "build": {
     "beforeDevCommand": { "script": "npm run dev", "cwd": "ui" },
