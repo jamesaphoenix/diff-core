@@ -3,7 +3,7 @@
 [[repos]]
 name = "black-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/black"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/black"
 language = "python"
 range = "69973fd6950985fbeb1090d96da717dc4d8380b0..cbbbf64d2aefbd5797580e60e918fa6a21edca3e"
 notes = "MEDIUM. 10-commit range: Python 3.15, string handling, pgen2. ~30 files."

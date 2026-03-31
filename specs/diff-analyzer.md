@@ -1,10 +1,10 @@
-# flowdiff — Specification
+# diffcore — Specification
 
 ## Context
 
 When AI agents modify 50–100 files in a single PR, existing diff tools (VS Code, Beyond Compare, GitHub) present changes as a flat file list. This forces reviewers to mentally reconstruct data flow, architectural impact, and causal ordering — the most cognitively expensive part of code review.
 
-**flowdiff** solves this by transforming flat file diffs into ranked, semantically grouped review flows. It answers: "what changed, in what order should I review it, and how does data flow through the changes?"
+**diffcore** solves this by transforming flat file diffs into ranked, semantically grouped review flows. It answers: "what changed, in what order should I review it, and how does data flow through the changes?"
 
 Two modes:
 - **Deterministic**: static analysis only — graph construction, flow grouping, ranking
@@ -16,7 +16,7 @@ Two modes:
 
 | Field | Value |
 |-------|-------|
-| Name | `flowdiff` |
+| Name | `diffcore` |
 | Language | Rust |
 | UIs | Tauri desktop app + VS Code extension |
 | Target user | Solo developer (James), architect for eventual open-source |
@@ -34,7 +34,7 @@ Diff review is a **graph problem**, not a **set problem**. The right primitive i
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                   flowdiff CLI                   │
+│                   diffcore CLI                   │
 │                  (Rust binary)                   │
 ├─────────────────────────────────────────────────┤
 │  Git Layer     │ Diff extraction (git2)          │
@@ -68,7 +68,7 @@ Diff review is a **graph problem**, not a **set problem**. The right primitive i
 
 **VS Code Extension**
 - Thin TypeScript shell
-- Spawns `flowdiff` CLI binary, parses JSON output
+- Spawns `diffcore` CLI binary, parses JSON output
 - Renders results in webviews and tree views
 - Opens VS Code's native diff editor for file-level review
 
@@ -235,7 +235,7 @@ Default weights: `w₁=0.35, w₂=0.25, w₃=0.20, w₄=0.20`
 | Google | Gemini API | Gemini 2.5 Pro, Gemini 2.5 Flash |
 | OpenAI | Chat Completions API | o1, o3-mini, o3, GPT-4o |
 
-BYOK (Bring Your Own Key): user provides API key via `.flowdiff.toml` or environment variable.
+BYOK (Bring Your Own Key): user provides API key via `.diffcore.toml` or environment variable.
 
 **Structured outputs** used for all LLM responses — typed JSON schemas ensure parseable, consistent annotations.
 
@@ -292,13 +292,13 @@ Standard models as fallback if reasoning models are unavailable or user prefers 
 
 ### 6.1 Auto-Detection (Default)
 
-flowdiff infers:
+diffcore infers:
 - Language from file extensions + tree-sitter grammar availability
 - Framework from import patterns and file structure conventions
 - Entrypoints from code patterns
 - Architectural layers from directory structure heuristics
 
-### 6.2 Optional Config File: `.flowdiff.toml`
+### 6.2 Optional Config File: `.diffcore.toml`
 
 ```toml
 [project]
@@ -324,8 +324,8 @@ paths = ["**/*.test.ts", "**/*.spec.ts", "migrations/**"]
 [llm]
 provider = "anthropic"  # "anthropic", "openai", or "gemini"
 model = "claude-sonnet-4-6"     # claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5
-# API key via FLOWDIFF_API_KEY env var or:
-# key_cmd = "op read op://vault/flowdiff/api-key"
+# API key via DIFFCORE_API_KEY env var or:
+# key_cmd = "op read op://vault/diffcore/api-key"
 
 [llm.refinement]
 # Optional LLM refinement pass — improves grouping/ranking using semantic understanding.
@@ -334,7 +334,7 @@ model = "claude-sonnet-4-6"     # claude-opus-4-6, claude-sonnet-4-6, claude-hai
 enabled = false
 provider = "anthropic"           # can differ from annotation provider
 model = "claude-sonnet-4-6"     # user selects the model for refinement
-# key_cmd = "op read op://vault/flowdiff/refinement-key"
+# key_cmd = "op read op://vault/diffcore/refinement-key"
 # What the refinement pass can do:
 # - split groups that contain logically unrelated changes
 # - merge groups that are part of the same logical change
@@ -355,28 +355,28 @@ uncertainty = 0.20
 
 ```bash
 # Analyze a branch diff
-flowdiff analyze --base main --head feature-branch
+diffcore analyze --base main --head feature-branch
 
 # Analyze a commit range
-flowdiff analyze --range HEAD~5..HEAD
+diffcore analyze --range HEAD~5..HEAD
 
 # Analyze staged changes
-flowdiff analyze --staged
+diffcore analyze --staged
 
 # Output to file
-flowdiff analyze --base main -o review.json
+diffcore analyze --base main -o review.json
 
 # With LLM annotations (pass 1)
-flowdiff analyze --base main --annotate
+diffcore analyze --base main --annotate
 
 # Deep analysis on a specific group
-flowdiff annotate --group group_1 --input review.json
+diffcore annotate --group group_1 --input review.json
 
 # Launch Tauri app with analysis
-flowdiff ui --base main
+diffcore ui --base main
 
 # Open specific files in Beyond Compare (integration)
-flowdiff launch --tool bcompare --group group_1 --input review.json
+diffcore launch --tool bcompare --group group_1 --input review.json
 ```
 
 ### CLI JSON Output Schema
@@ -512,29 +512,29 @@ flowdiff launch --tool bcompare --group group_1 --input review.json
 
 ### Architecture
 - TypeScript extension, minimal logic
-- Spawns `flowdiff` CLI binary
+- Spawns `diffcore` CLI binary
 - Parses JSON output
 - Renders in VS Code native UI primitives
 
 ### UI Elements
-- **Activity Bar icon**: flowdiff logo
+- **Activity Bar icon**: diffcore logo
 - **Sidebar tree view**: flow groups → files (same structure as Tauri left panel)
 - **Webview panel**: annotations, Mermaid graph, risk scores
 - **Commands**:
-  - `flowdiff.analyze` — run analysis on current branch
-  - `flowdiff.analyzeRange` — analyze commit range
-  - `flowdiff.annotate` — trigger LLM annotation
-  - `flowdiff.nextFile` — next file in current flow
-  - `flowdiff.nextGroup` — next group
+  - `diffcore.analyze` — run analysis on current branch
+  - `diffcore.analyzeRange` — analyze commit range
+  - `diffcore.annotate` — trigger LLM annotation
+  - `diffcore.nextFile` — next file in current flow
+  - `diffcore.nextGroup` — next group
 - **Click file** → opens VS Code's native diff editor (not Monaco webview — use the built-in)
 
 ## 10. Rust Crate Structure
 
 ```
-flowdiff/
+diffcore/
 ├── Cargo.toml                  # Workspace root
 ├── crates/
-│   ├── flowdiff-core/          # Library: all analysis logic
+│   ├── diffcore-core/          # Library: all analysis logic
 │   │   ├── src/
 │   │   │   ├── lib.rs
 │   │   │   ├── git.rs          # Git diff extraction (git2)
@@ -548,13 +548,13 @@ flowdiff/
 │   │   │   │   ├── anthropic.rs
 │   │   │   │   ├── openai.rs
 │   │   │   │   └── schema.rs   # Structured output schemas
-│   │   │   ├── config.rs       # .flowdiff.toml parsing
+│   │   │   ├── config.rs       # .diffcore.toml parsing
 │   │   │   └── output.rs       # JSON serialization
 │   │   └── Cargo.toml
-│   ├── flowdiff-cli/           # Binary: CLI interface
+│   ├── diffcore-cli/           # Binary: CLI interface
 │   │   ├── src/main.rs
 │   │   └── Cargo.toml
-│   └── flowdiff-tauri/         # Tauri app
+│   └── diffcore-tauri/         # Tauri app
 │       ├── src/
 │       │   ├── main.rs         # Tauri setup
 │       │   └── commands.rs     # Tauri IPC commands
@@ -570,7 +570,7 @@ flowdiff/
 │       │   │   │   ├── RiskBadge.tsx
 │       │   │   │   └── FlowNavigation.tsx
 │       │   │   └── hooks/
-│       │   │       └── useFlowdiff.ts    # Tauri IPC hooks
+│       │   │       └── useDiffcore.ts    # Tauri IPC hooks
 │       │   ├── package.json
 │       │   └── tsconfig.json
 │       ├── tauri.conf.json
@@ -579,7 +579,7 @@ flowdiff/
 │   └── vscode/                 # VS Code extension
 │       ├── src/
 │       │   ├── extension.ts
-│       │   ├── flowdiffRunner.ts   # CLI invocation
+│       │   ├── diffcoreRunner.ts   # CLI invocation
 │       │   ├── treeView.ts         # Sidebar tree
 │       │   └── webviewPanel.ts     # Annotations panel
 │       ├── package.json
@@ -624,7 +624,7 @@ Complete. Extension scaffold, CLI binary invocation, activity bar + tree view, w
 Complete. Beyond Compare launcher (5 diff tools), risk heatmap treemap, flow replay mode, rayon parallelism + caching, comprehensive error handling, README documentation, Clippy strict deny wall. See [completed tasks](./tasks/diff-analyzer-completed.md#phase-6-polish--integration-week-6-7).
 
 ### Phase 7: Synthetic Eval Suite (Future)
-Complete. 5 synthetic fixture codebases, expected output baselines, 6 deterministic scoring functions, VCR caching for LLM calls, LLM-as-judge evaluator, eval harness CLI (`flowdiff eval`), HTML eval dashboard. Avg score: 0.89. See [completed tasks](./tasks/diff-analyzer-completed.md#phase-7-synthetic-eval-suite-future).
+Complete. 5 synthetic fixture codebases, expected output baselines, 6 deterministic scoring functions, VCR caching for LLM calls, LLM-as-judge evaluator, eval harness CLI (`diffcore eval`), HTML eval dashboard. Avg score: 0.89. See [completed tasks](./tasks/diff-analyzer-completed.md#phase-7-synthetic-eval-suite-future).
 
 ### Phase 8: Hardening (Future)
 Complete. Automated audits of Rust core, query engine + .scm files, LLM providers, Tauri app, VS Code extension, cross-layer integration, and security. 16 security findings (10 fixed), 29 adversarial integration tests, 1,565 total tests passing. See [completed tasks](./tasks/diff-analyzer-completed.md#phase-8-hardening-future).
@@ -634,11 +634,11 @@ Complete. Automated audits of Rust core, query engine + .scm files, LLM provider
 Focused on making the Tauri app a productive daily-driver for code review. Fixes packaging issues, adds review workflow features (comments, tick-off), and improves editor integration.
 
 #### 9.1 Fix app icon packaging
-The macOS dock icon shows a generic "exec" label on a dark square instead of the AI-generated flowdiff icon (directed-graph with teal/lavender nodes on dark indigo background). The icon was generated correctly (Phase 3) and `cargo tauri icon` produced all platform sizes, but the built app doesn't display it.
+The macOS dock icon shows a generic "exec" label on a dark square instead of the AI-generated diffcore icon (directed-graph with teal/lavender nodes on dark indigo background). The icon was generated correctly (Phase 3) and `cargo tauri icon` produced all platform sizes, but the built app doesn't display it.
 
 - [x] Debug why the generated `.icns` / PNG icons aren't being used in the built app bundle
 - [x] Verify `tauri.conf.json` `icon` field points to the correct icon paths
-- [x] Rebuild and confirm the dock icon, app switcher (Cmd+Tab), and Finder all show the correct flowdiff icon
+- [x] Rebuild and confirm the dock icon, app switcher (Cmd+Tab), and Finder all show the correct diffcore icon
 - [x] Verify on macOS — `.icns` file is correctly embedded in the `.app` bundle's `Contents/Resources/`
 
 #### 9.2 Update LLM model lists
@@ -649,19 +649,19 @@ Update the model selector dropdowns in the Tauri settings panel and the config d
 - [x] **Gemini:** `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash`
 - [x] Update model dropdowns in settings panel (provider → model mapping)
 - [x] Update context window sizes for new models in `llm/mod.rs`
-- [x] Update default model in `.flowdiff.toml` config reference
+- [x] Update default model in `.diffcore.toml` config reference
 - [x] Update reasoning model detection for new model IDs (o4-mini, gpt-5.4)
 
 #### 9.3 API key input in frontend
-Currently API keys require env vars or `.flowdiff.toml` config. Add a text input field in the Tauri settings panel so users can paste their API key directly.
+Currently API keys require env vars or `.diffcore.toml` config. Add a text input field in the Tauri settings panel so users can paste their API key directly.
 
 - [x] Add masked text input (password field) in the settings panel under the API key status section
-- [x] "Save" button persists the key to `.flowdiff.toml` under `[llm] key = "..."` (or provider-specific section)
+- [x] "Save" button persists the key to `.diffcore.toml` under `[llm] key = "..."` (or provider-specific section)
 - [x] Key is masked after entry (show last 4 chars only, e.g. `sk-...abcd`)
 - [x] "Clear" button to remove the stored key
 - [x] Precedence maintained: `key_cmd` > pasted key in config > env var
 - [x] Status indicator updates immediately after saving (green "Configured via config file")
-- [x] Tauri IPC command: `save_api_key` — writes key to `.flowdiff.toml`, `clear_api_key` — removes it
+- [x] Tauri IPC command: `save_api_key` — writes key to `.diffcore.toml`, `clear_api_key` — removes it
 
 #### 9.4 Hide risk heatmap
 Remove the risk heatmap (squarified treemap) from the right panel UI entirely. The component and code remain in the codebase for future re-enablement, but are not rendered.
@@ -718,7 +718,7 @@ One-click button on each flow group to copy all file paths in that flow.
 - [x] Keyboard shortcut: `Y` (shift+y) to copy all paths in the currently selected group
 
 #### 9.9 Review comments
-Add the ability to leave comments on flow groups, individual files, and specific code blocks during review. Three comment scopes: **group-level**, **file-level**, and **code-level** (line range selection). Comments are persisted to the `.flowdiff/` folder so they survive app restarts within the same review session.
+Add the ability to leave comments on flow groups, individual files, and specific code blocks during review. Three comment scopes: **group-level**, **file-level**, and **code-level** (line range selection). Comments are persisted to the `.diffcore/` folder so they survive app restarts within the same review session.
 
 **Comment creation:**
 - [x] `c` keyboard shortcut opens a comment input — context-sensitive:
@@ -765,7 +765,7 @@ Add the ability to leave comments on flow groups, individual files, and specific
 - [x] Keyboard shortcut: `C` (shift+c) to copy all comments
 
 **Persistence:**
-- [x] Comments stored as JSON in `.flowdiff/comments.json` (alongside cache and other flowdiff state)
+- [x] Comments stored as JSON in `.diffcore/comments.json` (alongside cache and other diffcore state)
 - [x] Keyed by analysis hash (so comments are scoped to a specific diff/analysis run)
 - [x] Format:
   ```json
@@ -890,7 +890,7 @@ Create adversarial test fixtures to stress-test the clustering algorithm with de
 
 ### Phase 11: Multi-Language Support
 
-Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The architecture supports this declaratively — adding a language requires writing `.scm` query files for `imports`, `exports`, `definitions`, `calls`, and `assignments` under `crates/flowdiff-core/queries/{lang}/`, plus updating the `Language` enum in `ast.rs` and adding the tree-sitter grammar dependency.
+Expand tree-sitter language support beyond TypeScript/JavaScript and Python. The architecture supports this declaratively — adding a language requires writing `.scm` query files for `imports`, `exports`, `definitions`, `calls`, and `assignments` under `crates/diffcore-core/queries/{lang}/`, plus updating the `Language` enum in `ast.rs` and adding the tree-sitter grammar dependency.
 
 #### 11.1 Tier 1 — Must have
 
@@ -1030,9 +1030,9 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 ### 12.4 Disk-persistent IrFile cache (optional, for CLI)
 
-**Problem:** CLI invocations don't share state. Re-running `flowdiff analyze` on the same branch re-parses all files.
+**Problem:** CLI invocations don't share state. Re-running `diffcore analyze` on the same branch re-parses all files.
 
-- [x] Serialize `IrFile` cache to `.flowdiff/cache/ir/{content_hash}.bincode` — `DiskIrCache` in `pipeline.rs` using `bincode` v1 serialization
+- [x] Serialize `IrFile` cache to `.diffcore/cache/ir/{content_hash}.bincode` — `DiskIrCache` in `pipeline.rs` using `bincode` v1 serialization
 - [x] On startup, load existing cache entries; on shutdown, write new entries — `DiskIrCache::load()` reads `.bincode` files into `IrCache`; `DiskIrCache::flush()` writes new entries
 - [x] Add cache size limit (e.g. 100MB) with LRU eviction — `evict_lru()` sorts by mtime, removes oldest files until under limit
 - [x] Add `--no-cache` flag to bypass — `AnalyzeArgs::no_cache` in CLI, skips `DiskIrCache::load()` when set
@@ -1045,7 +1045,7 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 - [x] Create `OnceLock<QueryEngine>` shared across test binaries — file-level `shared_test_engine()` in `query_engine.rs`, module-level `shared_engine()` in `pipeline.rs` tests, `shared_engine()` in `tests/helpers/mod.rs`, `OnceLock` in `eval/fixtures.rs` and `cross_layer_audit.rs`
 - [x] Share the IrFile cache via `OnceLock<IrCache>` — `shared_cache()` in `pipeline.rs` tests and `tests/helpers/mod.rs` (content-addressed, no cross-test pollution)
-- [x] Measure: **4x wall-clock speedup** (30.4s → 7.6s), **19x user time reduction** (259.5s → 13.7s) for `cargo test --package flowdiff-core`
+- [x] Measure: **4x wall-clock speedup** (30.4s → 7.6s), **19x user time reduction** (259.5s → 13.7s) for `cargo test --package diffcore-core`
 
 ### 12.6 Test profile optimization
 
@@ -1083,7 +1083,7 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 - [x] All existing tests still pass (1638 tests: 1426 unit + 212 integration)
 - [x] Add a benchmark test (criterion) for: graph_build_from_ir (20/50/100 files, parallel vs serial) and flow_analysis/heuristic_patterns (20/50/100 files with 37 mixed call sites each)
-- [x] Cache hit/miss logging behind `FLOWDIFF_CACHE_DEBUG=1` env var (per-operation HIT/MISS lines + summary stats to stderr)
+- [x] Cache hit/miss logging behind `DIFFCORE_CACHE_DEBUG=1` env var (per-operation HIT/MISS lines + summary stats to stderr)
 - [x] No behavior change: cached results are byte-identical to uncached results (verified by `ir_cache_cached_result_byte_identical` test)
 
 ---
@@ -1099,7 +1099,7 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 - **Slow/live tests** — gated with `#[ignore]`, run via `cargo test -- --ignored`. Includes live LLM calls, large fixture repos, performance benchmarks.
 
 ```
-crates/flowdiff-core/
+crates/diffcore-core/
 ├── src/
 │   ├── lib.rs              # pub API surface
 │   ├── ast.rs              # #[cfg(test)] mod tests { } at bottom (unit)
@@ -1110,7 +1110,7 @@ crates/flowdiff-core/
 └── tests/                  # integration tests (public API only)
     ├── e2e_pipeline.rs         # full pipeline: git → AST → IR → graph → cluster → rank → output
     ├── e2e_real_repos.rs       # test against synthetic fixture repos with real git commits
-    ├── e2e_llm_live.rs         # live LLM provider tests (#[ignore], gated behind FLOWDIFF_RUN_LIVE_LLM_TESTS=1)
+    ├── e2e_llm_live.rs         # live LLM provider tests (#[ignore], gated behind DIFFCORE_RUN_LIVE_LLM_TESTS=1)
     ├── e2e_eval.rs             # eval suite scoring against fixture baselines
     ├── ir_parity.rs            # IR path vs ParsedFile path produce identical results
     ├── vcr_replay.rs           # VCR cached LLM response replay tests
@@ -1127,7 +1127,7 @@ crates/flowdiff-core/
 - **E2E tests** — `tests/e2e/` using Playwright. Tests real rendered output in a browser context. **Prefer integration/E2E tests over unit tests when code touches renderers** (Monaco, Mermaid, Tauri webview) — mocked renderers give false confidence.
 
 ```
-crates/flowdiff-tauri/ui/
+crates/diffcore-tauri/ui/
 ├── src/
 │   ├── components/
 │   │   ├── FlowGroups.tsx
@@ -1136,8 +1136,8 @@ crates/flowdiff-tauri/ui/
 │   │   ├── DiffViewer.test.tsx
 │   │   └── ...
 │   ├── hooks/
-│   │   ├── useFlowdiff.ts
-│   │   └── useFlowdiff.test.ts
+│   │   ├── useDiffcore.ts
+│   │   └── useDiffcore.test.ts
 │   └── store/
 │       ├── store.ts
 │       └── store.test.ts
@@ -1167,13 +1167,13 @@ cargo test --workspace
 cargo test --workspace -- --ignored
 
 # Live LLM tests (requires API keys)
-FLOWDIFF_RUN_LIVE_LLM_TESTS=1 cargo test --workspace -- --ignored
+DIFFCORE_RUN_LIVE_LLM_TESTS=1 cargo test --workspace -- --ignored
 
 # Frontend unit + integration tests
-cd crates/flowdiff-tauri/ui && npm test
+cd crates/diffcore-tauri/ui && npm test
 
 # Frontend E2E (Playwright)
-cd crates/flowdiff-tauri/ui && npx playwright test
+cd crates/diffcore-tauri/ui && npx playwright test
 
 # VS Code extension tests
 cd extensions/vscode && npm test
@@ -1299,7 +1299,7 @@ All spec-required unit tests are implemented. Total: 85 tests across 8 layers.
 #### Config Layer (`config.rs`) — ✅ All 7 implemented
 | Test | What it verifies |
 |------|-----------------|
-| `test_parse_valid_config` | Parses well-formed `.flowdiff.toml` |
+| `test_parse_valid_config` | Parses well-formed `.diffcore.toml` |
 | `test_missing_config` | Works fine without config file (auto-detect) |
 | `test_partial_config` | Handles config with only some sections |
 | `test_invalid_config` | Clear error message on malformed TOML |
@@ -1326,8 +1326,8 @@ All spec-required unit tests are implemented. Total: 85 tests across 8 layers.
 | `test_parse_pass1_response` | Correctly deserializes Pass 1 overview response |
 | `test_parse_pass2_response` | Correctly deserializes Pass 2 deep analysis response |
 | `test_api_error_handling` | Rate limits, timeouts, auth errors handled gracefully |
-| `test_api_key_from_env` | Reads `FLOWDIFF_API_KEY` from environment |
-| `test_api_key_from_config` | Reads key from `.flowdiff.toml` |
+| `test_api_key_from_env` | Reads `DIFFCORE_API_KEY` from environment |
+| `test_api_key_from_config` | Reads key from `.diffcore.toml` |
 | `test_api_key_from_op` | Reads key via `op read` command |
 | `test_context_window_truncation` | Large diffs truncated to fit provider context window |
 | `test_mock_anthropic_pass1` | Full Pass 1 flow with mock HTTP responses |
@@ -1353,14 +1353,14 @@ These tests create real git repos, make real commits, and run the full pipeline.
 | `test_e2e_staged_changes` | Stage 2 of 3 modified files, leave 1 unstaged | `diff_staged` only includes the 2 staged files |
 | `test_e2e_json_output_valid` | Any analysis run | Output parses as valid JSON matching schema |
 | `test_e2e_no_changes` | Run on repo with no diff | Graceful empty result, not an error |
-| `test_e2e_config_overrides` | Provide `.flowdiff.toml` with custom event entrypoint globs | Config resolves trigger files, analysis accounts for all files |
+| `test_e2e_config_overrides` | Provide `.diffcore.toml` with custom event entrypoint globs | Config resolves trigger files, analysis accounts for all files |
 
 ### 13.6 Snapshot Tests — ✅ All 8 implemented
 
 Use `insta` crate for snapshot testing of JSON output. Implemented in `tests/snapshot_tests.rs` with 8 fixture scenarios. Snapshots stored in `tests/snapshots/`. Git SHAs are redacted for determinism.
 
 For each fixture repo:
-1. Run `flowdiff analyze` via `run_pipeline()`
+1. Run `diffcore analyze` via `run_pipeline()`
 2. Compare JSON output against stored snapshot
 3. If graph construction or ranking algorithm changes, review and approve new snapshots with `cargo insta review`
 
@@ -1558,9 +1558,9 @@ Benchmarks run in CI to catch performance regressions.
 
 | Test | What it verifies |
 |------|-----------------|
-| `flowdiffRunner.test.ts` | Spawns CLI binary with correct args |
-| `flowdiffRunner.test.ts` | Parses CLI JSON output into typed objects |
-| `flowdiffRunner.test.ts` | Handles CLI errors (non-zero exit, invalid JSON) |
+| `diffcoreRunner.test.ts` | Spawns CLI binary with correct args |
+| `diffcoreRunner.test.ts` | Parses CLI JSON output into typed objects |
+| `diffcoreRunner.test.ts` | Handles CLI errors (non-zero exit, invalid JSON) |
 | `treeView.test.ts` | Builds correct tree from analysis result |
 | `treeView.test.ts` | Tree items have correct icons and descriptions |
 | `webviewPanel.test.ts` | Generates correct HTML for annotations |
@@ -1570,13 +1570,13 @@ Benchmarks run in CI to catch performance regressions.
 | Test | What it verifies |
 |------|-----------------|
 | `test_activate` | Extension activates without errors |
-| `test_analyze_command` | `flowdiff.analyze` command runs and populates tree view |
+| `test_analyze_command` | `diffcore.analyze` command runs and populates tree view |
 | `test_open_diff` | Clicking tree item opens VS Code diff editor |
-| `test_next_file_command` | `flowdiff.nextFile` navigates to correct file |
+| `test_next_file_command` | `diffcore.nextFile` navigates to correct file |
 
 ### 13.12 LLM Integration Tests (Live, Optional)
 
-These tests hit real APIs and are gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`.
+These tests hit real APIs and are gated behind `DIFFCORE_RUN_LIVE_LLM_TESTS=1`.
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1615,14 +1615,14 @@ test-benchmarks:
   - cargo bench -- --output-format=criterion  # compare against baseline
 
 test-tauri-ui:
-  - cd crates/flowdiff-tauri/ui && npm test
+  - cd crates/diffcore-tauri/ui && npm test
 
 test-vscode:
   - cd extensions/vscode && npm test
 
 # Runs nightly or on-demand
 test-live-llm:
-  - FLOWDIFF_RUN_LIVE_LLM_TESTS=1 cargo test llm_live
+  - DIFFCORE_RUN_LIVE_LLM_TESTS=1 cargo test llm_live
 
 # Runs on release
 test-binary-artifacts:
@@ -1635,7 +1635,7 @@ test-binary-artifacts:
 
 Before each release, run through manually:
 
-- [x] Clone a real project with 50+ file PR, run `flowdiff analyze --base main` — 78-file diff (HEAD~30), 12 groups, Rust+TS detected
+- [x] Clone a real project with 50+ file PR, run `diffcore analyze --base main` — 78-file diff (HEAD~30), 12 groups, Rust+TS detected
 - [ ] Verify flow groups intuitively match the PR's logical changes *(requires human review)*
 - [ ] Verify files within each group are in reasonable data flow order *(requires human review)*
 - [ ] Open Tauri app, navigate all three panels *(requires GUI)*
@@ -1644,12 +1644,12 @@ Before each release, run through manually:
 - [ ] Mermaid graph renders and matches the flow group *(requires GUI)*
 - [x] Click "Annotate" → LLM returns structured annotations — verified via CLI --annotate on Python project, returns overall_summary + per-group annotations
 - [ ] Annotations display in right panel *(requires GUI)*
-- [ ] VS Code extension: run `flowdiff.analyze`, verify tree view populates *(requires VS Code)*
+- [ ] VS Code extension: run `diffcore.analyze`, verify tree view populates *(requires VS Code)*
 - [ ] VS Code: click file in tree → native diff editor opens *(requires VS Code)*
-- [ ] VS Code: `flowdiff.nextFile` advances through flow *(requires VS Code)*
+- [ ] VS Code: `diffcore.nextFile` advances through flow *(requires VS Code)*
 - [x] Run on a Python project — verify tree-sitter + heuristics work — detected Python, FastAPI+Flask frameworks, found automate_tasks HttpRoute entrypoint
 - [x] Run on a monorepo — verify cross-package edges resolve — synthetic 3-package TS monorepo (@monorepo/shared-types, @monorepo/api-client, @monorepo/backend), workspace map built from package.json, 9 cross-package edges detected (import + call edges across packages), shared-types pulled into flow group via workspace resolution
 - [x] Run with no config file — auto-detection works — produces valid JSON output with 0 config
-- [x] Run with `.flowdiff.toml` — overrides apply correctly — config loads, validates (rejects invalid provider), ignore patterns filter parsing
+- [x] Run with `.diffcore.toml` — overrides apply correctly — config loads, validates (rejects invalid provider), ignore patterns filter parsing
 - [x] Run on empty diff — graceful "no changes" message — returns JSON with 0 files, 0 groups, no error
 - [x] Performance: 100-file diff completes in under 15 seconds — 78-file diff completes in 65ms (release build)

@@ -4,7 +4,7 @@
 [[repos]]
 name = "httpx-028-verify-cert-python313"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/httpx"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/httpx"
 language = "python"
 range = "a33c87852b8a0dddc65e5f739af1e0a6fca4b91f..e70d0b08c929e5140e38aa92a419de0c6d494148"
 notes = "SMALL. 10-commit historical range: SSL verify/cert compatibility work, request params regression coverage, Python 3.13/tooling updates, multipart docs cleanup, and 0.28.1 release metadata. 13 files."

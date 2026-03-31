@@ -2,7 +2,7 @@
 [[repos]]
 name = "caddy-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/caddy"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/caddy"
 language = "go"
 range = "fbfb8fc517728f85890cd46559c01bec9495bf17..e98ed6232d65790d27bacd13fb49fa5474b9ec93"
 notes = "SMALL. 10-commit range: cancel-cause migration, TLS security fixes, Tailscale. ~25 files."

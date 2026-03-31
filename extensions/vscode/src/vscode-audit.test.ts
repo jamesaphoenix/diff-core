@@ -6,7 +6,7 @@
  * HTML escaping (single quotes, XSS vectors), large results, command conflicts.
  */
 import { describe, it, expect } from "vitest";
-import { buildArgs, parseOutput } from "./flowdiffRunner";
+import { buildArgs, parseOutput } from "./diffcoreRunner";
 import type {
   AnalysisOutput,
   FlowGroup,
@@ -514,25 +514,25 @@ describe("Mermaid graph XSS safety", () => {
 // ── Command keybinding context ─────────────────────────────────────
 
 describe("Keybinding context behavior", () => {
-  it("flowdiff.active starts as false", () => {
-    // The extension sets flowdiff.active to false on activation
+  it("diffcore.active starts as false", () => {
+    // The extension sets diffcore.active to false on activation
     // This test verifies the expected initial state
     const initialActive = false;
     expect(initialActive).toBe(false);
   });
 
   it("keybinding when clauses guard all navigation commands", () => {
-    // Verify the pattern: all nav keybindings require flowdiff.active && !editorFocus && !inputFocus
-    const expectedWhen = "flowdiff.active && !editorFocus && !inputFocus";
+    // Verify the pattern: all nav keybindings require diffcore.active && !editorFocus && !inputFocus
+    const expectedWhen = "diffcore.active && !editorFocus && !inputFocus";
     const navCommands = [
-      "flowdiff.nextFile",
-      "flowdiff.prevFile",
-      "flowdiff.nextGroup",
-      "flowdiff.prevGroup",
+      "diffcore.nextFile",
+      "diffcore.prevFile",
+      "diffcore.nextGroup",
+      "diffcore.prevGroup",
     ];
     // This test documents that all nav commands share the same when clause
     expect(navCommands).toHaveLength(4);
-    expect(expectedWhen).toContain("flowdiff.active");
+    expect(expectedWhen).toContain("diffcore.active");
     expect(expectedWhen).toContain("!editorFocus");
     expect(expectedWhen).toContain("!inputFocus");
   });

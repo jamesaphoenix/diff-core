@@ -3,7 +3,7 @@
 [[repos]]
 name = "rich-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/rich"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/rich"
 language = "python"
 range = "9a99acc97d26d7832200a271ed8e95dd59df10c7..fc41075a3206d2a5fd846c6f41c4d2becab814fa"
 notes = "SMALL. 10-commit range: cell width fixes, AI policy. ~7 files."

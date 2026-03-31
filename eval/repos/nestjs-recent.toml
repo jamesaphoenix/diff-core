@@ -3,7 +3,7 @@
 [[repos]]
 name = "nestjs-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/nestjs"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/nestjs"
 language = "typescript"
 range = "4593f5889c482fc0e29060222757c0fececa94fa..a39e345b0af1dc1aeff87c1843df6712b18ee6ee"
 notes = "MEDIUM. 65-file range: HEAD auto-forwarding to GET in middleware, ConsoleLogger helper visibility refactor, plus broad root/package/sample dependency and version bumps."

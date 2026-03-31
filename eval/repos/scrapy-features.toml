@@ -3,7 +3,7 @@
 [[repos]]
 name = "scrapy-features"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/scrapy"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/scrapy"
 language = "python"
 range = "584d99af30b8b0ac35e0b913401e04d5bed2881f..a8e99aeb2efa56f09ec422cd8e8aca1904810337"
 notes = "MEDIUM. 10-commit range: reactorless, download handlers, mail deprecation. ~94 files."

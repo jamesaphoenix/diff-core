@@ -3,7 +3,7 @@
 [[repos]]
 name = "prisma-features"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/prisma"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/prisma"
 language = "typescript"
 range = "de1c376e2746019b1cff3c58ac168142fe9d1569..5fece0a97ca3f7a05a7ae6691d49728d19b795a4"
 notes = "MEDIUM. 20-commit range: postgres link, MariaDB, Studio, PG adapter. ~71 files."

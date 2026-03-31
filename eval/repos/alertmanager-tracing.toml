@@ -3,7 +3,7 @@
 [[repos]]
 name = "alertmanager-tracing"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/alertmanager"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/alertmanager"
 language = "go"
 range = "757619f3bf16acba321d78a109832dbb6cbee37a..18939cee8f7da2321795916c26dfbc6777c197a8"
 notes = "SMALL. Distributed tracing across API/notify/dispatch/silence. 32 files."

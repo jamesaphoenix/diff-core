@@ -3,7 +3,7 @@
 [[repos]]
 name = "react-router-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/react-router"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/react-router"
 language = "typescript"
 range = "5096d6974ed113e0e45de3f94f0a19de9a0a381a..7b21212c8044e7a541f101b62dc2496911fbc2d2"
 notes = "MEDIUM. 10-commit range: changeset releases, docs, lib fixes. ~39 files."

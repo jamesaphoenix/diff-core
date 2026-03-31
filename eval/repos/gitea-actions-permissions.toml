@@ -3,7 +3,7 @@
 [[repos]]
 name = "gitea-actions-permissions"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/gitea"
 language = "go"
 range = "b22123ef862247f36baec556f25872d04c7cfbcd..45809c8f5479e167ac79221c7480b2d7b94ff03d"
 notes = "MEDIUM. Actions permissions feature. 57 files."

@@ -3,7 +3,7 @@
 [[repos]]
 name = "fastapi-template-refactor"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/full-stack-fastapi-template"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/full-stack-fastapi-template"
 language = "python"
 range = "43fac49a1439236c1fac404b5ef6ca198c3810b2..51295d09b70a64ccd0a6005f004e240ca9d4e395"
 notes = "SMALL. Test refactor, Sentry/FastAPI upgrade, meta titles. 22 files."

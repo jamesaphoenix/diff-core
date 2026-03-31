@@ -3,7 +3,7 @@
 [[repos]]
 name = "svelte-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/svelte"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/svelte"
 language = "typescript"
 range = "7123bf3a131a53b1ba9414f0d44150a94d0132e3..669f6b45a3d02aa55b4011576b8d4ded2b5b7135"
 notes = "MEDIUM. 10-commit range: async rendering, motion, HMR, docs. ~77 files."

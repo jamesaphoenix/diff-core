@@ -4,7 +4,7 @@
 [[repos]]
 name = "tanstack-query-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/tanstack-query"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/tanstack-query"
 language = "typescript"
 range = "8fe71e4fe7bc34e8b7b551d20ac1f70906572529..1047cdc393fac7c98822c993d70c28f58833c63d"
 notes = "133 files. Release: eslint exhaustive-deps allowlist feature, timeoutManager leak fix, example type-safety. ~80% version-bump infra."

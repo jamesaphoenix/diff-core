@@ -2,7 +2,7 @@
 [[repos]]
 name = "trpc2-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/trpc2"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/trpc2"
 language = "typescript"
 range = "25b97f51ee4ee57da0da3c63cf54a50c6c8627d5..88b02b81d16d4046a709508799a905ac7bf9ce8b"
 notes = "MEDIUM. Patch release 11.15.0 -> 11.15.1: bug fix for Node VM cross-realm error message preservation (issue #7272) with regression test, SSR/SSG sponsor fallback, version bumps across ~50 package.json files. 55 files."

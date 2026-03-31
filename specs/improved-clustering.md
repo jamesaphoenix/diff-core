@@ -567,7 +567,7 @@ Each `InfraSubGroupView` renders a collapsible section with clickable files.
 
 - Parsing unchanged files for better graph connectivity (too expensive, save for v2)
 - Workspace-aware import resolution improvements (separate concern)
-- Custom user-defined infrastructure patterns in `.flowdiff.toml` (future enhancement)
+- Custom user-defined infrastructure patterns in `.diffcore.toml` (future enhancement)
 - Renaming `infrastructure_group` field in JSON output (backward compat)
 
 ## 7. Risks

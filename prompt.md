@@ -7,32 +7,32 @@
 ## Step 2: Read the code you'll need for the current phase
 
 Phase 3 (Tauri App):
-- crates/flowdiff-core/src/lib.rs — public API surface
-- crates/flowdiff-core/src/types.rs — FlowGroup, FileChange, Symbol, Edge
-- crates/flowdiff-core/src/output.rs — AnalysisOutput JSON schema (IPC contract)
-- crates/flowdiff-core/src/llm/schema.rs — Pass1Response, Pass2Response, Annotations
-- crates/flowdiff-tauri/ui/src/ — existing React components
+- crates/diffcore-core/src/lib.rs — public API surface
+- crates/diffcore-core/src/types.rs — FlowGroup, FileChange, Symbol, Edge
+- crates/diffcore-core/src/output.rs — AnalysisOutput JSON schema (IPC contract)
+- crates/diffcore-core/src/llm/schema.rs — Pass1Response, Pass2Response, Annotations
+- crates/diffcore-tauri/ui/src/ — existing React components
 - Cargo.toml — workspace members
 
 Phase 4 (LLM Integration):
-- crates/flowdiff-core/src/llm/mod.rs — LlmProvider trait
-- crates/flowdiff-core/src/llm/anthropic.rs, openai.rs, gemini.rs — provider implementations
-- crates/flowdiff-core/src/llm/vcr.rs — VCR caching
-- crates/flowdiff-core/src/config.rs — .flowdiff.toml structure
+- crates/diffcore-core/src/llm/mod.rs — LlmProvider trait
+- crates/diffcore-core/src/llm/anthropic.rs, openai.rs, gemini.rs — provider implementations
+- crates/diffcore-core/src/llm/vcr.rs — VCR caching
+- crates/diffcore-core/src/config.rs — .diffcore.toml structure
 
 Phase 5 (VS Code Extension):
-- crates/flowdiff-cli/src/main.rs — CLI interface (extension spawns this)
-- crates/flowdiff-core/src/output.rs — JSON output schema
+- crates/diffcore-cli/src/main.rs — CLI interface (extension spawns this)
+- crates/diffcore-core/src/output.rs — JSON output schema
 - specs/diff-analyzer.md sections 9, 12.10 — VS Code spec + tests
 
 Phase 6 (Polish):
-- crates/flowdiff-core/src/lib.rs — all pub exports (for clippy deny wall)
-- crates/flowdiff-core/src/pipeline.rs — pipeline entry points
+- crates/diffcore-core/src/lib.rs — all pub exports (for clippy deny wall)
+- crates/diffcore-core/src/pipeline.rs — pipeline entry points
 
 Phase 7 (Eval Suite):
-- crates/flowdiff-core/src/llm/judge.rs — LLM-as-judge
-- crates/flowdiff-core/src/llm/vcr.rs — VCR caching
-- crates/flowdiff-core/tests/eval_suite.rs — existing eval tests
+- crates/diffcore-core/src/llm/judge.rs — LLM-as-judge
+- crates/diffcore-core/src/llm/vcr.rs — VCR caching
+- crates/diffcore-core/tests/eval_suite.rs — existing eval tests
 
 ## Step 3: Pick the most important unchecked task and implement it
 

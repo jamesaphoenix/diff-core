@@ -3,7 +3,7 @@
 [[repos]]
 name = "viper-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/viper"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/viper"
 language = "go"
 range = "196113234fe04cbaae663b8bb992988a71353e42..528f7416c4b56a4948673984b190bf8713f0c3c4"
 notes = "MEDIUM. 10-commit range: encoding codecs, bind struct, finder. ~17 files."

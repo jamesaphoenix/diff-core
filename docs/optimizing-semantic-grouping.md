@@ -1,8 +1,8 @@
-# Optimising Flowdiff's AST/IR Pipeline and LLM Grouping Pass
+# Optimising Diffcore's AST/IR Pipeline and LLM Grouping Pass
 
-[flowdiff](https://understandingdata.com/tools/flowdiff/) exists because raw git diff is the wrong abstraction for reviewing large AI-generated pull requests. Git shows me which files changed. What I actually need is a higher-level answer: which changes belong to the same behavior, where execution starts, how the change fans out, and what should be reviewed first.
+[Diffcore](https://understandingdata.com/tools/diffcore/) exists because raw git diff is the wrong abstraction for reviewing large AI-generated pull requests. Git shows me which files changed. What I actually need is a higher-level answer: which changes belong to the same behavior, where execution starts, how the change fans out, and what should be reviewed first.
 
-The optimisation work in flowdiff is centered on that gap. I am trying to group semantically similar changes without collapsing into fuzzy "these files kind of look related" clustering. The approach is deliberately hybrid:
+The optimisation work in Diffcore is centered on that gap. I am trying to group semantically similar changes without collapsing into fuzzy "these files kind of look related" clustering. The approach is deliberately hybrid:
 
 1. A deterministic structural pass builds the strongest possible program-level model from the diff.
 2. An LLM pass refines only the ambiguous cases that the structural pass cannot settle cleanly.
@@ -14,7 +14,7 @@ I do not want the LLM to invent review groups from scratch.
 
 If grouping starts as a pure prompt over raw diff text, the result is expensive, hard to debug, and hard to reproduce. It also tends to over-index on naming similarity and miss the actual execution path through the codebase.
 
-So the main optimisation strategy in flowdiff is:
+So the main optimisation strategy in Diffcore is:
 
 - push as much semantic signal as possible into the AST/IR and graph layers
 - make the deterministic grouping engine do the heavy lifting
@@ -36,13 +36,13 @@ Instead of saying "this is a TypeScript route file" or "this is a Python control
 - call expressions and data-flow-adjacent assignments
 - binding patterns such as destructuring and tuple unpacking
 
-Once the code is normalised into IR, flowdiff builds a symbol graph and enriches it with flow information. That graph is what lets grouping move beyond path proximity. Files are no longer related just because they sit in neighboring directories; they are related because they share entrypoints, imports, calls, and execution-adjacent edges.
+Once the code is normalised into IR, Diffcore builds a symbol graph and enriches it with flow information. That graph is what lets grouping move beyond path proximity. Files are no longer related just because they sit in neighboring directories; they are related because they share entrypoints, imports, calls, and execution-adjacent edges.
 
 This matters for semantically similar content because many large diffs are not physically local. A single behavior might span a route file, a service, a repository, a schema, and a migration. Those files can live far apart in the tree while still belonging to the same review packet. The AST/IR layer is what gives the grouping algorithm enough structure to recover that shape.
 
 ## Deterministic Grouping as the Main Engine
 
-The current deterministic grouping pass works by detecting likely entrypoints, tracing reachability through the symbol graph, and assigning changed files to the nearest meaningful flow. That gives flowdiff its basic unit: the flow group.
+The current deterministic grouping pass works by detecting likely entrypoints, tracing reachability through the symbol graph, and assigning changed files to the nearest meaningful flow. That gives Diffcore its basic unit: the flow group.
 
 The optimisation work here is about reducing the two main failure modes:
 
@@ -62,7 +62,7 @@ This is the key idea: the closer I can get the deterministic pass to "mostly rig
 
 The LLM pass is intentionally narrow.
 
-Instead of asking the model to re-cluster the entire diff from raw text, flowdiff gives it a structured view of the current grouping state and asks for specific operations:
+Instead of asking the model to re-cluster the entire diff from raw text, Diffcore gives it a structured view of the current grouping state and asks for specific operations:
 
 - split a group
 - merge groups
@@ -88,7 +88,7 @@ This work maps very naturally onto the idea behind [karpathy/autoresearch](https
 
 In Karpathy's framing, the agent runs an experiment, measures the result, keeps or discards the change, and repeats. The important shift is that the loop is not hidden in human intuition. It is made explicit in code and in a Markdown "program" that defines the research process.
 
-flowdiff already fits that pattern well.
+Diffcore already fits that pattern well.
 
 The repo contains an `experiments/program.md` that turns grouping work into an explicit experiment loop:
 
@@ -107,7 +107,7 @@ The difference is that the objective function is not training loss. My target is
 - does the group count stay usable?
 - does review order match human intuition?
 
-That means flowdiff's equivalent of `autoresearch` is an evaluation-driven semantic clustering loop. The artefacts are different, but the rhythm is the same: formulate a hypothesis, run the system, score the outcome, and iterate quickly.
+That means Diffcore's equivalent of `autoresearch` is an evaluation-driven semantic clustering loop. The artefacts are different, but the rhythm is the same: formulate a hypothesis, run the system, score the outcome, and iterate quickly.
 
 ## What I Am Actually Optimising
 
@@ -133,24 +133,24 @@ I want improvements to be measurable across a real corpus, not just "this looked
 
 For the concrete implementation behind this note, these are the most relevant files:
 
-- `crates/flowdiff-core/src/ast.rs`
-- `crates/flowdiff-core/src/query_engine.rs`
-- `crates/flowdiff-core/src/ir.rs`
-- `crates/flowdiff-core/src/graph.rs`
-- `crates/flowdiff-core/src/entrypoint.rs`
-- `crates/flowdiff-core/src/cluster.rs`
-- `crates/flowdiff-core/src/llm/refinement.rs`
-- `crates/flowdiff-core/src/eval/repos.rs`
+- `crates/diffcore-core/src/ast.rs`
+- `crates/diffcore-core/src/query_engine.rs`
+- `crates/diffcore-core/src/ir.rs`
+- `crates/diffcore-core/src/graph.rs`
+- `crates/diffcore-core/src/entrypoint.rs`
+- `crates/diffcore-core/src/cluster.rs`
+- `crates/diffcore-core/src/llm/refinement.rs`
+- `crates/diffcore-core/src/eval/repos.rs`
 - `experiments/program.md`
 
 ## The End State
 
 The end state I am aiming for is a semantic review engine where the deterministic AST/IR pipeline does most of the intellectual work and the LLM acts as an optimiser over a constrained search space.
 
-That is also why the connection to [flowdiff's public product page](https://understandingdata.com/tools/flowdiff/) and to [autoresearch](https://github.com/karpathy/autoresearch) matters.
+That is also why the connection to [Diffcore's public product page](https://understandingdata.com/tools/diffcore/) and to [autoresearch](https://github.com/karpathy/autoresearch) matters.
 
 The product page explains the user-facing promise: turn raw diffs into review flows.
 
 The research loop explains how I intend to keep improving that promise: not with vague prompt tinkering, but with a repeatable optimisation process around AST extraction, IR design, graph quality, structured refinement, and benchmarked evaluation.
 
-In short: I am not trying to make flowdiff "more AI." I am trying to make its structural understanding strong enough that AI only has to solve the last mile.
+In short: I am not trying to make Diffcore "more AI." I am trying to make its structural understanding strong enough that AI only has to solve the last mile.

@@ -2,7 +2,7 @@
 [[repos]]
 name = "reqwest-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/reqwest"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/reqwest"
 language = "rust"
 range = "23eb7d4fab2252a3620bf38b48aa10e468bda30e..c5e50f004de3ac0914369a08f3e7fd33c3ebc17e"
 notes = "SMALL. 10-commit range: H3 STOP_SENDING fix, JSON content-type, hickory-dns fallback. ~14 files."

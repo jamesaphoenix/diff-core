@@ -1,0 +1,117 @@
+---
+source: crates/diffcore-core/tests/snapshot_tests.rs
+expression: v
+---
+{
+  "annotations": null,
+  "diff_source": {
+    "base": "main",
+    "base_sha": "[sha]",
+    "diff_type": "BranchComparison",
+    "head": "feature/add-users",
+    "head_sha": "[sha]"
+  },
+  "groups": [
+    {
+      "edges": [],
+      "entrypoint": {
+        "entrypoint_type": "HttpRoute",
+        "file": "src/routes/health.ts",
+        "symbol": "healthCheck"
+      },
+      "files": [
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 0,
+          "path": "src/routes/health.ts",
+          "role": "Entrypoint",
+          "symbols_changed": []
+        }
+      ],
+      "id": "group_1",
+      "name": "healthCheck route flow",
+      "review_order": 1,
+      "risk_score": 0.3125
+    },
+    {
+      "edges": [
+        {
+          "edge_type": "Imports",
+          "from": "src/routes/users.ts",
+          "to": "src/services/userService.ts::createUser"
+        },
+        {
+          "edge_type": "Calls",
+          "from": "src/routes/users.ts::postUser",
+          "to": "src/services/userService.ts::createUser"
+        },
+        {
+          "edge_type": "Imports",
+          "from": "src/services/userService.ts",
+          "to": "src/repositories/userRepo.ts::insertUser"
+        },
+        {
+          "edge_type": "Calls",
+          "from": "src/services/userService.ts::createUser",
+          "to": "src/repositories/userRepo.ts::insertUser"
+        }
+      ],
+      "entrypoint": {
+        "entrypoint_type": "HttpRoute",
+        "file": "src/routes/users.ts",
+        "symbol": "postUser"
+      },
+      "files": [
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 0,
+          "path": "src/routes/users.ts",
+          "role": "Entrypoint",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 1,
+          "path": "src/services/userService.ts",
+          "role": "Service",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 2,
+          "path": "src/repositories/userRepo.ts",
+          "role": "Repository",
+          "symbols_changed": []
+        }
+      ],
+      "id": "group_2",
+      "name": "postUser route flow",
+      "review_order": 2,
+      "risk_score": 0.3125
+    }
+  ],
+  "infrastructure_group": null,
+  "summary": {
+    "frameworks_detected": [
+      "Express"
+    ],
+    "languages_detected": [
+      "typescript"
+    ],
+    "total_files_changed": 4,
+    "total_groups": 2
+  },
+  "version": "1.0.0"
+}

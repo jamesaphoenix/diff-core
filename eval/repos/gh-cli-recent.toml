@@ -3,7 +3,7 @@
 [[repos]]
 name = "gh-cli-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gh-cli"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/gh-cli"
 language = "go"
 range = "69d89a6590a711d4a214c012adeff467046f19cb..b62671151b7c98852b7023dd672f5092d1c9dab0"
 notes = "MEDIUM. 30-commit range: PR create, issue edit, prompter refactor. ~43 files."

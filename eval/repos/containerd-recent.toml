@@ -4,7 +4,7 @@
 [[repos]]
 name = "containerd-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/containerd"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/containerd"
 language = "go"
 range = "33db836a8b06000e8afb5bba947c299ae721878a..131286b17755467322f5fcc2bf90842d4c414b79"
 notes = "LARGE. ~85 files, heavy vendor churn. Core changes: cgroup mount option preservation for privileged containers, parallel unpack overlay workaround, resolver transient-error fallback fix, streaming EOF data-loss fix, pusher validation, shim pid typo fix."

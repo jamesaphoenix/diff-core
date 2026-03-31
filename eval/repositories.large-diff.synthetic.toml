@@ -1,4 +1,4 @@
-# flowdiff synthetic large-diff corpus
+# diffcore synthetic large-diff corpus
 #
 # Separate from:
 # - eval/repositories.research.toml (default live-repo experimentation)

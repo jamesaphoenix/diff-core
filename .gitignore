@@ -12,8 +12,8 @@ playwright-report/
 # macOS
 .DS_Store
 
-# flowdiff cache
-.flowdiff/
+# diffcore cache
+.diffcore/
 
 # VS Code extension build artifacts
 *.vsix

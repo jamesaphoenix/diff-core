@@ -2,7 +2,7 @@
 [[repos]]
 name = "serde-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/serde"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/serde"
 language = "rust"
 range = "d17902059e77e371d8a7f83ff403f9e760b70f45..fa7da4a93567ed347ad0735c28e439fca688ef26"
 notes = "SMALL. 10-commit range: MSRV bump, iterator-to-loop refactor. ~14 files."

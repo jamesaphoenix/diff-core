@@ -3,7 +3,7 @@
 [[repos]]
 name = "spring-petclinic-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/java/spring-petclinic"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/java/spring-petclinic"
 language = "java"
 range = "828940e5a1bc51ce1e49410bc1dcf6c4139ea51f..edf4db28affcc4741c79850a3d95bc3f177b5ff9"
 notes = "MEDIUM. 20-commit range: dependency upgrades, jspecify @Nullable removal, test method renames. ~39 files."

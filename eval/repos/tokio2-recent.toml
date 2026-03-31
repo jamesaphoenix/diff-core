@@ -2,7 +2,7 @@
 [[repos]]
 name = "tokio2-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/tokio2"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/tokio2"
 language = "rust"
 range = "961757f5483e394ec3c99a4c2ab5a6e705a0b740..a8435c0fc8612bbdf38d3ad8b2ba96d5dbc848d9"
 notes = "SMALL. 9-commit range: stream collect for std collections, worker_index API, fs OpenOptionsExt mock fix, remote_spawn bench, FD prewarm example. ~19 files."

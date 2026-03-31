@@ -3,7 +3,7 @@
 [[repos]]
 name = "pingora-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/pingora"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/pingora"
 language = "rust"
 range = "4dbd37d9dfe5d520c27d3e2b33af7035c5c3947d..9a4eee3ed45a1443ff4ace159817764772f27553"
 notes = "MEDIUM. 10-commit range: prometheus metrics, cache, server config. ~23 files."

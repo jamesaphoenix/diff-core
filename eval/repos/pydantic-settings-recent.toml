@@ -3,7 +3,7 @@
 [[repos]]
 name = "pydantic-settings-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/pydantic-settings"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/pydantic-settings"
 language = "python"
 range = "a8c47f8209ef8722119935c00983ab837a377ddd..73fbbed33839f07856655a65f60176638dbb36f1"
 notes = "SMALL. 15-commit range: CLI, env, dotenv providers. ~13 files."

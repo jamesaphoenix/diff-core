@@ -1,0 +1,147 @@
+---
+source: crates/diffcore-core/tests/snapshot_tests.rs
+expression: v
+---
+{
+  "annotations": null,
+  "diff_source": {
+    "base": "main",
+    "base_sha": "[sha]",
+    "diff_type": "BranchComparison",
+    "head": "refactor/rename-format",
+    "head_sha": "[sha]"
+  },
+  "groups": [
+    {
+      "edges": [
+        {
+          "edge_type": "Imports",
+          "from": "src/services/service1.ts",
+          "to": "src/utils/format.ts::formatTimestamp"
+        },
+        {
+          "edge_type": "Calls",
+          "from": "src/services/service1.ts::process1",
+          "to": "src/utils/format.ts::formatTimestamp"
+        },
+        {
+          "edge_type": "Imports",
+          "from": "src/services/service2.ts",
+          "to": "src/utils/format.ts::formatTimestamp"
+        },
+        {
+          "edge_type": "Calls",
+          "from": "src/services/service2.ts::process2",
+          "to": "src/utils/format.ts::formatTimestamp"
+        },
+        {
+          "edge_type": "Imports",
+          "from": "src/services/service3.ts",
+          "to": "src/utils/format.ts::formatTimestamp"
+        },
+        {
+          "edge_type": "Calls",
+          "from": "src/services/service3.ts::process3",
+          "to": "src/utils/format.ts::formatTimestamp"
+        },
+        {
+          "edge_type": "Imports",
+          "from": "src/services/service4.ts",
+          "to": "src/utils/format.ts::formatTimestamp"
+        },
+        {
+          "edge_type": "Calls",
+          "from": "src/services/service4.ts::process4",
+          "to": "src/utils/format.ts::formatTimestamp"
+        },
+        {
+          "edge_type": "Imports",
+          "from": "src/services/service5.ts",
+          "to": "src/utils/format.ts::formatTimestamp"
+        },
+        {
+          "edge_type": "Calls",
+          "from": "src/services/service5.ts::process5",
+          "to": "src/utils/format.ts::formatTimestamp"
+        }
+      ],
+      "entrypoint": null,
+      "files": [
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 0,
+          "path": "src/services/service1.ts",
+          "role": "Service",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 1,
+          "path": "src/services/service2.ts",
+          "role": "Service",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 2,
+          "path": "src/services/service3.ts",
+          "role": "Service",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 3,
+          "path": "src/services/service4.ts",
+          "role": "Service",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 4,
+          "path": "src/services/service5.ts",
+          "role": "Service",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 5,
+          "path": "src/utils/format.ts",
+          "role": "Utility",
+          "symbols_changed": []
+        }
+      ],
+      "id": "group_1",
+      "name": "services (connected)",
+      "review_order": 1,
+      "risk_score": 0.225
+    }
+  ],
+  "infrastructure_group": null,
+  "summary": {
+    "frameworks_detected": [],
+    "languages_detected": [
+      "typescript"
+    ],
+    "total_files_changed": 6,
+    "total_groups": 1
+  },
+  "version": "1.0.0"
+}

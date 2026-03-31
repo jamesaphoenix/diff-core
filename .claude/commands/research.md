@@ -1,10 +1,10 @@
-# flowdiff autoresearch
+# diffcore autoresearch
 
-Run the autonomous research loop for improving flowdiff's semantic grouping quality. Inspired by karpathy/autoresearch.
+Run the autonomous research loop for improving diffcore's semantic grouping quality. Inspired by karpathy/autoresearch.
 
 ## Instructions
 
-You are kicking off (or resuming) the flowdiff autoresearch loop. Each invocation runs ONE experiment. **Do NOT ask if you should continue** — you are fully autonomous.
+You are kicking off (or resuming) the diffcore autoresearch loop. Each invocation runs ONE experiment. **Do NOT ask if you should continue** — you are fully autonomous.
 
 ### Step 1: Read context
 Read these files to understand current state:
@@ -22,11 +22,11 @@ If this is the first run of a session:
 ### Step 3: Check golden coverage first
 Before picking a phase, run the golden coverage linter:
 ```bash
-cargo run -p flowdiff-cli -- lint-goldens --manifest eval/repositories.research.toml 2>&1
+cargo run -p diffcore-cli -- lint-goldens --manifest eval/repositories.research.toml 2>&1
 ```
 This reports which repos have unclassified files. **If any repo has < 100% file coverage, Phase 1 takes priority** — you must classify all files before the eval scores are meaningful.
 
-The linter checks that every file in each diff appears in either `infrastructure` or `non_infrastructure` in the repo's golden expectations. Unclassified files are blind spots where flowdiff could silently misplace them.
+The linter checks that every file in each diff appears in either `infrastructure` or `non_infrastructure` in the repo's golden expectations. Unclassified files are blind spots where diffcore could silently misplace them.
 
 ### Step 4: Decide what to do
 
@@ -41,7 +41,7 @@ OPTIMISING   → when corpus ≥ required size AND all repos have 100% golden co
 
 Important constraint:
 - Local storage is effectively exhausted. Do NOT keep cloning new OSS repos by default.
-- Corpus growth should now come primarily from mining additional pinned diff ranges from repos that already exist in `~/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/`.
+- Corpus growth should now come primarily from mining additional pinned diff ranges from repos that already exist in `~/Desktop/projects/just-understanding-data/diffcore-eval-corpus/`.
 - Treat each `eval/repos/*.toml` file as one goldened eval target. Multiple targets may come from the same underlying repo.
 
 Check state:
@@ -82,7 +82,7 @@ Count targets: `ls eval/repos/*.toml | wc -l`
 - Include synthetic repos for edge cases
 - For real data: FIRST reuse an existing local clone, find another interesting diff range, pin with full SHAs, and add a new `eval/repos/*.toml` target with `type = "real"`
 - Do NOT clone a new OSS repo unless you are explicitly told to do so or the existing local corpus is clearly insufficient for the current coverage gap
-- For synthetic repos: create under `flowdiff-eval-corpus/synthetic/<name>/`, add `type = "synthetic"` with tight goldens
+- For synthetic repos: create under `diffcore-eval-corpus/synthetic/<name>/`, add `type = "synthetic"` with tight goldens
 - Every new target must have 100% file coverage (lint-goldens verified)
 - **Max 500 files per diff.** Reject repos/ranges with >500 changed files — golden generation cost scales linearly. Check with `git diff --stat <base>..<head> | tail -1` before adding.
 - Prefer adding multiple non-overlapping historical ranges from a strong repo over spending disk on another clone
@@ -188,13 +188,13 @@ For each repo that has unclassified files:
 
 5. Run the linter to verify full coverage:
    ```bash
-   cargo run -p flowdiff-cli -- lint-goldens --manifest eval/repositories.research.toml 2>&1
+   cargo run -p diffcore-cli -- lint-goldens --manifest eval/repositories.research.toml 2>&1
    ```
    **If any files are still unclassified, fix them before moving on.** The agent must recursively add missing classifications until lint-goldens passes for this repo.
 
-6. Run eval to see how flowdiff scores:
+6. Run eval to see how diffcore scores:
    ```bash
-   cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format text 2>&1
+   cargo run -p diffcore-cli -- eval --manifest eval/repositories.research.toml --format text 2>&1
    ```
 
 7. If the target still lacks a full `repos.ml.groups` partition, finish that before moving on. Sparse eval constraints alone are not enough for the future ML dataset.
@@ -224,7 +224,7 @@ Two sub-tracks — pick based on WHY goldens are failing:
 ### Step 5: Run the experiment
 - Make ONE change
 - `git commit` the change
-- Run eval: `cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format json 2>/dev/null > /tmp/fd-eval-result.json`
+- Run eval: `cargo run -p diffcore-cli -- eval --manifest eval/repositories.research.toml --format json 2>/dev/null > /tmp/fd-eval-result.json`
 - Read the result file for key metrics
 
 ### Step 6: Record the result
@@ -244,13 +244,13 @@ Types: `golden-generation` (sub-agent generated goldens), `deterministic` (clust
 ## Key Commands
 ```bash
 # Check golden file coverage (must pass before Phase 2 work)
-cargo run -p flowdiff-cli -- lint-goldens --manifest eval/repositories.research.toml
+cargo run -p diffcore-cli -- lint-goldens --manifest eval/repositories.research.toml
 
 # Run eval
-cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format text
+cargo run -p diffcore-cli -- eval --manifest eval/repositories.research.toml --format text
 
 # Run eval (JSON for metrics extraction)
-cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format json 2>/dev/null > /tmp/fd-eval-result.json
+cargo run -p diffcore-cli -- eval --manifest eval/repositories.research.toml --format json 2>/dev/null > /tmp/fd-eval-result.json
 ```
 
 ## Arguments

@@ -4,7 +4,7 @@
 [[repos]]
 name = "guava-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/java/guava"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/java/guava"
 language = "java"
 range = "45acfe6f0b32a0e5e82eec33333d6a6066218225..816eaa1d8b0ab1f5d16b671337dbb447e3845ce0"
 notes = "149 files. Cleanup-heavy Guava range: lambdafy test helpers, static imports in hashing/parsing, Preconditions replacements, SHA-512 assertion refreshes, and mirrored android/jre source edits."

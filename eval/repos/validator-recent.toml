@@ -3,7 +3,7 @@
 [[repos]]
 name = "validator-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/validator"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/validator"
 language = "go"
 range = "f5c74ce583d5feab2fa257edc52a8c7163dcea89..b9258bd2b7bbab41c3d99090cac4a659c5f1a60c"
 notes = "SMALL. 10-commit range: postcode regexes, validators, benchmarks. ~13 files."

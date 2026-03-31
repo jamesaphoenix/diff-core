@@ -2,7 +2,7 @@
 [[repos]]
 name = "zod-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/zod"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/zod"
 language = "typescript"
 range = "89ba70f2d50d33a70549bedbd5c79785810ee21b..c7805073fef5b6b8857307c3d4b3597a70613bc2"
 notes = "SMALL. 10-commit range: httpUrl fix, multipleOf fix, abort semantics. ~12 files."

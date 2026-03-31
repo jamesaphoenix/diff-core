@@ -2,7 +2,7 @@
 [[repos]]
 name = "zap-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/zap"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/zap"
 language = "go"
 range = "6d482535bdd97f4d97b2f9573ac308f1cf9b574e..0ab0d5aae5986395e2ca497385d977ccd7cdfc5e"
 notes = "SMALL. 9-commit range: nil-safe Object field, WithLazy race fix, CheckPreWriteHook, yaml dep swap, CI Go version bump. ~19 files."

@@ -3,7 +3,7 @@
 [[repos]]
 name = "gorilla-mux-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gorilla-mux"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/gorilla-mux"
 language = "go"
 range = "cfec64dd9f7b38263f7ac56023c96299587d529a..db9d1d0073d27a0a2d9a8c1bc52aa0af4374d265"
 notes = "SMALL. 10-commit range: middleware, route matching, regexp. ~8 files."

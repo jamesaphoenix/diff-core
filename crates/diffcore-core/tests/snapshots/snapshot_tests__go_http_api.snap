@@ -1,0 +1,72 @@
+---
+source: crates/diffcore-core/tests/snapshot_tests.rs
+expression: v
+---
+{
+  "annotations": null,
+  "diff_source": {
+    "base": "main",
+    "base_sha": "[sha]",
+    "diff_type": "BranchComparison",
+    "head": "feature/go-api",
+    "head_sha": "[sha]"
+  },
+  "groups": [
+    {
+      "edges": [],
+      "entrypoint": {
+        "entrypoint_type": "HttpRoute",
+        "file": "internal/handlers/user.go",
+        "symbol": "CreateUser"
+      },
+      "files": [
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 0,
+          "path": "internal/handlers/user.go",
+          "role": "Entrypoint",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 1,
+          "path": "internal/repositories/user_repo.go",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 2,
+          "path": "internal/services/user_service.go",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        }
+      ],
+      "id": "group_1",
+      "name": "CreateUser route flow",
+      "review_order": 1,
+      "risk_score": 0.3125
+    }
+  ],
+  "infrastructure_group": null,
+  "summary": {
+    "frameworks_detected": [
+      "Go net/http"
+    ],
+    "languages_detected": [
+      "go"
+    ],
+    "total_files_changed": 3,
+    "total_groups": 1
+  },
+  "version": "1.0.0"
+}

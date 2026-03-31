@@ -4,7 +4,7 @@
 This is intentionally isolated from the default live-repo experimentation
 pipeline. It creates:
 
-- synthetic git repos under ../flowdiff-eval-corpus/synthetic/large-diff/
+- synthetic git repos under ../diffcore-eval-corpus/synthetic/large-diff/
 - target TOMLs under eval/repos-large-diff-synthetic/
 - a manifest at eval/repositories.large-diff.synthetic.toml
 
@@ -120,7 +120,7 @@ def main() -> None:
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
-    corpus_root = repo_root.parent / "flowdiff-eval-corpus" / "synthetic" / "large-diff"
+    corpus_root = repo_root.parent / "diffcore-eval-corpus" / "synthetic" / "large-diff"
     all_toml_root = repo_root / "eval" / "repos-large-diff-synthetic"
     gated_toml_root = repo_root / "eval" / "repos-large-diff-synthetic-gated"
     near_toml_root = repo_root / "eval" / "repos-large-diff-synthetic-near-threshold"
@@ -151,7 +151,7 @@ def main() -> None:
     gated_manifest_path.write_text(
         render_manifest(
             include_dir="repos-large-diff-synthetic-gated",
-            title="flowdiff synthetic large-diff corpus",
+            title="diffcore synthetic large-diff corpus",
             description=(
                 "Gated 2k+ synthetic targets. This is the primary large-diff "
                 "synthetic pipeline because the coarse partitioning compromise "
@@ -163,7 +163,7 @@ def main() -> None:
     near_manifest_path.write_text(
         render_manifest(
             include_dir="repos-large-diff-synthetic-near-threshold",
-            title="flowdiff synthetic near-threshold corpus",
+            title="diffcore synthetic near-threshold corpus",
             description=(
                 "Diagnostic 1.5k synthetic targets. These do not exercise the "
                 "2k+ partition gate and should be tracked separately from the "
@@ -175,7 +175,7 @@ def main() -> None:
     all_manifest_path.write_text(
         render_manifest(
             include_dir="repos-large-diff-synthetic",
-            title="flowdiff synthetic large-diff corpus (all)",
+            title="diffcore synthetic large-diff corpus (all)",
             description=(
                 "All generated 1.5k and 2k+ synthetic targets. Useful for broad "
                 "exploration, but not the default gating manifest."
@@ -205,8 +205,8 @@ def ensure_clean_dir(path: Path, force: bool) -> None:
 def build_scenario_repo(repo_dir: Path, scenario: Scenario) -> list[dict[str, object]]:
     repo_dir.mkdir(parents=True, exist_ok=True)
     git(repo_dir, "init", "-q")
-    git(repo_dir, "config", "user.name", "flowdiff synthetic generator")
-    git(repo_dir, "config", "user.email", "flowdiff@example.com")
+    git(repo_dir, "config", "user.name", "diffcore synthetic generator")
+    git(repo_dir, "config", "user.email", "diffcore@example.com")
 
     write_base_files(repo_dir, scenario)
     base_sha = commit_all(repo_dir, f"{scenario.name}: base workspace")
@@ -268,7 +268,7 @@ def write_base_files(repo_dir: Path, scenario: Scenario) -> None:
         "package.json": textwrap.dedent(
             f"""\
             {{
-              "name": "flowdiff-synthetic-{scenario.name}",
+              "name": "diffcore-synthetic-{scenario.name}",
               "private": true,
               "version": "1.0.0",
               "type": "module"

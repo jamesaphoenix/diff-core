@@ -3,7 +3,7 @@
 [[repos]]
 name = "egui-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/egui"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/egui"
 language = "rust"
 range = "0887b54c93b19aa5ae0054bb5da65bca8741bb62..82a578e58c7ad8188c53a8fdc5bf6d4bc789e620"
 notes = "LARGE. 0.34.0 release: scroll-area fade-out feature, Direction enum moved to epaint, IdTypeMap RawKey API, Vertex::untextured + gradient_rect, button cursor fix, version bumps + changelogs. ~39 files."

@@ -1,0 +1,82 @@
+---
+source: crates/diffcore-core/tests/snapshot_tests.rs
+expression: v
+---
+{
+  "annotations": null,
+  "diff_source": {
+    "base": "main",
+    "base_sha": "[sha]",
+    "diff_type": "BranchComparison",
+    "head": "chore/infra-update",
+    "head_sha": "[sha]"
+  },
+  "groups": [
+    {
+      "edges": [],
+      "entrypoint": null,
+      "files": [
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 0,
+          "path": "docs/setup.md",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        }
+      ],
+      "id": "group_1",
+      "name": "docs (directory)",
+      "review_order": 1,
+      "risk_score": 0.225
+    }
+  ],
+  "infrastructure_group": {
+    "files": [
+      ".env.dev",
+      ".github/workflows/ci.yml",
+      "Dockerfile",
+      "docker-compose.yml",
+      "migrations/001_init.sql",
+      "scripts/deploy.sh",
+      "tsconfig.json"
+    ],
+    "reason": "Not reachable from any detected entrypoint",
+    "sub_groups": [
+      {
+        "category": "Infrastructure",
+        "files": [
+          ".env.dev",
+          ".github/workflows/ci.yml",
+          "Dockerfile",
+          "docker-compose.yml",
+          "tsconfig.json"
+        ],
+        "name": "Infrastructure"
+      },
+      {
+        "category": "Migration",
+        "files": [
+          "migrations/001_init.sql"
+        ],
+        "name": "Migrations"
+      },
+      {
+        "category": "Script",
+        "files": [
+          "scripts/deploy.sh"
+        ],
+        "name": "Scripts"
+      }
+    ]
+  },
+  "summary": {
+    "frameworks_detected": [],
+    "languages_detected": [],
+    "total_files_changed": 8,
+    "total_groups": 1
+  },
+  "version": "1.0.0"
+}

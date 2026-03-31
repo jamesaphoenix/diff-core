@@ -2,7 +2,7 @@
 [[repos]]
 name = "starship-features"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/starship"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/starship"
 language = "rust"
 range = "0110bf59c86f6f0f33f95dc614c231acc19547b8..083ab008fc77b982a223af8f4f18020c7a64fec6"
 notes = "SMALL. Maven module + directory regex + python venv + AWS fix. 28 files."

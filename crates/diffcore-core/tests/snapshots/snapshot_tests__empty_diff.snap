@@ -1,0 +1,23 @@
+---
+source: crates/diffcore-core/tests/snapshot_tests.rs
+expression: v
+---
+{
+  "annotations": null,
+  "diff_source": {
+    "base": "main",
+    "base_sha": "[sha]",
+    "diff_type": "BranchComparison",
+    "head": "feature/no-changes",
+    "head_sha": "[sha]"
+  },
+  "groups": [],
+  "infrastructure_group": null,
+  "summary": {
+    "frameworks_detected": [],
+    "languages_detected": [],
+    "total_files_changed": 0,
+    "total_groups": 0
+  },
+  "version": "1.0.0"
+}

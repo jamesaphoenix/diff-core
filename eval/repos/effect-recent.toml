@@ -2,7 +2,7 @@
 [[repos]]
 name = "effect-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/effect"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/effect"
 language = "typescript"
 range = "041dd22de07235de08b75f0bc29e206e3c27942b..6c39a34c6145811f5c41292f03bf7939cfa8e70d"
 notes = "MEDIUM. 10-commit range: Cron.prev, Layer types, RcMap TTL, span fix, resolver defect, PgClient listen. ~96 files."

@@ -2,7 +2,7 @@
 [[repos]]
 name = "synthetic-large-diff-packages-services-clean-early-2048"
 type = "synthetic"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/synthetic/large-diff/packages-services-clean"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/synthetic/large-diff/packages-services-clean"
 language = "typescript"
 range = "811361da086e292e5fc044a1cf1597fb03e4bd99..b7ef97006071941274dd11e7a24af5d1786dcfd8"
 notes = "Synthetic large-diff track only. Monorepo packages with clear route/controller/service/repository chains."

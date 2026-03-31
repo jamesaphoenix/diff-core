@@ -3,7 +3,7 @@
 [[repos]]
 name = "requests-python310-netrc"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/requests"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/requests"
 language = "python"
 range = "cb2c800518423e0042789ab09f8f6e719428a444..47914226c2968802f2cdee3f6f0f6e06e4472f64"
 notes = "SMALL. Adjacent historical range: GitHub Actions maintenance, Python 3.10 support-floor uplift, and a netrc empty-default-credentials fix. 11 files."

@@ -39,7 +39,7 @@ export class FileItem extends vscode.TreeItem {
     );
     this.iconPath = roleIcon(file.role);
     this.command = {
-      command: "flowdiff.openDiff",
+      command: "diffcore.openDiff",
       title: "Open Diff",
       arguments: [this.repoPath, file.path, groupId],
     };

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import { runFlowdiff } from "./flowdiffRunner";
+import { runDiffcore } from "./diffcoreRunner";
 import { FlowGroupsProvider, InfrastructureProvider, GroupItem, FileItem } from "./treeView";
 import { AnnotationsPanel } from "./webviewPanel";
 import type { AnalysisOutput, FlowGroup } from "./types";
@@ -24,12 +24,12 @@ export function activate(context: vscode.ExtensionContext): void {
   groupsProvider = new FlowGroupsProvider();
   infraProvider = new InfrastructureProvider();
 
-  groupsView = vscode.window.createTreeView("flowdiff.groups", {
+  groupsView = vscode.window.createTreeView("diffcore.groups", {
     treeDataProvider: groupsProvider,
     showCollapseAll: true,
   });
 
-  const infraView = vscode.window.createTreeView("flowdiff.infrastructure", {
+  const infraView = vscode.window.createTreeView("diffcore.infrastructure", {
     treeDataProvider: infraProvider,
   });
 
@@ -38,31 +38,31 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Register commands
   context.subscriptions.push(
-    vscode.commands.registerCommand("flowdiff.analyze", cmdAnalyze),
-    vscode.commands.registerCommand("flowdiff.analyzeRange", cmdAnalyzeRange),
-    vscode.commands.registerCommand("flowdiff.annotate", cmdAnnotate),
-    vscode.commands.registerCommand("flowdiff.nextFile", cmdNextFile),
-    vscode.commands.registerCommand("flowdiff.prevFile", cmdPrevFile),
-    vscode.commands.registerCommand("flowdiff.nextGroup", cmdNextGroup),
-    vscode.commands.registerCommand("flowdiff.prevGroup", cmdPrevGroup),
-    vscode.commands.registerCommand("flowdiff.openDiff", cmdOpenDiff),
-    vscode.commands.registerCommand("flowdiff.openAnnotations", cmdOpenAnnotations),
+    vscode.commands.registerCommand("diffcore.analyze", cmdAnalyze),
+    vscode.commands.registerCommand("diffcore.analyzeRange", cmdAnalyzeRange),
+    vscode.commands.registerCommand("diffcore.annotate", cmdAnnotate),
+    vscode.commands.registerCommand("diffcore.nextFile", cmdNextFile),
+    vscode.commands.registerCommand("diffcore.prevFile", cmdPrevFile),
+    vscode.commands.registerCommand("diffcore.nextGroup", cmdNextGroup),
+    vscode.commands.registerCommand("diffcore.prevGroup", cmdPrevGroup),
+    vscode.commands.registerCommand("diffcore.openDiff", cmdOpenDiff),
+    vscode.commands.registerCommand("diffcore.openAnnotations", cmdOpenAnnotations),
     groupsView,
     infraView,
     { dispose: () => annotationsPanel.dispose() }
   );
 
-  // Reset keybinding context when flowdiff tree view loses visibility
+  // Reset keybinding context when diffcore tree view loses visibility
   groupsView.onDidChangeVisibility((e) => {
     if (!e.visible) {
-      vscode.commands.executeCommand("setContext", "flowdiff.active", false);
+      vscode.commands.executeCommand("setContext", "diffcore.active", false);
     } else if (analysis) {
-      vscode.commands.executeCommand("setContext", "flowdiff.active", true);
+      vscode.commands.executeCommand("setContext", "diffcore.active", true);
     }
   });
 
   // Set context for keybinding activation
-  vscode.commands.executeCommand("setContext", "flowdiff.active", false);
+  vscode.commands.executeCommand("setContext", "diffcore.active", false);
 }
 
 export function deactivate(): void {
@@ -79,7 +79,7 @@ async function cmdAnalyze(): Promise<void> {
   }
 
   repoPath = workspaceFolder.uri.fsPath;
-  const config = vscode.workspace.getConfiguration("flowdiff");
+  const config = vscode.workspace.getConfiguration("diffcore");
   const base = config.get<string>("defaultBase", "main");
 
   await runAnalysis({ repoPath, base });
@@ -107,19 +107,19 @@ async function cmdAnalyzeRange(): Promise<void> {
 
 async function cmdAnnotate(): Promise<void> {
   if (!analysis) {
-    vscode.window.showWarningMessage("Run flowdiff.analyze first.");
+    vscode.window.showWarningMessage("Run diffcore.analyze first.");
     return;
   }
 
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: "flowdiff: Running LLM annotation...",
+      title: "diffcore: Running LLM annotation...",
       cancellable: false,
     },
     async () => {
       try {
-        const result = await runFlowdiff({
+        const result = await runDiffcore({
           repoPath,
           base: analysis!.diff_source.base ?? "main",
           head: analysis!.diff_source.head ?? undefined,
@@ -132,10 +132,10 @@ async function cmdAnnotate(): Promise<void> {
           annotationsPanel.setPass1(analysis.annotations as any);
         }
 
-        vscode.window.showInformationMessage("flowdiff: LLM annotation complete.");
+        vscode.window.showInformationMessage("diffcore: LLM annotation complete.");
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        vscode.window.showErrorMessage(`flowdiff annotation failed: ${msg}`);
+        vscode.window.showErrorMessage(`diffcore annotation failed: ${msg}`);
       }
     }
   );
@@ -239,12 +239,12 @@ async function runAnalysis(options: {
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: "flowdiff: Analyzing...",
+      title: "diffcore: Analyzing...",
       cancellable: false,
     },
     async () => {
       try {
-        const result = await runFlowdiff(options);
+        const result = await runDiffcore(options);
         analysis = result.output;
         selectedGroupIndex = 0;
         selectedFileIndex = 0;
@@ -252,11 +252,11 @@ async function runAnalysis(options: {
         groupsProvider.setAnalysis(analysis, options.repoPath);
         infraProvider.setInfrastructure(analysis.infrastructure_group);
 
-        vscode.commands.executeCommand("setContext", "flowdiff.active", true);
+        vscode.commands.executeCommand("setContext", "diffcore.active", true);
 
         const { summary } = analysis;
         vscode.window.showInformationMessage(
-          `flowdiff: ${summary.total_files_changed} files in ${summary.total_groups} groups ` +
+          `diffcore: ${summary.total_files_changed} files in ${summary.total_groups} groups ` +
             `(${summary.languages_detected.join(", ")})`
         );
 
@@ -266,7 +266,7 @@ async function runAnalysis(options: {
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        vscode.window.showErrorMessage(`flowdiff: ${msg}`);
+        vscode.window.showErrorMessage(`diffcore: ${msg}`);
       }
     }
   );
@@ -283,7 +283,7 @@ function openCurrentFile(): void {
     return;
   }
   const file = sortedFiles[selectedFileIndex];
-  vscode.commands.executeCommand("flowdiff.openDiff", repoPath, file.path, group.id);
+  vscode.commands.executeCommand("diffcore.openDiff", repoPath, file.path, group.id);
 }
 
 function showCurrentGroupAnnotations(): void {

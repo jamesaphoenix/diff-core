@@ -3,7 +3,7 @@
 [[repos]]
 name = "solid-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/solid"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/solid"
 language = "typescript"
 range = "a5b51fe200fd59a158410f4008677948fec611d9..1ac4bcb20f28577f08f0fc3668df1edaff078f2e"
 notes = "SMALL. 15-commit range: scheduler, signal, transition. ~15 files."

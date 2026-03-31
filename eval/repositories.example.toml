@@ -33,4 +33,4 @@ non_infrastructure = [
 ]
 
 # Run:
-#   flowdiff eval --manifest eval/repositories.example.toml
+#   diffcore eval --manifest eval/repositories.example.toml

@@ -1,6 +1,6 @@
 ## Eval Suite
 
-See also [docs/grouping-overhaul.md](/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff/docs/grouping-overhaul.md) for the broader handoff covering deterministic grouping changes, refinement plumbing, verification state, and next-step recommendations.
+See also [docs/grouping-overhaul.md](/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore/docs/grouping-overhaul.md) for the broader handoff covering deterministic grouping changes, refinement plumbing, verification state, and next-step recommendations.
 
 The repo eval harness now supports two layers of scoring:
 
@@ -19,13 +19,13 @@ Goldens let you encode what "good" looks like for a real diff:
 - `infrastructure`
 - `non_infrastructure`
 
-This is exposed through `flowdiff eval --manifest <path>`.
+This is exposed through `diffcore eval --manifest <path>`.
 
 ## Manifests
 
-- [eval/repositories.example.toml](/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff/eval/repositories.example.toml)
+- [eval/repositories.example.toml](/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore/eval/repositories.example.toml)
   Focused local example with a pinned historical `octospark-services` diff and an inline golden.
-- [eval/repositories.public-oss.example.toml](/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff/eval/repositories.public-oss.example.toml)
+- [eval/repositories.public-oss.example.toml](/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore/eval/repositories.public-oss.example.toml)
   Seed corpus with 20 targets and balanced language coverage: five TypeScript repos, five Python repos, five Go repos, and five Rust repos.
 
 ## Scoring
@@ -41,5 +41,5 @@ The text and HTML reports now include a dedicated golden column and list any fai
 1. Clone the public corpus to a stable local root.
 2. Replace moving branches with pinned commit ranges for each target.
 3. Add a small number of high-value golden checks per repo.
-4. Run `flowdiff eval --manifest ...` after deterministic or LLM-grouping changes.
+4. Run `diffcore eval --manifest ...` after deterministic or LLM-grouping changes.
 5. Expand the goldens as failures reveal new fragmentation patterns.

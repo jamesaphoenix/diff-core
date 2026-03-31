@@ -3,7 +3,7 @@
 [[repos]]
 name = "deno-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/deno"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/deno"
 language = "rust"
 range = "5a97b626ced7988bd5981deb57bd2e2763fde640..eb436571a488f498237e307e8eed9d4b5512b101"
 notes = "LARGE. 20-commit range: event loop, op2 metrics, Windows TTY, NAPI. ~213 files."

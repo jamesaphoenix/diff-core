@@ -26,8 +26,8 @@ export class AnnotationsPanel {
 
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel(
-        "flowdiff.annotations",
-        "flowdiff: Annotations",
+        "diffcore.annotations",
+        "diffcore: Annotations",
         vscode.ViewColumn.Beside,
         {
           enableScripts: false,

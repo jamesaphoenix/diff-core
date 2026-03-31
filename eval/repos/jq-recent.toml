@@ -3,7 +3,7 @@
 [[repos]]
 name = "jq-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/c/jq"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/c/jq"
 language = "c"
 range = "36b6ae00b1c1e18a22a9b6ad36d7f095aeb997b7..cec6b0f34603edc5cd12db1f63dacdf547b4bb4a"
 notes = "SMALL. 10-commit range: builtins, linker, tests. ~9 files."

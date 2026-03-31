@@ -2,7 +2,7 @@
 [[repos]]
 name = "prometheus-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/prometheus"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/prometheus"
 language = "go"
 range = "cfcc8621827a82b14e0385d516d3eaff4b74a3ab..5b1d22e2ce97dd5ebb9e834180c196f7ea353ece"
 notes = "SMALL. 10-commit range: Vultr API upgrade, variance docs, XOR fuzzing, PromQL tests. ~32 files."

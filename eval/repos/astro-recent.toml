@@ -5,7 +5,7 @@
 [[repos]]
 name = "astro-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/astro"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/astro"
 language = "typescript"
 range = "b9e96da0fd6bef9230f9fe60887e99cdfb561dd7..a60cbb6963d55aa272281edfeecf7251d987b0fb"
 notes = "135 files. Astro monorepo release wave: Svelte generic prop inference, content-layer validation message fix, view-transition dev-style persistence, ARIA role alias normalization, create-astro Windows shell shim handling, and widespread changeset/package/changelog bumps."

@@ -2,7 +2,7 @@
 [[repos]]
 name = "drizzle-orm-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/drizzle-orm"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/drizzle-orm"
 language = "typescript"
 range = "e31c65f526ab5253ffc2b08fdd1b266b7679d030..4aa6ecfee4b4728dadf6f77f071a149878a3c6c0"
 notes = "MEDIUM. 10-commit range: subquery select, $onUpdate fix, tsx migration, D1/PGlite studio. ~66 files."

@@ -1190,6 +1190,94 @@ dependencies = [
 ]
 
 [[package]]
+name = "diffcore-cli"
+version = "0.2.6"
+dependencies = [
+ "clap",
+ "diffcore-core",
+ "env_logger",
+ "git2",
+ "log",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "diffcore-core"
+version = "0.2.6"
+dependencies = [
+ "aho-corasick",
+ "async-trait",
+ "bincode",
+ "chrono",
+ "criterion",
+ "dashmap",
+ "diffcore-core",
+ "dotenv",
+ "fastembed",
+ "git2",
+ "glob",
+ "hex",
+ "insta",
+ "log",
+ "once_cell",
+ "petgraph",
+ "proptest",
+ "rayon",
+ "reqwest 0.12.28",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml 0.8.2",
+ "tree-sitter",
+ "tree-sitter-c",
+ "tree-sitter-c-sharp",
+ "tree-sitter-cpp",
+ "tree-sitter-go",
+ "tree-sitter-java",
+ "tree-sitter-kotlin-ng",
+ "tree-sitter-php",
+ "tree-sitter-python",
+ "tree-sitter-ruby",
+ "tree-sitter-rust",
+ "tree-sitter-scala",
+ "tree-sitter-swift",
+ "tree-sitter-typescript",
+ "wiremock",
+]
+
+[[package]]
+name = "diffcore-tauri"
+version = "0.2.6"
+dependencies = [
+ "async-stream",
+ "axum",
+ "diffcore-core",
+ "futures-core",
+ "git2",
+ "log",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-shell",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower-http",
+ "uuid",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1548,94 +1636,6 @@ checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
-]
-
-[[package]]
-name = "flowdiff-cli"
-version = "0.2.6"
-dependencies = [
- "clap",
- "env_logger",
- "flowdiff-core",
- "git2",
- "log",
- "serde_json",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "flowdiff-core"
-version = "0.2.6"
-dependencies = [
- "aho-corasick",
- "async-trait",
- "bincode",
- "chrono",
- "criterion",
- "dashmap",
- "dotenv",
- "fastembed",
- "flowdiff-core",
- "git2",
- "glob",
- "hex",
- "insta",
- "log",
- "once_cell",
- "petgraph",
- "proptest",
- "rayon",
- "reqwest 0.12.28",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "toml 0.8.2",
- "tree-sitter",
- "tree-sitter-c",
- "tree-sitter-c-sharp",
- "tree-sitter-cpp",
- "tree-sitter-go",
- "tree-sitter-java",
- "tree-sitter-kotlin-ng",
- "tree-sitter-php",
- "tree-sitter-python",
- "tree-sitter-ruby",
- "tree-sitter-rust",
- "tree-sitter-scala",
- "tree-sitter-swift",
- "tree-sitter-typescript",
- "wiremock",
-]
-
-[[package]]
-name = "flowdiff-tauri"
-version = "0.2.6"
-dependencies = [
- "async-stream",
- "axum",
- "flowdiff-core",
- "futures-core",
- "git2",
- "log",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-shell",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tower-http",
- "uuid",
 ]
 
 [[package]]

@@ -3,7 +3,7 @@
 [[repos]]
 name = "saleor-pydantic-editorjs"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/saleor"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/saleor"
 language = "python"
 range = "49b2f1c47d9ce77d2e19e42ad4f2ea717e8b6e84..484eb7c0edea31266802149d9a3244ac8643681f"
 notes = "MEDIUM. EditorJS to Pydantic migration. 53 files."

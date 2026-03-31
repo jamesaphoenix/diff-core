@@ -3,7 +3,7 @@
 [[repos]]
 name = "payload-large-range"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/payload"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/payload"
 language = "typescript"
 range = "a188556e99d94c96266671b2129e5c8cb05e46a5..1a0f4d028715e6ceae58acebca7884b268f298e7"
 notes = "LARGE. 20-commit range in headless CMS. ~294 files."

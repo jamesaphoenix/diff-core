@@ -2,7 +2,7 @@
 [[repos]]
 name = "gin-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gin"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/gin"
 language = "go"
 range = "052d1a79aafe3f04078a2716f8e77d4340308383..d3ffc9985281dcf4d3bef604cce4e662b1a327a6"
 notes = "SMALL. 10-commit range: test fixes, dep bumps, docs reorg. ~12 files."

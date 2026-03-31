@@ -3,7 +3,7 @@
 [[repos]]
 name = "fastapi-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/fastapi"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/fastapi"
 language = "python"
 range = "602ddc2e514f767084f95b7985aee92da2422877..937d3075f9456dfcdfe2e1f6bc3b8b7b9a6c6cad"
 notes = "LARGE. 20-commit range: mostly translations (~196 docs), 5 Python files. ~210 files."

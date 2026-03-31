@@ -3,7 +3,7 @@
 [[repos]]
 name = "rye-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/rye"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/rye"
 language = "rust"
 range = "e5d3225ca58ba7bfd4f0fb4f50bd2116f9a9543f..62ec9edbe471958a05a70418b19f3acd54f0484d"
 notes = "SMALL. 10-commit range: bootstrap, python downloads, CI. ~19 files."

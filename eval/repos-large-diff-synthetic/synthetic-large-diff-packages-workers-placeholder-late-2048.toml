@@ -2,7 +2,7 @@
 [[repos]]
 name = "synthetic-large-diff-packages-workers-placeholder-late-2048"
 type = "synthetic"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/synthetic/large-diff/packages-workers-placeholder"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/synthetic/large-diff/packages-workers-placeholder"
 language = "typescript"
 range = "ff59a98ff80860a316418fd3b1f76becb6471ea8..40cb3e28bfea04f769bd5f7d379e269fd14ee6c2"
 notes = "Synthetic large-diff track only. Monorepo worker packages with repeated placeholder/index/constants test names."

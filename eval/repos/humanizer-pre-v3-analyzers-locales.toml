@@ -4,7 +4,7 @@
 [[repos]]
 name = "humanizer-pre-v3-analyzers-locales"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/csharp/humanizer"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/csharp/humanizer"
 language = "csharp"
 range = "29973f32a2847c8f02025e1ac059c3d22a9d19cb..3052891c4a98c36fe61e866ef3e6c6671ad493c5"
 notes = "SMALL. 5-commit historical range: multi-Roslyn analyzer packaging/loading, Portuguese resource additions, ToQuantity int overload restore, one string-humanize optimization, and release metadata."

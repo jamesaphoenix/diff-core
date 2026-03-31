@@ -3,7 +3,7 @@
 [[repos]]
 name = "boto3-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/boto3"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/boto3"
 language = "python"
 range = "70f04aebf5d4d49a410943db45cb68e18ced995d..8c30411a442a21b8bccc9eb2fde60ab76751ef35"
 notes = "SMALL. 10-commit range: version bumps, changelog. ~7 files."

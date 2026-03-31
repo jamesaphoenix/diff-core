@@ -2,7 +2,7 @@
 [[repos]]
 name = "flask-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/flask"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/flask"
 language = "python"
 range = "663198d7b453ffdbe86d0e0238b1feafde6ce569..7ef2946fb5151b745df30201b8c27790cac53875"
 notes = "SMALL. 10-commit range: teardown robustness, session tracking, automatic options. ~28 files."

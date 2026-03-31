@@ -1,12 +1,12 @@
-# flowdiff autoresearch
+# diffcore autoresearch
 
-You are an autonomous research agent improving flowdiff's semantic grouping quality. You run in a loop, making one experiment per iteration. Each experiment modifies one variable, measures the result, and records it in `experiments/experiments.jsonl`.
+You are an autonomous research agent improving diffcore's semantic grouping quality. You run in a loop, making one experiment per iteration. Each experiment modifies one variable, measures the result, and records it in `experiments/experiments.jsonl`.
 
 **NEVER STOP.** Once the experiment loop has begun, do NOT pause to ask the human if you should continue. Do NOT ask "should I keep going?" or "is this a good stopping point?". The human might be asleep or away and expects you to continue working *indefinitely* until you are manually stopped. You are autonomous. If you run out of ideas, think harder — re-read the in-scope files, try combining previous near-misses, try more radical changes, look at failing repos for patterns. The loop runs until the human interrupts you, period.
 
 ## The Problem
 
-flowdiff takes a git diff and clusters changed files into semantic "flow groups" for human review. Quality means:
+diffcore takes a git diff and clusters changed files into semantic "flow groups" for human review. Quality means:
 - Related files land in the same group
 - Unrelated files stay separate
 - Infrastructure/boilerplate files are correctly identified
@@ -21,9 +21,9 @@ At the start of a new research session:
 2. **Read the in-scope files**: Read these for full context:
    - `experiments/experiments.jsonl` — what's been tried and what worked
    - `eval/repositories.research.toml` — corpus manifest with goldens
-   - `crates/flowdiff-core/src/cluster.rs` — deterministic grouping (the main thing you edit)
-   - `crates/flowdiff-core/src/rank.rs` — review ordering weights
-3. **Verify corpus exists**: Check that `~/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/` contains the expected repos.
+   - `crates/diffcore-core/src/cluster.rs` — deterministic grouping (the main thing you edit)
+   - `crates/diffcore-core/src/rank.rs` — review ordering weights
+3. **Verify corpus exists**: Check that `~/Desktop/projects/just-understanding-data/diffcore-eval-corpus/` contains the expected repos.
 4. **Establish baseline**: Run eval and record the baseline as experiment #0 if one doesn't exist yet.
 5. **Confirm and go**: Confirm setup looks good, then start the loop.
 
@@ -31,7 +31,7 @@ At the start of a new research session:
 
 ### 1. Deterministic grouping parameters (cluster.rs)
 
-These are hardcoded constants in `crates/flowdiff-core/src/cluster.rs`:
+These are hardcoded constants in `crates/diffcore-core/src/cluster.rs`:
 
 | Parameter | Current | Location | What it does |
 |-----------|---------|----------|-------------|
@@ -56,7 +56,7 @@ Risk sub-weights: schema=0.3, api=0.25, auth=0.35, db_migration=0.3
 
 ### 3. LLM refinement parameters
 
-Configurable via `.flowdiff.toml` or CLI flags:
+Configurable via `.diffcore.toml` or CLI flags:
 - `--refine` enables LLM refinement
 - `--refine-model <model>` picks the model (claude-sonnet-4-6, gpt-4.1, gemini-2.5-flash)
 - `--refine-iterations <n>` number of refinement passes
@@ -70,7 +70,7 @@ Per-target golden files live in `eval/repos/<name>.toml`. Each file must classif
 - `infrastructure = ["file"]` - config, deps, CI, generated files, lockfiles, docs
 - `non_infrastructure = ["file"]` - feature code, business logic, tests, API handlers
 - Every file in the diff MUST appear in exactly one of these lists
-- Run `cargo run -p flowdiff-cli -- lint-goldens --manifest eval/repositories.research.toml` to check
+- Run `cargo run -p diffcore-cli -- lint-goldens --manifest eval/repositories.research.toml` to check
 
 **Required:**
 - `group_count_min` / `group_count_max` - reasonable bounds on group count
@@ -116,12 +116,12 @@ These are structural improvements to the analysis layer — not parameters, but 
 
 | File | What it does |
 |------|-------------|
-| `crates/flowdiff-core/src/entrypoint.rs` | Entrypoint detection patterns (HTTP routes, CLI commands, tests, etc.) |
-| `crates/flowdiff-core/queries/*.scm` | Tree-sitter queries that extract symbols from source code |
-| `crates/flowdiff-core/src/flow.rs` | Framework detection (Express, FastAPI, Effect.ts, etc.) |
-| `crates/flowdiff-core/src/graph.rs` | Symbol graph construction and edge types |
-| `crates/flowdiff-core/src/ir.rs` | Shared IR types (IrFile, IrFunctionDef, IrImport, etc.) |
-| `crates/flowdiff-core/src/ast.rs` | AST parsing and language-specific extraction |
+| `crates/diffcore-core/src/entrypoint.rs` | Entrypoint detection patterns (HTTP routes, CLI commands, tests, etc.) |
+| `crates/diffcore-core/queries/*.scm` | Tree-sitter queries that extract symbols from source code |
+| `crates/diffcore-core/src/flow.rs` | Framework detection (Express, FastAPI, Effect.ts, etc.) |
+| `crates/diffcore-core/src/graph.rs` | Symbol graph construction and edge types |
+| `crates/diffcore-core/src/ir.rs` | Shared IR types (IrFile, IrFunctionDef, IrImport, etc.) |
+| `crates/diffcore-core/src/ast.rs` | AST parsing and language-specific extraction |
 
 ### 6. Repo type tag
 
@@ -136,7 +136,7 @@ This distinction matters for reporting: real repos test generalization, syntheti
 Each experiment runs the eval harness. The eval takes ~30s-2min depending on corpus size. You launch it as:
 
 ```bash
-cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format json 2>/dev/null > /tmp/fd-eval-result.json
+cargo run -p diffcore-cli -- eval --manifest eval/repositories.research.toml --format json 2>/dev/null > /tmp/fd-eval-result.json
 ```
 
 **Redirect output to files.** Do NOT let long eval output flood your context. Read only the summary metrics you need (avg_overall, per-repo scores, golden failures).
@@ -152,7 +152,7 @@ LOOP FOREVER:
 5. **git commit**: Commit the change so you can revert cleanly.
 6. **Run eval**:
    ```bash
-   cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format json 2>/dev/null > /tmp/fd-eval-result.json
+   cargo run -p diffcore-cli -- eval --manifest eval/repositories.research.toml --format json 2>/dev/null > /tmp/fd-eval-result.json
    ```
 7. **Read results**: Extract key metrics from the output file. Compare to the last entry in experiments.jsonl. Track these metrics:
    - `avg_overall` — average overall score across all repos
@@ -256,7 +256,7 @@ Each experiment gets one JSON line. Format depends on experiment type:
   "golden_score_after": 0.65,
   "avg_overall": 0.78,
   "decision": "keep",
-  "notes": "Sub-agent identified 3 same_group clusters from import analysis. flowdiff fails 2/3 — tracing files scattered across singletons. This gives Phase 2 clear targets."
+  "notes": "Sub-agent identified 3 same_group clusters from import analysis. diffcore fails 2/3 — tracing files scattered across singletons. This gives Phase 2 clear targets."
 }
 ```
 
@@ -298,7 +298,7 @@ The loop cycles through these 5 phases. Each iteration picks the highest-priorit
 
 Storage constraint:
 - Local disk is effectively full for this project.
-- Prefer mining additional pinned diff ranges from repos already cloned under `flowdiff-eval-corpus/`.
+- Prefer mining additional pinned diff ranges from repos already cloned under `diffcore-eval-corpus/`.
 - Treat each `eval/repos/*.toml` file as one eval target. Multiple targets can come from the same underlying repo checkout.
 
 **Adding real eval targets:**
@@ -307,12 +307,12 @@ Storage constraint:
 3. Find an interesting diff range: `git log --oneline | grep -iE "feat|refactor"`
 4. Verify file count: `git diff --stat <base>..<head> | tail -3` (10-100 ideal)
 5. Add a new eval target with `type = "real"`, full SHA hashes, and initial golden constraints
-6. Run eval to verify: `cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format text 2>&1`
+6. Run eval to verify: `cargo run -p diffcore-cli -- eval --manifest eval/repositories.research.toml --format text 2>&1`
 7. Only if the local corpus is clearly insufficient for the missing coverage gap should you consider cloning a new repo
 
 **Adding synthetic repos:**
 1. Identify a specific edge case not covered by real repos (e.g., deep import chains, monorepo with 5+ features, pure rename refactor)
-2. Create a temp directory under `flowdiff-eval-corpus/synthetic/<name>/`
+2. Create a temp directory under `diffcore-eval-corpus/synthetic/<name>/`
 3. Build a minimal repo with known-good grouping (you know the correct answer)
 4. Commit a base state, then commit the changes
 5. Add to manifest with `type = "synthetic"` and tight golden constraints (since you know the answer)
@@ -329,9 +329,9 @@ Storage constraint:
 ### Phase 1: Build goldens via sub-agents
 **Priority: HIGHEST (when `lint-goldens` reports gaps).** Use Claude Code sub-agents to generate golden constraints by reading the actual diff content. **Every file in the diff must be classified** — `lint-goldens` enforces this.
 
-**Why full coverage?** Without classifying every file, flowdiff can silently misplace files and the eval won't notice. A repo with 11/102 classified files has 91 blind spots. Full coverage eliminates this.
+**Why full coverage?** Without classifying every file, diffcore can silently misplace files and the eval won't notice. A repo with 11/102 classified files has 91 blind spots. Full coverage eliminates this.
 
-**Why sub-agents?** Goldens need to represent ground truth about how a human would group these changes for review. An LLM reading the diff content can determine this from the code itself — which files modify the same API, which are part of the same feature, which are infrastructure. This is independent of what flowdiff currently outputs.
+**Why sub-agents?** Goldens need to represent ground truth about how a human would group these changes for review. An LLM reading the diff content can determine this from the code itself — which files modify the same API, which are part of the same feature, which are infrastructure. This is independent of what diffcore currently outputs.
 
 **For each target without goldens or without ML-ready labels:**
 
@@ -377,17 +377,17 @@ Storage constraint:
 
 4. **Review and merge** the sub-agent's constraints into `eval/repos/<name>.toml`
 
-5. **Run eval** to see how flowdiff scores against the new goldens:
+5. **Run eval** to see how diffcore scores against the new goldens:
    ```bash
-   cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format text 2>&1
+   cargo run -p diffcore-cli -- eval --manifest eval/repositories.research.toml --format text 2>&1
    ```
 
-6. **If a golden constraint fails:** decide whether the constraint is wrong (remove it) or flowdiff is wrong (keep it — failing goldens drive improvement in Phase 2).
+6. **If a golden constraint fails:** decide whether the constraint is wrong (remove it) or diffcore is wrong (keep it — failing goldens drive improvement in Phase 2).
 7. **If the target is not ML-ready yet:** add or complete `repos.ml.groups` before moving on. Sparse pairwise constraints alone are not enough for training data.
 
 **Work order:** Small diffs first (fast, easy for the sub-agent), then medium, then large.
 
-**Important:** Goldens represent the IDEAL grouping, not what flowdiff currently produces. A golden that flowdiff fails against is a signal for improvement, not a bug in the golden.
+**Important:** Goldens represent the IDEAL grouping, not what diffcore currently produces. A golden that diffcore fails against is a signal for improvement, not a bug in the golden.
 For ML dataset work, the ideal output is a full semantic partition plus the sparse eval constraints, stored together additively in the same TOML.
 
 ### Phase 2: Improve grouping quality
@@ -406,10 +406,10 @@ Key experiments:
 **2b: Pipeline capability improvements** — when parameter tuning can't fix the problem because the pipeline is missing data. These are structural changes to the analysis layer.
 
 Key experiments:
-- **Entrypoint detection patterns**: Add new patterns for underserved languages/frameworks. If Rust repos score 0 because no entrypoints are detected, no amount of tuning cluster.rs fixes that. Add patterns in `crates/flowdiff-core/src/entrypoint.rs` or the relevant `.scm` query files.
-- **AST/IR extraction**: Improve `.scm` tree-sitter queries to capture more symbols, imports, or call expressions. Files in `crates/flowdiff-core/queries/`. Adding a new language = writing `.scm` files, zero Rust code.
+- **Entrypoint detection patterns**: Add new patterns for underserved languages/frameworks. If Rust repos score 0 because no entrypoints are detected, no amount of tuning cluster.rs fixes that. Add patterns in `crates/diffcore-core/src/entrypoint.rs` or the relevant `.scm` query files.
+- **AST/IR extraction**: Improve `.scm` tree-sitter queries to capture more symbols, imports, or call expressions. Files in `crates/diffcore-core/queries/`. Adding a new language = writing `.scm` files, zero Rust code.
 - **Graph edges**: Add new edge types to the symbol graph (e.g., detecting that a Rust `mod.rs` re-exports its children, or that a Go `_test.go` file tests its sibling).
-- **Framework detection**: Add detection for frameworks not yet supported. See `crates/flowdiff-core/src/flow.rs` for existing patterns.
+- **Framework detection**: Add detection for frameworks not yet supported. See `crates/diffcore-core/src/flow.rs` for existing patterns.
 
 **How to decide 2a vs 2b:** Look at why a golden is failing. If the files are parsed and connected in the graph but land in the wrong group → 2a (tuning). If the files aren't even detected as related (missing from graph, no entrypoints, no edges) → 2b (capability).
 
@@ -454,7 +454,7 @@ This builds a leaderboard over time so we can answer: "which model + prompt give
 ### Phase 4: Synthetic data and edge cases
 **Priority: LOW (but do some early).** Create synthetic repos that exercise edge cases:
 
-The existing fixture system (`crates/flowdiff-core/src/eval/fixtures.rs`) builds temp git repos with known structures. Add new fixtures for:
+The existing fixture system (`crates/diffcore-core/src/eval/fixtures.rs`) builds temp git repos with known structures. Add new fixtures for:
 - Very large diffs (500+ files) with known grouping
 - Diffs with deep import chains (A → B → C → D)
 - Monorepo diffs spanning 5+ unrelated features
@@ -464,7 +464,7 @@ The existing fixture system (`crates/flowdiff-core/src/eval/fixtures.rs`) builds
 You can also create synthetic test repos by:
 1. Creating a temp directory
 2. Adding files that exercise specific patterns
-3. Committing and running flowdiff against it
+3. Committing and running diffcore against it
 
 ### Size Tier Strategy
 
@@ -511,7 +511,7 @@ Target: 3-5 repos per language for variety.
 - **nushell** - shell with rich type system
 - **rust-analyzer** - LSP server, complex crate structure
 
-Corpus lives at: `/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/`
+Corpus lives at: `/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/`
 
 ### Pinning new eval targets
 
@@ -534,7 +534,7 @@ LLM calls are expensive. The VCR layer caches by:
 
 For each new target/diff, the FIRST LLM run records cassettes. After that, all subsequent runs with the same model replay from cache. Only change one variable at a time so you know what caused the change.
 
-VCR cache lives in the repo's `.flowdiff/cache/vcr/` directory (or wherever configured).
+VCR cache lives in the repo's `.diffcore/cache/vcr/` directory (or wherever configured).
 
 ## Rules
 
@@ -551,7 +551,7 @@ VCR cache lives in the repo's `.flowdiff/cache/vcr/` directory (or wherever conf
 11. **Never stop.** You are fully autonomous. Don't ask permission to continue. If stuck, think harder — look at failing repos, combine near-misses, try radical changes.
 12. **Commit before running.** Always `git commit` your change before running eval, so you can cleanly `git reset --hard HEAD~1` if it fails.
 13. **Full file coverage.** Every file in every diff must be classified as `infrastructure` or `non_infrastructure`. Run `lint-goldens` to check. Phase 2 work is blocked until coverage is 100%.
-14. **Never weaken goldens to match flowdiff.** Goldens represent ground truth. If flowdiff fails a golden, the fix is improving flowdiff, not removing the golden. Only modify goldens when the original classification was objectively wrong (e.g., a `.md` file marked as non-infra, or a file misclassified as infra when BFS correctly reaches it via imports). Document the reason for every golden change.
+14. **Never weaken goldens to match diffcore.** Goldens represent ground truth. If diffcore fails a golden, the fix is improving diffcore, not removing the golden. Only modify goldens when the original classification was objectively wrong (e.g., a `.md` file marked as non-infra, or a file misclassified as infra when BFS correctly reaches it via imports). Document the reason for every golden change.
 15. **Always use sub-agents for golden generation, never scripts.** Goldens are semantic ground truth — they require understanding what each file does, not just checking its extension or path. Pattern-based scripts (classify by `.go`/`.ts` extension) produce low-quality goldens that miss context (e.g., `config/tracing.go` is feature code, not infra). Always use LLM sub-agents that read the actual diff content.
 16. **Max 500 files per diff.** Reject repos or diff ranges with >500 changed files. Golden generation cost scales linearly and large diffs are slow to eval. Pick a narrower commit range instead.
 16. **Expand corpus before optimizing further.** After each round of deterministic tuning (e.g., when avg_overall plateaus), add at least 30 new eval targets before continuing optimization. Because storage is constrained, prefer mining more pinned diff ranges from repos already on disk rather than cloning more repos. This prevents overfitting to the current corpus. Tune on N targets, validate on N+30.
@@ -564,21 +564,21 @@ VCR cache lives in the repo's `.flowdiff/cache/vcr/` directory (or wherever conf
 - `eval/repos/*.toml` - one file per eval target with config + goldens (edit these directly)
 
 **Grouping algorithm (Phase 2a — parameter tuning):**
-- `crates/flowdiff-core/src/cluster.rs` - deterministic grouping constants
-- `crates/flowdiff-core/src/rank.rs` - review ordering weights
+- `crates/diffcore-core/src/cluster.rs` - deterministic grouping constants
+- `crates/diffcore-core/src/rank.rs` - review ordering weights
 
 **Pipeline capabilities (Phase 2b — structural improvements):**
-- `crates/flowdiff-core/src/entrypoint.rs` - entrypoint detection patterns
-- `crates/flowdiff-core/queries/*.scm` - tree-sitter queries per language
-- `crates/flowdiff-core/src/flow.rs` - framework detection
-- `crates/flowdiff-core/src/graph.rs` - symbol graph and edge types
-- `crates/flowdiff-core/src/ir.rs` - shared IR types
-- `crates/flowdiff-core/src/ast.rs` - AST parsing
+- `crates/diffcore-core/src/entrypoint.rs` - entrypoint detection patterns
+- `crates/diffcore-core/queries/*.scm` - tree-sitter queries per language
+- `crates/diffcore-core/src/flow.rs` - framework detection
+- `crates/diffcore-core/src/graph.rs` - symbol graph and edge types
+- `crates/diffcore-core/src/ir.rs` - shared IR types
+- `crates/diffcore-core/src/ast.rs` - AST parsing
 
 **Supporting:**
-- `crates/flowdiff-core/src/config.rs` - config schema
-- `crates/flowdiff-core/src/llm/vcr.rs` - VCR caching
-- `crates/flowdiff-core/src/eval/repos.rs` - repo eval harness
+- `crates/diffcore-core/src/config.rs` - config schema
+- `crates/diffcore-core/src/llm/vcr.rs` - VCR caching
+- `crates/diffcore-core/src/eval/repos.rs` - repo eval harness
 - `docs/grouping-overhaul.md` - prior work handoff
 
 ## Getting Started

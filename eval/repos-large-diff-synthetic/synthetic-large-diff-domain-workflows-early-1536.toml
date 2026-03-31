@@ -2,7 +2,7 @@
 [[repos]]
 name = "synthetic-large-diff-domain-workflows-early-1536"
 type = "synthetic"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/synthetic/large-diff/domain-workflows"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/synthetic/large-diff/domain-workflows"
 language = "typescript"
 range = "c3abd1cca76bae236f320887fac42590453a5d74..1affb13994de03fb37b4001780eca7dffe6a28dd"
 notes = "Synthetic large-diff track only. Service-domain roots with repeated workflow/activity/agent/job file names."

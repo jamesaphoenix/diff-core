@@ -3,7 +3,7 @@
 [[repos]]
 name = "play-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/scala/play"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/scala/play"
 language = "scala"
 range = "49fbd1c544914dbb2d07835b876e016a0c6f5594..1f5858b1b5164662a0c8f2904135f4632c23abe3"
 notes = "SMALL. 30-commit range: config, body parser, websocket, Gradle updates. ~16 files."

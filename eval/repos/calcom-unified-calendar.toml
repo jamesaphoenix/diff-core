@@ -2,7 +2,7 @@
 [[repos]]
 name = "calcom-unified-calendar"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/cal.com"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/cal.com"
 language = "typescript"
 range = "fa20f19e54b5747632017dafcc2cd735dc7d70d4..72acf09ff20bdaa50173fcabceeb00825397668c"
 notes = "SMALL. Unified calendar API: CRUD, freebusy, list connections. 23 files."

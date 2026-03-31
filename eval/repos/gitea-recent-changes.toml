@@ -3,7 +3,7 @@
 [[repos]]
 name = "gitea-recent-changes"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/gitea"
 language = "go"
 range = "c96cc701445cfe31fce65dc4ff667ab49f218857..d5a89805d90d31465ac10fdf3d1a9119b669e8be"
 notes = "MEDIUM. Recent 10-commit range. ~102 files."

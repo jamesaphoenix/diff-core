@@ -2,7 +2,7 @@
 [[repos]]
 name = "terraform-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/terraform"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/terraform"
 language = "go"
 range = "a42d5b9f62055e1f46d9b003213373528a718d3d..73c225dff4f1dc2a2464ffffe6f590e1d5692c05"
 notes = "MEDIUM. 22 files: two features—new 'store' block for terraform_data (ephemeral/sensitive values) and PlannedPrivate provider data (protocol v6.11), plus action invocations in stack plans."

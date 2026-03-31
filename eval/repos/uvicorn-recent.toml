@@ -2,7 +2,7 @@
 [[repos]]
 name = "uvicorn-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/uvicorn"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/uvicorn"
 language = "python"
 range = "2fc0efcdd958abd3adbe6ea19682408d6b2e1b18..02bed6f8c38e74f684bb0e572977a9bfdc1f6fea"
 notes = "SMALL. 9-commit range: bytearray body accumulation, httptools regex fix, websockets sansio fixes, CodSpeed benchmark suite. ~15 files."

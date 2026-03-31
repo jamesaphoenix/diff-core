@@ -3,7 +3,7 @@
 [[repos]]
 name = "nushell-large-range"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/nushell"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/nushell"
 language = "rust"
 range = "6506e9121b9b10b65bdaae4477aeb145c34ff14b..adc2b2b2556d6b9d0bb3f8551f0be7dfb5e4eded"
 notes = "LARGE. 50-commit range in shell with rich type system. ~611 files."

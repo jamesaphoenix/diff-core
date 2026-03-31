@@ -2,7 +2,7 @@
 [[repos]]
 name = "turborepo-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/turborepo"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/turborepo"
 language = "typescript"
 range = "d5c219238d931a1b62beb809b6ab9ebdefdc288c..dcc9f6ae59ea7eeddbadef40084af96063b20da3"
 notes = "SMALL. 10-commit range: watch mode refactor, PTY setsid bypass, special files, pnpm lockfile. ~41 files."

@@ -4,7 +4,7 @@
 [[repos]]
 name = "sqlmodel-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/sqlmodel"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/sqlmodel"
 language = "python"
 range = "4f5700339f4a87f7576cf8c6bf8b52b0a7c34ec6..8b608382a0299acd892529764599939103e4fc3b"
 notes = "SMALL. 40-commit historical range: docs-site external-link behavior in JS/CSS, a new `in_()` tutorial example plus regression test, relationship-doc wording clarification, and dependency/release churn. 10 files."

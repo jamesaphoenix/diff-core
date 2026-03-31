@@ -1,4 +1,4 @@
-# flowdiff large-diff corpus
+# diffcore large-diff corpus
 #
 # Separate from the default live-repo experimentation manifest.
 # This track is for 1k+ file diffs, especially 2k+ ranges that use

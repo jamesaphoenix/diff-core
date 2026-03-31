@@ -3,7 +3,7 @@
 [[repos]]
 name = "spring-petclinic-boot4-i18n"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/java/spring-petclinic"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/java/spring-petclinic"
 language = "java"
 range = "f9399b7a9fe3a244ba75e83bf2bc6f2cb32b3011..a0aea8e8f8ccc8ff85e97f418484ca9d0d29012f"
 notes = "MEDIUM. 9-commit range: Maven/Gradle and wrapper upgrades for Boot 4.0.0-M2, localized status-specific error-page messaging, and a broad NullAway/JSpecify source migration. 51 files."

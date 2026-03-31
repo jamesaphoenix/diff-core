@@ -1,14 +1,14 @@
-# flowdiff
+# Diffcore
 
-**Semantic diff layer for code review.** Git gives you syntactic diffs. flowdiff adds meaning: what those changes *mean*, how they relate, and what order a human should read them in.
+**Semantic diff layer for code review.** Git gives you syntactic diffs. Diffcore adds meaning: what those changes *mean*, how they relate, and what order a human should read them in.
 
 Built for the era of AI agents producing 50+ file PRs.
 
-![flowdiff analysis view](docs/screenshots/hero-analysis.png)
+![Diffcore analysis view](docs/screenshots/hero-analysis.png)
 
 ## How it Works
 
-flowdiff transforms flat file diffs into ranked, semantically grouped review flows through three layers:
+Diffcore transforms flat file diffs into ranked, semantically grouped review flows through three layers:
 
 **Structural analysis** (free, deterministic) builds a symbol graph from tree-sitter ASTs, detects entrypoints (HTTP routes, CLI commands, queue consumers, Effect.ts services), clusters changed files into flow groups via forward reachability, and traces data flow across call chains.
 
@@ -43,20 +43,20 @@ flowdiff transforms flat file diffs into ranked, semantically grouped review flo
 ### CLI
 
 ```bash
-cargo install --path crates/flowdiff-cli
+cargo install --path crates/diffcore-cli
 ```
 
 Or build a release binary and symlink it:
 
 ```bash
-cargo build --release -p flowdiff-cli
-ln -sf "$(pwd)/target/release/flowdiff" /usr/local/bin/flowdiff
+cargo build --release -p diffcore-cli
+ln -sf "$(pwd)/target/release/diffcore" /usr/local/bin/diffcore
 ```
 
 ### Tauri Desktop App
 
 ```bash
-cd crates/flowdiff-tauri/ui && npm install
+cd crates/diffcore-tauri/ui && npm install
 cargo tauri build
 ```
 
@@ -83,33 +83,33 @@ Then install the `.vsix` via "Extensions: Install from VSIX" in VS Code.
 
 ```bash
 # PR preview (default): merge-base diff main...HEAD
-flowdiff analyze
+diffcore analyze
 
 # Branch comparison
-flowdiff analyze --base main --head feature-branch
+diffcore analyze --base main --head feature-branch
 
 # Commit range
-flowdiff analyze --range HEAD~5..HEAD
+diffcore analyze --range HEAD~5..HEAD
 
 # Staged or unstaged changes
-flowdiff analyze --staged
-flowdiff analyze --unstaged
+diffcore analyze --staged
+diffcore analyze --unstaged
 
 # Save to file
-flowdiff analyze --base main -o review.json
+diffcore analyze --base main -o review.json
 
 # With LLM annotations (overview summary)
-flowdiff analyze --base main --annotate
+diffcore analyze --base main --annotate
 
 # With LLM refinement of groupings
-flowdiff analyze --base main --refine
-flowdiff analyze --base main --refine --refine-model gpt-4o
+diffcore analyze --base main --refine
+diffcore analyze --base main --refine --refine-model gpt-4o
 
 # Analyze a different repo
-flowdiff analyze --base main --repo /path/to/repo
+diffcore analyze --base main --repo /path/to/repo
 
 # Open a flow group in an external diff tool
-flowdiff launch --tool bcompare --group group_1 --input review.json
+diffcore launch --tool bcompare --group group_1 --input review.json
 ```
 
 Supported external diff tools: Beyond Compare (`bcompare`), Meld (`meld`), KDiff3 (`kdiff3`), VS Code (`code`), macOS FileMerge (`opendiff`).
@@ -130,20 +130,20 @@ The app auto-discovers git branches, worktrees, and push status on launch. Enter
 
 | Command | Key | Description |
 |---------|-----|-------------|
-| `flowdiff.analyze` | | Analyze current branch |
-| `flowdiff.analyzeRange` | | Analyze a commit range |
-| `flowdiff.annotate` | | Annotate with LLM |
-| `flowdiff.nextFile` | `j` | Next file in flow |
-| `flowdiff.prevFile` | `k` | Previous file in flow |
-| `flowdiff.nextGroup` | `Shift+J` | Next flow group |
-| `flowdiff.prevGroup` | `Shift+K` | Previous flow group |
+| `diffcore.analyze` | | Analyze current branch |
+| `diffcore.analyzeRange` | | Analyze a commit range |
+| `diffcore.annotate` | | Annotate with LLM |
+| `diffcore.nextFile` | `j` | Next file in flow |
+| `diffcore.prevFile` | `k` | Previous file in flow |
+| `diffcore.nextGroup` | `Shift+J` | Next flow group |
+| `diffcore.prevGroup` | `Shift+K` | Previous flow group |
 
 ## Configuration
 
-flowdiff now splits configuration into:
+Diffcore now splits configuration into:
 
-- `~/.flowdiff/config.toml` for shared LLM/onboarding settings across all repos
-- `.flowdiff.toml` in the repo root for project-specific analysis settings
+- `~/.diffcore/config.toml` for shared LLM/onboarding settings across all repos
+- `.diffcore.toml` in the repo root for project-specific analysis settings
 
 New users can usually skip API keys entirely: the desktop app auto-detects `codex` and `claude`, and will use those subscriptions when available.
 
@@ -190,21 +190,21 @@ uncertainty = 0.20
 
 ### API Key Resolution
 
-When using direct API providers (`anthropic`, `openai`, `gemini`), flowdiff checks for API keys in this order:
+When using direct API providers (`anthropic`, `openai`, `gemini`), Diffcore checks for API keys in this order:
 
-1. `key_cmd` in `~/.flowdiff/config.toml` or `.flowdiff.toml`
-2. `key` in `~/.flowdiff/config.toml` or `.flowdiff.toml`
-3. `FLOWDIFF_API_KEY`
+1. `key_cmd` in `~/.diffcore/config.toml` or `.diffcore.toml`
+2. `key` in `~/.diffcore/config.toml` or `.diffcore.toml`
+3. `DIFFCORE_API_KEY`
 4. Provider specific env var: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`
 
-When using `codex` or `claude`, flowdiff uses the local CLI login instead of an API key and lets that agent inspect the repository with structured output constraints.
+When using `codex` or `claude`, Diffcore uses the local CLI login instead of an API key and lets that agent inspect the repository with structured output constraints.
 
 ## Architecture
 
 ```
-flowdiff/
+diffcore/
 ├── crates/
-│   ├── flowdiff-core/          # Library: all analysis logic
+│   ├── diffcore-core/          # Library: all analysis logic
 │   │   ├── src/
 │   │   │   ├── git.rs          # Git diff extraction (git2)
 │   │   │   ├── ast.rs          # Tree-sitter parsing
@@ -216,13 +216,13 @@ flowdiff/
 │   │   │   ├── rank.rs         # Review ordering
 │   │   │   ├── entrypoint.rs   # Entrypoint detection
 │   │   │   ├── cache.rs        # SHA-256 analysis caching
-│   │   │   ├── config.rs       # .flowdiff.toml parsing
+│   │   │   ├── config.rs       # .diffcore.toml parsing
 │   │   │   └── llm/            # LLM providers, VCR caching, judge
 │   │   └── queries/            # Declarative .scm tree-sitter queries
 │   │       ├── typescript/
 │   │       └── python/
-│   ├── flowdiff-cli/           # CLI interface
-│   └── flowdiff-tauri/         # Tauri desktop app
+│   ├── diffcore-cli/           # CLI interface
+│   └── diffcore-tauri/         # Tauri desktop app
 │       ├── src/                # Rust backend (IPC commands)
 │       └── ui/                 # React + Vite frontend
 ├── extensions/
@@ -232,9 +232,9 @@ flowdiff/
 
 ### Adding a New Language
 
-flowdiff uses declarative tree-sitter query files. To add a new language:
+Diffcore uses declarative tree-sitter query files. To add a new language:
 
-1. Add `.scm` query files in `crates/flowdiff-core/queries/<language>/`
+1. Add `.scm` query files in `crates/diffcore-core/queries/<language>/`
 2. Add the tree-sitter grammar crate to `Cargo.toml`
 3. Register the language in the query engine
 
@@ -257,10 +257,10 @@ Zero Rust analysis code needed. The query engine maps `@capture` names to the sh
 cargo build
 
 # Build CLI only
-cargo build -p flowdiff-cli
+cargo build -p diffcore-cli
 
 # Build and run Tauri app in dev mode
-cd crates/flowdiff-tauri/ui && npm install
+cd crates/diffcore-tauri/ui && npm install
 cargo tauri dev
 ```
 
@@ -271,27 +271,27 @@ cargo tauri dev
 cargo test
 
 # Specific crate
-cargo test -p flowdiff-core
-cargo test -p flowdiff-cli
-cargo test -p flowdiff-tauri
+cargo test -p diffcore-core
+cargo test -p diffcore-cli
+cargo test -p diffcore-tauri
 
 # Playwright E2E tests for the Tauri UI
-cd crates/flowdiff-tauri/ui && npx playwright test
+cd crates/diffcore-tauri/ui && npx playwright test
 
 # Focused browser E2E for the new AI activity transcript
-cd crates/flowdiff-tauri/ui && npx playwright test tests/e2e/activity-stream.spec.ts
+cd crates/diffcore-tauri/ui && npx playwright test tests/e2e/activity-stream.spec.ts
 
 # SSE transport integration for live activity streaming
-cargo test -p flowdiff-tauri --test activity_stream_integration -- --nocapture
+cargo test -p diffcore-tauri --test activity_stream_integration -- --nocapture
 
 # Smoke test the built macOS bundle stays alive during startup
-FLOWDIFF_RUN_APP_LAUNCH_TESTS=1 cargo test -p flowdiff-tauri --test app_launch_smoke -- --nocapture
+DIFFCORE_RUN_APP_LAUNCH_TESTS=1 cargo test -p diffcore-tauri --test app_launch_smoke -- --nocapture
 
 # Live LLM integration tests (API keys and/or authenticated CLIs)
-FLOWDIFF_RUN_LIVE_LLM_TESTS=1 cargo test -p flowdiff-core -- --ignored
+DIFFCORE_RUN_LIVE_LLM_TESTS=1 cargo test -p diffcore-core -- --ignored
 
 # Live Codex CLI / Claude Code activity tests
-FLOWDIFF_RUN_LIVE_LLM_TESTS=1 cargo test -p flowdiff-core --test cli_activity_live -- --nocapture
+DIFFCORE_RUN_LIVE_LLM_TESTS=1 cargo test -p diffcore-core --test cli_activity_live -- --nocapture
 ```
 
 ## Contributing

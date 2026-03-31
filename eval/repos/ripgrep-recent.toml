@@ -3,7 +3,7 @@
 [[repos]]
 name = "ripgrep-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/ripgrep"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/ripgrep"
 language = "rust"
 range = "4694800be58daa9e2ca9534f674b63254eb02b3b..4519153e5e461527f4bca45b042fff45c4ec6fb9"
 notes = "SMALL. 15-commit range: flag config, ignore patterns, dep updates. ~15 files."

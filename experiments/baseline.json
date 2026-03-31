@@ -32,7 +32,7 @@
       },
       "name": "calcom-unified-calendar",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/cal.com/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/cal.com/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,
@@ -76,7 +76,7 @@
       },
       "name": "fastapi-template-refactor",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/full-stack-fastapi-template/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/full-stack-fastapi-template/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 0.6666666666666666,
@@ -126,7 +126,7 @@
       },
       "name": "starship-features",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/starship/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/starship/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 0.125,
@@ -170,7 +170,7 @@
       },
       "name": "alertmanager-tracing",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/alertmanager/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/alertmanager/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 0.75,
@@ -212,7 +212,7 @@
       },
       "name": "minikube-flock-refactor",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/minikube/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/minikube/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,
@@ -254,7 +254,7 @@
       },
       "name": "nushell-testing-refactor",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/nushell/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/nushell/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,
@@ -298,7 +298,7 @@
       },
       "name": "payload-eval-suite",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/payload/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/payload/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 0.5,
@@ -340,7 +340,7 @@
       },
       "name": "saleor-pydantic-editorjs",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/saleor/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/saleor/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,
@@ -382,7 +382,7 @@
       },
       "name": "gitea-actions-permissions",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/gitea/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,
@@ -424,7 +424,7 @@
       },
       "name": "rust-analyzer-internals",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/rust-analyzer/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/rust-analyzer/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,
@@ -466,7 +466,7 @@
       },
       "name": "saleor-recent-changes",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/python/saleor/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/python/saleor/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,
@@ -508,7 +508,7 @@
       },
       "name": "gitea-recent-changes",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/gitea/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,
@@ -550,7 +550,7 @@
       },
       "name": "calcom-large-range",
       "passed": true,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/cal.com/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/cal.com/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,
@@ -592,7 +592,7 @@
       },
       "name": "payload-large-range",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/payload/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/payload/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,
@@ -634,7 +634,7 @@
       },
       "name": "gitea-large-range",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/go/gitea/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/go/gitea/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,
@@ -676,7 +676,7 @@
       },
       "name": "nushell-large-range",
       "passed": false,
-      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/nushell/",
+      "path": "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/nushell/",
       "scores": {
         "file_accounting": 1.0,
         "golden": 1.0,

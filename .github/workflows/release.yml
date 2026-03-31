@@ -26,7 +26,7 @@ jobs:
 
           tag_version="${GITHUB_REF_NAME#v}"
           workspace_version="$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -1)"
-          tauri_version="$(python3 -c 'import json; print(json.load(open("crates/flowdiff-tauri/tauri.conf.json"))["version"])')"
+          tauri_version="$(python3 -c 'import json; print(json.load(open("crates/diffcore-tauri/tauri.conf.json"))["version"])')"
 
           if [ "$tag_version" != "$workspace_version" ]; then
             echo "::error::Release tag $tag_version does not match workspace version $workspace_version"
@@ -56,10 +56,10 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: crates/flowdiff-tauri/ui/package-lock.json
+          cache-dependency-path: crates/diffcore-tauri/ui/package-lock.json
 
       - name: Install UI dependencies
-        working-directory: crates/flowdiff-tauri/ui
+        working-directory: crates/diffcore-tauri/ui
         run: npm ci
 
       - name: Install Tauri CLI
@@ -177,7 +177,7 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v6
         with:
-          name: flowdiff-aarch64-apple-darwin-dmg
+          name: diffcore-aarch64-apple-darwin-dmg
           path: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
 
   build-linux:
@@ -203,10 +203,10 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: crates/flowdiff-tauri/ui/package-lock.json
+          cache-dependency-path: crates/diffcore-tauri/ui/package-lock.json
 
       - name: Install UI dependencies
-        working-directory: crates/flowdiff-tauri/ui
+        working-directory: crates/diffcore-tauri/ui
         run: npm ci
 
       - name: Install Tauri CLI
@@ -218,7 +218,7 @@ jobs:
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: flowdiff-linux
+          name: diffcore-linux
           path: |
             target/release/bundle/deb/*.deb
             target/release/bundle/appimage/*.AppImage
@@ -241,10 +241,10 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: crates/flowdiff-tauri/ui/package-lock.json
+          cache-dependency-path: crates/diffcore-tauri/ui/package-lock.json
 
       - name: Install UI dependencies
-        working-directory: crates/flowdiff-tauri/ui
+        working-directory: crates/diffcore-tauri/ui
         run: npm ci
 
       - name: Install Tauri CLI
@@ -256,7 +256,7 @@ jobs:
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: flowdiff-windows
+          name: diffcore-windows
           path: |
             target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe

@@ -2,7 +2,7 @@
 [[repos]]
 name = "polars-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/polars"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/polars"
 language = "rust"
 range = "7b69a190e223e185fd3f9a2bcb355bc794b227e1..0f3a1d570df6f3ace8268a4e085bfbe7a6079724"
 notes = "MEDIUM. 42 files: streaming cov/pearson reduction, sorted-unique streaming node, sortedness resolution refactor, Append-to-ConcatExpr IR merge, bug fixes (transpose cast, aggregation null counting, merge_sorted, rle BinaryOffset), Python unnest() default-all-structs, maturin version pin."

@@ -1,4 +1,4 @@
-# flowdiff autoresearch corpus
+# diffcore autoresearch corpus
 #
 # Per-repo configs live in eval/repos/*.toml (one file per repo).
 # This file sets shared defaults and points at the repo directory.
@@ -8,7 +8,7 @@
 #   - "synthetic" — generated programmatically to exercise specific edge cases
 #
 # Run:
-#   cargo run -p flowdiff-cli -- eval --manifest eval/repositories.research.toml --format text
+#   cargo run -p diffcore-cli -- eval --manifest eval/repositories.research.toml --format text
 
 include_dir = "repos"
 

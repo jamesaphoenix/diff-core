@@ -28,13 +28,13 @@ This is the main change that prevents pathological runs from producing thousands
 
 The group cap is now configurable through:
 
-- `.flowdiff.toml` via `[clustering].max_groups`
-- `flowdiff analyze --max-groups <n>`
+- `.diffcore.toml` via `[clustering].max_groups`
+- `diffcore analyze --max-groups <n>`
 
 Iterative refinement is now configurable through:
 
-- `.flowdiff.toml` via `[llm.refinement].max_iterations`
-- `flowdiff analyze --refine-iterations <n>`
+- `.diffcore.toml` via `[llm.refinement].max_iterations`
+- `diffcore analyze --refine-iterations <n>`
 
 ### 3. Iterative refinement plumbing
 
@@ -47,7 +47,7 @@ This is important for the next phase: explicit regroup/patch workflows with many
 A real-repo eval harness now exists behind:
 
 ```bash
-flowdiff eval --manifest <manifest.toml>
+diffcore eval --manifest <manifest.toml>
 ```
 
 The harness supports:
@@ -80,7 +80,7 @@ Goldens currently support:
 
 ### 5. Cache semantics fix
 
-`flowdiff analyze --no-cache` now bypasses both:
+`diffcore analyze --no-cache` now bypasses both:
 
 - the disk-persistent IR cache
 - the analysis-output cache
@@ -120,9 +120,9 @@ Current deterministic result:
 ### Commands that passed
 
 ```bash
-cargo test -p flowdiff-core --lib
-cargo test -p flowdiff-cli
-cargo run -p flowdiff-cli -- eval --manifest eval/repositories.example.toml --format text
+cargo test -p diffcore-core --lib
+cargo test -p diffcore-cli
+cargo run -p diffcore-cli -- eval --manifest eval/repositories.example.toml --format text
 ```
 
 Expected eval result for the local octospark manifest:
@@ -135,11 +135,11 @@ octospark-services-large-history | 3484 | 145 | 91.7% | 24.1% | 1.00 | 1.00 | PA
 
 Core implementation:
 
-- `crates/flowdiff-core/src/cluster.rs`
-- `crates/flowdiff-core/src/config.rs`
-- `crates/flowdiff-core/src/eval/repos.rs`
-- `crates/flowdiff-cli/src/main.rs`
-- `crates/flowdiff-tauri/src/commands.rs`
+- `crates/diffcore-core/src/cluster.rs`
+- `crates/diffcore-core/src/config.rs`
+- `crates/diffcore-core/src/eval/repos.rs`
+- `crates/diffcore-cli/src/main.rs`
+- `crates/diffcore-tauri/src/commands.rs`
 
 Eval manifests and docs:
 
@@ -176,7 +176,7 @@ If you want many workers, handoffs, traces, and orchestration, use Agents SDK ou
 
 Practical recommendation:
 
-- native `flowdiff` deterministic pass first
+- native `diffcore` deterministic pass first
 - optional local/native refinement loop second
 - Agents SDK as outer orchestration for large multi-agent refinement runs
 - Codex/Codex-MCP workers as implementation agents inside that orchestration
@@ -254,8 +254,8 @@ A follow-up agent should turn the refinement/eval workflow into an installable o
 2. Read `docs/eval-suite.md`.
 3. Read `eval/repositories.example.toml`.
 4. Read `eval/repositories.public-oss.example.toml`.
-5. Read `crates/flowdiff-core/src/eval/repos.rs`.
-6. Read `crates/flowdiff-core/src/cluster.rs`.
+5. Read `crates/diffcore-core/src/eval/repos.rs`.
+6. Read `crates/diffcore-core/src/cluster.rs`.
 7. Run the octospark eval manifest to confirm local state.
 8. Pick one of the five next-step tracks above and continue from there.
 
@@ -264,18 +264,18 @@ A follow-up agent should turn the refinement/eval workflow into an installable o
 Fresh deterministic octospark run:
 
 ```bash
-cargo run -p flowdiff-cli -- analyze \
+cargo run -p diffcore-cli -- analyze \
   --repo /Users/jamesaphoenix/Desktop/projects/just-understanding-data/octospark-services \
   --range 2ef8528c4a5d60c045251ce5a270ec4993607327..884272b11751fea85e9703cf276114837e592147 \
   --max-groups 200 \
   --no-cache \
-  -o /tmp/flowdiff-octospark-history-analysis.json
+  -o /tmp/diffcore-octospark-history-analysis.json
 ```
 
 Local repo eval:
 
 ```bash
-cargo run -p flowdiff-cli -- eval \
+cargo run -p diffcore-cli -- eval \
   --manifest eval/repositories.example.toml \
   --format text
 ```

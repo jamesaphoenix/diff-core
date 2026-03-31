@@ -4,7 +4,7 @@
 [[repos]]
 name = "okhttp-android-api-docs"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/kotlin/okhttp"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/kotlin/okhttp"
 language = "kotlin"
 range = "e81e7a2472241d14d654fb8f031ecab34f99b35a..1694f67f48c8a6fb57c65e0f51d432db77e9259e"
 notes = "SMALL. 10-commit historical range: WebSocket queue/backpressure docs, Interceptor.Chain timeout API narrowing with regenerated signatures, Android API validation tasking, 5.x site-link refresh, and minor build/header housekeeping."

@@ -1,0 +1,82 @@
+---
+source: crates/diffcore-core/tests/snapshot_tests.rs
+expression: v
+---
+{
+  "annotations": null,
+  "diff_source": {
+    "base": "main",
+    "base_sha": "[sha]",
+    "diff_type": "BranchComparison",
+    "head": "feature/add-items",
+    "head_sha": "[sha]"
+  },
+  "groups": [
+    {
+      "edges": [],
+      "entrypoint": {
+        "entrypoint_type": "HttpRoute",
+        "file": "app/routes/items.py",
+        "symbol": "post_item"
+      },
+      "files": [
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 0,
+          "path": "app/routes/items.py",
+          "role": "Entrypoint",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 1,
+          "path": "app/repositories/item_repo.py",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 2,
+          "path": "app/schemas/item.py",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 0,
+            "deletions": 0
+          },
+          "flow_position": 3,
+          "path": "app/services/item_service.py",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        }
+      ],
+      "id": "group_1",
+      "name": "post_item route flow",
+      "review_order": 1,
+      "risk_score": 0.4175
+    }
+  ],
+  "infrastructure_group": null,
+  "summary": {
+    "frameworks_detected": [
+      "FastAPI"
+    ],
+    "languages_detected": [
+      "python"
+    ],
+    "total_files_changed": 4,
+    "total_groups": 1
+  },
+  "version": "1.0.0"
+}

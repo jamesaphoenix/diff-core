@@ -2,7 +2,7 @@
 [[repos]]
 name = "synthetic-large-diff-apps-page-flow-late-2048"
 type = "synthetic"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/synthetic/large-diff/apps-page-flow"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/synthetic/large-diff/apps-page-flow"
 language = "typescript"
 range = "6e53700937417459a953d8de2359deba4950db05..555cf46e575da0a621d826f6c8a27bf1a693a382"
 notes = "Synthetic large-diff track only. Next.js style feature folders inside multiple apps with page-flow entrypoints."

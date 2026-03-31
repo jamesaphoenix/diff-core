@@ -3,7 +3,7 @@
 [[repos]]
 name = "nushell-testing-refactor"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/nushell"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/nushell"
 language = "rust"
 range = "ac01452bcafa0343ca1c48d3c0f358beb0db2b02..6707dc927412458a186474b87e2ee68851c86ada"
 notes = "SMALL. Testing refactor + url parse. 40 files."

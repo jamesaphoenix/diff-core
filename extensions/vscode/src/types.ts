@@ -1,4 +1,4 @@
-/** TypeScript types matching the flowdiff-core Rust output schema (types.rs + schema.rs). */
+/** TypeScript types matching the diffcore-core Rust output schema (types.rs + schema.rs). */
 
 export type SymbolKind =
   | "Function"
@@ -44,7 +44,9 @@ export type DiffType =
   | "BranchComparison"
   | "CommitRange"
   | "Staged"
-  | "Unstaged";
+  | "Unstaged"
+  | "Worktree"
+  | "BranchWithWorktree";
 
 export interface Symbol {
   name: string;

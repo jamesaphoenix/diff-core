@@ -1,8 +1,8 @@
-# flowdiff — a semantic diff layer
+# diffcore — a semantic diff layer
 
 This file is the canonical repo guidance for local agents. `CLAUDE.md` should symlink to this file.
 
-**flowdiff** is a semantic diff layer for code review. Git gives you syntactic diffs — what text changed in which files. flowdiff adds meaning on top — what those changes *mean*, how they relate, and what order a human should read them in. Built for the era of AI agents producing 50–100 file PRs.
+**Diffcore** is a semantic diff layer for code review. Git gives you syntactic diffs — what text changed in which files. Diffcore adds meaning on top — what those changes *mean*, how they relate, and what order a human should read them in. Built for the era of AI agents producing 50–100 file PRs.
 
 Three levels of semantics, each building on the last:
 
@@ -12,7 +12,7 @@ Three levels of semantics, each building on the last:
 
 ## Target Grouping Strategy
 
-flowdiff is intentionally a hybrid system. The target architecture is not "heuristics or ML" and not "replace the engine with an LLM." It is:
+Diffcore is intentionally a hybrid system. The target architecture is not "heuristics or ML" and not "replace the engine with an LLM." It is:
 
 1. **Structural + heuristic prior** — deterministic graph extraction, entrypoint detection, reachability, framework cues, and file-role heuristics produce the strongest cheap baseline possible.
 2. **ML grouping layer** — a learned model trained on the growing golden eval corpus scores pairwise or file-to-group relationships and proposes better initial groupings than heuristics alone.
@@ -48,8 +48,8 @@ Large-diff work is a separate evaluation track, not part of the default live-rep
 
 ## Architecture
 
-- **Rust core** (`flowdiff-core`) — all analysis logic. Shared IR maps tree-sitter ASTs from any language into language-agnostic types via declarative `.scm` query files. Adding a new language = writing `.scm` files, zero Rust code.
-- **CLI** (`flowdiff-cli`) — `flowdiff analyze --base main`, JSON output, `--refine` for LLM refinement, `--annotate` for LLM narration.
+- **Rust core** (`diffcore-core`) — all analysis logic. Shared IR maps tree-sitter ASTs from any language into language-agnostic types via declarative `.scm` query files. Adding a new language = writing `.scm` files, zero Rust code.
+- **CLI** (`diffcore-cli`) — `diffcore analyze --base main`, JSON output, `--refine` for LLM refinement, `--annotate` for LLM narration.
 - **Tauri desktop app** — three-panel UI: flow groups | Monaco diff viewer | annotations/Mermaid graph. Keyboard-driven (j/k/J/K).
 - **VS Code extension** — thin shell over CLI. Tree view + native diff editor + webview annotations.
 
@@ -68,11 +68,11 @@ Large-diff work is a separate evaluation track, not part of the default live-rep
 - **VCR caching** — record/replay LLM calls for deterministic CI
 - **LLM-as-judge** — evaluator that scores analysis quality across 5 criteria
 - **Eval suite** — 5 synthetic fixture codebases, deterministic scoring, 0.89 avg score
-- **Config** — `.flowdiff.toml` with entrypoint globs, layer names, ignore patterns, LLM settings, refinement settings
+- **Config** — `.diffcore.toml` with entrypoint globs, layer names, ignore patterns, LLM settings, refinement settings
 
 ## Tests
 
-1987 tests: unit (co-located `#[cfg(test)]`), integration (`tests/` directory), property-based (proptest), snapshot (insta), regression (`tests/regressions.rs`), live LLM (gated behind `FLOWDIFF_RUN_LIVE_LLM_TESTS=1`), VCR replay, CLI arg parsing + config override tests, eval harness. Playwright E2E planned for Tauri app.
+1987 tests: unit (co-located `#[cfg(test)]`), integration (`tests/` directory), property-based (proptest), snapshot (insta), regression (`tests/regressions.rs`), live LLM (gated behind `DIFFCORE_RUN_LIVE_LLM_TESTS=1`), VCR replay, CLI arg parsing + config override tests, eval harness. Playwright E2E planned for Tauri app.
 
 ## Specs
 

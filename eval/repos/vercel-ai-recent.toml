@@ -3,7 +3,7 @@
 [[repos]]
 name = "vercel-ai-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/typescript/vercel-ai"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/typescript/vercel-ai"
 language = "typescript"
 range = "adafe39f1a6e03b5e46f36c4d2a8578f1d10ab23..ca12a22dfc6c69f6333c524c6899b7e0856f8a6d"
 notes = "MEDIUM. 10-commit range: gateway provider, stream-text, spend reports. ~75 files."

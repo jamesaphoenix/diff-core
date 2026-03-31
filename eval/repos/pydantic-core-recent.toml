@@ -3,7 +3,7 @@
 [[repos]]
 name = "pydantic-core-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/pydantic-core"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/pydantic-core"
 language = "rust"
 range = "83133d6b04cc14cdb5476496cf09288444e0c474..383eb95a19433754c0cecf7025b50c26b6d97a36"
 notes = "MEDIUM. 10-commit range: serializers, URL, GC. ~23 files."

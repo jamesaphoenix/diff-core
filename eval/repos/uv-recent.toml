@@ -4,7 +4,7 @@
 [[repos]]
 name = "uv-recent"
 type = "real"
-path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/flowdiff-eval-corpus/rust/uv"
+path = "/Users/jamesaphoenix/Desktop/projects/just-understanding-data/diffcore-eval-corpus/rust/uv"
 language = "rust"
 range = "4faa20e7d89cc10e1b7dcb37835b83550d3477ee..6d889fd53d5c108d304c5a4085eb3140ec6a9cdb"
 notes = "152 files. Release-heavy uv range: cargo-dist/release workflow adjustments, Python sysconfig metadata regeneration, 0.11.2 version/doc churn across crates, and a focused ROCm 7.2 torch backend feature."
