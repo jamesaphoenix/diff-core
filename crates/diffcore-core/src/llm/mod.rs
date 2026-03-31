@@ -1420,7 +1420,7 @@ mod tests {
         let body =
             r#"{"error":{"message":"API key not valid: AIzaXXtestfakekey00000000000000000000"}}"#;
         let redacted = redact_api_keys(body);
-        assert!(!redacted.contains("AIzaSy"));
+        assert!(!redacted.contains("AIza"));
         assert!(redacted.contains("[REDACTED_GEMINI_KEY]"));
     }
 

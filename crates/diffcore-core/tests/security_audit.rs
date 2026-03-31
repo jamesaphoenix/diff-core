@@ -154,7 +154,7 @@ mod security {
         let body = r#"Bad key: AIzaXXtestfakekey00000000000000000000"#;
         let redacted = llm::redact_api_keys(body);
         assert!(
-            !redacted.contains("AIzaSy"),
+            !redacted.contains("AIza"),
             "Key should be redacted: {}",
             redacted
         );
