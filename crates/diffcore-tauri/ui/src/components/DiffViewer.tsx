@@ -15,14 +15,18 @@ interface DiffViewerProps {
   codeComments?: ReviewComment[];
   /** Called when user clicks a glyph icon in the gutter — passes the comment ID. */
   onGlyphClick?: (commentId: string) => void;
+  /** Called when user triggers "Go To Definition" on a word — receives the word under cursor. */
+  onGoToDefinition?: (word: string) => void;
 }
 
 /** Monaco-based side-by-side diff viewer for the center panel. */
-const DiffViewer = forwardRef<DiffViewerHandle, DiffViewerProps>(function DiffViewer({ fileDiff, onCommentRequest, codeComments, onGlyphClick }, ref) {
+const DiffViewer = forwardRef<DiffViewerHandle, DiffViewerProps>(function DiffViewer({ fileDiff, onCommentRequest, codeComments, onGlyphClick, onGoToDefinition }, ref) {
   const [selectionRange, setSelectionRange] = useState<{ startLine: number; endLine: number } | null>(null);
   const [commentBtnPos, setCommentBtnPos] = useState<{ top: number; left: number } | null>(null);
   const editorRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const goToDefRef = useRef(onGoToDefinition);
+  goToDefRef.current = onGoToDefinition;
 
   const decorationsRef = useRef<any>(null);
 
@@ -71,6 +75,28 @@ const DiffViewer = forwardRef<DiffViewerHandle, DiffViewerProps>(function DiffVi
           setCommentBtnPos(null);
         }
       });
+
+      // Register "Go To Definition" action on both sub-editors
+      const registerGoToDef = (subEditor: any) => {
+        subEditor.addAction({
+          id: "diffcore.goToDefinition",
+          label: "Go To Definition",
+          keybindings: [2048 /* CtrlCmd */ | 60 /* F12 */],
+          contextMenuGroupId: "navigation",
+          contextMenuOrder: 1,
+          run: (ed: any) => {
+            const pos = ed.getPosition();
+            const model = ed.getModel();
+            if (!pos || !model) return;
+            const wordInfo = model.getWordAtPosition(pos);
+            if (wordInfo?.word && goToDefRef.current) {
+              goToDefRef.current(wordInfo.word);
+            }
+          },
+        });
+      };
+      registerGoToDef(modifiedEditor);
+      if (originalEditor) registerGoToDef(originalEditor);
 
       // Apply initial decorations
       if (codeComments && codeComments.length > 0) {

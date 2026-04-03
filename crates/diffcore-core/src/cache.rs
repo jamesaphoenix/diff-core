@@ -102,6 +102,72 @@ pub fn clear_cache(workdir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+// ── Global refinement cache (~/.diffcore/cache/refinements/) ──
+
+/// Resolve the global refinement cache directory.
+fn refinement_cache_dir() -> Option<PathBuf> {
+    std::env::var_os("DIFFCORE_REFINEMENT_CACHE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| {
+                PathBuf::from(home)
+                    .join(".diffcore")
+                    .join("cache")
+                    .join("refinements")
+            })
+        })
+}
+
+/// Load a cached refinement result for the given analysis cache key.
+///
+/// Returns the raw JSON string so the caller can deserialize into its own type
+/// (e.g. `RefinementResult` which lives in the Tauri crate, not core).
+pub fn load_cached_refinement(cache_key: &str) -> Option<String> {
+    let dir = refinement_cache_dir()?;
+    let path = dir.join(format!("{}.json", cache_key));
+    match std::fs::read_to_string(&path) {
+        Ok(c) if !c.is_empty() => Some(c),
+        Ok(_) => None,
+        Err(_) => None,
+    }
+}
+
+/// Store a refinement result in the global cache.
+///
+/// Accepts raw JSON so the Tauri crate can serialize its own `RefinementResult`.
+pub fn store_cached_refinement(cache_key: &str, json: &str) {
+    let Some(dir) = refinement_cache_dir() else {
+        warn!("Cannot determine HOME directory for refinement cache");
+        return;
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        warn!(
+            "Failed to create refinement cache directory {}: {}",
+            dir.display(),
+            e
+        );
+        return;
+    }
+    let path = dir.join(format!("{}.json", cache_key));
+    if let Err(e) = std::fs::write(&path, json) {
+        warn!(
+            "Failed to write refinement cache entry {}: {}",
+            path.display(),
+            e
+        );
+    }
+}
+
+/// Clear all cached refinement results.
+pub fn clear_refinement_cache() -> std::io::Result<()> {
+    if let Some(dir) = refinement_cache_dir() {
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -321,5 +387,127 @@ mod tests {
         std::fs::write(&path, "").unwrap();
 
         assert!(load_cached(tmp.path(), "empty").is_none());
+    }
+
+    // ── Refinement cache tests ──
+
+    /// Helper: set DIFFCORE_REFINEMENT_CACHE_DIR to a temp path for isolated testing.
+    fn with_refinement_cache_dir<F: FnOnce()>(dir: &Path, f: F) {
+        std::env::set_var("DIFFCORE_REFINEMENT_CACHE_DIR", dir.as_os_str());
+        f();
+        std::env::remove_var("DIFFCORE_REFINEMENT_CACHE_DIR");
+    }
+
+    #[test]
+    fn refinement_cache_store_and_load() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("ref_cache");
+        let json = r#"{"refined_groups":[],"provider":"test","model":"m1","had_changes":true}"#;
+
+        with_refinement_cache_dir(&dir, || {
+            // Should be empty initially
+            assert!(load_cached_refinement("test_key").is_none());
+
+            // Store
+            store_cached_refinement("test_key", json);
+
+            // Load
+            let loaded = load_cached_refinement("test_key");
+            assert!(loaded.is_some());
+            assert_eq!(loaded.unwrap(), json);
+        });
+    }
+
+    #[test]
+    fn refinement_cache_different_keys_isolated() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("ref_cache");
+
+        with_refinement_cache_dir(&dir, || {
+            store_cached_refinement("key_a", r#"{"a": 1}"#);
+            store_cached_refinement("key_b", r#"{"b": 2}"#);
+
+            assert_eq!(load_cached_refinement("key_a").unwrap(), r#"{"a": 1}"#);
+            assert_eq!(load_cached_refinement("key_b").unwrap(), r#"{"b": 2}"#);
+            assert!(load_cached_refinement("key_c").is_none());
+        });
+    }
+
+    #[test]
+    fn refinement_cache_overwrite() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("ref_cache");
+
+        with_refinement_cache_dir(&dir, || {
+            store_cached_refinement("key", r#"{"v": 1}"#);
+            store_cached_refinement("key", r#"{"v": 2}"#);
+
+            assert_eq!(load_cached_refinement("key").unwrap(), r#"{"v": 2}"#);
+        });
+    }
+
+    #[test]
+    fn refinement_cache_empty_file_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("ref_cache");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Write empty file
+        let path = dir.join("empty_key.json");
+        std::fs::write(&path, "").unwrap();
+
+        with_refinement_cache_dir(&dir, || {
+            assert!(load_cached_refinement("empty_key").is_none());
+        });
+    }
+
+    #[test]
+    fn refinement_cache_clear() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("ref_cache");
+
+        with_refinement_cache_dir(&dir, || {
+            store_cached_refinement("key1", r#"{"x": 1}"#);
+            store_cached_refinement("key2", r#"{"x": 2}"#);
+
+            assert!(load_cached_refinement("key1").is_some());
+            clear_refinement_cache().unwrap();
+            assert!(load_cached_refinement("key1").is_none());
+            assert!(load_cached_refinement("key2").is_none());
+        });
+    }
+
+    #[test]
+    fn refinement_cache_clear_nonexistent_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("nonexistent_ref_cache");
+
+        with_refinement_cache_dir(&dir, || {
+            // Should not error when cache dir doesn't exist
+            assert!(clear_refinement_cache().is_ok());
+        });
+    }
+
+    #[test]
+    fn refinement_cache_creates_directories() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("deep").join("nested").join("ref_cache");
+
+        with_refinement_cache_dir(&dir, || {
+            store_cached_refinement("key", r#"{"deep": true}"#);
+            assert_eq!(
+                load_cached_refinement("key").unwrap(),
+                r#"{"deep": true}"#
+            );
+        });
+    }
+
+    #[test]
+    fn refinement_cache_store_readonly_does_not_panic() {
+        let dir = PathBuf::from("/dev/null/impossible/ref_cache");
+        with_refinement_cache_dir(&dir, || {
+            // Should not panic, just log warning
+            store_cached_refinement("key", r#"{"fail": true}"#);
+        });
     }
 }

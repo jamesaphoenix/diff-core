@@ -1191,7 +1191,7 @@ dependencies = [
 
 [[package]]
 name = "diffcore-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "diffcore-core",
@@ -1205,7 +1205,7 @@ dependencies = [
 
 [[package]]
 name = "diffcore-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -1253,13 +1253,14 @@ dependencies = [
 
 [[package]]
 name = "diffcore-tauri"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-stream",
  "axum",
  "diffcore-core",
  "futures-core",
  "git2",
+ "hex",
  "log",
  "objc2",
  "objc2-app-kit",
@@ -1267,6 +1268,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-shell",

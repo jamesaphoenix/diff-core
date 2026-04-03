@@ -22,5 +22,6 @@ pub mod llm;
 pub mod output;
 pub mod pipeline;
 pub mod query_engine;
+pub mod manifest;
 pub mod rank;
 pub mod types;

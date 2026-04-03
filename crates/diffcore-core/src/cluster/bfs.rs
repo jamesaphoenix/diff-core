@@ -104,14 +104,37 @@ pub(super) fn collect_internal_edges(
 
 /// Generate a human-readable name for a flow group based on its entrypoint.
 pub(super) fn generate_group_name(ep: &Entrypoint) -> String {
+    // Extract a meaningful file context (parent directory + basename without extension)
+    let file_context = {
+        let path = ep.file.as_str();
+        let parts: Vec<&str> = path.rsplitn(2, '/').collect();
+        let basename = parts[0].rsplit('.').last().unwrap_or(parts[0]);
+        if let Some(dir) = parts.get(1) {
+            let dir_name = dir.rsplit('/').next().unwrap_or(dir);
+            format!("{}/{}", dir_name, basename)
+        } else {
+            basename.to_string()
+        }
+    };
+
+    // Use symbol if it differs from the file basename; otherwise use file context
+    let label = if ep.symbol == file_context.rsplit('/').next().unwrap_or(&file_context)
+        || ep.symbol == "default"
+        || ep.symbol == "module"
+    {
+        file_context
+    } else {
+        format!("{} ({})", ep.symbol, file_context)
+    };
+
     match ep.entrypoint_type {
-        EntrypointType::HttpRoute => format!("{} route flow", ep.symbol),
-        EntrypointType::CliCommand => format!("{} CLI flow", ep.symbol),
-        EntrypointType::QueueConsumer => format!("{} consumer flow", ep.symbol),
-        EntrypointType::CronJob => format!("{} scheduled flow", ep.symbol),
-        EntrypointType::ReactPage => format!("{} page flow", ep.symbol),
-        EntrypointType::TestFile => format!("{} test flow", ep.symbol),
-        EntrypointType::EventHandler => format!("{} event flow", ep.symbol),
-        EntrypointType::EffectService => format!("{} Effect service flow", ep.symbol),
+        EntrypointType::HttpRoute => format!("{} route", label),
+        EntrypointType::CliCommand => format!("{} CLI", label),
+        EntrypointType::QueueConsumer => format!("{} consumer", label),
+        EntrypointType::CronJob => format!("{} scheduled", label),
+        EntrypointType::ReactPage => format!("{} page", label),
+        EntrypointType::TestFile => format!("{} test", label),
+        EntrypointType::EventHandler => format!("{} event", label),
+        EntrypointType::EffectService => format!("{} Effect service", label),
     }
 }

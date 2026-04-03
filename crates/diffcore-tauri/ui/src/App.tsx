@@ -176,9 +176,8 @@ export default function App() {
   const diffViewerRef = useRef<DiffViewerHandle>(null);
   const repoInputRef = useRef<HTMLInputElement>(null);
 
-  // Flow graph collapse state (collapses when node is clicked in graph)
-  const [graphCollapsed, setGraphCollapsed] = useState(false);
-  const [edgesCollapsed, setEdgesCollapsed] = useState(true);
+  // Annotation sub-tab: "info" | "graph" | "edges"
+  const [annotationSubTab, setAnnotationSubTab] = useState<"info" | "graph" | "edges">("info");
   const [commentsCollapsed, setCommentsCollapsed] = useState(false);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
 
@@ -186,6 +185,9 @@ export default function App() {
   const [infraExpanded, setInfraExpanded] = useState(false);
   const [infraShowAll, setInfraShowAll] = useState(false);
   const [infraSubGroupsExpanded, setInfraSubGroupsExpanded] = useState<Set<string>>(new Set());
+
+  // Groups manifest watching state
+  const [watchedManifestPath, setWatchedManifestPath] = useState<string | null>(null);
 
   // Toast notification state (auto-dismiss)
   const [toast, setToast] = useState<string | null>(null);
@@ -589,6 +591,47 @@ export default function App() {
     [handleSelectFile],
   );
 
+  /** Handle "Go To Definition" from the diff viewer — look up the word in analysis edges and navigate. */
+  const handleGoToDefinition = useCallback(
+    (word: string) => {
+      if (!analysis) return;
+      // Search all groups for an edge whose "to" target contains this symbol name
+      for (const group of analysis.groups) {
+        for (const edge of group.edges) {
+          // Edges are "file.ts::SymbolName" — check if the symbol part matches
+          const toSymbol = edge.to.split("::").pop();
+          if (toSymbol === word) {
+            const toFile = edge.to.split("::")[0];
+            // Check this file is in the changed files
+            const file = group.files.find((f) => f.path === toFile || f.path.endsWith(`/${toFile}`));
+            if (file) {
+              openFileInTab(file.path, group.id);
+              return;
+            }
+          }
+          // Also check "from" side
+          const fromSymbol = edge.from.split("::").pop();
+          if (fromSymbol === word) {
+            const fromFile = edge.from.split("::")[0];
+            const file = group.files.find((f) => f.path === fromFile || f.path.endsWith(`/${fromFile}`));
+            if (file) {
+              openFileInTab(file.path, group.id);
+              return;
+            }
+          }
+        }
+        // Also check symbols_changed in files
+        for (const file of group.files) {
+          if (file.symbols_changed.includes(word) && file.path !== selectedFile) {
+            openFileInTab(file.path, group.id);
+            return;
+          }
+        }
+      }
+    },
+    [analysis, openFileInTab, selectedFile],
+  );
+
   const handleSelectGroup = useCallback(
     async (group: FlowGroup) => {
       // Cancel any pending debounced file nav from the previous group
@@ -598,8 +641,8 @@ export default function App() {
       setReplayActive(false);
       setReplayStep(0);
       setReplayVisited(new Set());
-      // Reset graph collapse state when switching groups
-      setGraphCollapsed(false);
+      // Reset annotation sub-tab when switching groups
+      setAnnotationSubTab("info");
       // Auto-select first file in group
       if (group.files.length > 0) {
         openFileInTab(group.files[0].path, group.id);
@@ -672,6 +715,14 @@ export default function App() {
           (a, b) => a.review_order - b.review_order,
         );
         handleSelectGroup(sorted[0]);
+      }
+      // Check for cached refinement and auto-apply if found
+      if (IS_TAURI) {
+        tauriInvoke<RefinementResult | null>("get_cached_refinement").then((cached) => {
+          if (cached) {
+            applyRefinementResult(cached, { fromCache: true });
+          }
+        }).catch(() => {});
       }
     } catch (e) {
       setError(String(e));
@@ -802,7 +853,7 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
-  const applyRefinementResult = useCallback((result: RefinementResult) => {
+  const applyRefinementResult = useCallback((result: RefinementResult, opts?: { fromCache?: boolean }) => {
     if (!analysis) return;
 
     if (!originalGroups) {
@@ -827,7 +878,11 @@ export default function App() {
           : prev,
       );
       setReviewedGroupIds(new Set());
-      showToast("Groups updated by refinement \u2014 review state reset");
+      if (opts?.fromCache) {
+        showToast("Restored cached refinement");
+      } else {
+        showToast("Groups updated by refinement \u2014 review state reset");
+      }
       const sorted = [...result.refined_groups].sort(
         (a, b) => a.review_order - b.review_order,
       );
@@ -836,7 +891,14 @@ export default function App() {
       }
     } else {
       setShowRefined(false);
-      showToast("Refinement kept the existing grouping");
+      if (!opts?.fromCache) {
+        showToast("Refinement kept the existing grouping");
+      }
+    }
+
+    // Cache the result for future sessions (non-blocking, fire-and-forget)
+    if (IS_TAURI && !opts?.fromCache) {
+      tauriInvoke("store_refinement_cache", { result }).catch(() => {});
     }
   }, [analysis, originalGroups, handleSelectGroup, showToast]);
 
@@ -1185,12 +1247,6 @@ export default function App() {
   const visibleActivityTimeline = activityViewMode === "stream"
     ? recentActivityTimeline
     : activityTimeline;
-  const selectedActivityItem = useMemo(
-    () => visibleActivityTimeline.find((item) => item.id === inspectedActivityId)
-      ?? visibleActivityTimeline[visibleActivityTimeline.length - 1]
-      ?? null,
-    [inspectedActivityId, visibleActivityTimeline],
-  );
   const activityStats = useMemo(() => summarizeActivityTimeline(activityTimeline), [activityTimeline]);
   const activityEventProvider = useMemo(() => {
     if (activityJob?.provider) return activityJob.provider;
@@ -1232,15 +1288,7 @@ export default function App() {
     await loadLlmSettings(repoPath || null);
   }, [loadLlmSettings, repoPath]);
 
-  useEffect(() => {
-    if (rightPanelTab !== "activity" || activityViewMode !== "stream") return;
-    const frame = requestAnimationFrame(() => {
-      if (activityLogRef.current) {
-        activityLogRef.current.scrollTop = activityLogRef.current.scrollHeight;
-      }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [activityViewMode, recentActivityTimeline, rightPanelTab]);
+  // Auto-scroll disabled — users control scroll position manually.
 
   useEffect(() => {
     if (visibleActivityTimeline.length === 0) {
@@ -1396,16 +1444,34 @@ export default function App() {
     ? `${analysis.diff_source.base_sha ?? ""}:${analysis.diff_source.head_sha ?? ""}:${analysis.summary.total_files_changed}`
     : "";
 
-  /** Load comments from backend for the current analysis. */
+  /** Load comments from backend — uses branch-based cache. */
   const loadComments = useCallback(async () => {
-    if (!repoPath || !analysisHash) return;
+    if (!repoPath) return;
     try {
       if (IS_TAURI) {
-        const result = await tauriInvoke<ReviewComment[]>("load_comments", {
+        // Primary: load from branch-based cache
+        const result = await tauriInvoke<ReviewComment[]>("load_comments_cached", {
           repoPath,
-          analysisHash,
         });
-        setComments(result);
+        if (result.length > 0) {
+          setComments(result);
+          return;
+        }
+        // Fallback: try legacy analysis-hash-based comments and migrate them
+        if (analysisHash) {
+          const legacy = await tauriInvoke<ReviewComment[]>("load_comments", {
+            repoPath,
+            analysisHash,
+          });
+          if (legacy.length > 0) {
+            setComments(legacy);
+            // Migrate legacy comments to branch-based cache
+            for (const c of legacy) {
+              await tauriInvoke("save_comment_cached", { repoPath, comment: c }).catch(() => {});
+            }
+            return;
+          }
+        }
       }
     } catch {
       // Non-fatal: comments will just be empty
@@ -1414,20 +1480,19 @@ export default function App() {
 
   // Load comments when analysis changes
   useEffect(() => {
-    if (analysisHash) {
+    if (analysis) {
       loadComments();
     }
-  }, [analysisHash, loadComments]);
+  }, [analysis, loadComments]);
 
-  /** Save a comment (persist to .diffcore/comments.json). */
+  /** Save a comment (persist to branch-based cache). */
   const saveComment = useCallback(
     async (comment: ReviewComment) => {
       setComments((prev) => [...prev, comment]);
-      if (IS_TAURI && repoPath && analysisHash) {
+      if (IS_TAURI && repoPath) {
         try {
-          await tauriInvoke("save_comment", {
+          await tauriInvoke("save_comment_cached", {
             repoPath,
-            analysisHash,
             comment,
           });
         } catch {
@@ -1435,18 +1500,17 @@ export default function App() {
         }
       }
     },
-    [repoPath, analysisHash],
+    [repoPath],
   );
 
   /** Delete a comment by ID. */
   const deleteComment = useCallback(
     async (commentId: string) => {
       setComments((prev) => prev.filter((c) => c.id !== commentId));
-      if (IS_TAURI && repoPath && analysisHash) {
+      if (IS_TAURI && repoPath) {
         try {
-          await tauriInvoke("delete_comment", {
+          await tauriInvoke("delete_comment_cached", {
             repoPath,
-            analysisHash,
             commentId,
           });
         } catch {
@@ -1454,7 +1518,7 @@ export default function App() {
         }
       }
     },
-    [repoPath, analysisHash],
+    [repoPath],
   );
 
   /** Open the comment input — context-sensitive based on current selection. */
@@ -1562,6 +1626,78 @@ export default function App() {
       showToast("Failed to copy comments");
     }
   }, [comments, repoPath, analysis, showToast]);
+
+  /** Import a groups manifest JSON and apply it to the current analysis. */
+  const importGroupsManifest = useCallback(async (manifestPath: string) => {
+    if (!IS_TAURI) return;
+    try {
+      const updated = await tauriInvoke<AnalysisOutput>("import_groups_manifest", { manifestPath });
+      setAnalysis(updated);
+      // Reset state for new groupings
+      setRefinedGroups(null);
+      setOriginalGroups(null);
+      setShowRefined(false);
+      setReviewedGroupIds(new Set());
+      if (updated.groups.length > 0) {
+        const sorted = [...updated.groups].sort((a, b) => a.review_order - b.review_order);
+        handleSelectGroup(sorted[0]);
+      }
+      showToast(`Loaded ${updated.groups.length} groups from manifest`);
+    } catch (e) {
+      showToast(`Failed to import manifest: ${String(e)}`);
+    }
+  }, [handleSelectGroup, showToast]);
+
+  /** Export current groups as an editable manifest JSON. */
+  const exportGroupsManifest = useCallback(async () => {
+    if (!IS_TAURI || !analysis) return;
+    try {
+      // Default path: .diffcore/groups.json in repo
+      const outputPath = repoPath
+        ? `${repoPath}/.diffcore/groups.json`
+        : "groups.json";
+      await tauriInvoke("export_groups_manifest", { outputPath });
+      showToast(`Groups manifest exported to ${outputPath}`);
+      return outputPath;
+    } catch (e) {
+      showToast(`Failed to export manifest: ${String(e)}`);
+      return null;
+    }
+  }, [analysis, repoPath, showToast]);
+
+  /** Start watching a manifest file for real-time changes. */
+  const startWatchingManifest = useCallback(async (manifestPath: string) => {
+    if (!IS_TAURI) return;
+    try {
+      await tauriInvoke("watch_manifest", { manifestPath });
+      setWatchedManifestPath(manifestPath);
+      showToast(`Watching ${manifestPath} for changes`);
+    } catch (e) {
+      showToast(`Failed to watch manifest: ${String(e)}`);
+    }
+  }, [showToast]);
+
+  // Listen for manifest-changed events from the file watcher
+  useEffect(() => {
+    if (!IS_TAURI || !watchedManifestPath) return;
+    let cancelled = false;
+
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const unlisten = await listen<string>("manifest-changed", (event) => {
+        if (!cancelled) {
+          importGroupsManifest(event.payload);
+        }
+      });
+      return unlisten;
+    })().then((unlisten) => {
+      if (cancelled && unlisten) unlisten();
+      // Store unlisten for cleanup
+      return unlisten;
+    });
+
+    return () => { cancelled = true; };
+  }, [watchedManifestPath, importGroupsManifest]);
 
   /** Pre-indexed comment counts by group for O(1) lookup. */
   const commentsByGroupMap = useMemo(() => {
@@ -1931,186 +2067,196 @@ export default function App() {
 
   const annotationsTabContent = selectedGroup ? (
     <>
-      <div className="annotation-section" data-testid="annotations-panel">
-        <h3>Flow Group</h3>
-        <p className="group-detail-name">{selectedGroup.name}</p>
-        {selectedGroup.entrypoint && (
-          <p className="entrypoint-info">
-            Entrypoint: {selectedGroup.entrypoint.symbol} (
-            {selectedGroup.entrypoint.entrypoint_type})
-          </p>
-        )}
-        <p>
-          Risk: <strong>{selectedGroup.risk_score.toFixed(2)}</strong>{" "}
-          | Files: <strong>{selectedGroup.files.length}</strong> |
-          Review order: <strong>#{selectedGroup.review_order}</strong>
-        </p>
-        {selectedGroup.files.length > 1 && !replayActive && (
-          <button
-            className="btn btn-replay"
-            onClick={enterReplay}
-            title="Step through files in data flow order (r)"
-          >
-            &#9654; Replay Flow
-          </button>
-        )}
-        {replayActive && (
-          <button
-            className="btn btn-replay-exit"
-            onClick={exitReplay}
-            title="Exit replay mode (Esc)"
-          >
-            &#10005; Exit Replay
-          </button>
-        )}
+      {/* Annotation sub-tabs */}
+      <div className="annotation-subtabs">
+        <button
+          className={`annotation-subtab ${annotationSubTab === "info" ? "active" : ""}`}
+          onClick={() => setAnnotationSubTab("info")}
+        >
+          Info
+        </button>
+        <button
+          className={`annotation-subtab ${annotationSubTab === "graph" ? "active" : ""}`}
+          onClick={() => setAnnotationSubTab("graph")}
+          disabled={selectedGroup.edges.length === 0}
+        >
+          Graph
+        </button>
+        <button
+          className={`annotation-subtab ${annotationSubTab === "edges" ? "active" : ""}`}
+          onClick={() => setAnnotationSubTab("edges")}
+          disabled={selectedGroup.edges.length === 0}
+        >
+          Edges
+          {selectedGroup.edges.length > 0 && (
+            <span className="annotation-subtab-count">{selectedGroup.edges.length}</span>
+          )}
+        </button>
       </div>
 
-      {refinementVerdict && (
-        <div className="annotation-section refinement-verdict-section" data-testid="refinement-verdict">
-          <h3>Refinement Verdict</h3>
-          <p className="refinement-verdict-title">{refinementVerdict.title}</p>
-          <p className="refinement-verdict-meta">
-            {PROVIDER_LABELS[refinementVerdict.provider as LlmProvider] ?? refinementVerdict.provider}/{refinementVerdict.model}
-          </p>
-          {refinementVerdict.reasoning && (
-            <p className="refinement-verdict-reasoning">{refinementVerdict.reasoning}</p>
-          )}
-        </div>
-      )}
-
-      {overview && !groupAnnotation && (
-        <div className="annotation-section llm-section">
-          <h3>LLM Overview</h3>
-          <p className="llm-summary">{overview.overall_summary}</p>
-        </div>
-      )}
-
-      {groupAnnotation && (
-        <div className="annotation-section llm-section">
-          <h3>LLM Summary</h3>
-          <p className="llm-summary">{groupAnnotation.summary}</p>
-          <p className="llm-rationale">
-            <strong>Review rationale:</strong> {groupAnnotation.review_order_rationale}
-          </p>
-          {groupAnnotation.risk_flags.length > 0 && (
-            <div className="risk-flags">
-              {groupAnnotation.risk_flags.map((flag, i) => (
-                <span key={i} className="risk-flag">{flag}</span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {overview && groupAnnotation && (
-        <div className="annotation-section llm-section">
-          <h3>Overall Summary</h3>
-          <p className="llm-summary">{overview.overall_summary}</p>
-        </div>
-      )}
-
-      {groupDeepAnalysis && (
+      {annotationSubTab === "info" && (
         <>
-          <div className="annotation-section llm-section">
-            <h3>Flow Narrative</h3>
-            <p className="llm-narrative">{groupDeepAnalysis.flow_narrative}</p>
+          <div className="annotation-section" data-testid="annotations-panel">
+            <h3>Flow Group</h3>
+            <p className="group-detail-name">{selectedGroup.name}</p>
+            {selectedGroup.entrypoint && (
+              <p className="entrypoint-info">
+                Entrypoint: {selectedGroup.entrypoint.symbol} (
+                {selectedGroup.entrypoint.entrypoint_type})
+              </p>
+            )}
+            <p>
+              Risk: <strong>{selectedGroup.risk_score.toFixed(2)}</strong>{" "}
+              | Files: <strong>{selectedGroup.files.length}</strong> |
+              Review order: <strong>#{selectedGroup.review_order}</strong>
+            </p>
+            {selectedGroup.files.length > 1 && !replayActive && (
+              <button
+                className="btn btn-replay"
+                onClick={enterReplay}
+                title="Step through files in data flow order (r)"
+              >
+                &#9654; Replay Flow
+              </button>
+            )}
+            {replayActive && (
+              <button
+                className="btn btn-replay-exit"
+                onClick={exitReplay}
+                title="Exit replay mode (Esc)"
+              >
+                &#10005; Exit Replay
+              </button>
+            )}
           </div>
 
-          {groupDeepAnalysis.file_annotations.length > 0 && (
-            <div className="annotation-section llm-section">
-              <h3>File Annotations</h3>
-              {groupDeepAnalysis.file_annotations.map((fa, i) => (
-                <div key={i} className="file-annotation">
-                  <div className="file-annotation-header">
-                    <span className="file-annotation-path">{shortPath(fa.file)}</span>
-                    <span className="file-annotation-role">{fa.role_in_flow}</span>
-                  </div>
-                  <p className="file-annotation-changes">{fa.changes_summary}</p>
-                  {fa.risks.length > 0 && (
-                    <div className="file-annotation-list">
-                      <span className="annotation-label risk-label">Risks:</span>
-                      <ul>
-                        {fa.risks.map((r, j) => (
-                          <li key={j}>{r}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {fa.suggestions.length > 0 && (
-                    <div className="file-annotation-list">
-                      <span className="annotation-label suggestion-label">Suggestions:</span>
-                      <ul>
-                        {fa.suggestions.map((s, j) => (
-                          <li key={j}>{s}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              ))}
+          {refinementVerdict && (
+            <div className="annotation-section refinement-verdict-section" data-testid="refinement-verdict">
+              <h3>Refinement Verdict</h3>
+              <p className="refinement-verdict-title">{refinementVerdict.title}</p>
+              <p className="refinement-verdict-meta">
+                {PROVIDER_LABELS[refinementVerdict.provider as LlmProvider] ?? refinementVerdict.provider}/{refinementVerdict.model}
+              </p>
+              {refinementVerdict.reasoning && (
+                <p className="refinement-verdict-reasoning">{refinementVerdict.reasoning}</p>
+              )}
             </div>
           )}
 
-          {groupDeepAnalysis.cross_cutting_concerns.length > 0 && (
+          {overview && !groupAnnotation && (
             <div className="annotation-section llm-section">
-              <h3>Cross-Cutting Concerns</h3>
-              <ul className="concerns-list">
-                {groupDeepAnalysis.cross_cutting_concerns.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
+              <h3>LLM Overview</h3>
+              <p className="llm-summary">{overview.overall_summary}</p>
             </div>
+          )}
+
+          {groupAnnotation && (
+            <div className="annotation-section llm-section">
+              <h3>LLM Summary</h3>
+              <p className="llm-summary">{groupAnnotation.summary}</p>
+              <p className="llm-rationale">
+                <strong>Review rationale:</strong> {groupAnnotation.review_order_rationale}
+              </p>
+              {groupAnnotation.risk_flags.length > 0 && (
+                <div className="risk-flags">
+                  {groupAnnotation.risk_flags.map((flag, i) => (
+                    <span key={i} className="risk-flag">{flag}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {overview && groupAnnotation && (
+            <div className="annotation-section llm-section">
+              <h3>Overall Summary</h3>
+              <p className="llm-summary">{overview.overall_summary}</p>
+            </div>
+          )}
+
+          {groupDeepAnalysis && (
+            <>
+              <div className="annotation-section llm-section">
+                <h3>Flow Narrative</h3>
+                <p className="llm-narrative">{groupDeepAnalysis.flow_narrative}</p>
+              </div>
+
+              {groupDeepAnalysis.file_annotations.length > 0 && (
+                <div className="annotation-section llm-section">
+                  <h3>File Annotations</h3>
+                  {groupDeepAnalysis.file_annotations.map((fa, i) => (
+                    <div key={i} className="file-annotation">
+                      <div className="file-annotation-header">
+                        <span className="file-annotation-path">{shortPath(fa.file)}</span>
+                        <span className="file-annotation-role">{fa.role_in_flow}</span>
+                      </div>
+                      <p className="file-annotation-changes">{fa.changes_summary}</p>
+                      {fa.risks.length > 0 && (
+                        <div className="file-annotation-list">
+                          <span className="annotation-label risk-label">Risks:</span>
+                          <ul>
+                            {fa.risks.map((r, j) => (
+                              <li key={j}>{r}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {fa.suggestions.length > 0 && (
+                        <div className="file-annotation-list">
+                          <span className="annotation-label suggestion-label">Suggestions:</span>
+                          <ul>
+                            {fa.suggestions.map((s, j) => (
+                              <li key={j}>{s}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {groupDeepAnalysis.cross_cutting_concerns.length > 0 && (
+                <div className="annotation-section llm-section">
+                  <h3>Cross-Cutting Concerns</h3>
+                  <ul className="concerns-list">
+                    {groupDeepAnalysis.cross_cutting_concerns.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
           )}
         </>
       )}
 
-      {selectedGroup.edges.length > 0 && (
-        <div className={`annotation-section flow-graph-section ${graphCollapsed ? "flow-graph-collapsed" : ""}`}>
-          <button
-            className="section-toggle"
-            onClick={() => setGraphCollapsed(!graphCollapsed)}
-            aria-expanded={!graphCollapsed}
-          >
-            <span className="section-toggle-icon">{graphCollapsed ? "\u25B6" : "\u25BC"}</span>
-            <span className="section-toggle-label">Flow Graph</span>
-          </button>
-          <div className="collapsible-body collapsible-graph">
-            <ErrorBoundary panelName="Flow Graph">
-              <CrashTest panel="Flow Graph" />
-              <FlowGraph
-                edges={selectedGroup.edges}
-                files={selectedGroup.files}
-                onNodeClick={handleGraphNodeClick}
-                replayNodeId={replayActive && selectedGroup.files[replayStep] ? selectedGroup.files[replayStep].path : null}
-              />
-            </ErrorBoundary>
-          </div>
+      {annotationSubTab === "graph" && selectedGroup.edges.length > 0 && (
+        <div className="annotation-section flow-graph-section flow-graph-full">
+          <ErrorBoundary panelName="Flow Graph">
+            <CrashTest panel="Flow Graph" />
+            <FlowGraph
+              edges={selectedGroup.edges}
+              files={selectedGroup.files}
+              onNodeClick={handleGraphNodeClick}
+              replayNodeId={replayActive && selectedGroup.files[replayStep] ? selectedGroup.files[replayStep].path : null}
+            />
+          </ErrorBoundary>
         </div>
       )}
 
-      {selectedGroup.edges.length > 0 && (
-        <div className={`annotation-section edges-section ${edgesCollapsed ? "edges-collapsed" : ""}`}>
-          <button
-            className="section-toggle"
-            onClick={() => setEdgesCollapsed(!edgesCollapsed)}
-            aria-expanded={!edgesCollapsed}
-          >
-            <span className="section-toggle-icon">{edgesCollapsed ? "\u25B6" : "\u25BC"}</span>
-            <span className="section-toggle-label">Edges</span>
-            <span className="section-toggle-count">{selectedGroup.edges.length}</span>
-          </button>
-          <div className="collapsible-body collapsible-edges">
-            <ul className="edge-list">
-              {selectedGroup.edges.map((edge, i) => (
-                <li key={i} className="edge-item">
-                  <span className="edge-type">{edge.edge_type}</span>
-                  <span className="edge-from">{shortSymbol(edge.from)}</span>
-                  <span className="edge-arrow">&rarr;</span>
-                  <span className="edge-to">{shortSymbol(edge.to)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+      {annotationSubTab === "edges" && selectedGroup.edges.length > 0 && (
+        <div className="annotation-section edges-section">
+          <ul className="edge-list">
+            {selectedGroup.edges.map((edge, i) => (
+              <li key={i} className="edge-item">
+                <span className="edge-type">{edge.edge_type}</span>
+                <span className="edge-from">{shortSymbol(edge.from)}</span>
+                <span className="edge-arrow">&rarr;</span>
+                <span className="edge-to">{shortSymbol(edge.to)}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </>
@@ -2294,13 +2440,13 @@ export default function App() {
                       {hasExtraContent && (
                         <div className="activity-card-hints">
                           {presentation.eventTypeLabel && (
-                            <span className="activity-card-hint">Event</span>
+                            <span className="activity-card-hint" title={presentation.eventTypeLabel}>Event</span>
                           )}
                           {presentation.detail && (
-                            <span className="activity-card-hint">{presentation.detailLabel ?? "Detail"}</span>
+                            <span className="activity-card-hint" title={presentation.detail}>{presentation.detailLabel ?? "Detail"}</span>
                           )}
                           {presentation.payloadText && (
-                            <span className="activity-card-hint">
+                            <span className="activity-card-hint" title={presentation.payloadText}>
                               Payload{presentation.payloadSummary ? ` · ${presentation.payloadSummary}` : ""}
                             </span>
                           )}
@@ -2313,60 +2459,6 @@ export default function App() {
             })}
           </div>
 
-          {selectedActivityItem && (
-            <div className="activity-inspector" data-testid="activity-inspector">
-              <div className="activity-inspector-header">
-                <div>
-                  <p className="activity-inspector-eyebrow">Selected Event</p>
-                  <p className="activity-inspector-title">{selectedActivityItem.presentation.title}</p>
-                </div>
-                <span className={`activity-kind-badge activity-kind-${selectedActivityItem.presentation.kind}`}>
-                  {selectedActivityItem.presentation.badge}
-                </span>
-              </div>
-
-              <div className="activity-inspector-meta">
-                <span className="activity-source-pill">{selectedActivityItem.presentation.sourceLabel}</span>
-                <span className="activity-time">{formatActivityTimestamp(selectedActivityItem.entry.timestamp_ms)}</span>
-              </div>
-
-              {selectedActivityItem.presentation.subject && (
-                <p className="activity-card-subject activity-inspector-subject">
-                  {selectedActivityItem.presentation.subject}
-                </p>
-              )}
-
-              <div className="activity-inspector-grid">
-                {selectedActivityItem.presentation.eventTypeLabel && (
-                  <div className="activity-data-block activity-inspector-block">
-                    <span className="activity-data-label">Event</span>
-                    <pre className="activity-data-value">{selectedActivityItem.presentation.eventTypeLabel}</pre>
-                  </div>
-                )}
-                {selectedActivityItem.presentation.detail && (
-                  <div className="activity-data-block activity-inspector-block">
-                    <span className="activity-data-label">
-                      {selectedActivityItem.presentation.detailLabel ?? "Detail"}
-                    </span>
-                    <pre className="activity-data-value">{selectedActivityItem.presentation.detail}</pre>
-                  </div>
-                )}
-                {selectedActivityItem.presentation.payloadText && (
-                  <div className="activity-data-block activity-inspector-block">
-                    <span className="activity-data-label">
-                      Payload
-                      {selectedActivityItem.presentation.payloadSummary
-                        ? ` · ${selectedActivityItem.presentation.payloadSummary}`
-                        : ""}
-                    </span>
-                    <pre className="activity-data-value activity-data-value-payload">
-                      {selectedActivityItem.presentation.payloadText}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -2379,6 +2471,9 @@ export default function App() {
       selectedFileChange={selectedFileChange}
       focusRequest={sourceFocusRequest}
       onNavigateToSymbol={handleSourceNavigate}
+      onScrollToLine={(startLine, endLine) => {
+        diffViewerRef.current?.scrollToLine(startLine, endLine);
+      }}
     />
   );
 
@@ -2995,7 +3090,7 @@ export default function App() {
           </div>
           <div className="panel-body">
             {/* Refinement banner — shown after analysis when LLM access is available */}
-            {analysis && !refinedGroups && !refining && aiAccessReady && llmSettings?.refinement_enabled && (
+            {analysis && !refinedGroups && !refining && aiAccessReady && (
               <div className="refinement-banner">
                 <span>AI can improve these groupings</span>
                 <button
@@ -3005,6 +3100,34 @@ export default function App() {
                 >
                   Refine
                 </button>
+              </div>
+            )}
+
+            {/* Manifest export & watch — allows CLI/agent refinement loop */}
+            {analysis && IS_TAURI && (
+              <div className="refinement-banner">
+                <span>{watchedManifestPath ? "Watching manifest" : "Edit groups via CLI"}</span>
+                <div style={{ display: "flex", gap: "4px" }}>
+                  {!watchedManifestPath && (
+                    <button
+                      className="btn btn-refine"
+                      onClick={async () => {
+                        const path = await exportGroupsManifest();
+                        if (path) {
+                          startWatchingManifest(path);
+                        }
+                      }}
+                      title="Export groups as JSON manifest and watch for changes"
+                    >
+                      Export &amp; Watch
+                    </button>
+                  )}
+                  {watchedManifestPath && (
+                    <span className="manifest-watch-indicator" title={watchedManifestPath}>
+                      Live
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -3091,7 +3214,7 @@ export default function App() {
                       </div>
                     )}
                     {selectedGroup?.id === group.id && (
-                      <ul className="file-list">
+                      <ul className={`file-list ${reviewedGroupIds.has(group.id) ? "file-list-collapsed" : ""}`}>
                         {group.files.map((file) => {
                           const fileMoved = showRefined
                             ? getFileMovedIndicator(file.path, refinementResponse)
@@ -3428,6 +3551,7 @@ export default function App() {
                     el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
                   }, 100);
                 }}
+                onGoToDefinition={handleGoToDefinition}
               />
             </ErrorBoundary>
           </div>
@@ -4245,8 +4369,8 @@ function isReadCommand(command: string): boolean {
 
 function shortPath(path: string): string {
   const parts = path.split("/");
-  if (parts.length <= 2) return path;
-  return parts.slice(-2).join("/");
+  if (parts.length <= 4) return path;
+  return parts.slice(-4).join("/");
 }
 
 /** Map a FileRole to a single-letter abbreviation for compact display. */

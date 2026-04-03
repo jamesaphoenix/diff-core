@@ -1,7 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Editor } from "@monaco-editor/react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FileChange, FileDiffContent, FlowEdge, FlowGroup } from "../types";
-import { DIFFCORE_MONACO_THEME, registerDiffcoreMonacoTheme } from "./monacoTheme";
 
 type OutlineKind = "operation" | "interface" | "type" | "class" | "constant" | "dependency";
 
@@ -37,6 +35,8 @@ interface SourceExplorerProps {
   selectedFileChange: FileChange | null;
   focusRequest?: SourceFocusRequest | null;
   onNavigateToSymbol?: (filePath: string, symbolName?: string) => void;
+  /** Scroll the main diff viewer to a line range. */
+  onScrollToLine?: (startLine: number, endLine?: number) => void;
 }
 
 interface ParsedDefinition {
@@ -62,16 +62,16 @@ const SECTION_LABELS: Record<OutlineSectionKey, string> = {
   dependencies: "Dependencies",
 };
 
-/** Monaco-backed symbol explorer for the currently selected file. */
+/** Symbol outline explorer for the currently selected file.
+ *  Clicking a symbol scrolls the main diff viewer to that line. */
 export default function SourceExplorer({
   fileDiff,
   selectedGroup,
   selectedFileChange,
   focusRequest,
   onNavigateToSymbol,
+  onScrollToLine,
 }: SourceExplorerProps) {
-  const editorRef = useRef<any>(null);
-  const decorationsRef = useRef<any>(null);
   const outline = useMemo(
     () => buildOutline(fileDiff, selectedGroup, selectedFileChange),
     [fileDiff, selectedGroup, selectedFileChange],
@@ -99,46 +99,11 @@ export default function SourceExplorer({
     const focused = allItems.find((item) => symbolMatches(item.name, focusRequest.symbol));
     if (focused) {
       setSelectedItemId(focused.id);
+      if (focused.startLine != null) {
+        onScrollToLine?.(focused.startLine, focused.endLine);
+      }
     }
-  }, [allItems, fileDiff, focusRequest]);
-
-  const selectedItem = useMemo(
-    () => allItems.find((item) => item.id === selectedItemId) ?? null,
-    [allItems, selectedItemId],
-  );
-
-  const applyEditorFocus = useCallback((item: OutlineItem | null) => {
-    const editor = editorRef.current;
-    if (!editor || item?.startLine == null) return;
-    const endLine = item.endLine ?? item.startLine;
-    editor.revealLineInCenter(item.startLine);
-    editor.setSelection({
-      startLineNumber: item.startLine,
-      startColumn: 1,
-      endLineNumber: endLine,
-      endColumn: editor.getModel()?.getLineMaxColumn(endLine) ?? 1,
-    });
-    if (decorationsRef.current) {
-      decorationsRef.current.clear();
-    }
-    decorationsRef.current = editor.createDecorationsCollection([{
-      range: {
-        startLineNumber: item.startLine,
-        startColumn: 1,
-        endLineNumber: endLine,
-        endColumn: 1,
-      },
-      options: {
-        isWholeLine: true,
-        className: "source-symbol-highlight",
-        linesDecorationsClassName: "source-symbol-glyph",
-      },
-    }]);
-  }, []);
-
-  useEffect(() => {
-    applyEditorFocus(selectedItem);
-  }, [applyEditorFocus, selectedItem]);
+  }, [allItems, fileDiff, focusRequest, onScrollToLine]);
 
   const handleItemClick = useCallback((item: OutlineItem) => {
     if (item.targetFile && item.targetFile !== fileDiff?.path) {
@@ -146,125 +111,72 @@ export default function SourceExplorer({
       return;
     }
     setSelectedItemId(item.id);
-  }, [fileDiff?.path, onNavigateToSymbol]);
+    // Scroll the main diff viewer to this symbol's line
+    if (item.startLine != null) {
+      onScrollToLine?.(item.startLine, item.endLine);
+    }
+  }, [fileDiff?.path, onNavigateToSymbol, onScrollToLine]);
 
   if (!fileDiff) {
     return <div className="empty-state">Select a file to inspect its source.</div>;
   }
 
-  const sourceText = fileDiff.new_content || fileDiff.old_content || "";
-  const selectedMeta = selectedItem
-    ? `${kindLabel(selectedItem.kind)}${selectedItem.startLine ? ` • L${selectedItem.startLine}${selectedItem.endLine && selectedItem.endLine !== selectedItem.startLine ? `-${selectedItem.endLine}` : ""}` : ""}`
-    : "Read-only source view";
-
   return (
-    <div className="source-explorer" data-testid="source-explorer">
-      <aside className="source-outline">
-        <div className="source-outline-header">
-          <div className="source-outline-eyebrow">Subsystem Source</div>
-          <div className="source-outline-file" title={fileDiff.path}>{fileDiff.path}</div>
-          <div className="source-outline-meta">
-            {selectedFileChange && (
-              <span className="source-meta-pill">{selectedFileChange.role}</span>
-            )}
-            <span className="source-meta-pill">{fileDiff.language}</span>
-            {selectedFileChange && (
-              <span className="source-meta-pill">
-                {selectedFileChange.symbols_changed.length} changed
-              </span>
-            )}
-            {selectedGroup && (
-              <span className="source-meta-pill">{selectedGroup.name}</span>
-            )}
-          </div>
-        </div>
-
-        <div className="source-outline-sections">
-          {outline.sections.map((section) => (
-            <section key={section.key} className="source-outline-section">
-              <div className="source-outline-section-header">
-                <span>{section.label}</span>
-                <span className="source-outline-section-count">{section.items.length}</span>
-              </div>
-              {section.items.length > 0 ? (
-                <div className="source-outline-list">
-                  {section.items.map((item) => (
-                    <button
-                      key={item.id}
-                      className={`source-outline-item ${selectedItemId === item.id ? "active" : ""}`}
-                      onClick={() => handleItemClick(item)}
-                      title={item.detail}
-                      type="button"
-                    >
-                      <span className={`source-outline-kind source-outline-kind-${item.kind}`}>
-                        {kindLabel(item.kind)}
-                      </span>
-                      <span className="source-outline-copy">
-                        <span className="source-outline-name">{item.name}</span>
-                        <span className="source-outline-detail">{item.detail}</span>
-                      </span>
-                      {item.changed && (
-                        <span className="source-outline-changed">Changed</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="source-outline-empty">None in this file.</div>
-              )}
-            </section>
-          ))}
-        </div>
-      </aside>
-
-      <div className="source-editor-pane">
-        <div className="source-editor-header">
-          <div>
-            <div className="source-editor-title">{selectedItem?.name ?? fileDiff.path}</div>
-            <div className="source-editor-subtitle">{selectedMeta}</div>
-          </div>
-          {selectedItem?.targetFile && selectedItem.targetFile !== fileDiff.path && (
-            <button
-              className="btn source-nav-btn"
-              onClick={() => onNavigateToSymbol?.(selectedItem.targetFile!, selectedItem.targetSymbol)}
-              type="button"
-            >
-              Open Linked Symbol
-            </button>
+    <div className="source-explorer source-explorer-full" data-testid="source-explorer">
+      <div className="source-outline-header">
+        <div className="source-outline-eyebrow">Subsystem Source</div>
+        <div className="source-outline-file" title={fileDiff.path}>{fileDiff.path}</div>
+        <div className="source-outline-meta">
+          {selectedFileChange && (
+            <span className="source-meta-pill">{selectedFileChange.role}</span>
+          )}
+          <span className="source-meta-pill">{fileDiff.language}</span>
+          {selectedFileChange && (
+            <span className="source-meta-pill">
+              {selectedFileChange.symbols_changed.length} changed
+            </span>
+          )}
+          {selectedGroup && (
+            <span className="source-meta-pill">{selectedGroup.name}</span>
           )}
         </div>
+      </div>
 
-        <div className="source-editor-surface">
-          <Editor
-            value={sourceText}
-            language={mapLanguage(fileDiff.language)}
-            theme={DIFFCORE_MONACO_THEME}
-            beforeMount={registerDiffcoreMonacoTheme}
-            onMount={(editor) => {
-              editorRef.current = editor;
-              applyEditorFocus(selectedItem);
-            }}
-            options={{
-              readOnly: true,
-              readOnlyMessage: { value: "" },
-              minimap: { enabled: true, maxColumn: 80 },
-              automaticLayout: true,
-              scrollBeyondLastLine: false,
-              fontSize: 13,
-              fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-              lineNumbers: "on",
-              glyphMargin: true,
-              folding: true,
-              renderWhitespace: "selection",
-              stickyScroll: { enabled: true },
-              padding: { top: 16, bottom: 16 },
-              scrollbar: {
-                verticalScrollbarSize: 10,
-                horizontalScrollbarSize: 10,
-              },
-            }}
-          />
-        </div>
+      <div className="source-outline-sections">
+        {outline.sections.map((section) => (
+          <section key={section.key} className="source-outline-section">
+            <div className="source-outline-section-header">
+              <span>{section.label}</span>
+              <span className="source-outline-section-count">{section.items.length}</span>
+            </div>
+            {section.items.length > 0 ? (
+              <div className="source-outline-list">
+                {section.items.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`source-outline-item ${selectedItemId === item.id ? "active" : ""}`}
+                    onClick={() => handleItemClick(item)}
+                    title={item.detail}
+                    type="button"
+                  >
+                    <span className={`source-outline-kind source-outline-kind-${item.kind}`}>
+                      {kindLabel(item.kind)}
+                    </span>
+                    <span className="source-outline-copy">
+                      <span className="source-outline-name">{item.name}</span>
+                      <span className="source-outline-detail">{item.detail}</span>
+                    </span>
+                    {item.changed && (
+                      <span className="source-outline-changed">Changed</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="source-outline-empty">None in this file.</div>
+            )}
+          </section>
+        ))}
       </div>
     </div>
   );
@@ -810,27 +722,6 @@ function kindLabel(kind: OutlineKind): string {
   }
 }
 
-function mapLanguage(lang: string): string {
-  const map: Record<string, string> = {
-    typescript: "typescript",
-    javascript: "javascript",
-    python: "python",
-    rust: "rust",
-    json: "json",
-    toml: "toml",
-    yaml: "yaml",
-    markdown: "markdown",
-    css: "css",
-    html: "html",
-    sql: "sql",
-    shell: "shell",
-    go: "go",
-    java: "java",
-    ruby: "ruby",
-    plaintext: "plaintext",
-  };
-  return map[lang] || "plaintext";
-}
 
 function shortPath(path: string): string {
   const parts = path.split("/");

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use log::warn;
+use tauri::Emitter;
 
 use crate::activity_stream::{self, ActivityEntry, JobHandle};
 use diffcore_core::cache;
@@ -33,6 +34,10 @@ pub struct AppState {
     pub activity_manager: Arc<activity_stream::ActivityManager>,
     /// Base URL for the embedded localhost SSE server.
     pub activity_stream_base_url: Mutex<Option<String>>,
+    /// Cache key from the most recent analysis, for refinement cache lookups.
+    pub last_cache_key: Mutex<Option<String>>,
+    /// Path to the currently watched manifest file.
+    pub watched_manifest_path: Mutex<Option<PathBuf>>,
 }
 
 /// Cached diff result with the parameters that produced it, for cache invalidation.
@@ -49,6 +54,8 @@ impl AppState {
             last_diff: Mutex::new(None),
             activity_manager: Arc::new(activity_stream::ActivityManager::new()),
             activity_stream_base_url: Mutex::new(None),
+            last_cache_key: Mutex::new(None),
+            watched_manifest_path: Mutex::new(None),
         }
     }
 
@@ -230,6 +237,9 @@ pub fn analyze(
                 e
             ),
         }
+        if let Ok(mut key) = state.last_cache_key.lock() {
+            *key = Some(cache_key);
+        }
         return Ok(cached);
     }
 
@@ -317,6 +327,11 @@ pub fn analyze(
 
     // Cache the deterministic analysis result
     cache::store_cached(&workdir, &cache_key, &analysis_output);
+
+    // Store cache key for refinement cache lookups
+    if let Ok(mut key) = state.last_cache_key.lock() {
+        *key = Some(cache_key);
+    }
 
     // Store for subsequent queries
     match state.last_analysis.lock() {
@@ -1373,6 +1388,57 @@ pub struct RefinementResult {
     pub had_changes: bool,
 }
 
+/// Load cached refinement result for the current analysis (keyed by diff hash).
+///
+/// Returns `None` if no cached refinement exists or the code has changed since.
+#[tauri::command]
+pub fn get_cached_refinement(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<RefinementResult>, CommandError> {
+    let cache_key = match state.last_cache_key.lock() {
+        Ok(key) => key.clone(),
+        Err(_) => return Ok(None),
+    };
+    let Some(cache_key) = cache_key else {
+        return Ok(None);
+    };
+    let Some(json) = cache::load_cached_refinement(&cache_key) else {
+        return Ok(None);
+    };
+    match serde_json::from_str::<RefinementResult>(&json) {
+        Ok(result) => Ok(Some(result)),
+        Err(e) => {
+            warn!("Cached refinement is malformed: {}", e);
+            Ok(None)
+        }
+    }
+}
+
+/// Store a refinement result in the global cache (~/.diffcore/cache/refinements/).
+#[tauri::command]
+pub fn store_refinement_cache(
+    result: RefinementResult,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CommandError> {
+    let cache_key = match state.last_cache_key.lock() {
+        Ok(key) => key.clone(),
+        Err(_) => return Ok(()),
+    };
+    let Some(cache_key) = cache_key else {
+        return Ok(());
+    };
+    match serde_json::to_string(&result) {
+        Ok(json) => {
+            cache::store_cached_refinement(&cache_key, &json);
+            Ok(())
+        }
+        Err(e) => {
+            warn!("Failed to serialize refinement for caching: {}", e);
+            Ok(())
+        }
+    }
+}
+
 /// Background LLM job registration payload returned before SSE streaming begins.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AsyncLlmJobStart {
@@ -2336,6 +2402,252 @@ fn load_comments_from_file(path: &PathBuf, analysis_hash: &str) -> CommentsFile 
         analysis_hash: analysis_hash.to_string(),
         comments: vec![],
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Branch-based comment cache (~/.diffcore/cache/comments/)
+// ══════════════════════════════════════════════════════════════════════
+
+/// Resolve the global comment cache directory.
+/// Respects `DIFFCORE_COMMENT_CACHE_DIR` for testing.
+fn comment_cache_dir() -> Option<PathBuf> {
+    std::env::var_os("DIFFCORE_COMMENT_CACHE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| {
+                PathBuf::from(home)
+                    .join(".diffcore")
+                    .join("cache")
+                    .join("comments")
+            })
+        })
+}
+
+/// Compute a cache key for a repo+branch combo.
+///
+/// Uses the git common dir (shared across worktrees) + current branch name,
+/// so worktrees on the same branch share comments, while different branches
+/// on the same repo are isolated.
+fn comment_cache_key(repo_path: &str) -> Result<String, CommandError> {
+    use sha2::{Digest, Sha256};
+
+    let repo_path_buf = PathBuf::from(repo_path);
+    let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
+        .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
+    let repo = git2::Repository::discover(&repo_path_buf)
+        .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
+
+    // Use the git dir path for identity. For worktrees, resolve the main
+    // repo's git dir via `commondir()` if available, otherwise use `path()`.
+    // git2 stores the common dir at `.git/commondir` for linked worktrees.
+    let git_dir = repo.path();
+    let common_dir_file = git_dir.join("commondir");
+    let identity_dir = if common_dir_file.exists() {
+        // Linked worktree — read the commondir reference to get the main repo's git dir
+        std::fs::read_to_string(&common_dir_file)
+            .ok()
+            .and_then(|rel| {
+                let trimmed = rel.trim();
+                let resolved = if std::path::Path::new(trimmed).is_absolute() {
+                    PathBuf::from(trimmed)
+                } else {
+                    git_dir.join(trimmed)
+                };
+                std::fs::canonicalize(resolved).ok()
+            })
+            .unwrap_or_else(|| git_dir.to_path_buf())
+    } else {
+        git_dir.to_path_buf()
+    };
+    let common_dir = identity_dir.to_string_lossy().to_string();
+
+    // Get current branch name
+    let branch = match repo.head() {
+        Ok(head) => head
+            .shorthand()
+            .unwrap_or("HEAD")
+            .to_string(),
+        Err(_) => "HEAD".to_string(),
+    };
+
+    let mut hasher = Sha256::new();
+    hasher.update(common_dir.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(branch.as_bytes());
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Branch-cached comment file — just a Vec of comments, no analysis hash.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct CachedCommentsFile {
+    pub comments: Vec<ReviewComment>,
+}
+
+/// Load comments for the current repo+branch from the global cache.
+fn load_cached_comments_file(cache_key: &str) -> CachedCommentsFile {
+    let Some(dir) = comment_cache_dir() else {
+        return CachedCommentsFile { comments: vec![] };
+    };
+    let path = dir.join(format!("{}.json", cache_key));
+    match std::fs::read_to_string(&path) {
+        Ok(data) => serde_json::from_str(&data).unwrap_or(CachedCommentsFile { comments: vec![] }),
+        Err(_) => CachedCommentsFile { comments: vec![] },
+    }
+}
+
+/// Write comments for the current repo+branch to the global cache.
+fn write_cached_comments_file(
+    cache_key: &str,
+    file: &CachedCommentsFile,
+) -> Result<(), CommandError> {
+    let dir = comment_cache_dir().ok_or_else(|| {
+        CommandError::Io("Cannot determine comment cache directory".to_string())
+    })?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| CommandError::Io(format!("Failed to create comment cache dir: {}", e)))?;
+    let path = dir.join(format!("{}.json", cache_key));
+    let json = serde_json::to_string_pretty(file)
+        .map_err(|e| CommandError::Io(format!("Failed to serialize comments: {}", e)))?;
+    std::fs::write(&path, json)
+        .map_err(|e| CommandError::Io(format!("Failed to write comment cache: {}", e)))?;
+    Ok(())
+}
+
+/// Save a comment to the branch-based cache.
+#[tauri::command]
+pub fn save_comment_cached(
+    repo_path: String,
+    comment: ReviewComment,
+) -> Result<(), CommandError> {
+    let key = comment_cache_key(&repo_path)?;
+    let mut file = load_cached_comments_file(&key);
+    file.comments.push(comment);
+    write_cached_comments_file(&key, &file)
+}
+
+/// Load all comments for the current repo+branch from the cache.
+#[tauri::command]
+pub fn load_comments_cached(repo_path: String) -> Result<Vec<ReviewComment>, CommandError> {
+    let key = comment_cache_key(&repo_path)?;
+    let file = load_cached_comments_file(&key);
+    Ok(file.comments)
+}
+
+/// Delete a comment by ID from the branch-based cache.
+#[tauri::command]
+pub fn delete_comment_cached(
+    repo_path: String,
+    comment_id: String,
+) -> Result<(), CommandError> {
+    let key = comment_cache_key(&repo_path)?;
+    let mut file = load_cached_comments_file(&key);
+    file.comments.retain(|c| c.id != comment_id);
+    write_cached_comments_file(&key, &file)
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Groups manifest import / file watching
+// ══════════════════════════════════════════════════════════════════════
+
+/// Import a groups manifest JSON and apply it to the current analysis.
+///
+/// Returns the updated `AnalysisOutput` with groups replaced by the manifest.
+#[tauri::command]
+pub fn import_groups_manifest(
+    manifest_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<AnalysisOutput, CommandError> {
+    use diffcore_core::manifest;
+
+    let manifest = manifest::read_manifest(std::path::Path::new(&manifest_path))
+        .map_err(|e| CommandError::Io(e))?;
+
+    let analysis = state
+        .last_analysis
+        .lock()
+        .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?
+        .clone()
+        .ok_or_else(|| CommandError::Analysis("No analysis loaded".to_string()))?;
+
+    let updated = manifest::import_manifest(&analysis, &manifest);
+
+    // Update cached analysis
+    if let Ok(mut last) = state.last_analysis.lock() {
+        *last = Some(updated.clone());
+    }
+
+    Ok(updated)
+}
+
+/// Export the current analysis groups as a manifest JSON file.
+#[tauri::command]
+pub fn export_groups_manifest(
+    output_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CommandError> {
+    use diffcore_core::manifest;
+
+    let analysis = state
+        .last_analysis
+        .lock()
+        .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?
+        .clone()
+        .ok_or_else(|| CommandError::Analysis("No analysis loaded".to_string()))?;
+
+    let groups_manifest = manifest::export_manifest(&analysis);
+    manifest::write_manifest(std::path::Path::new(&output_path), &groups_manifest)
+        .map_err(|e| CommandError::Io(e))?;
+
+    Ok(())
+}
+
+/// Start watching a manifest file for changes. Emits "manifest-changed" events
+/// to the frontend when the file is modified.
+#[tauri::command]
+pub fn watch_manifest(
+    manifest_path: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CommandError> {
+    // Store the path for the watcher
+    if let Ok(mut path) = state.watched_manifest_path.lock() {
+        *path = Some(PathBuf::from(&manifest_path));
+    }
+
+    // Spawn a background thread that polls the file for changes
+    let path = PathBuf::from(manifest_path);
+    std::thread::spawn(move || {
+        let mut last_modified = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok();
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+
+            let current_modified = std::fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .ok();
+
+            if current_modified != last_modified && current_modified.is_some() {
+                last_modified = current_modified;
+                // Emit event to frontend
+                let _ = app_handle.emit("manifest-changed", &path.to_string_lossy().to_string());
+            }
+        }
+    });
+
+    Ok(())
+}
+
+/// Stop watching the manifest file.
+#[tauri::command]
+pub fn unwatch_manifest(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CommandError> {
+    if let Ok(mut path) = state.watched_manifest_path.lock() {
+        *path = None;
+    }
+    Ok(())
 }
 
 fn detect_language(path: &str) -> String {

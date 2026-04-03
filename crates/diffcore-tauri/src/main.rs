@@ -75,6 +75,15 @@ fn main() {
             commands::export_comments,
             commands::get_ignore_paths,
             commands::save_ignore_paths,
+            commands::get_cached_refinement,
+            commands::store_refinement_cache,
+            commands::save_comment_cached,
+            commands::load_comments_cached,
+            commands::delete_comment_cached,
+            commands::import_groups_manifest,
+            commands::export_groups_manifest,
+            commands::watch_manifest,
+            commands::unwatch_manifest,
         ])
         .run(tauri::generate_context!())
     {

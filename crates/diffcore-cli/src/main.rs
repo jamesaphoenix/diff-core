@@ -51,6 +51,10 @@ enum Commands {
     /// Check that every file in each repo's diff is classified in the golden expectations.
     /// Exits with code 1 if any repo has unclassified files.
     LintGoldens(LintGoldensArgs),
+    /// Export flow groupings as an editable manifest JSON file
+    ExportGroups(ExportGroupsArgs),
+    /// Import flow groupings from a manifest JSON file
+    ImportGroups(ImportGroupsArgs),
     /// Embed file diffs using local code embeddings and show pairwise similarity.
     /// Requires the `embeddings` feature flag.
     #[cfg(feature = "embeddings")]
@@ -205,6 +209,44 @@ struct LintGoldensArgs {
     min_coverage: f64,
 }
 
+#[derive(Parser)]
+struct ExportGroupsArgs {
+    /// Path to the analysis JSON to export groups from (default: run fresh analysis)
+    #[arg(long, short)]
+    input: Option<PathBuf>,
+
+    /// Output path for the groups manifest (default: stdout)
+    #[arg(long, short)]
+    output: Option<PathBuf>,
+
+    /// Path to the git repository
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    /// Base ref for analysis (when no --input given)
+    #[arg(long, default_value = "main")]
+    base: String,
+}
+
+#[derive(Parser)]
+struct ImportGroupsArgs {
+    /// Path to the groups manifest JSON
+    #[arg(long, short)]
+    input: PathBuf,
+
+    /// Output path for the modified analysis JSON (default: stdout)
+    #[arg(long, short)]
+    output: Option<PathBuf>,
+
+    /// Path to the git repository
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    /// Base ref for the underlying analysis
+    #[arg(long, default_value = "main")]
+    base: String,
+}
+
 #[cfg(feature = "embeddings")]
 #[derive(Parser)]
 struct EmbedDiffArgs {
@@ -252,6 +294,18 @@ fn main() {
         Commands::LintGoldens(args) => {
             run_lint_goldens(args);
         }
+        Commands::ExportGroups(args) => {
+            if let Err(e) = run_export_groups(args) {
+                error!("Error: {}", e);
+                process::exit(1);
+            }
+        }
+        Commands::ImportGroups(args) => {
+            if let Err(e) = run_import_groups(args) {
+                error!("Error: {}", e);
+                process::exit(1);
+            }
+        }
         #[cfg(feature = "embeddings")]
         Commands::EmbedDiff(args) => {
             if let Err(e) = run_embed_diff(args) {
@@ -260,6 +314,118 @@ fn main() {
             }
         }
     }
+}
+
+/// Run analysis and return the output (without writing or LLM steps).
+fn run_analyze_and_return(args: AnalyzeArgs) -> Result<AnalysisOutput, Box<dyn std::error::Error>> {
+    let repo_path = std::fs::canonicalize(&args.repo)?;
+    let repo =
+        Repository::discover(&repo_path).map_err(|e| format!("Not a git repository: {}", e))?;
+    let workdir = repo
+        .workdir()
+        .ok_or("Bare repositories are not supported")?
+        .to_path_buf();
+    let config = DiffcoreConfig::load_with_global_llm_from_dir(&workdir)
+        .map_err(|e| format!("Config error: {}", e))?;
+
+    let include_uncommitted = if args.include_uncommitted {
+        true
+    } else if args.no_include_uncommitted {
+        false
+    } else {
+        config.diff.include_uncommitted
+    };
+
+    let (diff_result, diff_source) = extract_diff(&repo, &args, include_uncommitted)?;
+
+    if diff_result.files.is_empty() {
+        return Ok(AnalysisOutput {
+            version: "1.0.0".to_string(),
+            diff_source,
+            summary: diffcore_core::types::AnalysisSummary {
+                total_files_changed: 0,
+                total_groups: 0,
+                languages_detected: vec![],
+                frameworks_detected: vec![],
+            },
+            groups: vec![],
+            infrastructure_group: None,
+            annotations: None,
+        });
+    }
+
+    let cache_key = cache::compute_cache_key(&diff_result);
+    if let Some(cached) = cache::load_cached(&workdir, &cache_key) {
+        return Ok(cached);
+    }
+
+    let file_inputs: Vec<(&str, &str)> = diff_result
+        .files
+        .iter()
+        .filter_map(|file_diff| {
+            let content = file_diff
+                .new_content
+                .as_deref()
+                .or(file_diff.old_content.as_deref())?;
+            let path = file_diff.path();
+            if config.is_ignored(path) {
+                return None;
+            }
+            Some((path, content))
+        })
+        .collect();
+    let parsed_files = pipeline::parse_files_parallel(&file_inputs);
+    let workspace_map = diffcore_core::graph::build_workspace_map(&workdir);
+    let mut graph = SymbolGraph::build_with_workspace(&parsed_files, &workspace_map);
+    let entrypoints = entrypoint::detect_entrypoints(&parsed_files);
+    let flow_analysis = flow::analyze_data_flow(&parsed_files, &FlowConfig::default());
+    flow::enrich_graph(&mut graph, &flow_analysis);
+    let changed_files: Vec<String> = diff_result
+        .files
+        .iter()
+        .filter(|f| !config.is_ignored(f.path()))
+        .map(|f| f.path().to_string())
+        .collect();
+    let cluster_result = cluster::cluster_files(&graph, &entrypoints, &changed_files);
+    let weights = config.ranking.clone();
+    let rank_inputs: Vec<GroupRankInput> = cluster_result
+        .groups
+        .iter()
+        .map(|group| {
+            let risk_flags = output::compute_group_risk_flags(
+                &group
+                    .files
+                    .iter()
+                    .map(|f| f.path.as_str())
+                    .collect::<Vec<_>>(),
+            );
+            let total_add: u32 = group.files.iter().map(|f| f.changes.additions).sum();
+            let total_del: u32 = group.files.iter().map(|f| f.changes.deletions).sum();
+            GroupRankInput {
+                group_id: group.id.clone(),
+                risk: rank::compute_risk_score(
+                    risk_flags.has_schema_change,
+                    risk_flags.has_api_change,
+                    risk_flags.has_auth_change,
+                    false,
+                ),
+                centrality: 0.5,
+                surface_area: rank::compute_surface_area(total_add, total_del, 1000),
+                uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
+            }
+        })
+        .collect();
+    let ranked = rank::rank_groups(&rank_inputs, &weights);
+
+    let analysis_output = build_analysis_output(
+        &diff_result,
+        diff_source,
+        &parsed_files,
+        &cluster_result,
+        &ranked,
+    );
+    cache::store_cached(&workdir, &cache_key, &analysis_output);
+    Ok(analysis_output)
 }
 
 fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -935,6 +1101,84 @@ fn write_output(
         let mut stdout = std::io::stdout().lock();
         output::write_json(output, &mut stdout)?;
     }
+    Ok(())
+}
+
+/// Export flow groupings as an editable manifest JSON.
+fn run_export_groups(args: ExportGroupsArgs) -> Result<(), Box<dyn std::error::Error>> {
+    use diffcore_core::manifest;
+
+    let analysis = if let Some(ref input) = args.input {
+        // Load from existing analysis JSON
+        let content = std::fs::read_to_string(input)?;
+        serde_json::from_str::<AnalysisOutput>(&content)?
+    } else {
+        // Run a fresh analysis using the standard Analyze path
+        let analyze_args = AnalyzeArgs {
+            base: Some(args.base.clone()),
+            head: None,
+            range: None,
+            staged: false,
+            unstaged: false,
+            include_uncommitted: true,
+            no_include_uncommitted: false,
+            output: None,
+            annotate: false,
+            refine: false,
+            refine_model: None,
+            no_cache: false,
+            repo: args.repo.clone(),
+        };
+        run_analyze_and_return(analyze_args)?
+    };
+
+    let groups_manifest = manifest::export_manifest(&analysis);
+
+    if let Some(ref output) = args.output {
+        manifest::write_manifest(output, &groups_manifest)
+            .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+        info!("Groups manifest written to {}", output.display());
+    } else {
+        let json = serde_json::to_string_pretty(&groups_manifest)?;
+        #[allow(clippy::print_stdout)]
+        {
+            println!("{}", json);
+        }
+    }
+    Ok(())
+}
+
+/// Import flow groupings from a manifest JSON and produce updated analysis.
+fn run_import_groups(args: ImportGroupsArgs) -> Result<(), Box<dyn std::error::Error>> {
+    use diffcore_core::manifest;
+
+    let groups_manifest = manifest::read_manifest(&args.input)
+        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+    // We need the original analysis to preserve file metadata
+    let analyze_args = AnalyzeArgs {
+        base: Some(args.base.clone()),
+        head: None,
+        range: None,
+        staged: false,
+        unstaged: false,
+        include_uncommitted: true,
+        no_include_uncommitted: false,
+        output: None,
+        annotate: false,
+        refine: false,
+        refine_model: None,
+        no_cache: false,
+        repo: args.repo.clone(),
+    };
+    let analysis = run_analyze_and_return(analyze_args)?;
+    let updated = manifest::import_manifest(&analysis, &groups_manifest);
+
+    write_output(&updated, args.output.as_deref())?;
+    info!(
+        "Imported {} groups from manifest",
+        groups_manifest.groups.len()
+    );
     Ok(())
 }
 

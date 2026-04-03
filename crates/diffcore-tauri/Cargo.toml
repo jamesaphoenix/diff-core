@@ -20,6 +20,8 @@ axum = "0.7"
 async-stream = "0.3"
 tower-http = { version = "0.6", features = ["cors"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+sha2 = "0.10"
+hex = "0.4"
 futures-core = "0.3"
 
 [dev-dependencies]
