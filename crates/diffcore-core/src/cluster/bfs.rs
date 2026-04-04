@@ -104,27 +104,23 @@ pub(super) fn collect_internal_edges(
 
 /// Generate a human-readable name for a flow group based on its entrypoint.
 pub(super) fn generate_group_name(ep: &Entrypoint) -> String {
-    // Extract a meaningful file context (parent directory + basename without extension)
-    let file_context = {
-        let path = ep.file.as_str();
-        let parts: Vec<&str> = path.rsplitn(2, '/').collect();
-        let basename = parts[0].rsplit('.').last().unwrap_or(parts[0]);
-        if let Some(dir) = parts.get(1) {
-            let dir_name = dir.rsplit('/').next().unwrap_or(dir);
-            format!("{}/{}", dir_name, basename)
-        } else {
-            basename.to_string()
-        }
-    };
+    // Extract file basename without extension
+    let basename = ep.file
+        .rsplit('/')
+        .next()
+        .unwrap_or(&ep.file)
+        .rsplit('.')
+        .last()
+        .unwrap_or(&ep.file);
 
-    // Use symbol if it differs from the file basename; otherwise use file context
-    let label = if ep.symbol == file_context.rsplit('/').next().unwrap_or(&file_context)
+    // Use symbol if it differs from the file basename; otherwise just use basename
+    let label = if ep.symbol == basename
         || ep.symbol == "default"
         || ep.symbol == "module"
     {
-        file_context
+        basename.to_string()
     } else {
-        format!("{} ({})", ep.symbol, file_context)
+        format!("{} ({})", ep.symbol, basename)
     };
 
     match ep.entrypoint_type {

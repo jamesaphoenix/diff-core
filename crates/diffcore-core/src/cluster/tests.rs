@@ -852,25 +852,27 @@ fn test_file_role_inference() {
 #[test]
 fn test_group_name_generation() {
     use bfs::generate_group_name;
+    // Symbol differs from file basename → includes file basename in parens
     assert_eq!(
-        generate_group_name(&ep("f", "POST", EntrypointType::HttpRoute)),
-        "POST route flow"
+        generate_group_name(&ep("src/routes.ts", "POST", EntrypointType::HttpRoute)),
+        "POST (routes) route"
+    );
+    // Symbol matches file basename → just uses the symbol
+    assert_eq!(
+        generate_group_name(&ep("src/main.ts", "main", EntrypointType::CliCommand)),
+        "main CLI"
     );
     assert_eq!(
-        generate_group_name(&ep("f", "main", EntrypointType::CliCommand)),
-        "main CLI flow"
+        generate_group_name(&ep("src/queue.ts", "processQueue", EntrypointType::QueueConsumer)),
+        "processQueue (queue) consumer"
     );
     assert_eq!(
-        generate_group_name(&ep("f", "processQueue", EntrypointType::QueueConsumer)),
-        "processQueue consumer flow"
+        generate_group_name(&ep("jobs/cleanup.ts", "cleanup", EntrypointType::CronJob)),
+        "cleanup scheduled"
     );
     assert_eq!(
-        generate_group_name(&ep("f", "cleanup", EntrypointType::CronJob)),
-        "cleanup scheduled flow"
-    );
-    assert_eq!(
-        generate_group_name(&ep("f", "HomePage", EntrypointType::ReactPage)),
-        "HomePage page flow"
+        generate_group_name(&ep("pages/home/HomePage.tsx", "HomePage", EntrypointType::ReactPage)),
+        "HomePage page"
     );
 }
 
@@ -1328,17 +1330,20 @@ fn test_file_role_priority_ordering() {
 #[test]
 fn test_group_name_all_entrypoint_types() {
     use bfs::generate_group_name;
+    // basename of "tests/suite.test.ts" stripping extension → "suite"
+    // but rsplit('.').last() on "suite.test" → "suite"
     assert_eq!(
-        generate_group_name(&ep("f", "TestSuite", EntrypointType::TestFile)),
-        "TestSuite test flow"
+        generate_group_name(&ep("tests/suite.test.ts", "TestSuite", EntrypointType::TestFile)),
+        "TestSuite (suite) test"
     );
     assert_eq!(
-        generate_group_name(&ep("f", "onClick", EntrypointType::EventHandler)),
-        "onClick event flow"
+        generate_group_name(&ep("src/button.tsx", "onClick", EntrypointType::EventHandler)),
+        "onClick (button) event"
     );
+    // Symbol matches basename → no parens
     assert_eq!(
-        generate_group_name(&ep("f", "UserService", EntrypointType::EffectService)),
-        "UserService Effect service flow"
+        generate_group_name(&ep("src/services/UserService.ts", "UserService", EntrypointType::EffectService)),
+        "UserService Effect service"
     );
 }
 
