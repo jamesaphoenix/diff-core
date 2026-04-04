@@ -406,11 +406,19 @@ fn create_test_repo_on_branch(branch_name: &str) -> (tempfile::TempDir, String) 
     (tmp, path)
 }
 
-/// Helper: set the cache dir env var for isolated testing.
-fn with_comment_cache_dir<F: FnOnce()>(dir: &std::path::Path, f: F) {
-    std::env::set_var("DIFFCORE_COMMENT_CACHE_DIR", dir.as_os_str());
+/// Mutex to serialize tests that use env vars (prevents races in parallel execution).
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Helper: set the cache dir env vars for isolated testing (serialized via mutex).
+fn with_cache_dirs<F: FnOnce()>(comment_dir: &std::path::Path, refinement_dir: Option<&std::path::Path>, f: F) {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::set_var("DIFFCORE_COMMENT_CACHE_DIR", comment_dir.as_os_str());
+    if let Some(rd) = refinement_dir {
+        std::env::set_var("DIFFCORE_REFINEMENT_CACHE_DIR", rd.as_os_str());
+    }
     f();
     std::env::remove_var("DIFFCORE_COMMENT_CACHE_DIR");
+    std::env::remove_var("DIFFCORE_REFINEMENT_CACHE_DIR");
 }
 
 // ── Save & Load by branch ───────────────────────────────────────────
@@ -420,7 +428,7 @@ fn cached_save_and_load_single_comment() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("feature-a");
 
-    with_comment_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), None, || {
         let comment = make_comment("c1", "code", "Branch comment");
         save_comment_cached(repo_path.clone(), comment.clone()).unwrap();
 
@@ -436,7 +444,7 @@ fn cached_comments_isolated_by_branch() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("branch-a");
 
-    with_comment_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), None, || {
         // Save on branch-a
         save_comment_cached(
             repo_path.clone(),
@@ -480,7 +488,7 @@ fn cached_comments_persist_across_reload() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("persist-test");
 
-    with_comment_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), None, || {
         save_comment_cached(
             repo_path.clone(),
             make_comment("c1", "code", "Persisted"),
@@ -494,7 +502,7 @@ fn cached_comments_persist_across_reload() {
     });
 
     // Simulate app restart: re-enter the cache dir context
-    with_comment_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), None, || {
         let loaded = load_comments_cached(repo_path.clone()).unwrap();
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].text, "Persisted");
@@ -507,7 +515,7 @@ fn cached_delete_removes_specific_comment() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("delete-test");
 
-    with_comment_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), None, || {
         save_comment_cached(repo_path.clone(), make_comment("c1", "code", "Keep")).unwrap();
         save_comment_cached(repo_path.clone(), make_comment("c2", "code", "Delete me")).unwrap();
         save_comment_cached(repo_path.clone(), make_comment("c3", "code", "Keep too")).unwrap();
@@ -526,7 +534,7 @@ fn cached_delete_nonexistent_is_noop() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("delete-noop");
 
-    with_comment_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), None, || {
         save_comment_cached(repo_path.clone(), make_comment("c1", "code", "Only one")).unwrap();
         delete_comment_cached(repo_path.clone(), "nonexistent".to_string()).unwrap();
 
@@ -543,7 +551,7 @@ fn cached_worktree_shares_comments_with_main_repo() {
     let wt_parent = tempfile::tempdir().unwrap();
     let wt_dir = wt_parent.path().join("wt-checkout");
 
-    with_comment_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), None, || {
         // Create a worktree on a new branch (don't force — "main" is HEAD)
         let repo = Repository::discover(&repo_path).unwrap();
         let head_commit = repo.head().unwrap().peel_to_commit().unwrap();
@@ -585,7 +593,7 @@ fn cached_multiple_comments_preserves_order() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("order-test");
 
-    with_comment_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), None, || {
         save_comment_cached(repo_path.clone(), make_comment("c1", "code", "First")).unwrap();
         save_comment_cached(repo_path.clone(), make_comment("c2", "file", "Second")).unwrap();
         save_comment_cached(repo_path.clone(), make_comment("c3", "group", "Third")).unwrap();
@@ -603,7 +611,7 @@ fn cached_load_from_empty_cache_returns_empty() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("empty-test");
 
-    with_comment_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), None, || {
         let loaded = load_comments_cached(repo_path.clone()).unwrap();
         assert!(loaded.is_empty());
     });
@@ -614,7 +622,7 @@ fn cached_all_comment_types_roundtrip() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("types-test");
 
-    with_comment_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), None, || {
         let code_comment = make_comment("c1", "code", "Code comment");
         let mut file_comment = make_comment("c2", "file", "File comment");
         file_comment.start_line = None;
@@ -666,7 +674,7 @@ fn refinement_cache_branch_key_stores_and_loads() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("feature-x");
 
-    with_refinement_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), Some(cache_tmp.path()), || {
         let branch_key = comment_cache_key(&repo_path).unwrap();
         let refine_key = format!("branch_{}", branch_key);
 
@@ -685,7 +693,7 @@ fn refinement_cache_different_branches_isolated() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("branch-a");
 
-    with_refinement_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), Some(cache_tmp.path()), || {
         // Store on branch-a
         let key_a = comment_cache_key(&repo_path).unwrap();
         cache::store_cached_refinement(&format!("branch_{}", key_a), sample_refinement_json());
@@ -723,7 +731,7 @@ fn refinement_cache_worktree_sees_same_branch_cache() {
     let wt_parent = tempfile::tempdir().unwrap();
     let wt_dir = wt_parent.path().join("wt-refine-test");
 
-    with_refinement_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), Some(cache_tmp.path()), || {
         // Create a worktree on branch "wt-refine"
         let repo = Repository::discover(&repo_path).unwrap();
         let head = repo.head().unwrap().peel_to_commit().unwrap();
@@ -765,7 +773,7 @@ fn refinement_cache_overwrite_on_same_branch() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("overwrite-test");
 
-    with_refinement_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), Some(cache_tmp.path()), || {
         let key = comment_cache_key(&repo_path).unwrap();
         let refine_key = format!("branch_{}", key);
 
@@ -786,7 +794,7 @@ fn refinement_cache_diff_key_and_branch_key_both_stored() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("dual-key");
 
-    with_refinement_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), Some(cache_tmp.path()), || {
         let diff_key = "fake_diff_hash_abc123";
         let branch_key = comment_cache_key(&repo_path).unwrap();
         let branch_refine_key = format!("branch_{}", branch_key);
@@ -806,7 +814,7 @@ fn refinement_cache_fallback_to_branch_when_diff_key_missing() {
     let cache_tmp = tempfile::tempdir().unwrap();
     let (_repo_tmp, repo_path) = create_test_repo_on_branch("fallback-test");
 
-    with_refinement_cache_dir(cache_tmp.path(), || {
+    with_cache_dirs(cache_tmp.path(), Some(cache_tmp.path()), || {
         let branch_key = comment_cache_key(&repo_path).unwrap();
         let branch_refine_key = format!("branch_{}", branch_key);
 
