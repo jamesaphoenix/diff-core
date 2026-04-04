@@ -1046,8 +1046,59 @@ body {
 
 .panel-right {
   width: clamp(360px, 30vw, 430px);
-  min-width: 300px;
+  min-width: 200px;
   flex-shrink: 0;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.2s ease;
+}
+
+.panel-right-collapsed {
+  width: 36px !important;
+  min-width: 36px !important;
+  overflow: hidden;
+}
+
+.panel-right-collapsed .panel-header-tabs {
+  justify-content: center;
+  padding: 0;
+}
+
+.panel-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 9px;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.panel-collapse-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.panel-resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+  position: relative;
+  z-index: 10;
+}
+
+.panel-resize-handle:hover,
+.panel-resize-handle:active {
+  background: var(--accent);
+  opacity: 0.5;
 }
 
 .panel-header {
@@ -1704,6 +1755,11 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.annotations-scroll-container::-webkit-scrollbar {
+  width: 3px;
 }
 
 /* ── Annotation Sub-Tabs ── */
@@ -1823,6 +1879,59 @@ body {
 
 .flow-graph-container .react-flow__background {
   background: var(--bg-secondary);
+}
+
+.flow-legend {
+  z-index: 5;
+}
+
+.flow-legend-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.flow-legend-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.flow-legend-items {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-surface);
+}
+
+.flow-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flow-legend-line {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.flow-legend-label {
+  font-size: 10px;
+  color: var(--text-secondary);
 }
 
 .flow-node {

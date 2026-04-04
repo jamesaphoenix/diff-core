@@ -12,7 +12,7 @@ use crate::ast::{Language, ParsedFile};
 use crate::cluster::ClusterResult;
 use crate::git::DiffResult;
 use crate::rank::is_risk_path;
-use crate::types::{AnalysisOutput, AnalysisSummary, DiffSource, DiffType, FlowGroup, RankedGroup};
+use crate::types::{AnalysisOutput, AnalysisSummary, ChangeStats, DiffSource, DiffType, FileChange, FlowGroup, RankedGroup};
 
 /// Errors from output operations.
 #[derive(Debug, thiserror::Error)]
@@ -48,15 +48,37 @@ pub fn build_analysis_output(
         langs
     };
 
-    // Apply ranking to groups: update risk_score and review_order from ranked results.
+    // Build diff stats lookup: file path → (additions, deletions)
+    let diff_stats: std::collections::HashMap<&str, (u32, u32)> = diff_result
+        .files
+        .iter()
+        .map(|f| (f.path(), (f.additions, f.deletions)))
+        .collect();
+
+    // Apply ranking to groups: update risk_score, review_order, and enrich change stats.
     let groups: Vec<FlowGroup> = cluster_result
         .groups
         .iter()
         .map(|group| {
             let ranked = ranked_groups.iter().find(|r| r.group_id == group.id);
+            let files = group
+                .files
+                .iter()
+                .map(|fc| {
+                    if let Some(&(additions, deletions)) = diff_stats.get(fc.path.as_str()) {
+                        FileChange {
+                            changes: ChangeStats { additions, deletions },
+                            ..fc.clone()
+                        }
+                    } else {
+                        fc.clone()
+                    }
+                })
+                .collect();
             FlowGroup {
                 risk_score: ranked.map_or(group.risk_score, |r| r.composite_score),
                 review_order: ranked.map_or(group.review_order, |r| r.review_order),
+                files,
                 ..group.clone()
             }
         })

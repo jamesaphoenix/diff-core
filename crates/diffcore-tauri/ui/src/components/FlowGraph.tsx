@@ -4,6 +4,7 @@ import {
   Background,
   MiniMap,
   Controls,
+  Panel,
   Handle,
   type Node,
   type Edge,
@@ -524,10 +525,10 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
           />
         )}
         <Controls showInteractive={false} />
+        <Panel position="top-right">
+          <Legend />
+        </Panel>
       </ReactFlow>
-
-      {/* (8) Legend overlay */}
-      <Legend />
     </div>
   );
 }

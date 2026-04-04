@@ -186,12 +186,51 @@ export default function App() {
   const [infraShowAll, setInfraShowAll] = useState(false);
   const [infraSubGroupsExpanded, setInfraSubGroupsExpanded] = useState<Set<string>>(new Set());
 
+  // Right panel collapse/resize state
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [rightPanelWidth, setRightPanelWidth] = useState(400);
+  const rightPanelDragging = useRef(false);
+  const rightPanelStartX = useRef(0);
+  const rightPanelStartWidth = useRef(0);
+
   // Groups manifest watching state
   const [watchedManifestPath, setWatchedManifestPath] = useState<string | null>(null);
 
   // Toast notification state (auto-dismiss)
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Right panel drag resize handlers
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!rightPanelDragging.current) return;
+      const delta = rightPanelStartX.current - e.clientX;
+      const newWidth = Math.max(200, Math.min(800, rightPanelStartWidth.current + delta));
+      setRightPanelWidth(newWidth);
+    };
+    const onMouseUp = () => {
+      if (rightPanelDragging.current) {
+        rightPanelDragging.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  const startRightPanelDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    rightPanelDragging.current = true;
+    rightPanelStartX.current = e.clientX;
+    rightPanelStartWidth.current = rightPanelWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [rightPanelWidth]);
 
   // Demo mode: auto-load mock data on mount when not in Tauri
   const demoLoaded = useRef(false);
@@ -3753,40 +3792,61 @@ ${groupCount > 10 ? `This PR has ${groupCount} groups — use a divide-and-conqu
           })()}
         </main>
 
+        {/* Right panel drag handle */}
+        <div
+          className="panel-resize-handle"
+          onMouseDown={startRightPanelDrag}
+        />
+
         {/* Right panel: Activity + Annotations */}
-        <aside className="panel panel-right">
+        <aside
+          className={`panel panel-right ${rightPanelCollapsed ? "panel-right-collapsed" : ""}`}
+          style={rightPanelCollapsed ? undefined : { width: rightPanelWidth }}
+        >
           <div className="panel-header panel-header-tabs" data-testid="right-panel-tabs" role="tablist" aria-label="Right panel views">
             <button
-              className={`panel-tab ${rightPanelTab === "activity" ? "active" : ""}`}
-              onClick={() => setRightPanelTab("activity")}
-              data-testid="activity-tab"
-              role="tab"
-              aria-selected={rightPanelTab === "activity"}
+              className="panel-collapse-btn"
+              onClick={() => setRightPanelCollapsed(!rightPanelCollapsed)}
+              title={rightPanelCollapsed ? "Expand panel" : "Collapse panel"}
             >
-              Activity
-              {(activityJob || activityTimeline.length > 0) && (
-                <span className="panel-tab-count">{activityTimeline.length || 1}</span>
-              )}
+              {rightPanelCollapsed ? "\u25C0" : "\u25B6"}
             </button>
-            <button
-              className={`panel-tab ${rightPanelTab === "annotations" ? "active" : ""}`}
-              onClick={() => setRightPanelTab("annotations")}
-              data-testid="annotations-tab"
-              role="tab"
-              aria-selected={rightPanelTab === "annotations"}
-            >
-              Annotations
-            </button>
-            <button
-              className={`panel-tab ${rightPanelTab === "source" ? "active" : ""}`}
-              onClick={() => setRightPanelTab("source")}
-              data-testid="source-tab"
-              role="tab"
-              aria-selected={rightPanelTab === "source"}
-            >
-              Source
-            </button>
+            {!rightPanelCollapsed && (
+              <>
+                <button
+                  className={`panel-tab ${rightPanelTab === "activity" ? "active" : ""}`}
+                  onClick={() => setRightPanelTab("activity")}
+                  data-testid="activity-tab"
+                  role="tab"
+                  aria-selected={rightPanelTab === "activity"}
+                >
+                  Activity
+                  {(activityJob || activityTimeline.length > 0) && (
+                    <span className="panel-tab-count">{activityTimeline.length || 1}</span>
+                  )}
+                </button>
+                <button
+                  className={`panel-tab ${rightPanelTab === "annotations" ? "active" : ""}`}
+                  onClick={() => setRightPanelTab("annotations")}
+                  data-testid="annotations-tab"
+                  role="tab"
+                  aria-selected={rightPanelTab === "annotations"}
+                >
+                  Annotations
+                </button>
+                <button
+                  className={`panel-tab ${rightPanelTab === "source" ? "active" : ""}`}
+                  onClick={() => setRightPanelTab("source")}
+                  data-testid="source-tab"
+                  role="tab"
+                  aria-selected={rightPanelTab === "source"}
+                >
+                  Source
+                </button>
+              </>
+            )}
           </div>
+          {!rightPanelCollapsed && (
           <div className="panel-body panel-body-right">
             {rightPanelTab === "activity"
               ? activityTabContent
@@ -3861,6 +3921,7 @@ ${groupCount > 10 ? `This PR has ${groupCount} groups — use a divide-and-conqu
               </div>
             )}
           </div>
+          )}
         </aside>
       </div>
 
