@@ -40,6 +40,8 @@ fn set_macos_dock_icon() {
 fn main() {
     if let Err(e) = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(AppState::new())
         .setup(|app| {
             #[cfg(target_os = "macos")]
