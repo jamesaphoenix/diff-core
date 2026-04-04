@@ -26,6 +26,7 @@ import SourceExplorer, { type SourceFocusRequest } from "./components/SourceExpl
 // RiskHeatmap hidden (Phase 9.4) — component kept for future re-enablement
 // import RiskHeatmap from "./components/RiskHeatmap";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { buildManifestPrompt } from "./buildManifestPrompt";
 import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT } from "./mock";
 
 /** Detect if running inside Tauri (vs plain browser for demo/testing). */
@@ -1726,106 +1727,14 @@ export default function App() {
 
   /** Build an agent prompt for iterative manifest refinement. */
   const buildManifestAgentPrompt = useCallback((manifestPath: string): string => {
-    const groupCount = analysis?.groups.length ?? 0;
-    const fileCount = analysis?.summary.total_files_changed ?? 0;
-    const infraCount = analysis?.infrastructure_group?.files.length ?? 0;
-
-    return `# Diffcore Groups Manifest Refinement
-
-You are refining the flow groupings for a PR diff analysis. The groupings have been exported to a JSON manifest that the Diffcore desktop app is watching for live changes.
-
-## Setup
-
-\`\`\`bash
-# Install the Diffcore CLI (if not already installed)
-cargo install --git https://github.com/jamesaphoenix/diff-core.git diffcore-cli
-
-# Verify installation
-diffcore --version
-\`\`\`
-
-## Current State
-
-- **Manifest file**: \`${manifestPath}\`
-- **Groups**: ${groupCount} flow groups
-- **Files**: ${fileCount} changed files
-- **Ungrouped**: ${infraCount} infrastructure/ungrouped files
-- **The Diffcore desktop app is watching this file for live changes**
-
-## Your Task
-
-Edit \`${manifestPath}\` to improve the groupings. The desktop app will update in real-time as you save.
-
-### Manifest Format
-
-\`\`\`json
-{
-  "version": "1.0.0",
-  "groups": [
-    {
-      "name": "descriptive name of the change",
-      "files": ["path/to/file.ts", "path/to/other.ts"],
-      "review_order": 1,
-      "description": "optional context for reviewers"
-    }
-  ],
-  "unassigned_files": ["files/not/in/any/group.ts"]
-}
-\`\`\`
-
-### Guidelines
-
-1. **Read the manifest** first: \`cat ${manifestPath}\`
-2. **Merge** scattered single-file groups that belong to the same domain/feature
-3. **Promote** ungrouped files into groups where they logically belong (schemas with their services, configs with their features)
-4. **Split** groups that contain unrelated changes
-5. **Rename** groups to be descriptive: "media asset upload pipeline" not "page test flow"
-6. **Order** review by dependency direction: schemas/types → data layer → services → API routes → UI/tests
-7. **Validate** after each edit by checking the desktop app updates correctly
-8. Leave truly infrastructure files (package.json, CI configs, lockfiles) as unassigned
-
-### Workflow
-
-\`\`\`bash
-# Read current manifest
-cat ${manifestPath}
-
-# Edit with your changes (use Write tool or Edit tool)
-# The desktop app updates automatically on save
-
-# You can also use the CLI to validate:
-diffcore import-groups -i ${manifestPath} --repo ${repoPath || "."}
-\`\`\`
-
-### Divide and Conquer (for ${groupCount > 10 ? "this large PR" : "large PRs"})
-
-${groupCount > 10 ? `This PR has ${groupCount} groups — use a divide-and-conquer strategy:
-1. First identify the major domains/features being changed
-2. Group files by domain, then by layer within each domain
-3. Merge scattered single-file groups that belong to the same domain
-4. Consider using sub-agents to handle each domain independently` : "If the PR is large (10+ groups), identify major domains first, then group by domain and layer."}
-`;
+    return buildManifestPrompt({
+      manifestPath,
+      repoPath: repoPath || ".",
+      groupCount: analysis?.groups.length ?? 0,
+      fileCount: analysis?.summary.total_files_changed ?? 0,
+      infraCount: analysis?.infrastructure_group?.files.length ?? 0,
+    });
   }, [analysis, repoPath]);
-
-  /** Start watching a manifest file for real-time changes. */
-  const startWatchingManifest = useCallback(async (manifestPath: string) => {
-    if (!IS_TAURI) return;
-    try {
-      await tauriInvoke("watch_manifest", { manifestPath });
-      setWatchedManifestPath(manifestPath);
-
-      // Copy agent prompt to clipboard
-      const prompt = buildManifestAgentPrompt(manifestPath);
-      try {
-        await navigator.clipboard.writeText(prompt);
-        showToast("Watching manifest — agent prompt copied to clipboard");
-      } catch {
-        showToast(`Watching ${manifestPath} for changes`);
-      }
-    } catch (e) {
-      showToast(`Failed to watch manifest: ${String(e)}`);
-    }
-  }, [showToast, buildManifestAgentPrompt]);
 
   // Listen for manifest-changed events from the file watcher
   useEffect(() => {
@@ -3293,9 +3202,27 @@ ${groupCount > 10 ? `This PR has ${groupCount} groups — use a divide-and-conqu
                 <button
                   className="btn btn-refine"
                   onClick={async () => {
+                    // Build prompt and copy FIRST (synchronous relative to user gesture)
+                    // so clipboard access isn't lost after awaits
+                    const defaultPath = repoPath
+                      ? `${repoPath}/.diffcore/groups.json`
+                      : "groups.json";
+                    const prompt = buildManifestAgentPrompt(defaultPath);
+                    const clipboardOk = await navigator.clipboard.writeText(prompt).then(() => true).catch(() => false);
+
                     const path = await exportGroupsManifest();
                     if (path) {
-                      startWatchingManifest(path);
+                      // If the actual path differs from default, re-copy with correct path
+                      if (path !== defaultPath) {
+                        const correctedPrompt = buildManifestAgentPrompt(path);
+                        navigator.clipboard.writeText(correctedPrompt).catch(() => {});
+                      }
+                      await tauriInvoke("watch_manifest", { manifestPath: path }).catch(() => {});
+                      setWatchedManifestPath(path);
+                      showToast(clipboardOk
+                        ? "Watching manifest — agent prompt copied to clipboard"
+                        : `Watching ${path} for changes`
+                      );
                     }
                   }}
                   title="Export groups as JSON manifest and watch for changes"
