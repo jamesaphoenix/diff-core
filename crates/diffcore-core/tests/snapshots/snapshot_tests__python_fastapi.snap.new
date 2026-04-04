@@ -1,5 +1,6 @@
 ---
 source: crates/diffcore-core/tests/snapshot_tests.rs
+assertion_line: 215
 expression: v
 ---
 {
@@ -8,7 +9,7 @@ expression: v
     "base": "main",
     "base_sha": "[sha]",
     "diff_type": "BranchComparison",
-    "head": "feature/go-api",
+    "head": "feature/add-items",
     "head_sha": "[sha]"
   },
   "groups": [
@@ -16,28 +17,18 @@ expression: v
       "edges": [],
       "entrypoint": {
         "entrypoint_type": "HttpRoute",
-        "file": "internal/handlers/user.go",
-        "symbol": "CreateUser"
+        "file": "app/routes/items.py",
+        "symbol": "post_item"
       },
       "files": [
         {
           "changes": {
-            "additions": 14,
+            "additions": 10,
             "deletions": 0
           },
           "flow_position": 0,
-          "path": "internal/handlers/user.go",
+          "path": "app/routes/items.py",
           "role": "Entrypoint",
-          "symbols_changed": []
-        },
-        {
-          "changes": {
-            "additions": 7,
-            "deletions": 0
-          },
-          "flow_position": 1,
-          "path": "internal/repositories/user_repo.go",
-          "role": "Infrastructure",
           "symbols_changed": []
         },
         {
@@ -45,27 +36,47 @@ expression: v
             "additions": 9,
             "deletions": 0
           },
+          "flow_position": 1,
+          "path": "app/repositories/item_repo.py",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 3,
+            "deletions": 0
+          },
           "flow_position": 2,
-          "path": "internal/services/user_service.go",
+          "path": "app/schemas/item.py",
+          "role": "Infrastructure",
+          "symbols_changed": []
+        },
+        {
+          "changes": {
+            "additions": 7,
+            "deletions": 0
+          },
+          "flow_position": 3,
+          "path": "app/services/item_service.py",
           "role": "Infrastructure",
           "symbols_changed": []
         }
       ],
       "id": "group_1",
-      "name": "CreateUser (user) route",
+      "name": "post_item (items) route",
       "review_order": 1,
-      "risk_score": 0.3125
+      "risk_score": 0.4175
     }
   ],
   "infrastructure_group": null,
   "summary": {
     "frameworks_detected": [
-      "Go net/http"
+      "FastAPI"
     ],
     "languages_detected": [
-      "go"
+      "python"
     ],
-    "total_files_changed": 3,
+    "total_files_changed": 4,
     "total_groups": 1
   },
   "version": "1.0.0"

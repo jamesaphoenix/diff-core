@@ -1,5 +1,6 @@
 ---
 source: crates/diffcore-core/tests/snapshot_tests.rs
+assertion_line: 457
 expression: v
 ---
 {
