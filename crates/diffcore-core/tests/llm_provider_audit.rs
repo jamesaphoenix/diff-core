@@ -75,6 +75,7 @@ fn sample_refinement_request() -> RefinementRequest {
             risk_score: 0.75,
             review_order: 1,
         }],
+        infrastructure_files: vec![],
     }
 }
 
@@ -956,6 +957,7 @@ async fn test_gemini_unicode_in_refinement_request() {
             risk_score: 0.6,
             review_order: 1,
         }],
+        infrastructure_files: vec![],
     };
 
     let provider =

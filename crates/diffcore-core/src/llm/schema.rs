@@ -179,6 +179,9 @@ pub struct RefinementRequest {
     pub diff_summary: String,
     /// Current flow groups (serialized summary for the LLM).
     pub groups: Vec<RefinementGroupInput>,
+    /// Infrastructure/ungrouped files not assigned to any flow group.
+    #[serde(default)]
+    pub infrastructure_files: Vec<String>,
 }
 
 /// A flow group as presented to the LLM for refinement.
@@ -355,7 +358,8 @@ Guidelines:
 - Re-ranks: use when semantic review ordering differs from risk-based ordering (e.g., schema should be reviewed before handler)
 - Reclassifications: use when static reachability assigned a file to the wrong group
 - If no refinements are needed, return empty arrays for all operations
-- Every file mentioned in splits/reclassifications must exist in the original groups"#
+- Every file mentioned in splits/reclassifications must exist in the original groups
+- Group names MUST be descriptive: e.g. 'media asset upload pipeline' not 'page test flow'. Names should describe the domain/feature and the nature of the change"#
 }
 
 /// Generate the JSON schema description for Pass 2 structured output.
@@ -833,6 +837,7 @@ mod tests {
                 risk_score: 0.75,
                 review_order: 1,
             }],
+            infrastructure_files: vec!["package.json".to_string()],
         };
         let json = serde_json::to_string(&request).unwrap();
         let deserialized: RefinementRequest = serde_json::from_str(&json).unwrap();
@@ -980,6 +985,7 @@ mod tests {
                     review_order: 2,
                 },
             ],
+            infrastructure_files: vec![],
         };
         let json = serde_json::to_string(&request).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();

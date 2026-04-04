@@ -238,13 +238,16 @@ select:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .activity-tab-shell {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: 100%;
+  gap: 0;
+  min-height: 0;
+  flex: 1;
 }
 
 .activity-hero-section {
@@ -441,7 +444,7 @@ select:focus-visible {
 
 .activity-log-rich {
   flex: 1;
-  min-height: 220px;
+  min-height: 0;
   overflow-y: auto;
   padding: 10px;
   display: flex;
@@ -700,6 +703,7 @@ select:focus-visible {
   gap: 8px;
   min-height: 0;
   flex: 1;
+  overflow: hidden;
 }
 
 .activity-inspector {
@@ -1576,7 +1580,6 @@ body {
 .annotation-section {
   padding: 12px;
   border-bottom: 1px solid var(--border);
-  overflow: hidden;
 }
 
 .annotation-section h3 {
@@ -1693,6 +1696,14 @@ body {
   border-radius: 8px;
   min-width: 20px;
   text-align: center;
+}
+
+.annotations-scroll-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* ── Annotation Sub-Tabs ── */
@@ -3233,6 +3244,31 @@ body {
   background: var(--accent);
   color: var(--bg-primary);
   font-weight: 600;
+}
+
+.manifest-watch-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: rgba(166, 227, 161, 0.06);
+  border-bottom: 1px solid rgba(166, 227, 161, 0.2);
+}
+
+.manifest-watch-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.manifest-watch-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .manifest-watch-indicator {

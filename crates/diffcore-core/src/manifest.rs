@@ -511,4 +511,232 @@ mod tests {
         assert_eq!(infra.files.len(), 2);
         assert!(infra.files.contains(&"Dockerfile".to_string()));
     }
+
+    // ── Integration tests: full round-trip workflows ──
+
+    #[test]
+    fn integration_export_edit_import_roundtrip() {
+        // Simulate: export → agent edits manifest → import
+        let analysis = make_analysis();
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("groups.json");
+
+        // 1. Export
+        write_manifest(&path, &export_manifest(&analysis)).unwrap();
+
+        // 2. Agent edits: rename groups, reorder, add description
+        let mut manifest = read_manifest(&path).unwrap();
+        manifest.groups[0].name = "user authentication & token management".to_string();
+        manifest.groups[0].description = Some("Auth entry + user service".to_string());
+        manifest.groups[1].name = "application configuration".to_string();
+        manifest.groups[0].review_order = 2;
+        manifest.groups[1].review_order = 1;
+        write_manifest(&path, &manifest).unwrap();
+
+        // 3. Import and verify
+        let updated = import_manifest(&analysis, &read_manifest(&path).unwrap());
+        assert_eq!(updated.groups[0].name, "user authentication & token management");
+        assert_eq!(updated.groups[1].name, "application configuration");
+        assert_eq!(updated.groups[0].review_order, 2);
+        assert_eq!(updated.groups[1].review_order, 1);
+    }
+
+    #[test]
+    fn integration_promote_ungrouped_file_to_group() {
+        // Agent moves a file from unassigned into an existing group
+        let analysis = make_analysis();
+        let mut manifest = export_manifest(&analysis);
+
+        // Move package.json from unassigned into the config group
+        manifest.unassigned_files.retain(|f| f != "package.json");
+        manifest.groups[1].files.push("package.json".to_string());
+
+        let updated = import_manifest(&analysis, &manifest);
+        assert_eq!(updated.groups[1].files.len(), 2);
+        assert!(updated.groups[1].files.iter().any(|f| f.path == "package.json"));
+        assert!(updated.infrastructure_group.is_none());
+    }
+
+    #[test]
+    fn integration_demote_file_to_ungrouped() {
+        // Agent moves a file from a group to unassigned
+        let analysis = make_analysis();
+        let mut manifest = export_manifest(&analysis);
+
+        // Move src/config.ts out of its group
+        manifest.groups[1].files.retain(|f| f != "src/config.ts");
+        manifest.unassigned_files.push("src/config.ts".to_string());
+
+        let updated = import_manifest(&analysis, &manifest);
+        assert_eq!(updated.groups[1].files.len(), 0);
+        assert!(updated.infrastructure_group.is_some());
+        assert!(updated.infrastructure_group.unwrap().files.contains(&"src/config.ts".to_string()));
+    }
+
+    #[test]
+    fn integration_merge_all_into_single_group() {
+        // Agent merges everything into one group for a simple PR
+        let analysis = make_analysis();
+        let all_files: Vec<String> = analysis.groups.iter()
+            .flat_map(|g| g.files.iter().map(|f| f.path.clone()))
+            .chain(analysis.infrastructure_group.iter().flat_map(|ig| ig.files.clone()))
+            .collect();
+
+        let manifest = GroupsManifest {
+            version: "1.0.0".to_string(),
+            groups: vec![ManifestGroup {
+                name: "complete auth + config overhaul".to_string(),
+                files: all_files,
+                review_order: 1,
+                description: Some("Single review group for tightly coupled changes".to_string()),
+            }],
+            unassigned_files: vec![],
+        };
+
+        let updated = import_manifest(&analysis, &manifest);
+        assert_eq!(updated.groups.len(), 1);
+        assert_eq!(updated.groups[0].files.len(), 4); // auth.ts, users.ts, config.ts, package.json
+        assert_eq!(updated.summary.total_groups, 1);
+        assert!(updated.infrastructure_group.is_none());
+    }
+
+    #[test]
+    fn integration_reorder_review_sequence() {
+        // Agent reorders: config first (dependency), then auth
+        let analysis = make_analysis();
+        let mut manifest = export_manifest(&analysis);
+
+        manifest.groups[0].review_order = 2; // auth becomes second
+        manifest.groups[1].review_order = 1; // config becomes first
+
+        let updated = import_manifest(&analysis, &manifest);
+        assert_eq!(updated.groups[0].review_order, 2);
+        assert_eq!(updated.groups[1].review_order, 1);
+    }
+
+    #[test]
+    fn integration_multiple_edits_sequential() {
+        // Simulate multiple rounds of agent editing
+        let analysis = make_analysis();
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("groups.json");
+
+        // Round 1: export and rename
+        let mut manifest = export_manifest(&analysis);
+        manifest.groups[0].name = "auth v1".to_string();
+        write_manifest(&path, &manifest).unwrap();
+
+        let round1 = import_manifest(&analysis, &read_manifest(&path).unwrap());
+        assert_eq!(round1.groups[0].name, "auth v1");
+
+        // Round 2: split auth group
+        let manifest2 = GroupsManifest {
+            version: "1.0.0".to_string(),
+            groups: vec![
+                ManifestGroup {
+                    name: "auth entry".to_string(),
+                    files: vec!["src/auth.ts".to_string()],
+                    review_order: 1,
+                    description: None,
+                },
+                ManifestGroup {
+                    name: "user service".to_string(),
+                    files: vec!["src/users.ts".to_string()],
+                    review_order: 2,
+                    description: None,
+                },
+                ManifestGroup {
+                    name: "config".to_string(),
+                    files: vec!["src/config.ts".to_string()],
+                    review_order: 3,
+                    description: None,
+                },
+            ],
+            unassigned_files: vec!["package.json".to_string()],
+        };
+        write_manifest(&path, &manifest2).unwrap();
+
+        let round2 = import_manifest(&analysis, &read_manifest(&path).unwrap());
+        assert_eq!(round2.groups.len(), 3);
+        assert_eq!(round2.groups[0].name, "auth entry");
+
+        // Round 3: merge back
+        let manifest3 = GroupsManifest {
+            version: "1.0.0".to_string(),
+            groups: vec![ManifestGroup {
+                name: "auth + user service".to_string(),
+                files: vec!["src/auth.ts".to_string(), "src/users.ts".to_string(), "src/config.ts".to_string()],
+                review_order: 1,
+                description: None,
+            }],
+            unassigned_files: vec!["package.json".to_string()],
+        };
+        write_manifest(&path, &manifest3).unwrap();
+
+        let round3 = import_manifest(&analysis, &read_manifest(&path).unwrap());
+        assert_eq!(round3.groups.len(), 1);
+        assert_eq!(round3.groups[0].files.len(), 3);
+    }
+
+    #[test]
+    fn integration_manifest_with_description_field() {
+        // Descriptions are preserved through write/read cycle
+        let manifest = GroupsManifest {
+            version: "1.0.0".to_string(),
+            groups: vec![ManifestGroup {
+                name: "auth flow".to_string(),
+                files: vec!["src/auth.ts".to_string()],
+                review_order: 1,
+                description: Some("Handles login, token refresh, and session management".to_string()),
+            }],
+            unassigned_files: vec![],
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("groups.json");
+        write_manifest(&path, &manifest).unwrap();
+
+        let loaded = read_manifest(&path).unwrap();
+        assert_eq!(
+            loaded.groups[0].description,
+            Some("Handles login, token refresh, and session management".to_string())
+        );
+    }
+
+    #[test]
+    fn integration_empty_manifest_clears_all_groups() {
+        let analysis = make_analysis();
+        let manifest = GroupsManifest {
+            version: "1.0.0".to_string(),
+            groups: vec![],
+            unassigned_files: vec![
+                "src/auth.ts".to_string(),
+                "src/users.ts".to_string(),
+                "src/config.ts".to_string(),
+                "package.json".to_string(),
+            ],
+        };
+
+        let updated = import_manifest(&analysis, &manifest);
+        assert_eq!(updated.groups.len(), 0);
+        assert_eq!(updated.summary.total_groups, 0);
+        assert!(updated.infrastructure_group.is_some());
+        assert_eq!(updated.infrastructure_group.unwrap().files.len(), 4);
+    }
+
+    #[test]
+    fn integration_concurrent_file_read_write() {
+        // Simulate rapid read/write cycles (as if file watcher is polling)
+        let analysis = make_analysis();
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("groups.json");
+
+        for i in 0..10 {
+            let mut manifest = export_manifest(&analysis);
+            manifest.groups[0].name = format!("iteration {}", i);
+            write_manifest(&path, &manifest).unwrap();
+            let loaded = read_manifest(&path).unwrap();
+            assert_eq!(loaded.groups[0].name, format!("iteration {}", i));
+        }
+    }
 }

@@ -714,6 +714,7 @@ async fn run_refinement(
 
     let request = refinement::build_refinement_request(
         &analysis_output.groups,
+        analysis_output.infrastructure_group.as_ref(),
         &analysis_json,
         &diff_summary,
     );

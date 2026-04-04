@@ -775,8 +775,12 @@ async fn run_refinement_with_activity(
         "{} files changed across {} groups",
         analysis.summary.total_files_changed, analysis.summary.total_groups,
     );
-    let request =
-        refinement::build_refinement_request(&analysis.groups, &analysis_json, &diff_summary);
+    let request = refinement::build_refinement_request(
+        &analysis.groups,
+        analysis.infrastructure_group.as_ref(),
+        &analysis_json,
+        &diff_summary,
+    );
 
     let response = llm::with_activity_callback(make_activity_callback(job.clone()), async {
         provider.refine_groups(&request).await
@@ -1304,8 +1308,12 @@ pub async fn refine_groups(
         analysis.summary.total_files_changed, analysis.summary.total_groups,
     );
 
-    let request =
-        refinement::build_refinement_request(&analysis.groups, &analysis_json, &diff_summary);
+    let request = refinement::build_refinement_request(
+        &analysis.groups,
+        analysis.infrastructure_group.as_ref(),
+        &analysis_json,
+        &diff_summary,
+    );
 
     let response = provider
         .refine_groups(&request)
@@ -1388,55 +1396,71 @@ pub struct RefinementResult {
     pub had_changes: bool,
 }
 
-/// Load cached refinement result for the current analysis (keyed by diff hash).
+/// Load cached refinement result for the current analysis.
 ///
-/// Returns `None` if no cached refinement exists or the code has changed since.
+/// Tries two keys: (1) diff-hash key (exact match), (2) branch-based key (same branch
+/// across worktrees, even with different uncommitted changes).
 #[tauri::command]
 pub fn get_cached_refinement(
+    repo_path: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<RefinementResult>, CommandError> {
-    let cache_key = match state.last_cache_key.lock() {
-        Ok(key) => key.clone(),
-        Err(_) => return Ok(None),
-    };
-    let Some(cache_key) = cache_key else {
-        return Ok(None);
-    };
-    let Some(json) = cache::load_cached_refinement(&cache_key) else {
-        return Ok(None);
-    };
-    match serde_json::from_str::<RefinementResult>(&json) {
-        Ok(result) => Ok(Some(result)),
-        Err(e) => {
-            warn!("Cached refinement is malformed: {}", e);
-            Ok(None)
+    // Try diff-hash key first (exact content match)
+    let diff_key = state.last_cache_key.lock().ok().and_then(|k| k.clone());
+    if let Some(ref key) = diff_key {
+        if let Some(json) = cache::load_cached_refinement(key) {
+            if let Ok(result) = serde_json::from_str::<RefinementResult>(&json) {
+                return Ok(Some(result));
+            }
         }
     }
+
+    // Fallback: try branch-based key (works across worktrees on same branch)
+    if let Some(ref repo) = repo_path {
+        if let Ok(branch_key) = comment_cache_key(repo) {
+            let branch_refine_key = format!("branch_{}", branch_key);
+            if let Some(json) = cache::load_cached_refinement(&branch_refine_key) {
+                if let Ok(result) = serde_json::from_str::<RefinementResult>(&json) {
+                    return Ok(Some(result));
+                }
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 /// Store a refinement result in the global cache (~/.diffcore/cache/refinements/).
+///
+/// Stores under both diff-hash key and branch-based key for cross-worktree access.
 #[tauri::command]
 pub fn store_refinement_cache(
     result: RefinementResult,
+    repo_path: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), CommandError> {
-    let cache_key = match state.last_cache_key.lock() {
-        Ok(key) => key.clone(),
-        Err(_) => return Ok(()),
-    };
-    let Some(cache_key) = cache_key else {
-        return Ok(());
-    };
-    match serde_json::to_string(&result) {
-        Ok(json) => {
-            cache::store_cached_refinement(&cache_key, &json);
-            Ok(())
-        }
+    let json = match serde_json::to_string(&result) {
+        Ok(j) => j,
         Err(e) => {
             warn!("Failed to serialize refinement for caching: {}", e);
-            Ok(())
+            return Ok(());
+        }
+    };
+
+    // Store under diff-hash key
+    if let Some(cache_key) = state.last_cache_key.lock().ok().and_then(|k| k.clone()) {
+        cache::store_cached_refinement(&cache_key, &json);
+    }
+
+    // Also store under branch-based key for cross-worktree access
+    if let Some(ref repo) = repo_path {
+        if let Ok(branch_key) = comment_cache_key(repo) {
+            let branch_refine_key = format!("branch_{}", branch_key);
+            cache::store_cached_refinement(&branch_refine_key, &json);
         }
     }
+
+    Ok(())
 }
 
 /// Background LLM job registration payload returned before SSE streaming begins.
@@ -2428,7 +2452,7 @@ fn comment_cache_dir() -> Option<PathBuf> {
 /// Uses the git common dir (shared across worktrees) + current branch name,
 /// so worktrees on the same branch share comments, while different branches
 /// on the same repo are isolated.
-fn comment_cache_key(repo_path: &str) -> Result<String, CommandError> {
+pub fn comment_cache_key(repo_path: &str) -> Result<String, CommandError> {
     use sha2::{Digest, Sha256};
 
     let repo_path_buf = PathBuf::from(repo_path);

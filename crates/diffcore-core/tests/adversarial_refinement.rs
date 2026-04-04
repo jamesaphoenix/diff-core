@@ -131,7 +131,7 @@ fn apply_refinement_to_output(
         original.summary.total_files_changed, original.summary.total_groups
     );
 
-    let request = build_refinement_request(&original.groups, &analysis_json, &diff_summary);
+    let request = build_refinement_request(&original.groups, original.infrastructure_group.as_ref(), &analysis_json, &diff_summary);
 
     // Use tokio runtime to call async refine_groups
     let rt = tokio::runtime::Runtime::new().unwrap();

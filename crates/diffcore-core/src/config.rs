@@ -374,6 +374,10 @@ impl DiffcoreConfig {
     ///
     /// Patterns are matched against the relative path from the repo root.
     pub fn is_ignored(&self, relative_path: &str) -> bool {
+        // Always exclude .diffcore/ directory (cache, comments, config)
+        if relative_path.starts_with(".diffcore/") || relative_path == ".diffcore" {
+            return true;
+        }
         for pattern in &self.ignore.paths {
             if let Ok(glob_pattern) = glob::Pattern::new(pattern) {
                 if glob_pattern.matches(relative_path) {

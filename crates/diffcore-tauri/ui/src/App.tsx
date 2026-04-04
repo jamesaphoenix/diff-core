@@ -718,7 +718,7 @@ export default function App() {
       }
       // Check for cached refinement and auto-apply if found
       if (IS_TAURI) {
-        tauriInvoke<RefinementResult | null>("get_cached_refinement").then((cached) => {
+        tauriInvoke<RefinementResult | null>("get_cached_refinement", { repoPath: repoPath || null }).then((cached) => {
           if (cached) {
             applyRefinementResult(cached, { fromCache: true });
           }
@@ -898,7 +898,7 @@ export default function App() {
 
     // Cache the result for future sessions (non-blocking, fire-and-forget)
     if (IS_TAURI && !opts?.fromCache) {
-      tauriInvoke("store_refinement_cache", { result }).catch(() => {});
+      tauriInvoke("store_refinement_cache", { result, repoPath: repoPath || null }).catch(() => {});
     }
   }, [analysis, originalGroups, handleSelectGroup, showToast]);
 
@@ -1665,17 +1665,108 @@ export default function App() {
     }
   }, [analysis, repoPath, showToast]);
 
+  /** Build an agent prompt for iterative manifest refinement. */
+  const buildManifestAgentPrompt = useCallback((manifestPath: string): string => {
+    const groupCount = analysis?.groups.length ?? 0;
+    const fileCount = analysis?.summary.total_files_changed ?? 0;
+    const infraCount = analysis?.infrastructure_group?.files.length ?? 0;
+
+    return `# Diffcore Groups Manifest Refinement
+
+You are refining the flow groupings for a PR diff analysis. The groupings have been exported to a JSON manifest that the Diffcore desktop app is watching for live changes.
+
+## Setup
+
+\`\`\`bash
+# Install the Diffcore CLI (if not already installed)
+cargo install --git https://github.com/jamesaphoenix/diff-core.git diffcore-cli
+
+# Verify installation
+diffcore --version
+\`\`\`
+
+## Current State
+
+- **Manifest file**: \`${manifestPath}\`
+- **Groups**: ${groupCount} flow groups
+- **Files**: ${fileCount} changed files
+- **Ungrouped**: ${infraCount} infrastructure/ungrouped files
+- **The Diffcore desktop app is watching this file for live changes**
+
+## Your Task
+
+Edit \`${manifestPath}\` to improve the groupings. The desktop app will update in real-time as you save.
+
+### Manifest Format
+
+\`\`\`json
+{
+  "version": "1.0.0",
+  "groups": [
+    {
+      "name": "descriptive name of the change",
+      "files": ["path/to/file.ts", "path/to/other.ts"],
+      "review_order": 1,
+      "description": "optional context for reviewers"
+    }
+  ],
+  "unassigned_files": ["files/not/in/any/group.ts"]
+}
+\`\`\`
+
+### Guidelines
+
+1. **Read the manifest** first: \`cat ${manifestPath}\`
+2. **Merge** scattered single-file groups that belong to the same domain/feature
+3. **Promote** ungrouped files into groups where they logically belong (schemas with their services, configs with their features)
+4. **Split** groups that contain unrelated changes
+5. **Rename** groups to be descriptive: "media asset upload pipeline" not "page test flow"
+6. **Order** review by dependency direction: schemas/types → data layer → services → API routes → UI/tests
+7. **Validate** after each edit by checking the desktop app updates correctly
+8. Leave truly infrastructure files (package.json, CI configs, lockfiles) as unassigned
+
+### Workflow
+
+\`\`\`bash
+# Read current manifest
+cat ${manifestPath}
+
+# Edit with your changes (use Write tool or Edit tool)
+# The desktop app updates automatically on save
+
+# You can also use the CLI to validate:
+diffcore import-groups -i ${manifestPath} --repo ${repoPath || "."}
+\`\`\`
+
+### Divide and Conquer (for ${groupCount > 10 ? "this large PR" : "large PRs"})
+
+${groupCount > 10 ? `This PR has ${groupCount} groups — use a divide-and-conquer strategy:
+1. First identify the major domains/features being changed
+2. Group files by domain, then by layer within each domain
+3. Merge scattered single-file groups that belong to the same domain
+4. Consider using sub-agents to handle each domain independently` : "If the PR is large (10+ groups), identify major domains first, then group by domain and layer."}
+`;
+  }, [analysis, repoPath]);
+
   /** Start watching a manifest file for real-time changes. */
   const startWatchingManifest = useCallback(async (manifestPath: string) => {
     if (!IS_TAURI) return;
     try {
       await tauriInvoke("watch_manifest", { manifestPath });
       setWatchedManifestPath(manifestPath);
-      showToast(`Watching ${manifestPath} for changes`);
+
+      // Copy agent prompt to clipboard
+      const prompt = buildManifestAgentPrompt(manifestPath);
+      try {
+        await navigator.clipboard.writeText(prompt);
+        showToast("Watching manifest — agent prompt copied to clipboard");
+      } catch {
+        showToast(`Watching ${manifestPath} for changes`);
+      }
     } catch (e) {
       showToast(`Failed to watch manifest: ${String(e)}`);
     }
-  }, [showToast]);
+  }, [showToast, buildManifestAgentPrompt]);
 
   // Listen for manifest-changed events from the file watcher
   useEffect(() => {
@@ -2066,7 +2157,7 @@ export default function App() {
   const statusText = formatBranchStatus(repoInfo);
 
   const annotationsTabContent = selectedGroup ? (
-    <>
+    <div className="annotations-scroll-container">
       {/* Annotation sub-tabs */}
       <div className="annotation-subtabs">
         <button
@@ -2259,7 +2350,7 @@ export default function App() {
           </ul>
         </div>
       )}
-    </>
+    </div>
   ) : (
     <div className="empty-state">
       Select a group to see annotations.
@@ -3104,30 +3195,44 @@ export default function App() {
             )}
 
             {/* Manifest export & watch — allows CLI/agent refinement loop */}
-            {analysis && IS_TAURI && (
+            {analysis && IS_TAURI && !watchedManifestPath && (
               <div className="refinement-banner">
-                <span>{watchedManifestPath ? "Watching manifest" : "Edit groups via CLI"}</span>
-                <div style={{ display: "flex", gap: "4px" }}>
-                  {!watchedManifestPath && (
-                    <button
-                      className="btn btn-refine"
-                      onClick={async () => {
-                        const path = await exportGroupsManifest();
-                        if (path) {
-                          startWatchingManifest(path);
-                        }
-                      }}
-                      title="Export groups as JSON manifest and watch for changes"
-                    >
-                      Export &amp; Watch
-                    </button>
-                  )}
-                  {watchedManifestPath && (
-                    <span className="manifest-watch-indicator" title={watchedManifestPath}>
-                      Live
-                    </span>
-                  )}
+                <span>Edit groups via CLI</span>
+                <button
+                  className="btn btn-refine"
+                  onClick={async () => {
+                    const path = await exportGroupsManifest();
+                    if (path) {
+                      startWatchingManifest(path);
+                    }
+                  }}
+                  title="Export groups as JSON manifest and watch for changes"
+                >
+                  Export &amp; Watch
+                </button>
+              </div>
+            )}
+            {watchedManifestPath && (
+              <div className="manifest-watch-banner">
+                <div className="manifest-watch-banner-header">
+                  <span className="manifest-watch-indicator">Live</span>
+                  <span>Agent prompt copied to clipboard</span>
                 </div>
+                <p className="manifest-watch-hint">
+                  Paste into Claude Code or your terminal agent to start refining groups. The UI updates in real-time.
+                </p>
+                <button
+                  className="btn btn-refine"
+                  style={{ alignSelf: "flex-start", fontSize: 10 }}
+                  onClick={() => {
+                    const prompt = buildManifestAgentPrompt(watchedManifestPath);
+                    navigator.clipboard.writeText(prompt).then(() => {
+                      showToast("Agent prompt copied to clipboard");
+                    }).catch(() => {});
+                  }}
+                >
+                  Copy prompt again
+                </button>
               </div>
             )}
 
@@ -3720,7 +3825,7 @@ export default function App() {
                     Copy PR Description
                   </button>
                 )}
-                {!overview && !annotating && (
+                {!overview && !annotating && !refinedGroups && (
                   <button
                     className={`btn btn-summarize ${!aiAccessReady ? "no-api-key" : ""}`}
                     onClick={runAnnotateOverview}

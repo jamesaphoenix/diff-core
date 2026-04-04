@@ -695,7 +695,29 @@ pub fn refinement_system_prompt() -> String {
          1. **Splits**: Break a group that contains logically unrelated changes into separate groups\n\
          2. **Merges**: Combine groups that are actually part of the same logical change\n\
          3. **Re-ranks**: Change the review order when semantic ordering differs from risk-based ordering\n\
-         4. **Reclassifications**: Move a file from one group to another when static reachability assigned it wrong\n\n\
+         4. **Reclassifications**: Move a file from one group to another, or from 'infrastructure' \
+            (ungrouped) into a flow group when it clearly belongs there. Use to_group_id='infrastructure' \
+            to demote, or from_group_id='infrastructure' to promote ungrouped files into a group.\n\n\
+         IMPORTANT — Ungrouped/Infrastructure files:\n\
+         Review the infrastructure (ungrouped) files list carefully. Many files end up ungrouped \
+         because static analysis couldn't trace a reachability path from an entrypoint, but they \
+         may logically belong to an existing group (e.g., a schema file that supports a route handler, \
+         a config used by a service, a test utility for a specific feature). Reclassify these into \
+         the appropriate group using from_group_id='infrastructure'. You can also create new groups \
+         for ungrouped files by splitting them out.\n\n\
+         IMPORTANT — Descriptive group names:\n\
+         When naming groups (in splits, merges, or any new_groups), use descriptive names \
+         that clearly communicate what the change does and which domain/feature it affects. \
+         Avoid generic names like 'page test flow' or 'config update'. Instead use names like \
+         'media asset upload pipeline', 'user authentication middleware', \
+         'storage metering schema migration', etc. The name should help a reviewer \
+         understand the group's purpose at a glance.\n\n\
+         IMPORTANT — Divide and conquer for large diffs:\n\
+         For large PRs (10+ groups or 50+ files), apply a divide-and-conquer strategy:\n\
+         - First identify the major domains/features being changed\n\
+         - Group files by domain, then by layer within each domain\n\
+         - Merge scattered single-file groups that belong to the same domain\n\
+         - Order review by dependency direction: schemas/types → data layer → services → API routes → UI\n\n\
          Be conservative — only suggest refinements where the static grouping is clearly suboptimal. \
          If the grouping looks reasonable, return empty arrays.\n\n\
          {}",
@@ -718,13 +740,26 @@ pub fn refinement_user_prompt(request: &RefinementRequest) -> String {
             group.files.join(", "),
         ));
     }
+
+    // Include infrastructure/ungrouped files so the LLM can consider promoting them
+    if !request.infrastructure_files.is_empty() {
+        prompt.push_str("\n## Ungrouped / Infrastructure Files\n");
+        prompt.push_str("These files were not assigned to any flow group by static analysis. \
+                         Consider whether any should be reclassified into an existing group \
+                         (use from_group_id='infrastructure') or form a new group via splits.\n\n");
+        for file in &request.infrastructure_files {
+            prompt.push_str(&format!("- {}\n", file));
+        }
+    }
+
     prompt.push_str(&format!(
         "\n## Full Analysis JSON\n```json\n{}\n```\n",
         request.analysis_json
     ));
     prompt.push_str(
-        "\nReview the groups above. Suggest refinements only where the static grouping \
-         is clearly wrong or suboptimal. If the grouping looks reasonable, return empty arrays.",
+        "\nReview the groups above and the ungrouped files. Suggest refinements where the static \
+         grouping is clearly wrong or suboptimal. Promote ungrouped files into groups where they \
+         logically belong. If the grouping looks reasonable, return empty arrays.",
     );
     prompt
 }
@@ -1104,6 +1139,7 @@ mod tests {
                 risk_score: 0.75,
                 review_order: 1,
             }],
+            infrastructure_files: vec!["package.json".to_string()],
         };
         let prompt = refinement_user_prompt(&request);
         assert!(prompt.contains("20 files changed"));
@@ -1136,10 +1172,13 @@ mod tests {
                     review_order: 2,
                 },
             ],
+            infrastructure_files: vec!["config.json".to_string()],
         };
         let prompt = refinement_user_prompt(&request);
         assert!(prompt.contains("Group 1"));
         assert!(prompt.contains("Group 2"));
+        assert!(prompt.contains("config.json"));
+        assert!(prompt.contains("Ungrouped"));
         assert!(prompt.contains("g1"));
         assert!(prompt.contains("g2"));
     }

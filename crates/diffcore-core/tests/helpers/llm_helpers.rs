@@ -141,5 +141,6 @@ pub fn sample_refinement_request() -> RefinementRequest {
             risk_score: 0.72,
             review_order: 1,
         }],
+        infrastructure_files: vec![],
     }
 }

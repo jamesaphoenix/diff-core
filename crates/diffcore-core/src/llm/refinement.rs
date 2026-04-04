@@ -281,6 +281,7 @@ pub fn apply_refinement(
 /// Build a `RefinementRequest` from analysis output.
 pub fn build_refinement_request(
     groups: &[FlowGroup],
+    infrastructure: Option<&InfrastructureGroup>,
     analysis_json: &str,
     diff_summary: &str,
 ) -> RefinementRequest {
@@ -299,10 +300,15 @@ pub fn build_refinement_request(
         })
         .collect();
 
+    let infrastructure_files = infrastructure
+        .map(|ig| ig.files.clone())
+        .unwrap_or_default();
+
     RefinementRequest {
         analysis_json: analysis_json.to_string(),
         diff_summary: diff_summary.to_string(),
         groups: group_inputs,
+        infrastructure_files,
     }
 }
 
@@ -1028,7 +1034,7 @@ mod tests {
             review_order: 1,
         }];
 
-        let request = build_refinement_request(&groups, "{}", "10 files changed");
+        let request = build_refinement_request(&groups, None, "{}", "10 files changed");
         assert_eq!(request.groups.len(), 1);
         assert_eq!(request.groups[0].id, "g1");
         assert_eq!(
@@ -1369,7 +1375,7 @@ mod tests {
             fn prop_build_request_group_count(
                 groups in prop::collection::vec(group_strategy(), 1..5)
             ) {
-                let request = build_refinement_request(&groups, "{}", "diff");
+                let request = build_refinement_request(&groups, None, "{}", "diff");
                 prop_assert_eq!(request.groups.len(), groups.len());
             }
 

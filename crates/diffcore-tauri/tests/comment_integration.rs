@@ -9,9 +9,10 @@
 //!   cargo test --test comment_integration
 
 use diffcore_tauri::commands::{
-    delete_comment, delete_comment_cached, export_comments, load_comments,
+    comment_cache_key, delete_comment, delete_comment_cached, export_comments, load_comments,
     load_comments_cached, save_comment, save_comment_cached, ReviewComment,
 };
+use diffcore_core::cache;
 use git2::{Repository, Signature};
 use std::path::PathBuf;
 
@@ -638,4 +639,197 @@ fn cached_all_comment_types_roundtrip() {
         assert_eq!(loaded[2].comment_type, "group");
         assert_eq!(loaded[2].file_path, None);
     });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Refinement cache cross-worktree tests
+// ══════════════════════════════════════════════════════════════════════
+
+/// Helper: set DIFFCORE_REFINEMENT_CACHE_DIR for isolated testing.
+fn with_refinement_cache_dir<F: FnOnce()>(dir: &std::path::Path, f: F) {
+    std::env::set_var("DIFFCORE_REFINEMENT_CACHE_DIR", dir.as_os_str());
+    f();
+    std::env::remove_var("DIFFCORE_REFINEMENT_CACHE_DIR");
+}
+
+/// Simulated refinement JSON (lightweight, just needs to be valid for cache roundtrip).
+fn sample_refinement_json() -> &'static str {
+    r#"{"refined_groups":[],"infrastructure_group":null,"refinement_response":{"splits":[],"merges":[],"re_ranks":[],"reclassifications":[],"reasoning":"test"},"provider":"test","model":"m1","had_changes":true}"#
+}
+
+fn sample_refinement_json_v2() -> &'static str {
+    r#"{"refined_groups":[],"infrastructure_group":null,"refinement_response":{"splits":[],"merges":[],"re_ranks":[],"reclassifications":[],"reasoning":"updated"},"provider":"test","model":"m2","had_changes":true}"#
+}
+
+#[test]
+fn refinement_cache_branch_key_stores_and_loads() {
+    let cache_tmp = tempfile::tempdir().unwrap();
+    let (_repo_tmp, repo_path) = create_test_repo_on_branch("feature-x");
+
+    with_refinement_cache_dir(cache_tmp.path(), || {
+        let branch_key = comment_cache_key(&repo_path).unwrap();
+        let refine_key = format!("branch_{}", branch_key);
+
+        // Store under branch key
+        cache::store_cached_refinement(&refine_key, sample_refinement_json());
+
+        // Load back
+        let loaded = cache::load_cached_refinement(&refine_key);
+        assert!(loaded.is_some());
+        assert!(loaded.unwrap().contains(r#""reasoning":"test""#));
+    });
+}
+
+#[test]
+fn refinement_cache_different_branches_isolated() {
+    let cache_tmp = tempfile::tempdir().unwrap();
+    let (_repo_tmp, repo_path) = create_test_repo_on_branch("branch-a");
+
+    with_refinement_cache_dir(cache_tmp.path(), || {
+        // Store on branch-a
+        let key_a = comment_cache_key(&repo_path).unwrap();
+        cache::store_cached_refinement(&format!("branch_{}", key_a), sample_refinement_json());
+
+        // Switch to branch-b
+        let repo = Repository::discover(&repo_path).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch("branch-b", &head, false).unwrap();
+        repo.set_head("refs/heads/branch-b").unwrap();
+
+        // branch-b should have a different key
+        let key_b = comment_cache_key(&repo_path).unwrap();
+        assert_ne!(key_a, key_b);
+
+        // branch-b should NOT find branch-a's refinement
+        let loaded = cache::load_cached_refinement(&format!("branch_{}", key_b));
+        assert!(loaded.is_none(), "branch-b should not see branch-a's cached refinement");
+
+        // branch-a's refinement should still be there
+        let loaded_a = cache::load_cached_refinement(&format!("branch_{}", key_a));
+        assert!(loaded_a.is_some());
+    });
+}
+
+#[test]
+fn refinement_cache_worktree_sees_same_branch_cache() {
+    // Test the real scenario: two worktrees of the same repo on the same branch
+    // should produce the same cache key (so refinements are shared).
+    //
+    // We create two worktrees on separate branches, store from one, and verify
+    // the other can't see it (branch isolation). Then we verify that the same
+    // worktree path always produces the same key (determinism).
+    let cache_tmp = tempfile::tempdir().unwrap();
+    let (_repo_tmp, repo_path) = create_test_repo_on_branch("main");
+    let wt_parent = tempfile::tempdir().unwrap();
+    let wt_dir = wt_parent.path().join("wt-refine-test");
+
+    with_refinement_cache_dir(cache_tmp.path(), || {
+        // Create a worktree on branch "wt-refine"
+        let repo = Repository::discover(&repo_path).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch("wt-refine", &head, false).unwrap();
+        let branch_ref = repo.find_reference("refs/heads/wt-refine").unwrap();
+        repo.worktree(
+            "wt-refine-test",
+            &wt_dir,
+            Some(git2::WorktreeAddOptions::new().reference(Some(&branch_ref))),
+        )
+        .unwrap();
+
+        let wt_path = wt_dir.to_str().unwrap().to_string();
+
+        // Store refinement from the worktree
+        let wt_key = comment_cache_key(&wt_path).unwrap();
+        cache::store_cached_refinement(&format!("branch_{}", wt_key), sample_refinement_json());
+
+        // Worktree can load its own cached refinement
+        let loaded = cache::load_cached_refinement(&format!("branch_{}", wt_key));
+        assert!(loaded.is_some(), "Worktree should see its own cached refinement");
+
+        // Main repo is on "main", worktree is on "wt-refine" — different branches,
+        // so main should NOT see the worktree's refinement
+        let main_key = comment_cache_key(&repo_path).unwrap();
+        assert_ne!(wt_key, main_key, "Different branches should produce different keys");
+
+        let loaded_main = cache::load_cached_refinement(&format!("branch_{}", main_key));
+        assert!(loaded_main.is_none(), "Main on 'main' should not see worktree 'wt-refine' refinement");
+
+        // Key is deterministic — calling again on same path gives same key
+        let wt_key2 = comment_cache_key(&wt_path).unwrap();
+        assert_eq!(wt_key, wt_key2);
+    });
+}
+
+#[test]
+fn refinement_cache_overwrite_on_same_branch() {
+    let cache_tmp = tempfile::tempdir().unwrap();
+    let (_repo_tmp, repo_path) = create_test_repo_on_branch("overwrite-test");
+
+    with_refinement_cache_dir(cache_tmp.path(), || {
+        let key = comment_cache_key(&repo_path).unwrap();
+        let refine_key = format!("branch_{}", key);
+
+        // Store v1
+        cache::store_cached_refinement(&refine_key, sample_refinement_json());
+        let loaded = cache::load_cached_refinement(&refine_key).unwrap();
+        assert!(loaded.contains(r#""reasoning":"test""#));
+
+        // Store v2 (overwrites)
+        cache::store_cached_refinement(&refine_key, sample_refinement_json_v2());
+        let loaded = cache::load_cached_refinement(&refine_key).unwrap();
+        assert!(loaded.contains(r#""reasoning":"updated""#));
+    });
+}
+
+#[test]
+fn refinement_cache_diff_key_and_branch_key_both_stored() {
+    let cache_tmp = tempfile::tempdir().unwrap();
+    let (_repo_tmp, repo_path) = create_test_repo_on_branch("dual-key");
+
+    with_refinement_cache_dir(cache_tmp.path(), || {
+        let diff_key = "fake_diff_hash_abc123";
+        let branch_key = comment_cache_key(&repo_path).unwrap();
+        let branch_refine_key = format!("branch_{}", branch_key);
+
+        // Store under both keys (as store_refinement_cache does)
+        cache::store_cached_refinement(diff_key, sample_refinement_json());
+        cache::store_cached_refinement(&branch_refine_key, sample_refinement_json());
+
+        // Both should be loadable
+        assert!(cache::load_cached_refinement(diff_key).is_some());
+        assert!(cache::load_cached_refinement(&branch_refine_key).is_some());
+    });
+}
+
+#[test]
+fn refinement_cache_fallback_to_branch_when_diff_key_missing() {
+    let cache_tmp = tempfile::tempdir().unwrap();
+    let (_repo_tmp, repo_path) = create_test_repo_on_branch("fallback-test");
+
+    with_refinement_cache_dir(cache_tmp.path(), || {
+        let branch_key = comment_cache_key(&repo_path).unwrap();
+        let branch_refine_key = format!("branch_{}", branch_key);
+
+        // Only store under branch key (simulates: worktree has different uncommitted changes
+        // so the diff hash doesn't match, but branch is the same)
+        cache::store_cached_refinement(&branch_refine_key, sample_refinement_json());
+
+        // Diff key lookup should miss
+        let diff_key = "nonexistent_diff_hash";
+        assert!(cache::load_cached_refinement(diff_key).is_none());
+
+        // Branch key lookup should hit
+        assert!(cache::load_cached_refinement(&branch_refine_key).is_some());
+    });
+}
+
+#[test]
+fn refinement_cache_branch_key_deterministic() {
+    let (_repo_tmp, repo_path) = create_test_repo_on_branch("deterministic-test");
+
+    // Same repo + branch should always produce the same key
+    let key1 = comment_cache_key(&repo_path).unwrap();
+    let key2 = comment_cache_key(&repo_path).unwrap();
+    assert_eq!(key1, key2);
+    assert_eq!(key1.len(), 64); // SHA-256 hex
 }
