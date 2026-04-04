@@ -1074,7 +1074,7 @@ body {
 }
 
 .panel-right {
-  width: clamp(360px, 30vw, 430px);
+  width: clamp(280px, 22vw, 380px);
   min-width: 200px;
   flex-shrink: 0;
   transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),

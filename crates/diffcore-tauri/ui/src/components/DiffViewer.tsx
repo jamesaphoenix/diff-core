@@ -39,10 +39,17 @@ const DiffViewer = forwardRef<DiffViewerHandle, DiffViewerProps>(function DiffVi
       const originalEditor = editor.getOriginalEditor();
       if (!modifiedEditor) return;
 
-      // Enable glyph margin on both sub-editors (DiffEditor options don't propagate)
-      modifiedEditor.updateOptions({ glyphMargin: true });
+      // Apply options to both sub-editors (DiffEditor options don't propagate)
+      const subEditorOpts = {
+        glyphMargin: true,
+        overviewRulerBorder: false,
+        overviewRulerLanes: 0,
+        hideCursorInOverviewRuler: true,
+        scrollbar: { verticalScrollbarSize: 4, horizontalScrollbarSize: 4 },
+      };
+      modifiedEditor.updateOptions(subEditorOpts);
       if (originalEditor) {
-        originalEditor.updateOptions({ glyphMargin: true });
+        originalEditor.updateOptions(subEditorOpts);
       }
 
       // Listen for selection changes
@@ -198,9 +205,13 @@ const DiffViewer = forwardRef<DiffViewerHandle, DiffViewerProps>(function DiffVi
           folding: true,
           renderWhitespace: "selection",
           scrollbar: {
-            verticalScrollbarSize: 8,
-            horizontalScrollbarSize: 8,
+            verticalScrollbarSize: 4,
+            horizontalScrollbarSize: 4,
           },
+          overviewRulerBorder: false,
+          overviewRulerLanes: 0,
+          hideCursorInOverviewRuler: true,
+          renderOverviewRuler: false,
         }}
         beforeMount={(monaco) => {
           // Define custom dark theme matching the app's Catppuccin palette

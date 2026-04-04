@@ -188,7 +188,7 @@ export default function App() {
 
   // Right panel collapse/resize state
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
-  const [rightPanelWidth, setRightPanelWidth] = useState(400);
+  const [rightPanelWidth, setRightPanelWidth] = useState(320);
   const rightPanelDragging = useRef(false);
   const rightPanelStartX = useRef(0);
   const rightPanelStartWidth = useRef(0);
