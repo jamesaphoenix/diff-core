@@ -2856,6 +2856,7 @@ mod tests {
                 ahead: 0,
                 behind: 0,
             }),
+            is_worktree: false,
         };
         let json = serde_json::to_string(&info).unwrap();
         let back: RepoInfo = serde_json::from_str(&json).unwrap();
@@ -2874,6 +2875,7 @@ mod tests {
             branches: vec![],
             worktrees: vec![],
             status: None,
+            is_worktree: false,
         };
         let json = serde_json::to_string(&info).unwrap();
         let back: RepoInfo = serde_json::from_str(&json).unwrap();
