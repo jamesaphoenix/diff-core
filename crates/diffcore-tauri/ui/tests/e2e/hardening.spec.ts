@@ -60,6 +60,7 @@ function generateManyBranches(count: number) {
       { path: "/demo/repo", branch: "feature/user-auth", is_main: true },
     ],
     status: { branch: "feature/user-auth", upstream: "origin/feature/user-auth", ahead: 3, behind: 0 },
+    is_worktree: false,
   };
 }
 
@@ -78,6 +79,7 @@ function generateMultipleWorktrees() {
       { path: "/demo/repo-staging", branch: "staging", is_main: false },
     ],
     status: { branch: "feature/user-auth", upstream: "origin/feature/user-auth", ahead: 3, behind: 0 },
+    is_worktree: false,
   };
 }
 
@@ -92,6 +94,7 @@ function generateDivergedStatus() {
     ],
     worktrees: [{ path: "/demo/repo", branch: "feature/user-auth", is_main: true }],
     status: { branch: "feature/user-auth", upstream: "origin/feature/user-auth", ahead: 5, behind: 12 },
+    is_worktree: false,
   };
 }
 
@@ -105,6 +108,7 @@ function generateUpToDateStatus() {
     ],
     worktrees: [{ path: "/demo/repo", branch: "main", is_main: true }],
     status: { branch: "main", upstream: "origin/main", ahead: 0, behind: 0 },
+    is_worktree: false,
   };
 }
 
@@ -215,8 +219,9 @@ test.describe("Hardening — Branch & Git", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    // Open branch dropdown
-    await page.locator(".branch-dropdown-trigger").click();
+    // Open target (base) branch dropdown
+    const baseDropdown = page.locator("[data-testid='base-branch-dropdown']");
+    await baseDropdown.locator(".branch-dropdown-trigger").click();
     await page.waitForTimeout(300);
 
     await page.screenshot({
@@ -225,29 +230,30 @@ test.describe("Hardening — Branch & Git", () => {
     });
 
     // Verify dropdown is open with branches
-    await expect(page.locator(".branch-dropdown")).toBeVisible();
-    const options = page.locator(".branch-option");
+    await expect(baseDropdown.locator(".branch-dropdown")).toBeVisible();
+    const options = baseDropdown.locator(".branch-option");
     expect(await options.count()).toBeGreaterThanOrEqual(5);
 
     // Verify current branch has badge
-    await expect(page.locator(".branch-current-badge")).toBeVisible();
+    await expect(baseDropdown.locator(".branch-current-badge")).toBeVisible();
     // Verify tracked branches have badge
-    expect(await page.locator(".branch-upstream-badge").count()).toBeGreaterThanOrEqual(1);
+    expect(await baseDropdown.locator(".branch-upstream-badge").count()).toBeGreaterThanOrEqual(1);
   });
 
   test("16 — branch dropdown: selected branch highlighted", async ({ page }) => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    await page.locator(".branch-dropdown-trigger").click();
+    const baseDropdown = page.locator("[data-testid='base-branch-dropdown']");
+    await baseDropdown.locator(".branch-dropdown-trigger").click();
     await page.waitForTimeout(300);
 
     // The base branch "main" should be highlighted as selected
-    const selectedOption = page.locator(".branch-option.selected");
+    const selectedOption = baseDropdown.locator(".branch-option.selected");
     await expect(selectedOption).toBeVisible();
     await expect(selectedOption).toContainText("main");
 
-    await page.locator(".branch-dropdown").screenshot({
+    await baseDropdown.locator(".branch-dropdown").screenshot({
       path: path.join(SCREENSHOTS_DIR, "16-branch-selected-highlight.png"),
     });
   });
@@ -262,8 +268,9 @@ test.describe("Hardening — Branch & Git", () => {
     }, generateManyBranches(55));
     await page.waitForTimeout(300);
 
-    // Open dropdown
-    await page.locator(".branch-dropdown-trigger").click();
+    // Open target (base) dropdown
+    const baseDropdown = page.locator("[data-testid='base-branch-dropdown']");
+    await baseDropdown.locator(".branch-dropdown-trigger").click();
     await page.waitForTimeout(300);
 
     await page.screenshot({
@@ -729,6 +736,10 @@ test.describe("Hardening — React Flow Graph", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
+    // Switch to graph subtab
+    await page.locator(".annotation-subtab", { hasText: "Graph" }).click();
+    await page.waitForTimeout(500);
+
     // Click on a flow node (first node in the graph)
     const firstNode = page.locator(".flow-node").first();
     await firstNode.click();
@@ -746,8 +757,17 @@ test.describe("Hardening — React Flow Graph", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    // Click legend toggle
-    await page.locator(".flow-legend-toggle").click();
+    // Switch to graph subtab
+    await page.locator(".annotation-subtab", { hasText: "Graph" }).click();
+    await page.waitForTimeout(500);
+
+    // Wait for the graph to fully render, then click the legend toggle.
+    // The ReactFlow container overlays the legend, so use evaluate to dispatch click.
+    await page.waitForSelector(".flow-legend-toggle", { state: "attached" });
+    await page.evaluate(() => {
+      const btn = document.querySelector<HTMLButtonElement>(".flow-legend-toggle");
+      btn?.click();
+    });
     await page.waitForTimeout(300);
 
     // Verify legend items visible
@@ -763,6 +783,10 @@ test.describe("Hardening — React Flow Graph", () => {
   test("37 — graph: fullscreen mode", async ({ page }) => {
     await page.goto("/");
     await waitForAnalysis(page);
+
+    // Switch to graph subtab
+    await page.locator(".annotation-subtab", { hasText: "Graph" }).click();
+    await page.waitForTimeout(500);
 
     // Click fullscreen button
     await page.locator(".flow-fullscreen-btn").click();
@@ -1026,8 +1050,12 @@ test.describe("Hardening — PR Preview Mode", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    // Verify base branch shows "main" (default branch)
-    await expect(page.locator(".branch-dropdown-trigger .branch-name")).toContainText("main");
+    // Verify base (target) branch shows "main" (default branch)
+    const baseName = page.locator("[data-testid='base-branch-dropdown'] .branch-name");
+    await expect(baseName).toContainText("main");
+    // Verify source (head) branch shows current branch
+    const headName = page.locator("[data-testid='head-branch-dropdown'] .branch-name");
+    await expect(headName).toContainText("feature/user-auth");
     // Verify analysis loaded (groups visible)
     const groups = page.locator(".group-item:not(.infra-group)");
     expect(await groups.count()).toBeGreaterThanOrEqual(3);
@@ -1041,16 +1069,17 @@ test.describe("Hardening — PR Preview Mode", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    // Open branch dropdown
-    await page.locator(".branch-dropdown-trigger").click();
+    // Open target (base) branch dropdown
+    const baseDropdown = page.locator("[data-testid='base-branch-dropdown']");
+    await baseDropdown.locator(".branch-dropdown-trigger").click();
     await page.waitForTimeout(300);
 
     // Select "develop" branch
-    await page.locator(".branch-option").filter({ hasText: "develop" }).click();
+    await baseDropdown.locator(".branch-option").filter({ hasText: "develop" }).click();
     await page.waitForTimeout(300);
 
     // Verify base ref updated
-    await expect(page.locator(".branch-dropdown-trigger .branch-name")).toContainText("develop");
+    await expect(baseDropdown.locator(".branch-name")).toContainText("develop");
 
     await page.locator(".top-bar").screenshot({
       path: path.join(SCREENSHOTS_DIR, "50-pr-preview-switched-branch.png"),

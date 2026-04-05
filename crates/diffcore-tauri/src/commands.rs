@@ -1509,6 +1509,7 @@ pub fn get_repo_info(repo_path: String) -> Result<RepoInfo, CommandError> {
     let branches = git::list_branches(&repo).map_err(|e| CommandError::Git(format!("{}", e)))?;
     let worktrees = git::list_worktrees(&repo).map_err(|e| CommandError::Git(format!("{}", e)))?;
     let status = git::get_branch_status(&repo).ok();
+    let is_worktree = git::is_linked_worktree(&repo);
 
     Ok(RepoInfo {
         current_branch: current,
@@ -1516,6 +1517,7 @@ pub fn get_repo_info(repo_path: String) -> Result<RepoInfo, CommandError> {
         branches,
         worktrees,
         status,
+        is_worktree,
     })
 }
 
@@ -2089,6 +2091,8 @@ pub struct RepoInfo {
     pub branches: Vec<git::BranchInfo>,
     pub worktrees: Vec<git::WorktreeInfo>,
     pub status: Option<git::BranchStatus>,
+    /// Whether the opened path is a linked worktree (not the main worktree).
+    pub is_worktree: bool,
 }
 
 /// Open a repository from a path, with canonicalization and error handling.

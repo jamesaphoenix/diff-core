@@ -919,8 +919,8 @@ body {
 .top-bar {
   display: flex;
   align-items: center;
-  height: 44px;
-  padding: 0 12px;
+  height: 48px;
+  padding: 0 14px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   gap: 12px;
@@ -957,10 +957,10 @@ body {
 }
 
 .input {
-  height: 28px;
-  padding: 0 8px;
+  height: 30px;
+  padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--bg-surface);
   color: var(--text-primary);
   font-size: 12px;
@@ -2452,6 +2452,57 @@ body {
   background: rgba(166, 173, 200, 0.72);
 }
 
+/* ── Branch Comparison (dual dropdowns) ── */
+
+.branch-comparison {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.branch-arrow {
+  color: var(--text-muted);
+  font-size: 12px;
+  user-select: none;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.branch-label {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+
+.branch-repo-badge,
+.branch-worktree-badge {
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.branch-repo-badge {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid rgba(69, 71, 90, 0.6);
+}
+
+.branch-worktree-badge {
+  background: rgba(250, 179, 135, 0.06);
+  color: var(--text-muted);
+  border: 1px solid rgba(250, 179, 135, 0.2);
+}
+
 /* ── Branch Dropdown ── */
 
 .branch-dropdown-wrapper {
@@ -2463,24 +2514,27 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   color: var(--text-primary);
-  padding: 4px 10px;
+  padding: 0 10px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 12.5px;
   min-width: 120px;
   max-width: 200px;
+  height: 30px;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .branch-dropdown-trigger:hover {
   background: var(--bg-hover);
+  border-color: var(--text-muted);
 }
 
 .branch-dropdown-trigger .branch-icon {
-  font-size: 14px;
-  opacity: 0.7;
+  font-size: 13px;
+  opacity: 0.5;
 }
 
 .branch-dropdown-trigger .branch-name {
@@ -2489,11 +2543,12 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
+  font-weight: 500;
 }
 
 .branch-dropdown-trigger .dropdown-arrow {
-  font-size: 10px;
-  opacity: 0.6;
+  font-size: 9px;
+  opacity: 0.4;
 }
 
 .branch-dropdown {
@@ -2501,27 +2556,29 @@ body {
   top: 100%;
   left: 0;
   right: 0;
-  min-width: 200px;
-  max-height: 300px;
+  min-width: 220px;
+  max-height: 320px;
   overflow-y: auto;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  margin-top: 2px;
-  padding: 4px 0;
+  border-radius: 8px;
+  margin-top: 4px;
+  padding: 4px;
   list-style: none;
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .branch-option {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 8px;
+  padding: 7px 10px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text-primary);
+  border-radius: 5px;
+  transition: background 0.1s ease;
 }
 
 .branch-option:hover {
@@ -2529,7 +2586,7 @@ body {
 }
 
 .branch-option.selected {
-  background: rgba(137, 180, 250, 0.12);
+  background: rgba(137, 180, 250, 0.1);
   color: var(--accent);
 }
 
@@ -2547,21 +2604,22 @@ body {
 
 .branch-current-badge,
 .branch-upstream-badge {
-  font-size: 10px;
+  font-size: 9px;
   padding: 1px 5px;
   border-radius: 3px;
   white-space: nowrap;
+  font-weight: 500;
 }
 
 .branch-current-badge {
-  background: rgba(166, 227, 161, 0.15);
+  background: rgba(166, 227, 161, 0.12);
   color: var(--risk-low);
 }
 
 .branch-upstream-badge {
-  background: rgba(137, 180, 250, 0.1);
+  background: rgba(137, 180, 250, 0.08);
   color: var(--accent);
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 /* ── Repo Status (top-bar-right) ── */

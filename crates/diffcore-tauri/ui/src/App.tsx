@@ -121,8 +121,10 @@ export default function App() {
   // Repo and git state
   const [repoPath, setRepoPath] = useState(IS_TAURI ? "" : "/demo/repo");
   const [baseRef, setBaseRef] = useState("main");
+  const [headRef, setHeadRef] = useState<string | null>(null);
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
+  const [headBranchDropdownOpen, setHeadBranchDropdownOpen] = useState(false);
 
   // LLM API key availability
   const [hasApiKey, setHasApiKey] = useState(!IS_TAURI); // Demo mode always has "key"
@@ -335,6 +337,8 @@ export default function App() {
       setRepoInfo(info);
       // Auto-set base ref to the detected default branch
       setBaseRef(info.default_branch);
+      // Auto-set head ref to the current branch (what we're comparing FROM)
+      setHeadRef(info.current_branch ?? "HEAD");
     } catch {
       // Non-fatal: we can still analyze without repo info
       setRepoInfo(null);
@@ -736,7 +740,7 @@ export default function App() {
         result = await tauriInvoke<AnalysisOutput>("analyze", {
           repoPath,
           base: baseRef || "main",
-          head: null,
+          head: headRef || null,
           range: null,
           staged: false,
           unstaged: false,
@@ -776,7 +780,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [repoPath, baseRef, handleSelectGroup, closeActivityStream]);
+  }, [repoPath, baseRef, headRef, handleSelectGroup, closeActivityStream]);
 
   const recommendedSubscriptionProvider: SubscriptionProvider | null = llmSettings?.codex_authenticated
     ? "codex"
@@ -1075,22 +1079,26 @@ export default function App() {
       getCommentInput: () => commentInput,
       getSelectedFile: () => selectedFile,
       getSelectedGroup: () => selectedGroup,
+      getHeadRef: () => headRef,
+      setHeadRef: (ref: string) => setHeadRef(ref),
+      getBaseRef: () => baseRef,
     };
     return () => { delete (window as any).__TEST_API__; };
   });
 
-  // Close branch dropdown when clicking outside
+  // Close branch dropdowns when clicking outside
   useEffect(() => {
-    if (!branchDropdownOpen) return;
+    if (!branchDropdownOpen && !headBranchDropdownOpen) return;
     function handleClick(e: MouseEvent) {
       const target = e.target as HTMLElement;
       if (!target.closest(".branch-dropdown-wrapper")) {
         setBranchDropdownOpen(false);
+        setHeadBranchDropdownOpen(false);
       }
     }
     window.addEventListener("click", handleClick);
     return () => window.removeEventListener("click", handleClick);
-  }, [branchDropdownOpen]);
+  }, [branchDropdownOpen, headBranchDropdownOpen]);
 
   // Close settings panel on Escape
   useEffect(() => {
@@ -2118,7 +2126,12 @@ export default function App() {
     setBranchDropdownOpen(false);
   }, []);
 
-  // Derived: non-current branches for the base branch dropdown
+  const handleSelectHead = useCallback((branch: string) => {
+    setHeadRef(branch);
+    setHeadBranchDropdownOpen(false);
+  }, []);
+
+  // Derived: all branches for the dropdowns
   const baseBranches: BranchInfo[] = repoInfo?.branches ?? [];
 
   // Status display
@@ -2600,34 +2613,86 @@ export default function App() {
             }}
           />
 
-          {/* Base branch dropdown (replaces text input) */}
-          <div className="branch-dropdown-wrapper">
-            <button
-              className="btn branch-dropdown-trigger"
-              onClick={() => setBranchDropdownOpen(!branchDropdownOpen)}
-              title="Select base branch for comparison"
-            >
-              <span className="branch-icon">&#9741;</span>
-              <span className="branch-name">{baseRef}</span>
-              <span className="dropdown-arrow">&#9662;</span>
-            </button>
-            {branchDropdownOpen && (
-              <ul className="branch-dropdown">
-                {baseBranches.map((b) => (
-                  <li
-                    key={b.name}
-                    className={`branch-option ${b.name === baseRef ? "selected" : ""} ${b.is_current ? "current" : ""}`}
-                    onClick={() => handleSelectBase(b.name)}
-                  >
-                    <span className="branch-option-name">{b.name}</span>
-                    {b.is_current && <span className="branch-current-badge">current</span>}
-                    {b.has_upstream && <span className="branch-upstream-badge">tracked</span>}
-                  </li>
-                ))}
-                {baseBranches.length === 0 && (
-                  <li className="branch-option disabled">No branches found</li>
-                )}
-              </ul>
+          {/* Branch comparison: head (source) → base (target) */}
+          <div className="branch-comparison">
+            {/* Head (source) branch dropdown */}
+            <div className="branch-dropdown-wrapper" data-testid="head-branch-dropdown">
+              <button
+                className="btn branch-dropdown-trigger"
+                onClick={() => {
+                  setHeadBranchDropdownOpen(!headBranchDropdownOpen);
+                  setBranchDropdownOpen(false);
+                }}
+                title="Select source branch (what you're comparing)"
+              >
+                <span className="branch-label">source</span>
+                <span className="branch-icon">&#9741;</span>
+                <span className="branch-name">{headRef ?? "HEAD"}</span>
+                <span className="dropdown-arrow">&#9662;</span>
+              </button>
+              {headBranchDropdownOpen && (
+                <ul className="branch-dropdown">
+                  {baseBranches.map((b) => (
+                    <li
+                      key={b.name}
+                      className={`branch-option ${b.name === headRef ? "selected" : ""} ${b.is_current ? "current" : ""}`}
+                      onClick={() => handleSelectHead(b.name)}
+                    >
+                      <span className="branch-option-name">{b.name}</span>
+                      {b.is_current && <span className="branch-current-badge">current</span>}
+                      {b.has_upstream && <span className="branch-upstream-badge">tracked</span>}
+                    </li>
+                  ))}
+                  {baseBranches.length === 0 && (
+                    <li className="branch-option disabled">No branches found</li>
+                  )}
+                </ul>
+              )}
+            </div>
+
+            <span className="branch-arrow" title="compared against">&#8594;</span>
+
+            {/* Base (target) branch dropdown */}
+            <div className="branch-dropdown-wrapper" data-testid="base-branch-dropdown">
+              <button
+                className="btn branch-dropdown-trigger"
+                onClick={() => {
+                  setBranchDropdownOpen(!branchDropdownOpen);
+                  setHeadBranchDropdownOpen(false);
+                }}
+                title="Select target branch (what you're comparing against)"
+              >
+                <span className="branch-label">target</span>
+                <span className="branch-icon">&#9741;</span>
+                <span className="branch-name">{baseRef}</span>
+                <span className="dropdown-arrow">&#9662;</span>
+              </button>
+              {branchDropdownOpen && (
+                <ul className="branch-dropdown">
+                  {baseBranches.map((b) => (
+                    <li
+                      key={b.name}
+                      className={`branch-option ${b.name === baseRef ? "selected" : ""} ${b.is_current ? "current" : ""}`}
+                      onClick={() => handleSelectBase(b.name)}
+                    >
+                      <span className="branch-option-name">{b.name}</span>
+                      {b.is_current && <span className="branch-current-badge">current</span>}
+                      {b.has_upstream && <span className="branch-upstream-badge">tracked</span>}
+                    </li>
+                  ))}
+                  {baseBranches.length === 0 && (
+                    <li className="branch-option disabled">No branches found</li>
+                  )}
+                </ul>
+              )}
+            </div>
+
+            {/* Worktree indicator — shown when NOT a worktree (regular repo) */}
+            {repoInfo && !repoInfo.is_worktree && (
+              <span className="branch-repo-badge" title="Regular repository (not a worktree)">repo</span>
+            )}
+            {repoInfo?.is_worktree && (
+              <span className="branch-worktree-badge" title="Linked worktree">worktree</span>
             )}
           </div>
 

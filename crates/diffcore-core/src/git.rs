@@ -594,6 +594,14 @@ pub fn workdir(repo: &Repository) -> Option<PathBuf> {
     repo.workdir().map(|p| p.to_path_buf())
 }
 
+/// Check whether the repository is a linked worktree (not the main worktree).
+///
+/// Returns true when the opened path is a linked worktree created via `git worktree add`.
+/// The main worktree (original clone) returns false.
+pub fn is_linked_worktree(repo: &Repository) -> bool {
+    repo.is_worktree()
+}
+
 /// Read the content of a file at a specific git ref (branch, tag, or SHA).
 ///
 /// Returns `None` if the file does not exist at that ref.

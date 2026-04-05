@@ -148,6 +148,8 @@ export interface RepoInfo {
   branches: BranchInfo[];
   worktrees: WorktreeInfo[];
   status: BranchStatus | null;
+  /** Whether the opened path is a linked worktree (not the main worktree). */
+  is_worktree: boolean;
 }
 
 // ── LLM Annotation Types ──

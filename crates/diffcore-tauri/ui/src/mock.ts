@@ -819,4 +819,5 @@ export const MOCK_REPO_INFO: RepoInfo = {
     ahead: 3,
     behind: 0,
   },
+  is_worktree: false,
 };
