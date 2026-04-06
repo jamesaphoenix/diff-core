@@ -176,6 +176,12 @@ jobs:
           spctl --assess --type open --context context:primary-signature --verbose "$DMG_PATH"
           echo "::endgroup::"
 
+      - name: List macOS bundle outputs
+        run: |
+          echo "::group::All bundle files"
+          find target/aarch64-apple-darwin/release/bundle -type f | sort
+          echo "::endgroup::"
+
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -184,6 +190,7 @@ jobs:
             target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
             target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz
             target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz.sig
+          if-no-files-found: warn
 
   build-linux:
     needs: [verify, validate-release-version]
@@ -286,6 +293,9 @@ jobs:
         with:
           path: artifacts
 
+      - name: List downloaded artifacts
+        run: find artifacts -type f | sort
+
       - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -297,11 +307,15 @@ jobs:
           done < <(
             find artifacts -type f \( \
               -name '*.dmg' -o \
+              -name '*.tar.gz' -o \
               -name '*.deb' -o \
               -name '*.AppImage' -o \
+              -name '*.AppImage.sig' -o \
               -name '*.msi' -o \
-              -name '*.exe' \
-            \) -print0
+              -name '*.msi.sig' -o \
+              -name '*.exe' -o \
+              -name '*.exe.sig' \
+            \) ! -name '*.tar.gz.sig' -print0
           )
 
           if [ ${#files[@]} -eq 0 ]; then
