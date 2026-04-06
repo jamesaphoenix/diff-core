@@ -7,7 +7,7 @@ edition.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 petgraph = "0.6"
-git2 = "0.19"
+git2 = { version = "0.19", features = ["vendored-openssl"] }
 thiserror = "2"
 tree-sitter = "0.26.7"
 tree-sitter-typescript = "0.23.2"

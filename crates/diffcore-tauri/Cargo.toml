@@ -14,7 +14,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
-git2 = "0.19"
+git2 = { version = "0.19", features = ["vendored-openssl"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "2"
 log = { workspace = true }
