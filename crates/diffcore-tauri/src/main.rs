@@ -82,6 +82,7 @@ fn main() {
             commands::save_comment_cached,
             commands::load_comments_cached,
             commands::delete_comment_cached,
+            commands::update_comment_cached,
             commands::import_groups_manifest,
             commands::export_groups_manifest,
             commands::watch_manifest,

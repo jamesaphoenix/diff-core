@@ -992,6 +992,7 @@ pub fn start_refine_groups(
             .clone()
             .or(config.llm.key_cmd.clone()),
         key: config.llm.key.clone(),
+        annotations_enabled: config.llm.annotations_enabled,
         refinement: config.llm.refinement.clone(),
     };
 
@@ -1293,6 +1294,7 @@ pub async fn refine_groups(
             .clone()
             .or(config.llm.key_cmd.clone()),
         key: config.llm.key.clone(),
+        annotations_enabled: config.llm.annotations_enabled,
         refinement: config.llm.refinement.clone(),
     };
 
@@ -1607,7 +1609,7 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
     );
 
     Ok(LlmSettings {
-        annotations_enabled: has_api_key,
+        annotations_enabled: config.llm.annotations_enabled,
         refinement_enabled: config.llm.refinement.enabled,
         provider,
         model,
@@ -1642,6 +1644,7 @@ pub fn save_llm_settings(_repo_path: String, settings: LlmSettings) -> Result<()
     config.llm.refinement.provider = Some(settings.refinement_provider);
     config.llm.refinement.model = Some(settings.refinement_model);
     config.llm.refinement.max_iterations = settings.refinement_max_iterations;
+    config.llm.annotations_enabled = settings.annotations_enabled;
 
     // Update diff behavior
     config.diff.include_uncommitted = settings.include_uncommitted;
@@ -2573,6 +2576,21 @@ pub fn delete_comment_cached(
     write_cached_comments_file(&key, &file)
 }
 
+/// Update a comment's text by ID in the branch-based cache.
+#[tauri::command]
+pub fn update_comment_cached(
+    repo_path: String,
+    comment_id: String,
+    new_text: String,
+) -> Result<(), CommandError> {
+    let key = comment_cache_key(&repo_path)?;
+    let mut file = load_cached_comments_file(&key);
+    if let Some(comment) = file.comments.iter_mut().find(|c| c.id == comment_id) {
+        comment.text = new_text;
+    }
+    write_cached_comments_file(&key, &file)
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Groups manifest import / file watching
 // ══════════════════════════════════════════════════════════════════════
@@ -3462,5 +3480,512 @@ mod tests {
         }
 
         std::fs::remove_file(&tmp).ok();
+    }
+
+    // ── Update Comment Tests ──
+
+    #[test]
+    fn test_update_comment_cached_changes_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = init_test_repo(dir.path());
+
+        let comment = ReviewComment {
+            id: "test_update_1".to_string(),
+            comment_type: "code".to_string(),
+            group_id: "g1".to_string(),
+            file_path: Some("src/main.ts".to_string()),
+            start_line: Some(10),
+            end_line: Some(15),
+            selected_code: Some("const x = 1;".to_string()),
+            text: "Original text".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        // Save then update
+        save_comment_cached(repo_path.clone(), comment).unwrap();
+        update_comment_cached(repo_path.clone(), "test_update_1".to_string(), "Updated text".to_string()).unwrap();
+
+        let loaded = load_comments_cached(repo_path).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].text, "Updated text");
+        assert_eq!(loaded[0].id, "test_update_1");
+    }
+
+    #[test]
+    fn test_update_comment_preserves_other_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = init_test_repo(dir.path());
+
+        let comment = ReviewComment {
+            id: "test_preserve_1".to_string(),
+            comment_type: "code".to_string(),
+            group_id: "group-abc".to_string(),
+            file_path: Some("src/handler.ts".to_string()),
+            start_line: Some(42),
+            end_line: Some(50),
+            selected_code: Some("function handler() {}".to_string()),
+            text: "Before update".to_string(),
+            created_at: "2026-03-15T12:00:00Z".to_string(),
+        };
+
+        save_comment_cached(repo_path.clone(), comment).unwrap();
+        update_comment_cached(repo_path.clone(), "test_preserve_1".to_string(), "After update".to_string()).unwrap();
+
+        let loaded = load_comments_cached(repo_path).unwrap();
+        let c = &loaded[0];
+        assert_eq!(c.text, "After update");
+        assert_eq!(c.comment_type, "code");
+        assert_eq!(c.group_id, "group-abc");
+        assert_eq!(c.file_path, Some("src/handler.ts".to_string()));
+        assert_eq!(c.start_line, Some(42));
+        assert_eq!(c.end_line, Some(50));
+        assert_eq!(c.selected_code, Some("function handler() {}".to_string()));
+        assert_eq!(c.created_at, "2026-03-15T12:00:00Z");
+    }
+
+    #[test]
+    fn test_update_nonexistent_comment_is_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = init_test_repo(dir.path());
+
+        let comment = ReviewComment {
+            id: "existing_1".to_string(),
+            comment_type: "file".to_string(),
+            group_id: "g1".to_string(),
+            file_path: Some("test.ts".to_string()),
+            start_line: None,
+            end_line: None,
+            selected_code: None,
+            text: "Should not change".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        save_comment_cached(repo_path.clone(), comment).unwrap();
+        // Update a non-existent ID
+        update_comment_cached(repo_path.clone(), "nonexistent_id".to_string(), "New text".to_string()).unwrap();
+
+        let loaded = load_comments_cached(repo_path).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].text, "Should not change");
+    }
+
+    #[test]
+    fn test_update_comment_among_multiple() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = init_test_repo(dir.path());
+
+        for i in 1..=5 {
+            let comment = ReviewComment {
+                id: format!("multi_{}", i),
+                comment_type: "code".to_string(),
+                group_id: "g1".to_string(),
+                file_path: Some("src/main.ts".to_string()),
+                start_line: Some(i * 10),
+                end_line: Some(i * 10 + 5),
+                selected_code: None,
+                text: format!("Comment {}", i),
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+            };
+            save_comment_cached(repo_path.clone(), comment).unwrap();
+        }
+
+        // Update only the 3rd comment
+        update_comment_cached(repo_path.clone(), "multi_3".to_string(), "Updated comment 3".to_string()).unwrap();
+
+        let loaded = load_comments_cached(repo_path).unwrap();
+        assert_eq!(loaded.len(), 5);
+        assert_eq!(loaded[0].text, "Comment 1");
+        assert_eq!(loaded[1].text, "Comment 2");
+        assert_eq!(loaded[2].text, "Updated comment 3");
+        assert_eq!(loaded[3].text, "Comment 4");
+        assert_eq!(loaded[4].text, "Comment 5");
+    }
+
+    #[test]
+    fn test_update_comment_with_empty_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = init_test_repo(dir.path());
+
+        let comment = ReviewComment {
+            id: "empty_text_1".to_string(),
+            comment_type: "file".to_string(),
+            group_id: "g1".to_string(),
+            file_path: Some("file.ts".to_string()),
+            start_line: None,
+            end_line: None,
+            selected_code: None,
+            text: "Has text".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        save_comment_cached(repo_path.clone(), comment).unwrap();
+        update_comment_cached(repo_path.clone(), "empty_text_1".to_string(), "".to_string()).unwrap();
+
+        let loaded = load_comments_cached(repo_path).unwrap();
+        assert_eq!(loaded[0].text, "");
+    }
+
+    #[test]
+    fn test_update_comment_with_special_characters() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = init_test_repo(dir.path());
+
+        let comment = ReviewComment {
+            id: "special_chars_1".to_string(),
+            comment_type: "code".to_string(),
+            group_id: "g1".to_string(),
+            file_path: Some("src/main.ts".to_string()),
+            start_line: Some(1),
+            end_line: Some(5),
+            selected_code: None,
+            text: "Plain text".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        save_comment_cached(repo_path.clone(), comment).unwrap();
+        let special_text = "Contains \"quotes\", newlines\n\ttabs, unicode: 🦀, and <html> & entities";
+        update_comment_cached(repo_path.clone(), "special_chars_1".to_string(), special_text.to_string()).unwrap();
+
+        let loaded = load_comments_cached(repo_path).unwrap();
+        assert_eq!(loaded[0].text, special_text);
+    }
+
+    #[test]
+    fn test_update_then_delete_comment() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = init_test_repo(dir.path());
+
+        let comment = ReviewComment {
+            id: "update_delete_1".to_string(),
+            comment_type: "file".to_string(),
+            group_id: "g1".to_string(),
+            file_path: Some("test.ts".to_string()),
+            start_line: None,
+            end_line: None,
+            selected_code: None,
+            text: "Will be updated then deleted".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        save_comment_cached(repo_path.clone(), comment).unwrap();
+        update_comment_cached(repo_path.clone(), "update_delete_1".to_string(), "Updated".to_string()).unwrap();
+        delete_comment_cached(repo_path.clone(), "update_delete_1".to_string()).unwrap();
+
+        let loaded = load_comments_cached(repo_path).unwrap();
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn test_multiple_updates_to_same_comment() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = init_test_repo(dir.path());
+
+        let comment = ReviewComment {
+            id: "multi_update_1".to_string(),
+            comment_type: "code".to_string(),
+            group_id: "g1".to_string(),
+            file_path: Some("src/main.ts".to_string()),
+            start_line: Some(1),
+            end_line: Some(3),
+            selected_code: None,
+            text: "Version 1".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        save_comment_cached(repo_path.clone(), comment).unwrap();
+
+        for i in 2..=10 {
+            update_comment_cached(repo_path.clone(), "multi_update_1".to_string(), format!("Version {}", i)).unwrap();
+        }
+
+        let loaded = load_comments_cached(repo_path).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].text, "Version 10");
+    }
+
+    #[test]
+    fn test_update_comment_on_empty_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = init_test_repo(dir.path());
+
+        // Update on empty cache should succeed (no comment found, noop)
+        let result = update_comment_cached(repo_path.clone(), "no_such_id".to_string(), "text".to_string());
+        assert!(result.is_ok());
+
+        let loaded = load_comments_cached(repo_path).unwrap();
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn test_update_comment_cached_invalid_repo() {
+        let result = update_comment_cached(
+            "/nonexistent/repo/path".to_string(),
+            "id".to_string(),
+            "text".to_string(),
+        );
+        assert!(result.is_err());
+    }
+
+    // ── ReviewComment Serde Tests ──
+
+    #[test]
+    fn test_review_comment_serde_all_fields() {
+        let comment = ReviewComment {
+            id: "c1".to_string(),
+            comment_type: "code".to_string(),
+            group_id: "g1".to_string(),
+            file_path: Some("src/main.ts".to_string()),
+            start_line: Some(10),
+            end_line: Some(20),
+            selected_code: Some("const x = 1;".to_string()),
+            text: "This needs refactoring".to_string(),
+            created_at: "2026-04-06T12:00:00Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&comment).unwrap();
+        let back: ReviewComment = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, "c1");
+        assert_eq!(back.comment_type, "code");
+        assert_eq!(back.group_id, "g1");
+        assert_eq!(back.file_path, Some("src/main.ts".to_string()));
+        assert_eq!(back.start_line, Some(10));
+        assert_eq!(back.end_line, Some(20));
+        assert_eq!(back.selected_code, Some("const x = 1;".to_string()));
+        assert_eq!(back.text, "This needs refactoring");
+        assert_eq!(back.created_at, "2026-04-06T12:00:00Z");
+    }
+
+    #[test]
+    fn test_review_comment_serde_minimal_fields() {
+        let comment = ReviewComment {
+            id: "c2".to_string(),
+            comment_type: "group".to_string(),
+            group_id: "g2".to_string(),
+            file_path: None,
+            start_line: None,
+            end_line: None,
+            selected_code: None,
+            text: "Group-level comment".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&comment).unwrap();
+        let back: ReviewComment = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.comment_type, "group");
+        assert!(back.file_path.is_none());
+        assert!(back.start_line.is_none());
+        assert!(back.end_line.is_none());
+        assert!(back.selected_code.is_none());
+    }
+
+    #[test]
+    fn test_review_comment_type_rename_in_json() {
+        // The `comment_type` field is serialized as `type` in JSON (via serde rename)
+        let comment = ReviewComment {
+            id: "c3".to_string(),
+            comment_type: "file".to_string(),
+            group_id: "g1".to_string(),
+            file_path: Some("test.ts".to_string()),
+            start_line: None,
+            end_line: None,
+            selected_code: None,
+            text: "File comment".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&comment).unwrap();
+        assert!(json.contains(r#""type":"file""#));
+        assert!(!json.contains("comment_type"));
+    }
+
+    // ── LLM Settings Annotations Tests ──
+
+    #[test]
+    fn test_llm_settings_annotations_enabled_roundtrip_true() {
+        let settings = LlmSettings {
+            annotations_enabled: true,
+            refinement_enabled: true,
+            provider: "codex".to_string(),
+            model: "default".to_string(),
+            api_key_source: "test".to_string(),
+            has_api_key: true,
+            refinement_provider: "codex".to_string(),
+            refinement_model: "default".to_string(),
+            refinement_max_iterations: 1,
+            global_config_path: "~/.diffcore/config.toml".to_string(),
+            codex_available: false,
+            codex_authenticated: false,
+            claude_available: false,
+            claude_authenticated: false,
+            include_uncommitted: true,
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let back: LlmSettings = serde_json::from_str(&json).unwrap();
+        assert!(back.annotations_enabled);
+        assert!(back.refinement_enabled);
+    }
+
+    #[test]
+    fn test_llm_settings_annotations_enabled_roundtrip_false() {
+        let settings = LlmSettings {
+            annotations_enabled: false,
+            refinement_enabled: false,
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            api_key_source: "env".to_string(),
+            has_api_key: false,
+            refinement_provider: "anthropic".to_string(),
+            refinement_model: "claude-sonnet-4-6".to_string(),
+            refinement_max_iterations: 3,
+            global_config_path: "/tmp/config.toml".to_string(),
+            codex_available: true,
+            codex_authenticated: true,
+            claude_available: true,
+            claude_authenticated: true,
+            include_uncommitted: false,
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let back: LlmSettings = serde_json::from_str(&json).unwrap();
+        assert!(!back.annotations_enabled);
+        assert!(!back.refinement_enabled);
+    }
+
+    #[test]
+    fn test_llm_settings_all_fields_present_in_json() {
+        let settings = LlmSettings {
+            annotations_enabled: true,
+            refinement_enabled: true,
+            provider: "openai".to_string(),
+            model: "gpt-4.1".to_string(),
+            api_key_source: "config".to_string(),
+            has_api_key: true,
+            refinement_provider: "gemini".to_string(),
+            refinement_model: "gemini-2.5-flash".to_string(),
+            refinement_max_iterations: 2,
+            global_config_path: "~/.diffcore/config.toml".to_string(),
+            codex_available: true,
+            codex_authenticated: false,
+            claude_available: true,
+            claude_authenticated: true,
+            include_uncommitted: true,
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("annotations_enabled"));
+        assert!(json.contains("refinement_enabled"));
+        assert!(json.contains("provider"));
+        assert!(json.contains("model"));
+        assert!(json.contains("has_api_key"));
+        assert!(json.contains("refinement_provider"));
+        assert!(json.contains("refinement_model"));
+        assert!(json.contains("refinement_max_iterations"));
+        assert!(json.contains("global_config_path"));
+        assert!(json.contains("include_uncommitted"));
+    }
+
+    // ── Comment CRUD Integration Tests ──
+
+    #[test]
+    fn test_full_comment_lifecycle_save_load_update_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = init_test_repo(dir.path());
+
+        // 1. Start empty
+        let loaded = load_comments_cached(repo_path.clone()).unwrap();
+        assert!(loaded.is_empty());
+
+        // 2. Save two comments
+        let c1 = ReviewComment {
+            id: "lifecycle_1".to_string(),
+            comment_type: "code".to_string(),
+            group_id: "g1".to_string(),
+            file_path: Some("src/a.ts".to_string()),
+            start_line: Some(5),
+            end_line: Some(10),
+            selected_code: Some("let a = 1;".to_string()),
+            text: "First comment".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let c2 = ReviewComment {
+            id: "lifecycle_2".to_string(),
+            comment_type: "file".to_string(),
+            group_id: "g1".to_string(),
+            file_path: Some("src/b.ts".to_string()),
+            start_line: None,
+            end_line: None,
+            selected_code: None,
+            text: "Second comment".to_string(),
+            created_at: "2026-01-01T01:00:00Z".to_string(),
+        };
+        save_comment_cached(repo_path.clone(), c1).unwrap();
+        save_comment_cached(repo_path.clone(), c2).unwrap();
+
+        let loaded = load_comments_cached(repo_path.clone()).unwrap();
+        assert_eq!(loaded.len(), 2);
+
+        // 3. Update first comment
+        update_comment_cached(repo_path.clone(), "lifecycle_1".to_string(), "Edited first".to_string()).unwrap();
+        let loaded = load_comments_cached(repo_path.clone()).unwrap();
+        assert_eq!(loaded[0].text, "Edited first");
+        assert_eq!(loaded[1].text, "Second comment");
+
+        // 4. Delete second comment
+        delete_comment_cached(repo_path.clone(), "lifecycle_2".to_string()).unwrap();
+        let loaded = load_comments_cached(repo_path.clone()).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, "lifecycle_1");
+
+        // 5. Update the remaining comment again
+        update_comment_cached(repo_path.clone(), "lifecycle_1".to_string(), "Final edit".to_string()).unwrap();
+        let loaded = load_comments_cached(repo_path.clone()).unwrap();
+        assert_eq!(loaded[0].text, "Final edit");
+
+        // 6. Delete last comment
+        delete_comment_cached(repo_path.clone(), "lifecycle_1".to_string()).unwrap();
+        let loaded = load_comments_cached(repo_path).unwrap();
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn test_comment_types_code_file_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = init_test_repo(dir.path());
+
+        let types = vec!["code", "file", "group"];
+        for (i, t) in types.iter().enumerate() {
+            let comment = ReviewComment {
+                id: format!("type_test_{}", i),
+                comment_type: t.to_string(),
+                group_id: "g1".to_string(),
+                file_path: if *t != "group" { Some("test.ts".to_string()) } else { None },
+                start_line: if *t == "code" { Some(1) } else { None },
+                end_line: if *t == "code" { Some(5) } else { None },
+                selected_code: if *t == "code" { Some("code".to_string()) } else { None },
+                text: format!("{} comment", t),
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+            };
+            save_comment_cached(repo_path.clone(), comment).unwrap();
+        }
+
+        let loaded = load_comments_cached(repo_path).unwrap();
+        assert_eq!(loaded.len(), 3);
+        assert_eq!(loaded[0].comment_type, "code");
+        assert_eq!(loaded[1].comment_type, "file");
+        assert_eq!(loaded[2].comment_type, "group");
+    }
+
+    /// Helper to create a minimal git repo for comment cache tests.
+    fn init_test_repo(dir: &std::path::Path) -> String {
+        use std::process::Command;
+        Command::new("git")
+            .args(["init"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        dir.to_str().unwrap().to_string()
     }
 }

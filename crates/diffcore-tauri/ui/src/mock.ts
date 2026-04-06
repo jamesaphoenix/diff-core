@@ -783,7 +783,7 @@ export const MOCK_REFINEMENT: RefinementResult = {
 
 export const MOCK_LLM_SETTINGS: LlmSettings = {
   annotations_enabled: true,
-  refinement_enabled: false,
+  refinement_enabled: true,
   provider: "codex",
   model: "default",
   api_key_source: "Codex CLI login",

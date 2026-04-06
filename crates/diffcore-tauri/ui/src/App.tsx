@@ -48,7 +48,7 @@ const PROVIDER_LABELS: Record<LlmProvider, string> = {
 
 type OnboardingStep = "recommended" | "api";
 type SubscriptionProvider = "codex" | "claude";
-type RightPanelTab = "activity" | "annotations" | "source";
+type RightPanelTab = "activity" | "annotations" | "source" | "comments";
 type ActivityViewMode = "stream" | "all";
 type ActivityKind =
   | "system"
@@ -183,6 +183,9 @@ export default function App() {
   const [annotationSubTab, setAnnotationSubTab] = useState<"info" | "graph" | "edges">("info");
   const [commentsCollapsed, setCommentsCollapsed] = useState(false);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+  const pendingScrollToCommentRef = useRef<{ startLine: number; endLine?: number; commentId: string } | null>(null);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState("");
 
   // Infrastructure group collapse state
   const [infraExpanded, setInfraExpanded] = useState(false);
@@ -195,6 +198,7 @@ export default function App() {
   const rightPanelDragging = useRef(false);
   const rightPanelStartX = useRef(0);
   const rightPanelStartWidth = useRef(0);
+  const rightPanelRafId = useRef(0);
 
   // Groups manifest watching state
   const [watchedManifestPath, setWatchedManifestPath] = useState<string | null>(null);
@@ -207,19 +211,25 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Right panel drag resize handlers
+  // Right panel drag resize handlers (rAF-throttled to prevent jank)
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!rightPanelDragging.current) return;
-      const delta = rightPanelStartX.current - e.clientX;
-      const newWidth = Math.max(200, Math.min(800, rightPanelStartWidth.current + delta));
-      setRightPanelWidth(newWidth);
+      const clientX = e.clientX;
+      cancelAnimationFrame(rightPanelRafId.current);
+      rightPanelRafId.current = requestAnimationFrame(() => {
+        const delta = rightPanelStartX.current - clientX;
+        const newWidth = Math.max(200, Math.min(800, rightPanelStartWidth.current + delta));
+        setRightPanelWidth(newWidth);
+      });
     };
     const onMouseUp = () => {
       if (rightPanelDragging.current) {
         rightPanelDragging.current = false;
+        cancelAnimationFrame(rightPanelRafId.current);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        document.querySelector(".panel-right")?.classList.remove("panel-right-dragging");
       }
     };
     window.addEventListener("mousemove", onMouseMove);
@@ -237,6 +247,7 @@ export default function App() {
     rightPanelStartWidth.current = rightPanelWidth;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
+    document.querySelector(".panel-right")?.classList.add("panel-right-dragging");
   }, [rightPanelWidth]);
 
   // Demo mode: auto-load mock data on mount when not in Tauri
@@ -580,6 +591,19 @@ export default function App() {
     },
     [handleSelectFile],
   );
+
+  // When fileDiff loads and a pending scroll-to-comment is queued, scroll the diff viewer
+  useEffect(() => {
+    if (fileDiff && pendingScrollToCommentRef.current) {
+      const { startLine, endLine, commentId } = pendingScrollToCommentRef.current;
+      pendingScrollToCommentRef.current = null;
+      setTimeout(() => {
+        diffViewerRef.current?.scrollToLine(startLine, endLine);
+        const el = document.querySelector(`.comment-strip-item[data-comment-id="${commentId}"]`);
+        el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 100);
+    }
+  }, [fileDiff]);
 
   /** Close a single tab. If it was active, activate a neighbor. */
   const closeTab = useCallback(
@@ -1149,11 +1173,13 @@ export default function App() {
     (field: keyof LlmSettings, value: string | boolean | number) => {
       if (!llmSettings) return;
       const updated = { ...llmSettings, [field]: value };
-      // When provider changes, reset model to default for that provider
+      // When provider changes, reset model to default for that provider and sync refinement
       if (field === "provider") {
         const provider = value as LlmProvider;
         const models = MODELS_BY_PROVIDER[provider] ?? [];
         updated.model = models[0] ?? "";
+        updated.refinement_provider = provider;
+        updated.refinement_model = models[0] ?? "";
         if (isApiProvider(provider)) {
           setApiProviderDraft(provider);
         }
@@ -1583,6 +1609,28 @@ export default function App() {
           });
         } catch {
           // Non-fatal
+        }
+      }
+    },
+    [repoPath],
+  );
+
+  /** Update a comment's text by ID. */
+  const updateComment = useCallback(
+    async (commentId: string, newText: string) => {
+      setComments((prev) =>
+        prev.map((c) => (c.id === commentId ? { ...c, text: newText } : c)),
+      );
+      setEditingCommentId(null);
+      if (IS_TAURI && repoPath) {
+        try {
+          await tauriInvoke("update_comment_cached", {
+            repoPath,
+            commentId,
+            newText,
+          });
+        } catch {
+          // Non-fatal — optimistic update already applied
         }
       }
     },
@@ -2549,6 +2597,136 @@ export default function App() {
     />
   );
 
+  // Group comments by file for the Comments tab
+  const commentsByFile = useMemo(() => {
+    const map = new Map<string, ReviewComment[]>();
+    // Group-level comments go under a special key
+    for (const c of comments) {
+      const key = c.file_path ?? `__group__${c.group_id}`;
+      const arr = map.get(key);
+      if (arr) arr.push(c);
+      else map.set(key, [c]);
+    }
+    return map;
+  }, [comments]);
+
+  const commentsTabContent = (
+    <div className="comments-tab">
+      <div className="comments-tab-header">
+        <button className="btn btn-sm" onClick={() => openCommentInput()} title="Add comment (c)">
+          + Comment
+        </button>
+        {comments.length > 0 && (
+          <button className="btn btn-sm btn-copy-comments" onClick={exportComments} title="Copy all comments (Shift+C)">
+            Copy All
+          </button>
+        )}
+      </div>
+      {comments.length === 0 ? (
+        <div className="comments-tab-empty">
+          <p>No comments yet</p>
+          <p className="comments-tab-hint">Press <kbd>c</kbd> to comment on a file or select code lines in the diff viewer</p>
+        </div>
+      ) : (
+        <div className="comments-tab-list">
+          {Array.from(commentsByFile.entries()).map(([fileKey, fileComments]) => (
+            <div key={fileKey} className="comments-tab-file-group">
+              <div className="comments-tab-file-header">
+                <span className="comments-tab-file-path">
+                  {fileKey.startsWith("__group__") ? "Group comments" : shortPath(fileKey)}
+                </span>
+                <span className="comments-tab-file-count">{fileComments.length}</span>
+              </div>
+              {fileComments.map((comment) => (
+                <div
+                  key={comment.id}
+                  data-comment-id={comment.id}
+                  className={`comments-tab-card ${activeCommentId === comment.id ? "comments-tab-card-active" : ""}`}
+                  onClick={() => {
+                    setActiveCommentId(comment.id);
+                    if (comment.file_path) {
+                      const group = analysis?.groups.find((g: FlowGroup) => g.id === comment.group_id);
+                      if (group) openFileInTab(comment.file_path, group.id);
+                    }
+                    if (comment.start_line != null) {
+                      // If file is already loaded, scroll immediately; otherwise queue
+                      if (comment.file_path === selectedFile && fileDiff) {
+                        setTimeout(() => {
+                          diffViewerRef.current?.scrollToLine(comment.start_line!, comment.end_line ?? undefined);
+                        }, 50);
+                      } else if (comment.file_path) {
+                        pendingScrollToCommentRef.current = {
+                          startLine: comment.start_line,
+                          endLine: comment.end_line ?? undefined,
+                          commentId: comment.id,
+                        };
+                      }
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="comments-tab-card-meta">
+                    <span className={`comment-strip-badge comment-strip-badge-${comment.type}`}>{comment.type}</span>
+                    {comment.start_line != null && comment.end_line != null && (
+                      <span className="comments-tab-card-lines">L{comment.start_line}-{comment.end_line}</span>
+                    )}
+                    <button
+                      className="comment-strip-edit"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingCommentId(comment.id);
+                        setEditingCommentText(comment.text);
+                      }}
+                      title="Edit"
+                    >
+                      &#9998;
+                    </button>
+                    <button
+                      className="comment-strip-delete"
+                      onClick={(e) => { e.stopPropagation(); deleteComment(comment.id); }}
+                      title="Delete"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                  {comment.selected_code && (
+                    <pre className="comment-strip-code">{comment.selected_code}</pre>
+                  )}
+                  {editingCommentId === comment.id ? (
+                    <div className="comment-strip-edit-container" onClick={(e) => e.stopPropagation()}>
+                      <textarea
+                        className="comment-strip-edit-textarea"
+                        value={editingCommentText}
+                        onChange={(e) => setEditingCommentText(e.target.value)}
+                        autoFocus
+                        rows={3}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                            e.preventDefault();
+                            if (editingCommentText.trim()) updateComment(comment.id, editingCommentText.trim());
+                          }
+                          if (e.key === "Escape") { e.preventDefault(); setEditingCommentId(null); }
+                        }}
+                      />
+                      <div className="comment-strip-edit-actions">
+                        <span className="comment-strip-edit-hint">Cmd+Enter to save</span>
+                        <button className="btn btn-comment-save" disabled={!editingCommentText.trim()} onClick={() => updateComment(comment.id, editingCommentText.trim())}>Save</button>
+                        <button className="btn btn-comment-cancel" onClick={() => setEditingCommentId(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="comments-tab-card-text">{comment.text}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   /** Test-only component that throws during render to exercise ErrorBoundary. */
   function CrashTest({ panel }: { panel: string }) {
     if (crashPanel === panel) {
@@ -3435,7 +3613,19 @@ export default function App() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     openFileInTab(file.path, group.id);
-                                    setCommentsCollapsed(false);
+                                    setRightPanelTab("comments");
+                                    if (rightPanelCollapsed) setRightPanelCollapsed(false);
+                                    // Queue scroll to first code-level comment after diff loads
+                                    const fc = commentsForFile(file.path);
+                                    const first = fc.find((c) => c.start_line != null);
+                                    if (first) {
+                                      pendingScrollToCommentRef.current = {
+                                        startLine: first.start_line!,
+                                        endLine: first.end_line ?? undefined,
+                                        commentId: first.id,
+                                      };
+                                      setActiveCommentId(first.id);
+                                    }
                                   }}
                                 >
                                   <span className="file-comment-icon">&#128172;</span>
@@ -3733,10 +3923,11 @@ export default function App() {
                 codeComments={codeCommentsForSelectedFile}
                 onGlyphClick={(commentId) => {
                   setActiveCommentId(commentId);
-                  setCommentsCollapsed(false);
-                  // Scroll the comment card into view in the strip
+                  setRightPanelTab("comments");
+                  if (rightPanelCollapsed) setRightPanelCollapsed(false);
+                  // Scroll the comment card into view in the comments tab
                   setTimeout(() => {
-                    const el = document.querySelector(`.comment-strip-item[data-comment-id="${commentId}"]`);
+                    const el = document.querySelector(`.comments-tab-card[data-comment-id="${commentId}"]`);
                     el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
                   }, 100);
                 }}
@@ -3744,8 +3935,8 @@ export default function App() {
               />
             </ErrorBoundary>
           </div>
-          {/* Comment strip below the diff — header + left nav + detail view */}
-          {selectedFile && (() => {
+          {/* Comments moved to right panel tab */}
+          {false && selectedFile && (() => {
             const fileComments = comments.filter(
               (c) => c.file_path === selectedFile && selectedGroup && c.group_id === selectedGroup.id,
             );
@@ -3817,6 +4008,17 @@ export default function App() {
                             <span className="comment-strip-lines">:{comment.start_line}-{comment.end_line}</span>
                           )}
                           <button
+                            className="comment-strip-edit"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingCommentId(comment.id);
+                              setEditingCommentText(comment.text);
+                            }}
+                            title="Edit comment"
+                          >
+                            &#9998;
+                          </button>
+                          <button
                             className="comment-strip-delete"
                             onClick={(e) => { e.stopPropagation(); deleteComment(comment.id); }}
                             title="Delete comment"
@@ -3827,7 +4029,57 @@ export default function App() {
                         {comment.selected_code && (
                           <pre className="comment-strip-code">{comment.selected_code}</pre>
                         )}
-                        <p className="comment-strip-text">{comment.text}</p>
+                        {editingCommentId === comment.id ? (
+                          <div className="comment-strip-edit-container" onClick={(e) => e.stopPropagation()}>
+                            <textarea
+                              className="comment-strip-edit-textarea"
+                              value={editingCommentText}
+                              onChange={(e) => setEditingCommentText(e.target.value)}
+                              autoFocus
+                              rows={3}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                                  e.preventDefault();
+                                  if (editingCommentText.trim()) {
+                                    updateComment(comment.id, editingCommentText.trim());
+                                  }
+                                }
+                                if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  setEditingCommentId(null);
+                                }
+                              }}
+                            />
+                            <div className="comment-strip-edit-actions">
+                              <span className="comment-strip-edit-hint">Cmd+Enter to save, Escape to cancel</span>
+                              <button
+                                className="btn btn-comment-save"
+                                disabled={!editingCommentText.trim()}
+                                onClick={() => updateComment(comment.id, editingCommentText.trim())}
+                              >
+                                Save
+                              </button>
+                              <button
+                                className="btn btn-comment-cancel"
+                                onClick={() => setEditingCommentId(null)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p
+                            className="comment-strip-text"
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              setEditingCommentId(comment.id);
+                              setEditingCommentText(comment.text);
+                            }}
+                            title="Double-click to edit"
+                          >
+                            {comment.text}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -3864,10 +4116,28 @@ export default function App() {
                   data-testid="activity-tab"
                   role="tab"
                   aria-selected={rightPanelTab === "activity"}
+                  title="LLM"
                 >
-                  Activity
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="1,8 4,8 6,3 8,13 10,6 12,8 15,8" />
+                  </svg>
                   {(activityJob || activityTimeline.length > 0) && (
                     <span className="panel-tab-count">{activityTimeline.length || 1}</span>
+                  )}
+                </button>
+                <button
+                  className={`panel-tab ${rightPanelTab === "comments" ? "active" : ""}`}
+                  onClick={() => setRightPanelTab("comments")}
+                  data-testid="comments-tab"
+                  role="tab"
+                  aria-selected={rightPanelTab === "comments"}
+                  title="Comments"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2,2 h12 a1,1 0 0 1 1,1 v7 a1,1 0 0 1 -1,1 h-7 l-3,3 v-3 h-2 a1,1 0 0 1 -1,-1 v-7 a1,1 0 0 1 1,-1 z" />
+                  </svg>
+                  {comments.length > 0 && (
+                    <span className="panel-tab-count">{comments.length}</span>
                   )}
                 </button>
                 <button
@@ -3876,8 +4146,14 @@ export default function App() {
                   data-testid="annotations-tab"
                   role="tab"
                   aria-selected={rightPanelTab === "annotations"}
+                  title="Info"
                 >
-                  Annotations
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="1" width="12" height="14" rx="1.5" />
+                    <line x1="5" y1="5" x2="11" y2="5" />
+                    <line x1="5" y1="8" x2="11" y2="8" />
+                    <line x1="5" y1="11" x2="9" y2="11" />
+                  </svg>
                 </button>
                 <button
                   className={`panel-tab ${rightPanelTab === "source" ? "active" : ""}`}
@@ -3885,8 +4161,13 @@ export default function App() {
                   data-testid="source-tab"
                   role="tab"
                   aria-selected={rightPanelTab === "source"}
+                  title="Subsystem Source"
                 >
-                  Source
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="5,3 1,8 5,13" />
+                    <polyline points="11,3 15,8 11,13" />
+                    <line x1="9" y1="2" x2="7" y2="14" />
+                  </svg>
                 </button>
               </>
             )}
@@ -3897,7 +4178,9 @@ export default function App() {
               ? activityTabContent
               : rightPanelTab === "source"
                 ? sourceTabContent
-                : annotationsTabContent}
+                : rightPanelTab === "comments"
+                  ? commentsTabContent
+                  : annotationsTabContent}
 
             {(annotating || deepAnalyzing || refining) && rightPanelTab === "activity" && (
               <div className="annotation-section llm-loading">

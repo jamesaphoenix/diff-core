@@ -1371,8 +1371,9 @@ mod tests {
     #[test]
     fn test_refine_flag_overrides_config() {
         let mut config = DiffcoreConfig::default();
-        assert!(!config.llm.refinement.enabled);
+        assert!(config.llm.refinement.enabled);
 
+        // Even when starting from enabled, explicit flag should still work
         let refine = true;
         let refine_model: Option<String> = Some("gpt-4.1".to_string());
 
@@ -1391,6 +1392,8 @@ mod tests {
     #[test]
     fn test_refine_model_without_refine_enables_refinement() {
         let mut config = DiffcoreConfig::default();
+        // Disable first to test that --refine-model alone re-enables
+        config.llm.refinement.enabled = false;
         assert!(!config.llm.refinement.enabled);
 
         let refine_model: Option<String> = Some("claude-sonnet-4-6".to_string());
@@ -1414,6 +1417,7 @@ mod tests {
                 model: Some("claude-sonnet-4-6".to_string()),
                 key_cmd: Some("echo main-key".to_string()),
                 key: Some("main-inline-key".to_string()),
+                annotations_enabled: true,
                 refinement: diffcore_core::config::RefinementConfig {
                     enabled: true,
                     provider: Some("openai".to_string()),
@@ -1468,6 +1472,7 @@ mod tests {
                 model: Some("claude-sonnet-4-6".to_string()),
                 key_cmd: Some("echo main-key".to_string()),
                 key: Some("main-inline-key".to_string()),
+                annotations_enabled: true,
                 refinement: diffcore_core::config::RefinementConfig {
                     enabled: true,
                     provider: None,

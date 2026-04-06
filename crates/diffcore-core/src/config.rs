@@ -108,6 +108,10 @@ fn default_include_uncommitted() -> bool {
     true
 }
 
+fn default_true() -> bool {
+    true
+}
+
 impl Default for DiffConfig {
     fn default() -> Self {
         Self {
@@ -132,6 +136,9 @@ pub struct LlmConfig {
     /// Precedence: key_cmd > key > env vars.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+    /// Whether LLM annotations are enabled (default: true).
+    #[serde(default = "default_true")]
+    pub annotations_enabled: bool,
     /// Optional LLM refinement pass configuration.
     #[serde(default)]
     pub refinement: RefinementConfig,
@@ -145,8 +152,8 @@ pub struct LlmConfig {
 /// refine again if score improved, up to `max_iterations`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RefinementConfig {
-    /// Whether refinement is enabled (default: false).
-    #[serde(default)]
+    /// Whether refinement is enabled (default: true).
+    #[serde(default = "default_true")]
     pub enabled: bool,
     /// Provider for refinement (can differ from annotation provider).
     #[serde(default)]
@@ -170,7 +177,7 @@ fn default_max_iterations() -> u32 {
 impl Default for RefinementConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             provider: None,
             model: None,
             key_cmd: None,
@@ -186,6 +193,7 @@ impl Default for LlmConfig {
             model: None,
             key_cmd: None,
             key: None,
+            annotations_enabled: true,
             refinement: RefinementConfig::default(),
         }
     }
@@ -954,7 +962,7 @@ events = ["src/handlers/events/**/*.ts"]
     #[test]
     fn test_refinement_config_defaults() {
         let config = DiffcoreConfig::default();
-        assert!(!config.llm.refinement.enabled);
+        assert!(config.llm.refinement.enabled);
         assert_eq!(config.llm.refinement.provider, None);
         assert_eq!(config.llm.refinement.model, None);
         assert_eq!(config.llm.refinement.key_cmd, None);
@@ -981,13 +989,13 @@ max_iterations = 3
     }
 
     #[test]
-    fn test_refinement_disabled_by_default() {
+    fn test_refinement_enabled_by_default() {
         let toml_str = r#"
 [llm]
 provider = "anthropic"
 "#;
         let config = DiffcoreConfig::from_str(toml_str).unwrap();
-        assert!(!config.llm.refinement.enabled);
+        assert!(config.llm.refinement.enabled);
         assert_eq!(config.llm.refinement.max_iterations, 1);
     }
 
@@ -1148,5 +1156,168 @@ domain = "src/services/**"
                 prop_assert_eq!(config.llm, roundtripped.llm);
             }
         }
+    }
+
+    // ── Annotations Enabled Tests ──
+
+    #[test]
+    fn test_annotations_enabled_defaults_true() {
+        let config = DiffcoreConfig::default();
+        assert!(config.llm.annotations_enabled);
+    }
+
+    #[test]
+    fn test_annotations_enabled_serde_default_true() {
+        // When annotations_enabled is missing from TOML, it should default to true
+        let toml_str = r#"
+[llm]
+provider = "anthropic"
+"#;
+        let config = DiffcoreConfig::from_str(toml_str).unwrap();
+        assert!(config.llm.annotations_enabled);
+    }
+
+    #[test]
+    fn test_annotations_enabled_explicit_false() {
+        let toml_str = r#"
+[llm]
+provider = "anthropic"
+annotations_enabled = false
+"#;
+        let config = DiffcoreConfig::from_str(toml_str).unwrap();
+        assert!(!config.llm.annotations_enabled);
+    }
+
+    #[test]
+    fn test_annotations_enabled_explicit_true() {
+        let toml_str = r#"
+[llm]
+provider = "anthropic"
+annotations_enabled = true
+"#;
+        let config = DiffcoreConfig::from_str(toml_str).unwrap();
+        assert!(config.llm.annotations_enabled);
+    }
+
+    #[test]
+    fn test_annotations_enabled_roundtrip() {
+        let mut config = DiffcoreConfig::default();
+        config.llm.annotations_enabled = false;
+
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        let back = DiffcoreConfig::from_str(&toml_str).unwrap();
+        assert!(!back.llm.annotations_enabled);
+    }
+
+    #[test]
+    fn test_annotations_enabled_json_roundtrip() {
+        let config = LlmConfig {
+            annotations_enabled: false,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let back: LlmConfig = serde_json::from_str(&json).unwrap();
+        assert!(!back.annotations_enabled);
+    }
+
+    #[test]
+    fn test_refinement_enabled_defaults_true_in_llm_config() {
+        let config = LlmConfig::default();
+        assert!(config.refinement.enabled);
+    }
+
+    #[test]
+    fn test_refinement_enabled_explicit_false_overrides_default() {
+        let toml_str = r#"
+[llm.refinement]
+enabled = false
+"#;
+        let config = DiffcoreConfig::from_str(toml_str).unwrap();
+        assert!(!config.llm.refinement.enabled);
+    }
+
+    #[test]
+    fn test_both_defaults_true_on_empty_config() {
+        let config = DiffcoreConfig::default();
+        assert!(config.llm.annotations_enabled, "annotations should default to true");
+        assert!(config.llm.refinement.enabled, "refinement should default to true");
+    }
+
+    #[test]
+    fn test_both_defaults_true_on_minimal_toml() {
+        let toml_str = "";
+        let config = DiffcoreConfig::from_str(toml_str).unwrap();
+        assert!(config.llm.annotations_enabled, "annotations should default to true");
+        assert!(config.llm.refinement.enabled, "refinement should default to true");
+    }
+
+    #[test]
+    fn test_annotations_and_refinement_independent() {
+        // Can enable one and disable the other
+        let toml_str = r#"
+[llm]
+annotations_enabled = false
+
+[llm.refinement]
+enabled = true
+"#;
+        let config = DiffcoreConfig::from_str(toml_str).unwrap();
+        assert!(!config.llm.annotations_enabled);
+        assert!(config.llm.refinement.enabled);
+
+        let toml_str2 = r#"
+[llm]
+annotations_enabled = true
+
+[llm.refinement]
+enabled = false
+"#;
+        let config2 = DiffcoreConfig::from_str(toml_str2).unwrap();
+        assert!(config2.llm.annotations_enabled);
+        assert!(!config2.llm.refinement.enabled);
+    }
+
+    #[test]
+    fn test_global_defaults_merge_with_annotations() {
+        // Test that global config merge still works with annotations_enabled
+        let mut local = DiffcoreConfig::from_str(r#"
+[llm]
+annotations_enabled = false
+"#).unwrap();
+        let global = DiffcoreConfig::from_str(r#"
+[llm]
+provider = "anthropic"
+
+[llm.refinement]
+enabled = true
+provider = "openai"
+"#).unwrap();
+
+        local.apply_global_llm_defaults(&global);
+
+        // Local explicit false should be preserved
+        assert!(!local.llm.annotations_enabled);
+        // Global provider should fill in missing local
+        assert_eq!(local.llm.provider, Some("anthropic".to_string()));
+        // Refinement from either local (default true) or global should be true
+        assert!(local.llm.refinement.enabled);
+    }
+
+    #[test]
+    fn test_save_global_roundtrip_annotations_enabled() {
+        // Test that annotations_enabled survives save_global / load_global cycle
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("DIFFCORE_GLOBAL_CONFIG_DIR", dir.path().to_str().unwrap());
+
+        let mut config = DiffcoreConfig::default();
+        config.llm.annotations_enabled = false;
+        config.llm.refinement.enabled = false;
+        config.save_global().unwrap();
+
+        let loaded = DiffcoreConfig::load_global().unwrap();
+        assert!(!loaded.llm.annotations_enabled, "annotations_enabled should survive save/load");
+        assert!(!loaded.llm.refinement.enabled, "refinement.enabled should survive save/load");
+
+        std::env::remove_var("DIFFCORE_GLOBAL_CONFIG_DIR");
     }
 }
