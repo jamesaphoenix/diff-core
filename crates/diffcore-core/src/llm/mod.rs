@@ -179,9 +179,40 @@ pub(crate) fn resolve_cli_executable(binary: &str) -> Option<PathBuf> {
 
 fn find_binary_in_path(binary: &str) -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH")?;
-    std::env::split_paths(&path_var)
-        .map(|entry| entry.join(binary))
-        .find(|path| is_executable_file(path))
+
+    #[cfg(not(windows))]
+    {
+        std::env::split_paths(&path_var)
+            .map(|entry| entry.join(binary))
+            .find(|path| is_executable_file(path))
+    }
+
+    #[cfg(windows)]
+    {
+        let pathext = std::env::var("PATHEXT")
+            .unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM;.PS1".to_string());
+        for entry in std::env::split_paths(&path_var) {
+            // Try bare name first
+            let bare = entry.join(binary);
+            if is_executable_file(&bare) {
+                return Some(bare);
+            }
+            // Then try with each PATHEXT extension
+            for ext in pathext.split(';') {
+                let ext = ext.trim();
+                if ext.is_empty() { continue; }
+                let with_ext = entry.join(format!("{binary}{ext}"));
+                if is_executable_file(&with_ext) {
+                    return Some(with_ext);
+                }
+                let lower = entry.join(format!("{binary}{}", ext.to_lowercase()));
+                if is_executable_file(&lower) {
+                    return Some(lower);
+                }
+            }
+        }
+        None
+    }
 }
 
 fn candidate_cli_paths(binary: &str) -> Vec<PathBuf> {
@@ -197,6 +228,30 @@ fn candidate_cli_paths(binary: &str) -> Vec<PathBuf> {
             "bin",
         ] {
             candidates.push(home.join(rel).join(binary));
+        }
+    }
+
+    // Windows: USERPROFILE as home fallback, plus npm global locations
+    #[cfg(windows)]
+    {
+        if let Some(profile) = std::env::var_os("USERPROFILE") {
+            let home = PathBuf::from(profile);
+            let pathext = std::env::var("PATHEXT")
+                .unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM;.PS1".to_string());
+            let exts: Vec<&str> = pathext.split(';').map(str::trim).filter(|e| !e.is_empty()).collect();
+            for rel in [".npm-global/bin", ".npm/bin", ".local/bin", ".cargo/bin", "bin"] {
+                for ext in &exts {
+                    candidates.push(home.join(rel).join(format!("{binary}{ext}")));
+                    candidates.push(home.join(rel).join(format!("{binary}{}", ext.to_lowercase())));
+                }
+            }
+        }
+        for env in ["APPDATA", "LOCALAPPDATA"] {
+            if let Some(base) = std::env::var_os(env) {
+                let base = PathBuf::from(base);
+                candidates.push(base.join("npm").join(format!("{binary}.cmd")));
+                candidates.push(base.join("npm").join(format!("{binary}.exe")));
+            }
         }
     }
 
