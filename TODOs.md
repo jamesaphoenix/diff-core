@@ -15,6 +15,16 @@ Replace GitHub's PR review tab entirely — do the full review in Diffcore, push
 - Map Diffcore flow groups to GitHub's per-file comment model
 - Approve/request-changes/comment review actions from Diffcore
 
+### Phase 2.5: GitHub Comments API — Bidirectional Sync for Repos
+Tag each comment with its origin: **`online`** (created on GitHub) vs **`diffcore`** (created in Diffcore).
+- Fetch all PR review comments via GitHub Comments API (`GET /repos/{owner}/{repo}/pulls/{pull_number}/comments`)
+- Tag incoming comments as `online`, tag Diffcore-authored comments as `diffcore`
+- On sync: pull new `online` comments into Diffcore, push new `diffcore` comments to GitHub
+- Conflict resolution: `online` comments are read-only in Diffcore; `diffcore` comments are editable in both but GitHub edits create a new `online` version
+- Display origin tag in Diffcore UI (badge/icon distinguishing online vs diffcore)
+- Support filtering/sorting by origin tag in the review panel
+- Webhook listener (or polling fallback) to detect new `online` comments in real-time
+
 ### Phase 3: Structured Agent Feedback Loop
 - Reject a group with structured feedback
 - Generate a prompt for the agent to fix the rejected group
