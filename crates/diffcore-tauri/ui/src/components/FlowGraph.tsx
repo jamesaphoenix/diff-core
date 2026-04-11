@@ -9,10 +9,12 @@ import {
   type Node,
   type Edge,
   type NodeMouseHandler,
+  type NodeChange,
   type EdgeProps,
   Position,
   getBezierPath,
   MarkerType,
+  applyNodeChanges,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "@dagrejs/dagre";
@@ -399,8 +401,14 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [nodes, setNodes] = useState<Node[]>(initialNodes);
   const containerRef = useRef<HTMLDivElement>(null);
   const reactFlowInstance = useRef<any>(null);
+
+  // Sync nodes when the layout changes (new analysis / group selection)
+  useEffect(() => {
+    setNodes(initialNodes);
+  }, [initialNodes]);
 
   // The "active" node is either the replay node (if replaying) or the user-clicked node
   const activeNodeId = replayNodeId ?? selectedNodeId;
@@ -419,7 +427,7 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
 
   // Track active node for visual highlight + replay glow
   const processedNodes = useMemo(() => {
-    return initialNodes.map((node) => ({
+    return nodes.map((node) => ({
       ...node,
       data: {
         ...node.data,
@@ -427,7 +435,12 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
         replayActive: replayNodeId != null && node.id === replayNodeId,
       },
     }));
-  }, [initialNodes, activeNodeId, replayNodeId]);
+  }, [nodes, activeNodeId, replayNodeId]);
+
+  // Handle node position changes from dragging
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((nds) => applyNodeChanges(changes, nds));
+  }, []);
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {
@@ -501,6 +514,7 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
         edges={processedEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        onNodesChange={onNodesChange}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
         onInit={(instance: any) => { reactFlowInstance.current = instance; }}
