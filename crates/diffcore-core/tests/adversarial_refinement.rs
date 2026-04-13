@@ -32,7 +32,9 @@ use diffcore_core::eval::scoring::{
 use diffcore_core::flow::{self, FlowConfig};
 use diffcore_core::graph::SymbolGraph;
 use diffcore_core::llm::anthropic::AnthropicProvider;
-use diffcore_core::llm::refinement::{apply_refinement, build_refinement_request, has_refinements};
+use diffcore_core::llm::refinement::{
+    apply_refinement_lenient, build_refinement_request, has_refinements,
+};
 use diffcore_core::llm::vcr::{VcrMode, VcrProvider};
 use diffcore_core::llm::LlmProvider;
 use diffcore_core::output::{self, build_analysis_output};
@@ -139,23 +141,42 @@ fn apply_refinement_to_output(
 
     match response {
         Ok(ref refinement) if has_refinements(refinement) => {
-            match apply_refinement(
+            // Use the lenient apply path: repair LLM-hallucinated IDs (e.g. a
+            // descriptive group name in `to_group_id`, or a `Split` op against
+            // the literal "infrastructure" pseudo-group) and drop ops that
+            // can't be repaired, instead of aborting the whole refinement.
+            let (refined_groups, refined_infra, warnings) = apply_refinement_lenient(
                 &original.groups,
                 original.infrastructure_group.as_ref(),
                 refinement,
-            ) {
-                Ok((refined_groups, refined_infra)) => {
-                    let mut refined = original.clone();
-                    refined.groups = refined_groups;
-                    refined.infrastructure_group = refined_infra;
-                    refined.summary.total_groups = refined.groups.len() as u32;
-                    (refined, true)
-                }
-                Err(e) => {
-                    eprintln!("  Refinement validation failed: {}", e);
-                    (original.clone(), false)
-                }
+            );
+            for w in &warnings {
+                eprintln!("  Refinement repair: {}", w.message);
             }
+
+            // "Changed" means at least one operation actually survived the
+            // sanitization pass. Count dropped ops against the total: if every
+            // op was dropped, the refined groups are effectively the original.
+            let total_ops = refinement.splits.len()
+                + refinement.merges.len()
+                + refinement.re_ranks.len()
+                + refinement.reclassifications.len();
+            let dropped_ops = warnings
+                .iter()
+                .filter(|w| {
+                    matches!(
+                        w.action,
+                        diffcore_core::llm::refinement::RefinementWarningAction::Dropped { .. }
+                    )
+                })
+                .count();
+            let changed = dropped_ops < total_ops;
+
+            let mut refined = original.clone();
+            refined.groups = refined_groups;
+            refined.infrastructure_group = refined_infra;
+            refined.summary.total_groups = refined.groups.len() as u32;
+            (refined, changed)
         }
         Ok(_) => {
             // No refinements suggested

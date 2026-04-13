@@ -1,0 +1,20 @@
+{
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6",
+  "request_hash": "323878a24b0832882fa205ce315beb76e2e37db89f9e3c98e806cc39609616a7",
+  "prompt_template_hash": "008e2a67b63d99850cd9588176b84a91ec500154d448776e01075cc2c87c250f",
+  "recorded_at": "2026-04-13T10:23:48.167469+00:00",
+  "response": {
+    "splits": [],
+    "merges": [],
+    "re_ranks": [
+      {
+        "group_id": "group_2",
+        "new_position": 1,
+        "reason": "The backend metrics API (route → service → repository) defines the data contract that the frontend Dashboard consumes. Reviewing the backend first establishes what shape the data takes and what the API guarantees, making it easier to evaluate whether the frontend is using it correctly. Dependency direction: backend API provider should be reviewed before frontend consumer."
+      }
+    ],
+    "reclassifications": [],
+    "reasoning": "Looking at the two groups:\n\n1. **group_1** (Dashboard route): frontend/src/pages/Dashboard.tsx, frontend/src/api/metricsApi.ts, frontend/src/components/DataChart.tsx — These are all frontend files that form a cohesive unit: the Dashboard page imports metricsApi and DataChart. The grouping is logically sound.\n\n2. **group_2** (metrics route): backend/app/routes/metrics.py, backend/app/repositories/metrics_repo.py, backend/app/services/metrics_service.py — These are all backend files forming the metrics API endpoint stack (route → service → repository). The grouping is logically sound.\n\nThe two groups represent a cross-language feature (feature/cross-lang branch name confirms this) — the frontend metrics dashboard consuming a backend metrics API. However, since these are clearly distinct layers (frontend vs backend), keeping them as separate groups is appropriate for review purposes.\n\nOne consideration: should these be reviewed in a different order? The backend (group_2) is the data provider and the frontend (group_1) consumes it. It makes more sense to review the backend API first (to understand the data contract), then the frontend consuming it. Currently group_1 (frontend) is reviewed first. I should suggest re-ranking group_2 to position 1 so the backend is reviewed first.\n\nNo splits, merges, or reclassifications are needed — the groupings are clean. No infrastructure files are present. Just a re-rank to put the backend group first makes semantic sense (dependency direction: backend API → frontend consumer)."
+  }
+}

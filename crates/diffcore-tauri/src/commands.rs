@@ -815,15 +815,24 @@ async fn run_refinement_with_activity(
             provider: provider_name,
             model: model_name,
             had_changes: false,
+            warnings: Vec::new(),
         });
     }
 
-    let (refined_groups, infra) = refinement::apply_refinement(
+    let (refined_groups, infra, warnings) = refinement::apply_refinement_lenient(
         &analysis.groups,
         analysis.infrastructure_group.as_ref(),
         &response,
-    )
-    .map_err(|e| CommandError::Llm(format!("Refinement validation failed: {}", e)))?;
+    );
+
+    for warning in &warnings {
+        job.emit(ActivityEntry::info(
+            provider_name.clone(),
+            format!("Refinement repair: {}", warning.message),
+            Some("refinement.repair".to_string()),
+        ))
+        .await;
+    }
 
     emit_diffcore_activity(
         &job,
@@ -841,6 +850,7 @@ async fn run_refinement_with_activity(
         provider: provider_name,
         model: model_name,
         had_changes: true,
+        warnings,
     })
 }
 
@@ -1337,47 +1347,45 @@ pub async fn refine_groups(
             provider: provider_name,
             model: model_name,
             had_changes: false,
+            warnings: Vec::new(),
         });
     }
 
-    // Apply the refinement
-    match refinement::apply_refinement(
+    // Apply the refinement leniently: repair what we can, drop what we can't,
+    // surface warnings instead of erroring on individual hallucinated ops.
+    let (refined_groups, infra, warnings) = refinement::apply_refinement_lenient(
         &analysis.groups,
         analysis.infrastructure_group.as_ref(),
         &response,
-    ) {
-        Ok((refined_groups, infra)) => {
-            // Update cached analysis with refined groups
-            match state.last_analysis.lock() {
-                Ok(mut last) => {
-                    if let Some(ref mut a) = *last {
-                        a.groups = refined_groups.clone();
-                        a.infrastructure_group = infra.clone();
-                    }
-                }
-                Err(e) => warn!(
-                    "Failed to update last_analysis with refinement (lock poisoned): {}",
-                    e
-                ),
-            }
+    );
 
-            Ok(RefinementResult {
-                refined_groups,
-                infrastructure_group: infra,
-                refinement_response: response,
-                provider: provider_name,
-                model: model_name,
-                had_changes: true,
-            })
-        }
-        Err(e) => {
-            // Validation failed — return original groups with error info
-            Err(CommandError::Llm(format!(
-                "Refinement validation failed: {}",
-                e
-            )))
-        }
+    for w in &warnings {
+        warn!("Refinement repair: {}", w.message);
     }
+
+    // Update cached analysis with refined groups
+    match state.last_analysis.lock() {
+        Ok(mut last) => {
+            if let Some(ref mut a) = *last {
+                a.groups = refined_groups.clone();
+                a.infrastructure_group = infra.clone();
+            }
+        }
+        Err(e) => warn!(
+            "Failed to update last_analysis with refinement (lock poisoned): {}",
+            e
+        ),
+    }
+
+    Ok(RefinementResult {
+        refined_groups,
+        infrastructure_group: infra,
+        refinement_response: response,
+        provider: provider_name,
+        model: model_name,
+        had_changes: true,
+        warnings,
+    })
 }
 
 /// Result of a refinement pass, including both the refined groups and
@@ -1396,6 +1404,10 @@ pub struct RefinementResult {
     pub model: String,
     /// Whether the refinement actually produced changes.
     pub had_changes: bool,
+    /// Non-fatal warnings from the lenient apply path: repaired IDs and
+    /// dropped operations. Empty in the common case.
+    #[serde(default)]
+    pub warnings: Vec<diffcore_core::llm::refinement::RefinementWarning>,
 }
 
 /// Load cached refinement result for the current analysis.

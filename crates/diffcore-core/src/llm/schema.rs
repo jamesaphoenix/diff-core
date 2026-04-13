@@ -359,7 +359,12 @@ Guidelines:
 - Reclassifications: use when static reachability assigned a file to the wrong group
 - If no refinements are needed, return empty arrays for all operations
 - Every file mentioned in splits/reclassifications must exist in the original groups
-- Group names MUST be descriptive: e.g. 'media asset upload pipeline' not 'page test flow'. Names should describe the domain/feature and the nature of the change"#
+- Group names MUST be descriptive: e.g. 'media asset upload pipeline' not 'page test flow'. Names should describe the domain/feature and the nature of the change
+
+ID fields — STRICT:
+- `source_group_id`, `group_ids`, `from_group_id`, and `to_group_id` MUST be literal group IDs (e.g. `group_1`, `group_2`) from the input, or the literal string `infrastructure`.
+- NEVER use a group's descriptive name (`name` field) in an ID position. IDs and names are different fields.
+- If you want to route a file to a newly-created group, create that group via a `split` operation — do NOT invent a new ID in `to_group_id`."#
 }
 
 /// Generate the JSON schema description for Pass 2 structured output.

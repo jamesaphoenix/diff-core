@@ -1,0 +1,33 @@
+{
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6",
+  "request_hash": "907b089008cfdad438a58f471004cd8989d46eff5a884f468efe84d3eeb4abac",
+  "prompt_template_hash": "008e2a67b63d99850cd9588176b84a91ec500154d448776e01075cc2c87c250f",
+  "recorded_at": "2026-04-13T10:24:01.133186+00:00",
+  "response": {
+    "splits": [],
+    "merges": [],
+    "re_ranks": [],
+    "reclassifications": [
+      {
+        "file": "src/core/dataService.ts",
+        "from_group_id": "infrastructure",
+        "to_group_id": "group_1",
+        "reason": "The core data service is the business logic layer consumed by the data route. Static analysis likely missed this because the re-export barrel (src/core/index.ts or similar) is new. It is a direct dependency of the data route and belongs in the same review group."
+      },
+      {
+        "file": "src/adapter/index.ts",
+        "from_group_id": "infrastructure",
+        "to_group_id": "group_1",
+        "reason": "This barrel re-export file is part of the 'feature/reexport' refactor. The adapter layer sits between the route and the core service; static analysis failed to trace reachability through the new index re-export. It logically belongs with the data route change."
+      },
+      {
+        "file": "src/facade/index.ts",
+        "from_group_id": "infrastructure",
+        "to_group_id": "group_1",
+        "reason": "This facade barrel re-export is part of the same re-export restructuring as the other index files. It is likely the direct import surface used by src/routes/data.ts and should be reviewed alongside the route and the layers it re-exports."
+      }
+    ],
+    "reasoning": "Looking at the diff, the branch is named \"feature/reexport\" which strongly suggests this is a re-export/module structure refactoring. The three ungrouped files (src/adapter/index.ts, src/core/dataService.ts, src/facade/index.ts) are classic re-export barrel files that static analysis failed to trace from the entrypoint. However, src/routes/data.ts likely imports from these modules (adapter, core service, or facade), so they are logically connected to the route change.\n\nThe branch name \"feature/reexport\" and the file names (index.ts barrel files + a core service) suggest this PR is introducing or modifying re-export patterns across the adapter, core, and facade layers. The route file (src/routes/data.ts) is likely consuming these exports. All four files appear to be part of the same logical change: restructuring module exports and updating the data route to use them.\n\nI should reclassify all three ungrouped files into group_1 since they are logically part of the same data service/route change. The route likely depends on the adapter, facade, and core data service - and static analysis simply failed to trace the reachability path (possibly because the index.ts files are new barrel re-exports that weren't previously in the symbol graph)."
+  }
+}

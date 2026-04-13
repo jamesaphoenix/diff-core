@@ -7,12 +7,53 @@
 
 use std::collections::{HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
+
 use crate::cluster::{category_display_name, classify_by_convention};
 use crate::types::{
     ChangeStats, FileChange, FileRole, FlowGroup, InfraSubGroup, InfrastructureGroup,
 };
 
 use super::schema::{RefinementGroupInput, RefinementRequest, RefinementResponse, RefinementSplit};
+
+/// Non-fatal diagnostic emitted while repairing or filtering a refinement response.
+///
+/// Warnings let the lenient apply path surface LLM hallucinations (invented group
+/// IDs, missing files) without aborting the entire refinement. UI layers can show
+/// these to the user or drop them silently.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefinementWarning {
+    /// The operation category the warning came from.
+    pub op: RefinementOp,
+    /// What happened to the op: repaired in place, or dropped entirely.
+    pub action: RefinementWarningAction,
+    /// Human-readable detail.
+    pub message: String,
+}
+
+/// Which operation kind produced the warning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefinementOp {
+    Split,
+    Merge,
+    ReRank,
+    Reclassify,
+}
+
+/// What the lenient apply path did with the problematic op.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefinementWarningAction {
+    /// An unknown ID was resolved by matching a group's display name.
+    Repaired {
+        field: String,
+        original: String,
+        resolved: String,
+    },
+    /// The op could not be repaired and was discarded.
+    Dropped { reason: String },
+}
 
 /// Errors that can occur during refinement application.
 #[derive(Debug, thiserror::Error)]
@@ -276,6 +317,297 @@ pub fn apply_refinement(
     }
 
     Ok((refined_groups, infra))
+}
+
+/// Apply refinement operations leniently — repair what we can, drop what we can't.
+///
+/// Unlike [`apply_refinement`], this never returns an error. It first tries to
+/// repair unknown group references by matching them against group names
+/// (LLMs frequently confuse the `id` and `name` fields and emit a descriptive
+/// title where an ID was expected). Anything still invalid is filtered out
+/// and reported as a [`RefinementWarning`] so the rest of the response can
+/// still apply.
+///
+/// Returns the refined groups, infrastructure group, and a list of warnings
+/// describing every repair and drop performed.
+pub fn apply_refinement_lenient(
+    groups: &[FlowGroup],
+    infrastructure: Option<&InfrastructureGroup>,
+    response: &RefinementResponse,
+) -> (
+    Vec<FlowGroup>,
+    Option<InfrastructureGroup>,
+    Vec<RefinementWarning>,
+) {
+    let mut warnings: Vec<RefinementWarning> = Vec::new();
+    let mut sanitized = response.clone();
+
+    // Pass 1: repair unknown IDs via name matching (in place).
+    repair_refinement_response(&mut sanitized, groups, &mut warnings);
+
+    // Pass 2: filter out any operations that are still invalid.
+    sanitize_refinement_response(&mut sanitized, groups, infrastructure, &mut warnings);
+
+    // Pass 3: apply. After repair + sanitize this should never fail, but if it
+    // somehow does, fall back to the original groups with a final warning.
+    match apply_refinement(groups, infrastructure, &sanitized) {
+        Ok((refined, infra)) => (refined, infra, warnings),
+        Err(e) => {
+            warnings.push(RefinementWarning {
+                op: RefinementOp::Reclassify,
+                action: RefinementWarningAction::Dropped {
+                    reason: format!("apply_refinement failed after sanitization: {}", e),
+                },
+                message: "Refinement fell back to deterministic groups".to_string(),
+            });
+            (groups.to_vec(), infrastructure.cloned(), warnings)
+        }
+    }
+}
+
+/// Try to repair unknown group IDs in `response` by matching against
+/// existing group `name` fields.
+///
+/// LLMs often substitute a group's descriptive name for its ID (e.g.
+/// `"Billing domain model: ..."` instead of `"group_3"`). This function
+/// rewrites the offending field in place and emits a `Repaired` warning.
+/// Operations that can't be repaired are left unchanged for the
+/// subsequent sanitization pass to drop.
+pub fn repair_refinement_response(
+    response: &mut RefinementResponse,
+    groups: &[FlowGroup],
+    warnings: &mut Vec<RefinementWarning>,
+) {
+    let id_set: HashSet<&str> = groups.iter().map(|g| g.id.as_str()).collect();
+    // name-normalized → id lookup
+    let name_to_id: HashMap<String, String> = groups
+        .iter()
+        .map(|g| (normalize_name(&g.name), g.id.clone()))
+        .collect();
+
+    let try_repair =
+        |val: &mut String, op: RefinementOp, field: &str, ws: &mut Vec<RefinementWarning>| {
+            if id_set.contains(val.as_str()) || val == "infrastructure" {
+                return;
+            }
+            if let Some(id) = name_to_id.get(&normalize_name(val)) {
+                let original = val.clone();
+                *val = id.clone();
+                ws.push(RefinementWarning {
+                    op: op.clone(),
+                    action: RefinementWarningAction::Repaired {
+                        field: field.to_string(),
+                        original: original.clone(),
+                        resolved: id.clone(),
+                    },
+                    message: format!(
+                        "Repaired {:?}.{} '{}' → '{}' via name match",
+                        op, field, original, id
+                    ),
+                });
+            }
+        };
+
+    for split in response.splits.iter_mut() {
+        try_repair(
+            &mut split.source_group_id,
+            RefinementOp::Split,
+            "source_group_id",
+            warnings,
+        );
+    }
+    for merge in response.merges.iter_mut() {
+        for gid in merge.group_ids.iter_mut() {
+            try_repair(gid, RefinementOp::Merge, "group_ids", warnings);
+        }
+    }
+    for re_rank in response.re_ranks.iter_mut() {
+        try_repair(
+            &mut re_rank.group_id,
+            RefinementOp::ReRank,
+            "group_id",
+            warnings,
+        );
+    }
+    for reclass in response.reclassifications.iter_mut() {
+        try_repair(
+            &mut reclass.from_group_id,
+            RefinementOp::Reclassify,
+            "from_group_id",
+            warnings,
+        );
+        try_repair(
+            &mut reclass.to_group_id,
+            RefinementOp::Reclassify,
+            "to_group_id",
+            warnings,
+        );
+    }
+}
+
+/// Drop any operations from `response` that still reference unknown IDs or
+/// missing files after the repair pass. Each dropped op produces a warning.
+pub fn sanitize_refinement_response(
+    response: &mut RefinementResponse,
+    groups: &[FlowGroup],
+    infrastructure: Option<&InfrastructureGroup>,
+    warnings: &mut Vec<RefinementWarning>,
+) {
+    let id_set: HashSet<&str> = groups.iter().map(|g| g.id.as_str()).collect();
+    let group_by_id: HashMap<&str, &FlowGroup> =
+        groups.iter().map(|g| (g.id.as_str(), g)).collect();
+
+    let push_drop = |ws: &mut Vec<RefinementWarning>, op: RefinementOp, reason: String| {
+        ws.push(RefinementWarning {
+            op,
+            action: RefinementWarningAction::Dropped {
+                reason: reason.clone(),
+            },
+            message: reason,
+        });
+    };
+
+    // Splits
+    response.splits.retain(|split| {
+        let Some(source) = group_by_id.get(split.source_group_id.as_str()) else {
+            push_drop(
+                warnings,
+                RefinementOp::Split,
+                format!("unknown source_group_id '{}'", split.source_group_id),
+            );
+            return false;
+        };
+        let source_files: HashSet<&str> =
+            source.files.iter().map(|f| f.path.as_str()).collect();
+
+        // Every referenced file must be in the source group.
+        for new_group in &split.new_groups {
+            for file in &new_group.files {
+                if !source_files.contains(file.as_str()) {
+                    push_drop(
+                        warnings,
+                        RefinementOp::Split,
+                        format!(
+                            "split for '{}' references file '{}' not in source group",
+                            split.source_group_id, file
+                        ),
+                    );
+                    return false;
+                }
+            }
+        }
+        // Every source file must be accounted for.
+        let accounted: HashSet<&str> = split
+            .new_groups
+            .iter()
+            .flat_map(|ng| ng.files.iter().map(|s| s.as_str()))
+            .collect();
+        let missing: Vec<&str> = source_files.difference(&accounted).copied().collect();
+        if !missing.is_empty() {
+            push_drop(
+                warnings,
+                RefinementOp::Split,
+                format!(
+                    "split for '{}' is missing files: {:?}",
+                    split.source_group_id, missing
+                ),
+            );
+            return false;
+        }
+        true
+    });
+
+    // Merges — drop the whole merge if any referenced ID is unknown.
+    response.merges.retain(|merge| {
+        for gid in &merge.group_ids {
+            if !id_set.contains(gid.as_str()) {
+                push_drop(
+                    warnings,
+                    RefinementOp::Merge,
+                    format!("merge references unknown group '{}'", gid),
+                );
+                return false;
+            }
+        }
+        true
+    });
+
+    // Re-ranks
+    response.re_ranks.retain(|rr| {
+        if !id_set.contains(rr.group_id.as_str()) {
+            push_drop(
+                warnings,
+                RefinementOp::ReRank,
+                format!("re-rank references unknown group '{}'", rr.group_id),
+            );
+            return false;
+        }
+        true
+    });
+
+    // Reclassifications
+    response.reclassifications.retain(|reclass| {
+        let from_valid = id_set.contains(reclass.from_group_id.as_str())
+            || reclass.from_group_id == "infrastructure";
+        if !from_valid {
+            push_drop(
+                warnings,
+                RefinementOp::Reclassify,
+                format!(
+                    "reclassify references unknown source '{}'",
+                    reclass.from_group_id
+                ),
+            );
+            return false;
+        }
+        let to_valid = id_set.contains(reclass.to_group_id.as_str())
+            || reclass.to_group_id == "infrastructure";
+        if !to_valid {
+            push_drop(
+                warnings,
+                RefinementOp::Reclassify,
+                format!(
+                    "reclassify references unknown target '{}'",
+                    reclass.to_group_id
+                ),
+            );
+            return false;
+        }
+        // File must exist in source.
+        let file_exists = if reclass.from_group_id == "infrastructure" {
+            infrastructure
+                .map(|ig| ig.files.iter().any(|f| f == &reclass.file))
+                .unwrap_or(false)
+        } else {
+            group_by_id
+                .get(reclass.from_group_id.as_str())
+                .map(|g| g.files.iter().any(|f| f.path == reclass.file))
+                .unwrap_or(false)
+        };
+        if !file_exists {
+            push_drop(
+                warnings,
+                RefinementOp::Reclassify,
+                format!(
+                    "reclassify file '{}' not found in source '{}'",
+                    reclass.file, reclass.from_group_id
+                ),
+            );
+            return false;
+        }
+        true
+    });
+}
+
+/// Normalize a group name for fuzzy matching: lowercase, collapse whitespace,
+/// strip trailing punctuation. Conservative — we only want to repair clear
+/// LLM substitutions, not guess at unrelated strings.
+fn normalize_name(s: &str) -> String {
+    s.trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Build a `RefinementRequest` from analysis output.
@@ -1525,5 +1857,324 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ── Repair + lenient apply tests ──
+
+    #[test]
+    fn test_repair_reclassify_target_via_name_match() {
+        // Simulates the bug in the report: LLM returns the group's descriptive
+        // name in `to_group_id` instead of its literal ID. The repair pass
+        // must rewrite it to the real ID.
+        let groups = vec![
+            make_group(
+                "group_1",
+                "monthly credits usage repository",
+                vec![make_file("packages/infra/db/src/repositories/monthly-credits-usage.ts", 0)],
+            ),
+            make_group(
+                "group_2",
+                "Billing domain model: entities, events, and temporal event contracts",
+                vec![make_file("packages/domain/billing/src/events.ts", 0)],
+            ),
+        ];
+
+        let mut response = RefinementResponse {
+            reclassifications: vec![RefinementReclassify {
+                file: "packages/infra/db/src/repositories/monthly-credits-usage.ts".to_string(),
+                from_group_id: "group_1".to_string(),
+                // LLM returned the `name` of group_2 instead of its ID.
+                to_group_id: "Billing domain model: entities, events, and temporal event contracts"
+                    .to_string(),
+                reason: "belongs to billing domain".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let mut warnings = Vec::new();
+        repair_refinement_response(&mut response, &groups, &mut warnings);
+
+        assert_eq!(response.reclassifications[0].to_group_id, "group_2");
+        assert_eq!(warnings.len(), 1);
+        match &warnings[0].action {
+            RefinementWarningAction::Repaired {
+                field,
+                original,
+                resolved,
+            } => {
+                assert_eq!(field, "to_group_id");
+                assert!(original.starts_with("Billing domain model"));
+                assert_eq!(resolved, "group_2");
+            }
+            _ => panic!("expected Repaired warning"),
+        }
+    }
+
+    #[test]
+    fn test_repair_is_case_and_whitespace_insensitive() {
+        let groups = vec![
+            make_group("g1", "Media Asset Upload Pipeline", vec![make_file("a.ts", 0)]),
+            make_group("g2", "User Auth Middleware", vec![make_file("b.ts", 0)]),
+        ];
+
+        let mut response = RefinementResponse {
+            re_ranks: vec![RefinementReRank {
+                // Different case + extra whitespace vs. the real group name.
+                group_id: "  media asset   upload pipeline  ".to_string(),
+                new_position: 1,
+                reason: "test".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let mut warnings = Vec::new();
+        repair_refinement_response(&mut response, &groups, &mut warnings);
+
+        assert_eq!(response.re_ranks[0].group_id, "g1");
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_repair_leaves_valid_ids_untouched() {
+        let groups = vec![
+            make_group("group_1", "Whatever", vec![make_file("a.ts", 0)]),
+            make_group("group_2", "Something else", vec![make_file("b.ts", 0)]),
+        ];
+
+        let mut response = RefinementResponse {
+            re_ranks: vec![RefinementReRank {
+                group_id: "group_2".to_string(),
+                new_position: 1,
+                reason: "test".to_string(),
+            }],
+            reclassifications: vec![RefinementReclassify {
+                file: "a.ts".to_string(),
+                from_group_id: "group_1".to_string(),
+                to_group_id: "infrastructure".to_string(),
+                reason: "test".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let mut warnings = Vec::new();
+        repair_refinement_response(&mut response, &groups, &mut warnings);
+
+        // Nothing was repaired — valid IDs and 'infrastructure' are kept.
+        assert!(warnings.is_empty());
+        assert_eq!(response.re_ranks[0].group_id, "group_2");
+        assert_eq!(response.reclassifications[0].to_group_id, "infrastructure");
+    }
+
+    #[test]
+    fn test_sanitize_drops_unknown_reclassify_target() {
+        let groups = vec![make_group(
+            "group_1",
+            "Group One",
+            vec![make_file("a.ts", 0)],
+        )];
+
+        let mut response = RefinementResponse {
+            reclassifications: vec![RefinementReclassify {
+                file: "a.ts".to_string(),
+                from_group_id: "group_1".to_string(),
+                to_group_id: "group_99_does_not_exist".to_string(),
+                reason: "test".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let mut warnings = Vec::new();
+        sanitize_refinement_response(&mut response, &groups, None, &mut warnings);
+
+        assert!(response.reclassifications.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(matches!(
+            warnings[0].action,
+            RefinementWarningAction::Dropped { .. }
+        ));
+    }
+
+    #[test]
+    fn test_sanitize_drops_only_bad_ops_keeping_valid_ones() {
+        let groups = vec![
+            make_group("group_1", "G1", vec![make_file("a.ts", 0)]),
+            make_group("group_2", "G2", vec![make_file("b.ts", 0)]),
+        ];
+
+        let mut response = RefinementResponse {
+            re_ranks: vec![
+                // valid
+                RefinementReRank {
+                    group_id: "group_1".to_string(),
+                    new_position: 1,
+                    reason: "valid".to_string(),
+                },
+                // invalid — must be dropped, not fail the whole response
+                RefinementReRank {
+                    group_id: "nope".to_string(),
+                    new_position: 2,
+                    reason: "bogus".to_string(),
+                },
+            ],
+            ..empty_refinement()
+        };
+
+        let mut warnings = Vec::new();
+        sanitize_refinement_response(&mut response, &groups, None, &mut warnings);
+
+        assert_eq!(response.re_ranks.len(), 1);
+        assert_eq!(response.re_ranks[0].group_id, "group_1");
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_lenient_apply_regression_billing_domain_model() {
+        // End-to-end regression for the exact bug in the user report. The
+        // refinement response contains a reclassify whose `to_group_id` is
+        // the descriptive *name* of another group. The strict path fails;
+        // the lenient path must succeed by repairing the reference.
+        let groups = vec![
+            make_group(
+                "group_1",
+                "monthly credits usage repository",
+                vec![make_file(
+                    "packages/infra/db/src/repositories/monthly-credits-usage.ts",
+                    0,
+                )],
+            ),
+            make_group(
+                "group_2",
+                "Billing domain model: entities, events, and temporal event contracts",
+                vec![make_file("packages/domain/billing/src/events.ts", 0)],
+            ),
+        ];
+
+        let response = RefinementResponse {
+            reclassifications: vec![RefinementReclassify {
+                file: "packages/infra/db/src/repositories/monthly-credits-usage.ts".to_string(),
+                from_group_id: "group_1".to_string(),
+                to_group_id: "Billing domain model: entities, events, and temporal event contracts"
+                    .to_string(),
+                reason: "belongs to billing domain".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        // Strict path fails — this is the bug.
+        let strict = apply_refinement(&groups, None, &response);
+        assert!(matches!(
+            strict,
+            Err(RefinementError::UnknownReclassifyTarget(_))
+        ));
+
+        // Lenient path succeeds and moves the file to group_2.
+        let (refined, _infra, warnings) = apply_refinement_lenient(&groups, None, &response);
+        assert_eq!(warnings.len(), 1);
+
+        // group_1 should now be empty → removed; group_2 should have both files.
+        let group_2 = refined
+            .iter()
+            .find(|g| g.id == "group_2")
+            .expect("group_2 must still exist");
+        assert!(group_2
+            .files
+            .iter()
+            .any(|f| f.path == "packages/infra/db/src/repositories/monthly-credits-usage.ts"));
+    }
+
+    #[test]
+    fn test_lenient_apply_drops_bad_ops_and_applies_good_ones() {
+        // Two valid groups plus a valid merge and an invalid reclassify in the
+        // same response. The merge must still apply; the reclassify must be
+        // dropped with a warning instead of aborting the whole refinement.
+        let groups = vec![
+            make_group("group_1", "G1", vec![make_file("a.ts", 0), make_file("b.ts", 1)]),
+            make_group("group_2", "G2", vec![make_file("c.ts", 0)]),
+            make_group("group_3", "G3", vec![make_file("d.ts", 0)]),
+        ];
+
+        let response = RefinementResponse {
+            merges: vec![RefinementMerge {
+                // valid — must be applied
+                group_ids: vec!["group_1".to_string(), "group_2".to_string()],
+                merged_name: "Combined".to_string(),
+                reason: "valid merge".to_string(),
+            }],
+            reclassifications: vec![RefinementReclassify {
+                // invalid target — must be dropped with a warning, not abort
+                file: "d.ts".to_string(),
+                from_group_id: "group_3".to_string(),
+                to_group_id: "ghost_group".to_string(),
+                reason: "bad".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let (refined, _infra, warnings) = apply_refinement_lenient(&groups, None, &response);
+
+        // Exactly one warning, for the dropped reclassify.
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].op, RefinementOp::Reclassify);
+        assert!(matches!(
+            warnings[0].action,
+            RefinementWarningAction::Dropped { .. }
+        ));
+
+        // The valid merge still took effect: group_1 + group_2 are now one
+        // group containing a.ts, b.ts, and c.ts.
+        let merged = refined
+            .iter()
+            .find(|g| g.name == "Combined")
+            .expect("merged group must exist");
+        let merged_paths: HashSet<&str> = merged.files.iter().map(|f| f.path.as_str()).collect();
+        assert!(merged_paths.contains("a.ts"));
+        assert!(merged_paths.contains("b.ts"));
+        assert!(merged_paths.contains("c.ts"));
+
+        // group_3 is untouched because the bad reclassify was dropped.
+        let g3 = refined
+            .iter()
+            .find(|g| g.id == "group_3")
+            .expect("group_3 retained");
+        assert!(g3.files.iter().any(|f| f.path == "d.ts"));
+    }
+
+    #[test]
+    fn test_user_prompt_includes_valid_ids_allow_list() {
+        // The system prompt and user prompt should include an explicit
+        // allow-list of valid group IDs so the LLM can't invent new ones.
+        use crate::llm::refinement_user_prompt;
+        use crate::llm::schema::{RefinementGroupInput, RefinementRequest};
+
+        let request = RefinementRequest {
+            analysis_json: "{}".to_string(),
+            diff_summary: "diff".to_string(),
+            groups: vec![
+                RefinementGroupInput {
+                    id: "group_1".to_string(),
+                    name: "one".to_string(),
+                    entrypoint: None,
+                    files: vec!["a.ts".to_string()],
+                    risk_score: 0.5,
+                    review_order: 1,
+                },
+                RefinementGroupInput {
+                    id: "group_2".to_string(),
+                    name: "two".to_string(),
+                    entrypoint: None,
+                    files: vec!["b.ts".to_string()],
+                    risk_score: 0.5,
+                    review_order: 2,
+                },
+            ],
+            infrastructure_files: vec![],
+        };
+
+        let prompt = refinement_user_prompt(&request);
+        assert!(prompt.contains("Valid group IDs"));
+        assert!(prompt.contains("group_1"));
+        assert!(prompt.contains("group_2"));
+        assert!(prompt.contains("infrastructure]"));
+        assert!(prompt.contains("NEVER substitute"));
     }
 }

@@ -1,0 +1,14 @@
+{
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6",
+  "request_hash": "26945cba649407813fc60c719fc2d1c14ff0dcd3a1ce145ee3c85120db0bd94d",
+  "prompt_template_hash": "008e2a67b63d99850cd9588176b84a91ec500154d448776e01075cc2c87c250f",
+  "recorded_at": "2026-04-13T10:24:07.161586+00:00",
+  "response": {
+    "splits": [],
+    "merges": [],
+    "re_ranks": [],
+    "reclassifications": [],
+    "reasoning": "The static analysis has produced a single group containing the Express route entrypoint (src/routes/entry.ts) and a linear chain of 10 modules (level1.ts through level10.ts), each calling the next. The grouping is semantically correct — they are all part of the same call chain reachable from the route entrypoint. There are no ungrouped/infrastructure files to promote. The chain is genuinely one logical change (adding a deep call chain to an entry route), so no splits, merges, re-ranks, or reclassifications are warranted. The grouping is reasonable as-is."
+  }
+}

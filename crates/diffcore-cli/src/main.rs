@@ -726,12 +726,18 @@ async fn run_refinement(
         return Ok(());
     }
 
-    // Apply refinement
-    let (refined_groups, refined_infra) = refinement::apply_refinement(
+    // Apply refinement leniently — repair LLM-hallucinated IDs via name
+    // matching and drop any ops we can't repair instead of aborting the
+    // entire refinement on a single bad reference.
+    let (refined_groups, refined_infra, warnings) = refinement::apply_refinement_lenient(
         &analysis_output.groups,
         analysis_output.infrastructure_group.as_ref(),
         &response,
-    )?;
+    );
+
+    for w in &warnings {
+        eprintln!("refinement repair: {}", w.message);
+    }
 
     analysis_output.groups = refined_groups;
     analysis_output.infrastructure_group = refined_infra;

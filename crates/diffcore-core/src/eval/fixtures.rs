@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use git2::{Repository, Signature};
+use git2::{Repository, Signature, Time};
 use tempfile::TempDir;
 
 use crate::cluster;
@@ -95,6 +95,12 @@ impl RepoBuilder {
     }
 
     /// Stage all changes and commit with a message. Returns the commit OID.
+    ///
+    /// Uses a fixed Unix-epoch timestamp so commit SHAs are reproducible
+    /// across test runs. This is required for VCR cassette caching in
+    /// integration tests like `adversarial_refinement` — without it, every
+    /// run produces a fresh `analysis_json` (which embeds the SHAs) and the
+    /// cache key never hits.
     pub fn commit(&self, message: &str) -> git2::Oid {
         let mut index = self.repo.index().unwrap();
         index
@@ -104,7 +110,10 @@ impl RepoBuilder {
 
         let tree_oid = index.write_tree().unwrap();
         let tree = self.repo.find_tree(tree_oid).unwrap();
-        let sig = Signature::now("Test User", "test@example.com").unwrap();
+        // Fixed timestamp: 2024-01-01 00:00:00 UTC. Using `Signature::now`
+        // here would inject wall-clock time into every commit hash.
+        let time = Time::new(1_704_067_200, 0);
+        let sig = Signature::new("Test User", "test@example.com", &time).unwrap();
 
         let parent = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok());
         let parents: Vec<&git2::Commit> = parent.iter().collect();

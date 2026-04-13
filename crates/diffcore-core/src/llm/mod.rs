@@ -796,6 +796,23 @@ pub fn refinement_user_prompt(request: &RefinementRequest) -> String {
         ));
     }
 
+    // Explicit allow-list of valid group IDs. The LLM frequently confuses the
+    // `id` field with the descriptive `name` and emits a title where an ID was
+    // expected; this inline list makes the contract unambiguous.
+    let valid_ids: Vec<String> = request.groups.iter().map(|g| g.id.clone()).collect();
+    prompt.push_str("\n## Valid group IDs (use these literal strings)\n");
+    prompt.push_str(
+        "source_group_id, group_ids, from_group_id, and to_group_id MUST be \
+         one of the literal IDs below, or the string 'infrastructure'. \
+         NEVER substitute a group's descriptive name for its ID. IDs look \
+         like `group_1`, not like 'Billing domain model'.\n\n",
+    );
+    prompt.push_str(&format!("Allowed IDs: [{}", valid_ids.join(", ")));
+    if !valid_ids.is_empty() {
+        prompt.push_str(", ");
+    }
+    prompt.push_str("infrastructure]\n");
+
     // Include infrastructure/ungrouped files so the LLM can consider promoting them
     if !request.infrastructure_files.is_empty() {
         prompt.push_str("\n## Ungrouped / Infrastructure Files\n");
@@ -814,7 +831,9 @@ pub fn refinement_user_prompt(request: &RefinementRequest) -> String {
     prompt.push_str(
         "\nReview the groups above and the ungrouped files. Suggest refinements where the static \
          grouping is clearly wrong or suboptimal. Promote ungrouped files into groups where they \
-         logically belong. If the grouping looks reasonable, return empty arrays.",
+         logically belong. If the grouping looks reasonable, return empty arrays. \
+         Reminder: group ID fields must be literal IDs from the allowed list above — \
+         never use names or free-form titles.",
     );
     prompt
 }
