@@ -3064,6 +3064,7 @@ mod tests {
             provider: "anthropic".to_string(),
             model: "claude-sonnet-4-6".to_string(),
             had_changes: false,
+            warnings: Vec::new(),
         };
         let json = serde_json::to_string(&result).unwrap();
         let back: RefinementResult = serde_json::from_str(&json).unwrap();
@@ -3072,6 +3073,7 @@ mod tests {
         assert!(!back.had_changes);
         assert!(back.refined_groups.is_empty());
         assert!(back.infrastructure_group.is_none());
+        assert!(back.warnings.is_empty());
     }
 
     #[test]
@@ -3116,6 +3118,7 @@ mod tests {
             provider: "openai".to_string(),
             model: "gpt-4.1".to_string(),
             had_changes: true,
+            warnings: Vec::new(),
         };
         let json = serde_json::to_string(&result).unwrap();
         let back: RefinementResult = serde_json::from_str(&json).unwrap();
