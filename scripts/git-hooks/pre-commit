@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Pre-commit hook for diffcore.
+#
+# Runs `cargo check --workspace --tests --locked` whenever the staged files
+# include Rust sources, Cargo manifests, or the lockfile. This catches the
+# "test-only call site I forgot to update after refactoring a struct" class
+# of bug — `cargo check --workspace` (without --tests) does NOT compile test
+# binaries, so missing fields in test fixtures slip through.
+#
+# Skip with `git commit --no-verify` only in genuine emergencies; never as a
+# habit.
+set -euo pipefail
+
+# Only run on Rust-relevant changes. Anything else (markdown, JSON, UI) is
+# free to commit without paying the ~10–30s check cost.
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+if ! grep -qE '(^|/)(Cargo\.(toml|lock)|.+\.rs)$' <<<"$staged"; then
+  exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+echo "pre-commit: cargo check --workspace --tests --locked"
+if ! cargo check --workspace --tests --locked --quiet 2>&1; then
+  echo
+  echo "pre-commit: cargo check failed. Fix the errors above before committing."
+  echo "pre-commit: bypass with --no-verify if you absolutely must."
+  exit 1
+fi

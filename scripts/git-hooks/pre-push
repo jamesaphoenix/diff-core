@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Pre-push hook for diffcore.
+#
+# When pushing a release tag (matching v*), runs the exact CI command
+# (`cargo test --workspace --locked`) against the working tree to catch
+# regressions before they land on the remote and trigger the release
+# pipeline. Non-tag pushes are unaffected.
+#
+# Bypass with `git push --no-verify` only in genuine emergencies; never as a
+# habit.
+set -euo pipefail
+
+# Read refs being pushed from stdin (git's pre-push contract).
+pushing_release_tag=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "$local_ref" =~ ^refs/tags/v[0-9] ]]; then
+    pushing_release_tag=1
+    break
+  fi
+done
+
+if [ "$pushing_release_tag" -eq 0 ]; then
+  exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+echo "pre-push: release tag detected, running cargo test --workspace --locked"
+if ! cargo test --workspace --locked 2>&1 | tail -40; then
+  echo
+  echo "pre-push: cargo test failed. The release tag will trigger CI which"
+  echo "pre-push: would also fail. Fix before pushing or bypass with --no-verify."
+  exit 1
+fi
+echo "pre-push: tests passed, allowing tag push"
