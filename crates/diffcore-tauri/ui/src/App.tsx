@@ -2190,9 +2190,24 @@ export default function App() {
   }, []);
 
   const handleSelectHead = useCallback((branch: string) => {
-    setHeadRef(branch);
     setHeadBranchDropdownOpen(false);
-  }, []);
+    // If the picked branch is checked out in a different worktree, switch
+    // the nav bar to that worktree's path. Otherwise the fallback diff
+    // reads the wrong workdir (main repo's workdir is clean, so uncommitted
+    // changes living in the worktree would be invisible).
+    // loadRepoInfo() will then reset headRef to that worktree's current
+    // branch (which is the branch we just picked), so we don't setHeadRef
+    // here to avoid a brief flicker with the old repoPath.
+    const stripSlash = (p: string) => p.replace(/\/+$/, "");
+    const targetWt = repoInfo?.worktrees.find(
+      (w) => w.branch === branch && stripSlash(w.path) !== stripSlash(repoPath),
+    );
+    if (targetWt) {
+      setRepoPath(stripSlash(targetWt.path));
+      return;
+    }
+    setHeadRef(branch);
+  }, [repoInfo, repoPath]);
 
   // Derived: all branches for the dropdowns
   const baseBranches: BranchInfo[] = repoInfo?.branches ?? [];
