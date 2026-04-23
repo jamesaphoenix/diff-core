@@ -540,7 +540,7 @@ export default function App() {
             repoPath,
             filePath: path,
             base: baseRef || "main",
-            head: null,
+            head: headRef || null,
             range: null,
             staged: false,
             unstaged: false,
@@ -562,7 +562,7 @@ export default function App() {
         }
       }
     },
-    [repoPath, baseRef, includeUncommitted],
+    [repoPath, baseRef, headRef, includeUncommitted],
   );
 
   /** Debounced file selection for keyboard navigation — updates highlight immediately,
@@ -1055,6 +1055,21 @@ export default function App() {
       runAnalysis();
     }
   }, [runAnalysis]);
+
+  // Auto re-analyze when the user picks a different source/target branch after
+  // an initial analysis. Without this, the left panel keeps showing stale diffs
+  // until the user manually clicks Analyze again.
+  const firstBranchEffect = useRef(true);
+  useEffect(() => {
+    if (firstBranchEffect.current) {
+      firstBranchEffect.current = false;
+      return;
+    }
+    if (analysis && !loading && repoPath) {
+      runAnalysis();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseRef, headRef]);
 
   // Test API for Playwright — only available in demo/browser mode
   useEffect(() => {
@@ -3580,8 +3595,7 @@ export default function App() {
                         </span>
                       </div>
                     )}
-                    {selectedGroup?.id === group.id && (
-                      <ul className={`file-list ${reviewedGroupIds.has(group.id) ? "file-list-collapsed" : ""}`}>
+                    <ul className={`file-list ${reviewedGroupIds.has(group.id) ? "file-list-collapsed" : ""}`}>
                         {group.files.map((file) => {
                           const fileMoved = showRefined
                             ? getFileMovedIndicator(file.path, refinementResponse)
@@ -3641,7 +3655,6 @@ export default function App() {
                           );
                         })}
                       </ul>
-                    )}
                   </div>
                 );
               })}

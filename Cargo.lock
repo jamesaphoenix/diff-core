@@ -1205,7 +1205,7 @@ dependencies = [
 
 [[package]]
 name = "diffcore-cli"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "clap",
  "diffcore-core",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "diffcore-core"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -1267,7 +1267,7 @@ dependencies = [
 
 [[package]]
 name = "diffcore-tauri"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "async-stream",
  "axum",
