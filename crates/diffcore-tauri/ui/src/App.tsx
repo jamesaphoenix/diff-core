@@ -2034,6 +2034,11 @@ export default function App() {
         if (!appKeys.has(e.key)) {
           return;
         }
+        // Let the platform copy/cut/paste/select-all/undo shortcuts through
+        // to Monaco so Cmd+C on a drag-selection actually reaches the clipboard.
+        if ((e.metaKey || e.ctrlKey) && ["c", "C", "x", "X", "v", "V", "a", "A", "z", "Z"].includes(e.key)) {
+          return;
+        }
       }
 
       // Helper: prevent default AND stop propagation (needed to prevent Monaco
@@ -2085,28 +2090,28 @@ export default function App() {
       }
 
       // x toggles reviewed state on the currently selected group
-      if (e.key === "x" && group) {
+      if (e.key === "x" && !e.metaKey && !e.ctrlKey && group) {
         consume();
         toggleGroupReviewed(group.id);
         return;
       }
 
       // y copies the absolute path of the currently selected file
-      if (e.key === "y" && !e.shiftKey && file) {
+      if (e.key === "y" && !e.shiftKey && !e.metaKey && !e.ctrlKey && file) {
         consume();
         copyFilePath(file);
         return;
       }
 
       // Y (shift+y) copies all file paths in the current group
-      if (e.key === "Y" && group) {
+      if (e.key === "Y" && !e.metaKey && !e.ctrlKey && group) {
         consume();
         copyFlowPaths(group);
         return;
       }
 
       // c opens context-sensitive comment input — if text is selected in Monaco, include it
-      if (e.key === "c" && !e.shiftKey && group) {
+      if (e.key === "c" && !e.shiftKey && !e.metaKey && !e.ctrlKey && group) {
         consume();
         // Try to grab the current selection from Monaco's modified (right-side) editor
         const monacoEditors = (window as any).monaco?.editor?.getEditors?.();
@@ -2140,7 +2145,7 @@ export default function App() {
       }
 
       // C (shift+c) copies all comments
-      if (e.key === "C" && group) {
+      if (e.key === "C" && !e.metaKey && !e.ctrlKey && group) {
         consume();
         exportComments();
         return;
@@ -3610,7 +3615,8 @@ export default function App() {
                         </span>
                       </div>
                     )}
-                    <ul className={`file-list ${reviewedGroupIds.has(group.id) ? "file-list-collapsed" : ""}`}>
+                    <div className={`file-list-wrapper ${reviewedGroupIds.has(group.id) ? "file-list-wrapper-collapsed" : ""}`}>
+                      <ul className="file-list">
                         {group.files.map((file) => {
                           const fileMoved = showRefined
                             ? getFileMovedIndicator(file.path, refinementResponse)
@@ -3670,6 +3676,7 @@ export default function App() {
                           );
                         })}
                       </ul>
+                    </div>
                   </div>
                 );
               })}

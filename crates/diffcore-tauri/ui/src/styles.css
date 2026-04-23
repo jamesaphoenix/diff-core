@@ -1493,22 +1493,30 @@ body {
   font-weight: 500;
 }
 
+/* grid-template-rows 1fr↔0fr animates to real content height smoothly, unlike
+   max-height which stalls then snaps when the upper bound doesn't match. */
+.file-list-wrapper {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.file-list-wrapper-collapsed {
+  grid-template-rows: 0fr;
+}
+
 .file-list {
   list-style: none;
   padding: 0 0 4px 0;
-  max-height: 2000px;
-  opacity: 1;
+  min-height: 0;
   overflow: hidden;
-  transition:
-    max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 0.25s ease,
-    padding 0.25s ease;
+  opacity: 1;
+  transition: opacity 0.18s ease, padding 0.22s ease;
 }
 
-.file-list-collapsed {
-  max-height: 0 !important;
+.file-list-wrapper-collapsed .file-list {
   opacity: 0;
-  padding: 0 !important;
+  padding: 0;
 }
 
 .file-item {
