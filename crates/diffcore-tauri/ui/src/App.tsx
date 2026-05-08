@@ -90,6 +90,35 @@ function isApiProvider(provider: string): boolean {
   return provider === "anthropic" || provider === "openai" || provider === "gemini";
 }
 
+function TruncatedText({
+  text,
+  maxChars = 320,
+  className,
+}: {
+  text: string;
+  maxChars?: number;
+  className?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const needsTruncation = text.length > maxChars;
+  if (!needsTruncation) {
+    return <p className={className}>{text}</p>;
+  }
+  const displayed = expanded ? text : `${text.slice(0, maxChars).trimEnd()}…`;
+  return (
+    <div className={`truncated-text ${expanded ? "truncated-text-expanded" : ""}`}>
+      <p className={className}>{displayed}</p>
+      <button
+        type="button"
+        className="truncated-text-toggle"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {expanded ? "Show less" : "Show more"}
+      </button>
+    </div>
+  );
+}
+
 /** Three-panel layout: flow groups | diff viewer | annotations */
 export default function App() {
   const [analysis, setAnalysis] = useState<AnalysisOutput | null>(null);
@@ -146,6 +175,8 @@ export default function App() {
 
   // Flow review tick-off state (session-only)
   const [reviewedGroupIds, setReviewedGroupIds] = useState<Set<string>>(new Set());
+  // Empty groups that the user explicitly dismissed (session-only).
+  const [dismissedEmptyGroupIds, setDismissedEmptyGroupIds] = useState<Set<string>>(new Set());
 
   // Flow replay state
   const [replayActive, setReplayActive] = useState(false);
@@ -163,6 +194,7 @@ export default function App() {
   const [groupListTransitionState, setGroupListTransitionState] = useState<"idle" | "fading-out" | "fading-in">("idle");
   const groupListTransitionTimers = useRef<number[]>([]);
   const [refining, setRefining] = useState(false);
+  const refinementJobIdRef = useRef<string | null>(null);
 
   // Context menu state (right-click on file items)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; filePath: string } | null>(null);
@@ -437,6 +469,7 @@ export default function App() {
       command: string,
       args: Record<string, unknown>,
       onComplete: (value: T) => void,
+      onJobId?: (jobId: string) => void,
     ) => {
       closeActivityStream();
       setActivityViewMode("stream");
@@ -445,6 +478,7 @@ export default function App() {
       setActivityError(null);
 
       const start = await tauriInvoke<AsyncLlmJobStart>(command, args);
+      onJobId?.(start.job_id);
       setActivityJob({
         job_id: start.job_id,
         operation: start.operation,
@@ -749,6 +783,7 @@ export default function App() {
     setShowRefined(false);
     // Reset review tick-off state
     setReviewedGroupIds(new Set());
+    setDismissedEmptyGroupIds(new Set());
     // Reset infrastructure group state
     setInfraExpanded(false);
     setInfraShowAll(false);
@@ -987,6 +1022,8 @@ export default function App() {
           llmModel: resolvedRefinementModel,
         }, (result) => {
           applyRefinementResult(result);
+        }, (jobId) => {
+          refinementJobIdRef.current = jobId;
         });
       } else {
         await runMockActivityJob<RefinementResult>(
@@ -1003,11 +1040,32 @@ export default function App() {
         );
       }
     } catch (e) {
-      setError(`Refinement failed: ${String(e)}`);
+      const message = String(e);
+      // Cancellation surfaces as a Failed event with "Cancelled by user"; don't
+      // present that to the user as an error.
+      if (!message.includes("Cancelled by user")) {
+        setError(`Refinement failed: ${message}`);
+      }
     } finally {
+      refinementJobIdRef.current = null;
       setRefining(false);
     }
   }, [analysis, repoPath, resolvedRefinementModel, resolvedRefinementProvider, runMockActivityJob, runStreamingJob, applyRefinementResult]);
+
+  /** Cancel the in-flight refinement job, if any. */
+  const cancelRefinement = useCallback(async () => {
+    const jobId = refinementJobIdRef.current;
+    if (!jobId) {
+      // Mock path: just flip the flag back so the UI returns to the Refine state.
+      setRefining(false);
+      return;
+    }
+    try {
+      await tauriInvoke<boolean>("cancel_refine_groups", { jobId });
+    } catch (e) {
+      setError(`Cancel failed: ${String(e)}`);
+    }
+  }, []);
 
   /** Toggle between original and refined groups. */
   const toggleRefinedView = useCallback(
@@ -2504,7 +2562,11 @@ export default function App() {
               {PROVIDER_LABELS[refinementVerdict.provider as LlmProvider] ?? refinementVerdict.provider}/{refinementVerdict.model}
             </p>
             {refinementVerdict.reasoning && (
-              <p className="activity-callout-body">{refinementVerdict.reasoning}</p>
+              <TruncatedText
+                text={refinementVerdict.reasoning}
+                maxChars={280}
+                className="activity-callout-body"
+              />
             )}
           </div>
         )}
@@ -3473,6 +3535,20 @@ export default function App() {
               </div>
             )}
 
+            {analysis && refining && (
+              <div className="refinement-banner refinement-banner-running">
+                <span>Refining groups…</span>
+                <button
+                  className="btn btn-refine btn-refine-cancel"
+                  onClick={cancelRefinement}
+                  title="Stop the in-flight refinement"
+                  data-testid="refinement-cancel"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
             {/* Manifest export & watch — allows CLI/agent refinement loop */}
             {analysis && IS_TAURI && !watchedManifestPath && (
               <div className="refinement-banner">
@@ -3566,15 +3642,18 @@ export default function App() {
               data-testid="group-list"
               data-group-list-transition={groupListTransitionState}
             >
-              {sortedGroups.map((group) => {
+              {sortedGroups
+                .filter((group) => !(group.files.length === 0 && dismissedEmptyGroupIds.has(group.id)))
+                .map((group) => {
                 const changeIndicator = showRefined
                   ? getGroupChangeIndicator(group, refinementResponse)
                   : null;
+                const isEmpty = group.files.length === 0;
 
                 return (
                   <div
                     key={group.id}
-                    className={`group-item ${selectedGroup?.id === group.id ? "selected" : ""} ${changeIndicator ? "refined-change" : ""} ${reviewedGroupIds.has(group.id) ? "group-reviewed" : ""}`}
+                    className={`group-item ${selectedGroup?.id === group.id ? "selected" : ""} ${changeIndicator ? "refined-change" : ""} ${reviewedGroupIds.has(group.id) ? "group-reviewed" : ""} ${isEmpty ? "group-empty" : ""}`}
                     onClick={() => handleSelectGroup(group)}
                   >
                     <div className="group-header">
@@ -3589,16 +3668,42 @@ export default function App() {
                         {reviewedGroupIds.has(group.id) ? "\u2713" : ""}
                       </span>
                       <span className="group-name">{group.name}</span>
-                      <button
-                        className="copy-flow-btn"
-                        title="Copy all file paths in this flow"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          copyFlowPaths(group);
-                        }}
-                      >
-                        &#128203;
-                      </button>
+                      {isEmpty && (
+                        <span className="group-emptied-tag" title="This group has no files after refinement">
+                          EMPTIED
+                        </span>
+                      )}
+                      {!isEmpty && (
+                        <button
+                          className="copy-flow-btn"
+                          title="Copy all file paths in this flow"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyFlowPaths(group);
+                          }}
+                        >
+                          &#128203;
+                        </button>
+                      )}
+                      {isEmpty && (
+                        <button
+                          className="group-dismiss-btn"
+                          title="Hide this empty group"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDismissedEmptyGroupIds((prev) => {
+                              const next = new Set(prev);
+                              next.add(group.id);
+                              return next;
+                            });
+                            if (selectedGroup?.id === group.id) {
+                              setSelectedGroup(null);
+                            }
+                          }}
+                        >
+                          Dismiss
+                        </button>
+                      )}
                       {commentCountForGroup(group.id) > 0 && (
                         <span className="comment-count-badge" title={`${commentCountForGroup(group.id)} comment${commentCountForGroup(group.id) === 1 ? "" : "s"}`}>
                           {commentCountForGroup(group.id)}

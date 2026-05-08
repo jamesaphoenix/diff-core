@@ -59,6 +59,7 @@ fn main() {
             commands::start_annotate_group,
             commands::annotate_group,
             commands::start_refine_groups,
+            commands::cancel_refine_groups,
             commands::list_branches,
             commands::list_worktrees,
             commands::get_branch_status,

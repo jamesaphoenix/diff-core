@@ -336,6 +336,8 @@ select:focus-visible {
   border: 1px solid rgba(250, 179, 135, 0.25);
   border-radius: 10px;
   background: rgba(250, 179, 135, 0.08);
+  max-height: 360px;
+  overflow-y: auto;
 }
 
 .activity-callout-positive {
@@ -357,6 +359,32 @@ select:focus-visible {
 
 .activity-callout .btn {
   margin-top: 10px;
+}
+
+.truncated-text {
+  margin-top: 6px;
+}
+
+.truncated-text > p {
+  margin: 0;
+}
+
+.truncated-text-toggle {
+  margin-top: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.truncated-text-toggle:hover {
+  color: var(--text-primary);
 }
 
 .activity-log-header {
@@ -1486,6 +1514,47 @@ body {
 
 .group-item.group-reviewed .group-name {
   color: var(--text-muted);
+}
+
+.group-item.group-empty {
+  opacity: 0.7;
+  border-style: dashed;
+}
+
+.group-item.group-empty .group-name {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: rgba(166, 173, 200, 0.4);
+}
+
+.group-emptied-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(166, 173, 200, 0.35);
+  color: var(--text-muted);
+  background: rgba(166, 173, 200, 0.08);
+  text-transform: uppercase;
+}
+
+.group-dismiss-btn {
+  background: none;
+  border: 1px solid rgba(166, 173, 200, 0.3);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.group-dismiss-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .reviewed-counter {
@@ -3394,6 +3463,20 @@ body {
 
 .btn-refine:hover {
   background: var(--accent-hover);
+}
+
+.refinement-banner-running {
+  background: rgba(250, 179, 135, 0.1);
+}
+
+.btn-refine-cancel {
+  background: rgba(243, 139, 168, 0.95);
+  border-color: rgba(243, 139, 168, 0.95);
+  color: var(--bg-primary);
+}
+
+.btn-refine-cancel:hover {
+  background: rgba(243, 139, 168, 0.78);
 }
 
 /* Refinement loading indicator */

@@ -164,6 +164,10 @@ pub struct JobHandle {
 }
 
 impl JobHandle {
+    pub fn new(manager: Arc<ActivityManager>, job_id: String) -> Self {
+        Self { manager, job_id }
+    }
+
     pub fn job_id(&self) -> &str {
         &self.job_id
     }

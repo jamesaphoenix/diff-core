@@ -2,10 +2,12 @@
 //!
 //! Each `#[tauri::command]` function is callable from the frontend via `invoke()`.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use log::warn;
+use tauri::async_runtime::JoinHandle;
 use tauri::Emitter;
 
 use crate::activity_stream::{self, ActivityEntry, JobHandle};
@@ -38,6 +40,8 @@ pub struct AppState {
     pub last_cache_key: Mutex<Option<String>>,
     /// Path to the currently watched manifest file.
     pub watched_manifest_path: Mutex<Option<PathBuf>>,
+    /// In-flight refinement tasks keyed by job_id, so the user can cancel them.
+    pub refinement_jobs: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
 }
 
 /// Cached diff result with the parameters that produced it, for cache invalidation.
@@ -56,6 +60,7 @@ impl AppState {
             activity_stream_base_url: Mutex::new(None),
             last_cache_key: Mutex::new(None),
             watched_manifest_path: Mutex::new(None),
+            refinement_jobs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1017,7 +1022,10 @@ pub fn start_refine_groups(
     let (job, start) =
         state.create_llm_job("refinement", &provider_name, &model_name, "Refining groups")?;
 
-    tauri::async_runtime::spawn(async move {
+    let job_id = start.job_id.clone();
+    let job_id_for_cleanup = job_id.clone();
+    let jobs_for_cleanup = Arc::clone(&state.refinement_jobs);
+    let handle = tauri::async_runtime::spawn(async move {
         match run_refinement_with_activity(analysis, refinement_llm_config, workdir, job.clone())
             .await
         {
@@ -1033,9 +1041,43 @@ pub fn start_refine_groups(
             },
             Err(error) => job.fail(error.to_string()).await,
         }
+        if let Ok(mut map) = jobs_for_cleanup.lock() {
+            map.remove(&job_id_for_cleanup);
+        }
     });
 
+    if let Ok(mut map) = state.refinement_jobs.lock() {
+        map.insert(job_id, handle);
+    }
+
     Ok(start)
+}
+
+/// Cancel an in-flight refinement job by aborting the spawned task.
+///
+/// Aborts the spawned task, dropping any in-flight HTTP request to the LLM
+/// provider, and emits a failure event on the job stream so the frontend's
+/// `EventSource` terminates cleanly.
+#[tauri::command]
+pub async fn cancel_refine_groups(
+    job_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<bool, CommandError> {
+    let handle = {
+        let mut map = state
+            .refinement_jobs
+            .lock()
+            .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?;
+        map.remove(&job_id)
+    };
+    let Some(handle) = handle else {
+        return Ok(false);
+    };
+    handle.abort();
+    let manager = Arc::clone(&state.activity_manager);
+    let job = activity_stream::JobHandle::new(manager, job_id);
+    job.fail("Cancelled by user").await;
+    Ok(true)
 }
 
 /// Run LLM Pass 1 (overview annotation) on the cached analysis.
