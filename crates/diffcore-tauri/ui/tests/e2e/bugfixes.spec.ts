@@ -283,4 +283,135 @@ test.describe("Bugfix — Comment with Monaco selection", () => {
 
     await page.keyboard.press("Escape");
   });
+
+  test("13 — single-line text selection in Monaco creates a code-level comment, not file-level", async ({ page }) => {
+    // Set up: select a partial range of text on a single line in the modified editor.
+    // The user's reported bug: with text highlighted on one line, pressing 'c'
+    // currently falls through to a file-level comment instead of a code-level one
+    // bound to the selected text.
+    await page.waitForFunction(() => {
+      const eds = (window as any).monaco?.editor?.getEditors?.() ?? [];
+      return eds.some((e: any) => (e.getModel?.()?.getLineCount?.() ?? 0) >= 1
+        && (e.getModel?.()?.getLineContent?.(1)?.trim().length ?? 0) > 0);
+    }, { timeout: 15_000 });
+
+    const sel = await page.evaluate(() => {
+      const monacoEditors = (window as any).monaco?.editor?.getEditors?.() ?? [];
+      // Pick the editor with the most populated content (modified side of diff).
+      let best: any = null;
+      let bestLines = 0;
+      for (const ed of monacoEditors) {
+        const target = typeof ed.getModifiedEditor === "function"
+          ? ed.getModifiedEditor()
+          : ed;
+        const model = target?.getModel?.();
+        if (!model) continue;
+        const lineCount = model.getLineCount?.() ?? 0;
+        if (lineCount > bestLines) {
+          bestLines = lineCount;
+          best = target;
+        }
+      }
+      if (!best) return null;
+      const model = best.getModel();
+      const lineCount = model.getLineCount();
+      for (let line = 1; line <= lineCount; line++) {
+        const content: string = model.getLineContent(line);
+        if (content && content.trim().length >= 5) {
+          const startCol = 1;
+          const endCol = Math.min(content.length + 1, startCol + 5);
+          best.focus?.();
+          best.setSelection({
+            startLineNumber: line,
+            startColumn: startCol,
+            endLineNumber: line,
+            endColumn: endCol,
+          });
+          return {
+            line,
+            startCol,
+            endCol,
+            expectedText: content.slice(startCol - 1, endCol - 1),
+          };
+        }
+      }
+      return null;
+    });
+
+    expect(sel, "could not find a Monaco line with content to select").not.toBeNull();
+    await page.waitForTimeout(150);
+
+    // Press 'c' to open a comment with the selection captured.
+    await page.keyboard.press("c");
+    await page.waitForTimeout(300);
+
+    const overlay = page.locator(".comment-overlay");
+    await expect(overlay).toBeVisible();
+
+    // The comment input should be code-scoped, anchored to the selected line,
+    // with selected_code matching the text the user highlighted.
+    const input = await page.evaluate(() => (window as any).__TEST_API__.getCommentInput());
+    expect(input, "comment input should exist after pressing c").not.toBeNull();
+    expect(input.type).toBe("code");
+    expect(input.start_line).toBe(sel!.line);
+    expect(input.end_line).toBe(sel!.line);
+    expect(input.selected_code).toBe(sel!.expectedText);
+    expect(input.file_path).toBeTruthy();
+  });
+
+  test("14 — multi-line text selection in Monaco creates a code-level comment with full range", async ({ page }) => {
+    // Control case: multi-line selections should also create code-level comments.
+    // (This path already works — it guards against regressions while we fix the
+    // single-line case.)
+    await page.waitForFunction(() => {
+      const eds = (window as any).monaco?.editor?.getEditors?.() ?? [];
+      return eds.some((e: any) => (e.getModel?.()?.getLineCount?.() ?? 0) >= 3);
+    }, { timeout: 15_000 });
+
+    const sel = await page.evaluate(() => {
+      const monacoEditors = (window as any).monaco?.editor?.getEditors?.() ?? [];
+      let best: any = null;
+      let bestLines = 0;
+      for (const ed of monacoEditors) {
+        const target = typeof ed.getModifiedEditor === "function"
+          ? ed.getModifiedEditor()
+          : ed;
+        const model = target?.getModel?.();
+        if (!model) continue;
+        const lineCount = model.getLineCount?.() ?? 0;
+        if (lineCount > bestLines) {
+          bestLines = lineCount;
+          best = target;
+        }
+      }
+      if (!best || bestLines < 3) return null;
+      const model = best.getModel();
+      const startLine = 1;
+      const endLine = Math.min(3, bestLines);
+      best.focus?.();
+      best.setSelection({
+        startLineNumber: startLine,
+        startColumn: 1,
+        endLineNumber: endLine,
+        endColumn: 1,
+      });
+      const lines: string[] = [];
+      for (let i = startLine; i <= endLine; i++) lines.push(model.getLineContent(i));
+      return { startLine, endLine, expectedText: lines.join("\n") };
+    });
+
+    expect(sel, "could not find a Monaco editor with >=3 lines").not.toBeNull();
+    await page.waitForTimeout(150);
+
+    await page.keyboard.press("c");
+    await page.waitForTimeout(300);
+
+    await expect(page.locator(".comment-overlay")).toBeVisible();
+
+    const input = await page.evaluate(() => (window as any).__TEST_API__.getCommentInput());
+    expect(input.type).toBe("code");
+    expect(input.start_line).toBe(sel!.startLine);
+    expect(input.end_line).toBe(sel!.endLine);
+    expect(input.selected_code).toBe(sel!.expectedText);
+  });
 });

@@ -2171,19 +2171,31 @@ export default function App() {
       // c opens context-sensitive comment input — if text is selected in Monaco, include it
       if (e.key === "c" && !e.shiftKey && !e.metaKey && !e.ctrlKey && group) {
         consume();
-        // Try to grab the current selection from Monaco's modified (right-side) editor
+        // Try to grab the current selection from Monaco's modified (right-side) editor.
+        // Accept any non-empty selection — multi-line OR single-line partial highlights.
         const monacoEditors = (window as any).monaco?.editor?.getEditors?.();
         if (monacoEditors && file) {
           for (const ed of monacoEditors) {
             const sel = ed.getSelection?.();
-            if (sel && sel.startLineNumber !== sel.endLineNumber) {
+            const isEmpty = !sel
+              || (sel.startLineNumber === sel.endLineNumber && sel.startColumn === sel.endColumn);
+            if (sel && !isEmpty) {
               const model = ed.getModel?.();
               if (model) {
                 const startLine = Math.min(sel.startLineNumber, sel.endLineNumber);
                 const endLine = Math.max(sel.startLineNumber, sel.endLineNumber);
-                const lines: string[] = [];
-                for (let i = startLine; i <= endLine; i++) {
-                  lines.push(model.getLineContent(i));
+                let selectedCode: string;
+                if (startLine === endLine) {
+                  const lineContent: string = model.getLineContent(startLine);
+                  const startCol = Math.min(sel.startColumn, sel.endColumn);
+                  const endCol = Math.max(sel.startColumn, sel.endColumn);
+                  selectedCode = lineContent.slice(startCol - 1, endCol - 1);
+                } else {
+                  const lines: string[] = [];
+                  for (let i = startLine; i <= endLine; i++) {
+                    lines.push(model.getLineContent(i));
+                  }
+                  selectedCode = lines.join("\n");
                 }
                 openCommentInput({
                   type: "code",
@@ -2191,7 +2203,7 @@ export default function App() {
                   file_path: file,
                   start_line: startLine,
                   end_line: endLine,
-                  selected_code: lines.join("\n"),
+                  selected_code: selectedCode,
                 });
                 return;
               }

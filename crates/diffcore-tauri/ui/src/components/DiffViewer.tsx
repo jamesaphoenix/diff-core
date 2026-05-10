@@ -214,6 +214,10 @@ const DiffViewer = forwardRef<DiffViewerHandle, DiffViewerProps>(function DiffVi
           renderOverviewRuler: false,
         }}
         beforeMount={(monaco) => {
+          // Expose the monaco namespace so the global keyboard handler in App.tsx
+          // can read editor selections (used by the `c` shortcut to anchor a
+          // code-level comment to whatever the user has highlighted).
+          (window as any).monaco = monaco;
           // Define custom dark theme matching the app's Catppuccin palette
           monaco.editor.defineTheme("diffcore-dark", {
             base: "vs-dark",
