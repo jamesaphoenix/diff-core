@@ -602,6 +602,78 @@ pub fn is_linked_worktree(repo: &Repository) -> bool {
     repo.is_worktree()
 }
 
+/// Extract a subtree path from a single commit summary line.
+///
+/// Matches the three message shapes emitted by `git subtree`:
+///   "Squashed '<path>/' content from commit <sha>"   — `git subtree add --squash` / squashed pull
+///   "Add '<path>/' from commit '<sha>'"              — `git subtree add` (no squash)
+///   "Merge commit '<sha>' as '<path>'"               — companion merge of a squashed subtree
+fn extract_subtree_path(summary: &str) -> Option<String> {
+    if let Some(rest) = summary.strip_prefix("Squashed '") {
+        if let Some(end) = rest.find("/' content from commit ") {
+            return Some(rest[..end].to_string());
+        }
+    }
+    if let Some(rest) = summary.strip_prefix("Add '") {
+        if let Some(end) = rest.find("/' from commit '") {
+            return Some(rest[..end].to_string());
+        }
+    }
+    if let Some(rest) = summary.strip_prefix("Merge commit '") {
+        if let Some(sha_end) = rest.find("' as '") {
+            let after = &rest[sha_end + "' as '".len()..];
+            if let Some(quote_end) = after.find('\'') {
+                return Some(after[..quote_end].to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Walk the repository history and return paths imported via `git subtree`.
+///
+/// Returns a deduplicated, sorted list of repo-relative paths whose commit history
+/// contains a `git subtree` marker and that still exist in the working directory.
+/// Paths whose marker still exists but whose directory was later renamed or removed
+/// are filtered out, so the result is always safe to feed into ignore globs.
+pub fn detect_subtree_paths(repo: &Repository) -> Result<Vec<String>, GitError> {
+    use std::collections::BTreeSet;
+
+    let mut revwalk = repo.revwalk()?;
+    // Push HEAD; an empty repo will simply yield no commits.
+    if repo.head().is_ok() {
+        revwalk.push_head()?;
+    } else {
+        return Ok(Vec::new());
+    }
+
+    let mut paths: BTreeSet<String> = BTreeSet::new();
+    for oid in revwalk {
+        let Ok(oid) = oid else { continue };
+        let Ok(commit) = repo.find_commit(oid) else {
+            continue;
+        };
+        let Some(message) = commit.message() else {
+            continue;
+        };
+        let summary = message.lines().next().unwrap_or("");
+        if let Some(path) = extract_subtree_path(summary) {
+            paths.insert(path);
+        }
+    }
+
+    let workdir = repo.workdir();
+    let mut result: Vec<String> = paths
+        .into_iter()
+        .filter(|p| match workdir {
+            Some(wd) => wd.join(p).is_dir(),
+            None => true,
+        })
+        .collect();
+    result.sort();
+    Ok(result)
+}
+
 /// Read the content of a file at a specific git ref (branch, tag, or SHA).
 ///
 /// Returns `None` if the file does not exist at that ref.
@@ -2675,5 +2747,98 @@ mod tests {
         // HEAD~1 should still have it
         let prev = file_content_at_ref(&repo, "HEAD~1", "a.ts").unwrap();
         assert_eq!(prev, Some("exists".to_string()));
+    }
+
+    // ── Subtree Detection Tests ──
+
+    #[test]
+    fn extract_subtree_path_squashed_marker() {
+        assert_eq!(
+            extract_subtree_path("Squashed 'repos/effect/' content from commit e71ba6827"),
+            Some("repos/effect".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_subtree_path_add_marker() {
+        assert_eq!(
+            extract_subtree_path("Add 'vendor/foo/' from commit 'abc123'"),
+            Some("vendor/foo".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_subtree_path_merge_as_marker() {
+        assert_eq!(
+            extract_subtree_path("Merge commit '4ec9a8bfc9dd35893222341d4bdb0ab6238f1aab' as 'repos/effect'"),
+            Some("repos/effect".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_subtree_path_ignores_unrelated_messages() {
+        assert_eq!(extract_subtree_path("fix: handle null pointer"), None);
+        assert_eq!(extract_subtree_path("Merge branch 'feature/x' into main"), None);
+        assert_eq!(extract_subtree_path("Squashed something else entirely"), None);
+        assert_eq!(extract_subtree_path(""), None);
+    }
+
+    #[test]
+    fn detect_subtree_paths_finds_squashed_imports() {
+        let (dir, repo) = init_repo();
+        // Seed an initial commit so HEAD exists.
+        commit_files(&repo, dir.path(), &[("README.md", "root")], "initial");
+        // Subtree-style commit with a path that exists on disk.
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("repos/effect/package.json", "{}")],
+            "Squashed 'repos/effect/' content from commit e71ba6827",
+        );
+        // Subtree-style commit whose path no longer exists — must be filtered out.
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("noise.txt", "x")],
+            "Squashed 'vendor/gone/' content from commit deadbeef",
+        );
+
+        let paths = detect_subtree_paths(&repo).unwrap();
+        assert_eq!(paths, vec!["repos/effect".to_string()]);
+    }
+
+    #[test]
+    fn detect_subtree_paths_empty_repo() {
+        let dir = TempDir::new().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        assert!(detect_subtree_paths(&repo).unwrap().is_empty());
+    }
+
+    #[test]
+    fn detect_subtree_paths_dedupes_and_sorts() {
+        let (dir, repo) = init_repo();
+        commit_files(&repo, dir.path(), &[("README.md", "r")], "initial");
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("repos/zebra/x", "z")],
+            "Squashed 'repos/zebra/' content from commit aaa",
+        );
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("repos/alpha/x", "a")],
+            "Add 'repos/alpha/' from commit 'bbb'",
+        );
+        // Duplicate of repos/alpha — should be deduped.
+        commit_files(
+            &repo,
+            dir.path(),
+            &[("repos/alpha/y", "a2")],
+            "Squashed 'repos/alpha/' content from commit ccc",
+        );
+
+        let paths = detect_subtree_paths(&repo).unwrap();
+        assert_eq!(paths, vec!["repos/alpha".to_string(), "repos/zebra".to_string()]);
     }
 }

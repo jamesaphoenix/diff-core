@@ -88,11 +88,32 @@ pub struct EntrypointConfig {
 }
 
 /// File ignore configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IgnoreConfig {
     /// Glob patterns for files to exclude from analysis.
     #[serde(default)]
     pub paths: Vec<String>,
+    /// Whether to auto-detect git subtree imports and ignore their paths.
+    ///
+    /// When true (default), `apply_detected_subtrees` scans the repository's commit
+    /// history for `git subtree` merge markers and adds the imported paths to
+    /// `paths` as `<path>/**` globs. Vendored upstream code merged via
+    /// `git subtree add`/`pull` is filtered out automatically without manual config.
+    #[serde(default = "default_auto_subtrees")]
+    pub auto_subtrees: bool,
+}
+
+fn default_auto_subtrees() -> bool {
+    true
+}
+
+impl Default for IgnoreConfig {
+    fn default() -> Self {
+        Self {
+            paths: Vec::new(),
+            auto_subtrees: true,
+        }
+    }
 }
 
 /// Diff behavior configuration.
@@ -376,6 +397,28 @@ impl DiffcoreConfig {
             .map_err(|e| ConfigError::Validation(format!("Failed to serialize config: {}", e)))?;
         std::fs::write(&config_path, toml_str)?;
         Ok(())
+    }
+
+    /// Detect git subtree imports and append `<path>/**` globs to the ignore list.
+    ///
+    /// No-op when `ignore.auto_subtrees` is false. Returns the list of paths that
+    /// were detected (so callers can surface them in logs/UI); pre-existing
+    /// ignore patterns are preserved and duplicates are skipped.
+    pub fn apply_detected_subtrees(&mut self, repo: &git2::Repository) -> Vec<String> {
+        if !self.ignore.auto_subtrees {
+            return Vec::new();
+        }
+        let detected = match crate::git::detect_subtree_paths(repo) {
+            Ok(paths) => paths,
+            Err(_) => return Vec::new(),
+        };
+        for path in &detected {
+            let pattern = format!("{}/**", path);
+            if !self.ignore.paths.contains(&pattern) {
+                self.ignore.paths.push(pattern);
+            }
+        }
+        detected
     }
 
     /// Check if a file path should be ignored based on configured ignore patterns.
@@ -920,6 +963,7 @@ events = ["src/handlers/events/**/*.ts"]
             },
             ignore: IgnoreConfig {
                 paths: vec!["**/*.test.ts".to_string()],
+                auto_subtrees: true,
             },
             llm: LlmConfig {
                 provider: Some("anthropic".to_string()),
@@ -1319,5 +1363,115 @@ provider = "openai"
         assert!(!loaded.llm.refinement.enabled, "refinement.enabled should survive save/load");
 
         std::env::remove_var("DIFFCORE_GLOBAL_CONFIG_DIR");
+    }
+
+    // ── auto_subtrees Tests ──
+
+    #[test]
+    fn auto_subtrees_defaults_true() {
+        let config = DiffcoreConfig::default();
+        assert!(config.ignore.auto_subtrees);
+    }
+
+    #[test]
+    fn auto_subtrees_defaults_true_on_empty_toml() {
+        let config = DiffcoreConfig::from_str("").unwrap();
+        assert!(config.ignore.auto_subtrees);
+    }
+
+    #[test]
+    fn auto_subtrees_can_be_disabled() {
+        let toml_str = r#"
+[ignore]
+auto_subtrees = false
+"#;
+        let config = DiffcoreConfig::from_str(toml_str).unwrap();
+        assert!(!config.ignore.auto_subtrees);
+    }
+
+    #[test]
+    fn apply_detected_subtrees_is_noop_when_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let mut config = DiffcoreConfig::default();
+        config.ignore.auto_subtrees = false;
+        config.ignore.paths.push("foo/**".to_string());
+
+        let detected = config.apply_detected_subtrees(&repo);
+        assert!(detected.is_empty());
+        assert_eq!(config.ignore.paths, vec!["foo/**".to_string()]);
+    }
+
+    #[test]
+    fn apply_detected_subtrees_appends_detected_globs() {
+        // Build a repo with a squashed-subtree commit whose path exists on disk.
+        let dir = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        {
+            let mut cfg = repo.config().unwrap();
+            cfg.set_str("user.name", "Test").unwrap();
+            cfg.set_str("user.email", "test@test.com").unwrap();
+        }
+
+        // initial commit
+        let sig = repo.signature().unwrap();
+        std::fs::write(dir.path().join("README.md"), "root").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("README.md")).unwrap();
+        index.write().unwrap();
+        let tree_oid = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_oid).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[])
+            .unwrap();
+
+        // subtree commit
+        std::fs::create_dir_all(dir.path().join("repos/effect")).unwrap();
+        std::fs::write(dir.path().join("repos/effect/package.json"), "{}").unwrap();
+        let mut index = repo.index().unwrap();
+        index
+            .add_path(std::path::Path::new("repos/effect/package.json"))
+            .unwrap();
+        index.write().unwrap();
+        let tree_oid = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_oid).unwrap();
+        let parent = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "Squashed 'repos/effect/' content from commit deadbeef",
+            &tree,
+            &[&parent],
+        )
+        .unwrap();
+
+        let mut config = DiffcoreConfig::default();
+        let detected = config.apply_detected_subtrees(&repo);
+
+        assert_eq!(detected, vec!["repos/effect".to_string()]);
+        assert!(config.ignore.paths.contains(&"repos/effect/**".to_string()));
+        assert!(config.is_ignored("repos/effect/package.json"));
+        assert!(!config.is_ignored("apps/api/src/main.ts"));
+    }
+
+    #[test]
+    fn apply_detected_subtrees_does_not_duplicate_existing_patterns() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let mut config = DiffcoreConfig::default();
+        // Pre-existing ignore entry for the same subtree.
+        config.ignore.paths.push("repos/effect/**".to_string());
+
+        // Call twice — should be idempotent.
+        let _ = config.apply_detected_subtrees(&repo);
+        let _ = config.apply_detected_subtrees(&repo);
+
+        let count = config
+            .ignore
+            .paths
+            .iter()
+            .filter(|p| *p == "repos/effect/**")
+            .count();
+        assert_eq!(count, 1);
     }
 }

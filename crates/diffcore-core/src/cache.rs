@@ -14,16 +14,18 @@ use std::path::{Path, PathBuf};
 use crate::git::DiffResult;
 use crate::types::AnalysisOutput;
 
-/// Compute a deterministic cache key from a diff result.
+/// Compute a deterministic cache key from a diff result and ignore patterns.
 ///
 /// The key is a hex-encoded SHA-256 hash of:
 /// - base_sha (or "none")
 /// - head_sha (or "none")
 /// - sorted file paths joined by newlines
+/// - sorted ignore patterns joined by newlines
 ///
-/// This ensures the cache is invalidated when any file is added/removed
-/// or when the base/head refs change.
-pub fn compute_cache_key(diff_result: &DiffResult) -> String {
+/// This ensures the cache is invalidated when any file is added/removed,
+/// when the base/head refs change, or when the ignore configuration changes
+/// (including auto-detected subtree paths).
+pub fn compute_cache_key(diff_result: &DiffResult, ignore_patterns: &[String]) -> String {
     let mut hasher = Sha256::new();
 
     hasher.update(diff_result.base_sha.as_deref().unwrap_or("none"));
@@ -35,6 +37,16 @@ pub fn compute_cache_key(diff_result: &DiffResult) -> String {
     paths.sort();
     for path in &paths {
         hasher.update(path.as_bytes());
+        hasher.update(b"\n");
+    }
+
+    // Separator so an empty patterns list produces a distinct key from one whose
+    // first pattern happens to start with a path-looking string.
+    hasher.update(b"\0ignore\0");
+    let mut patterns: Vec<&str> = ignore_patterns.iter().map(|s| s.as_str()).collect();
+    patterns.sort();
+    for pat in &patterns {
+        hasher.update(pat.as_bytes());
         hasher.update(b"\n");
     }
 
@@ -250,8 +262,8 @@ mod tests {
     #[test]
     fn cache_key_deterministic() {
         let diff = make_diff_result(Some("abc"), Some("def"), &["a.ts", "b.ts"]);
-        let key1 = compute_cache_key(&diff);
-        let key2 = compute_cache_key(&diff);
+        let key1 = compute_cache_key(&diff, &[]);
+        let key2 = compute_cache_key(&diff, &[]);
         assert_eq!(key1, key2);
     }
 
@@ -259,27 +271,27 @@ mod tests {
     fn cache_key_different_shas() {
         let diff1 = make_diff_result(Some("abc"), Some("def"), &["a.ts"]);
         let diff2 = make_diff_result(Some("abc"), Some("ghi"), &["a.ts"]);
-        assert_ne!(compute_cache_key(&diff1), compute_cache_key(&diff2));
+        assert_ne!(compute_cache_key(&diff1, &[]), compute_cache_key(&diff2, &[]));
     }
 
     #[test]
     fn cache_key_different_files() {
         let diff1 = make_diff_result(Some("abc"), Some("def"), &["a.ts"]);
         let diff2 = make_diff_result(Some("abc"), Some("def"), &["a.ts", "b.ts"]);
-        assert_ne!(compute_cache_key(&diff1), compute_cache_key(&diff2));
+        assert_ne!(compute_cache_key(&diff1, &[]), compute_cache_key(&diff2, &[]));
     }
 
     #[test]
     fn cache_key_order_independent() {
         let diff1 = make_diff_result(Some("abc"), Some("def"), &["b.ts", "a.ts"]);
         let diff2 = make_diff_result(Some("abc"), Some("def"), &["a.ts", "b.ts"]);
-        assert_eq!(compute_cache_key(&diff1), compute_cache_key(&diff2));
+        assert_eq!(compute_cache_key(&diff1, &[]), compute_cache_key(&diff2, &[]));
     }
 
     #[test]
     fn cache_key_none_shas() {
         let diff = make_diff_result(None, None, &["a.ts"]);
-        let key = compute_cache_key(&diff);
+        let key = compute_cache_key(&diff, &[]);
         assert!(!key.is_empty());
         assert_eq!(key.len(), 64); // SHA-256 hex length
     }
@@ -287,7 +299,7 @@ mod tests {
     #[test]
     fn cache_key_empty_files() {
         let diff = make_diff_result(Some("abc"), Some("def"), &[]);
-        let key = compute_cache_key(&diff);
+        let key = compute_cache_key(&diff, &[]);
         assert_eq!(key.len(), 64);
     }
 
@@ -349,8 +361,30 @@ mod tests {
     #[test]
     fn cache_key_hex_encoded() {
         let diff = make_diff_result(Some("abc"), Some("def"), &["a.ts"]);
-        let key = compute_cache_key(&diff);
+        let key = compute_cache_key(&diff, &[]);
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn cache_key_includes_ignore_patterns() {
+        let diff = make_diff_result(Some("abc"), Some("def"), &["a.ts"]);
+        let no_ignores = compute_cache_key(&diff, &[]);
+        let with_ignores = compute_cache_key(&diff, &["repos/effect/**".to_string()]);
+        assert_ne!(no_ignores, with_ignores);
+    }
+
+    #[test]
+    fn cache_key_ignore_pattern_order_independent() {
+        let diff = make_diff_result(Some("abc"), Some("def"), &["a.ts"]);
+        let key1 = compute_cache_key(
+            &diff,
+            &["repos/effect/**".to_string(), "dist/**".to_string()],
+        );
+        let key2 = compute_cache_key(
+            &diff,
+            &["dist/**".to_string(), "repos/effect/**".to_string()],
+        );
+        assert_eq!(key1, key2);
     }
 
     #[test]

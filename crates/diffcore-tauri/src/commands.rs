@@ -178,8 +178,16 @@ pub fn analyze(
         .to_path_buf();
 
     // Load config
-    let config = DiffcoreConfig::load_with_global_llm_from_dir(&workdir)
+    let mut config = DiffcoreConfig::load_with_global_llm_from_dir(&workdir)
         .map_err(|e| CommandError::Config(format!("{}", e)))?;
+    let detected_subtrees = config.apply_detected_subtrees(&repo);
+    if !detected_subtrees.is_empty() {
+        log::info!(
+            "Auto-ignoring {} git subtree path(s): {}",
+            detected_subtrees.len(),
+            detected_subtrees.join(", ")
+        );
+    }
 
     // Resolve include_uncommitted: UI override > config > default (true)
     let effective_include_uncommitted = include_uncommitted.unwrap_or(config.diff.include_uncommitted);
@@ -232,8 +240,10 @@ pub fn analyze(
         return Ok(empty_output);
     }
 
-    // Check cache for previously computed results
-    let cache_key = cache::compute_cache_key(&diff_result);
+    // Check cache for previously computed results.
+    // Cache key includes ignore patterns so any ignore-config change (incl.
+    // auto-detected subtrees) invalidates the cached entry automatically.
+    let cache_key = cache::compute_cache_key(&diff_result, &config.ignore.paths);
     if let Some(cached) = cache::load_cached(&workdir, &cache_key) {
         match state.last_analysis.lock() {
             Ok(mut last) => *last = Some(cached.clone()),

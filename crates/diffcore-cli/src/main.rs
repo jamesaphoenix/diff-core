@@ -325,8 +325,9 @@ fn run_analyze_and_return(args: AnalyzeArgs) -> Result<AnalysisOutput, Box<dyn s
         .workdir()
         .ok_or("Bare repositories are not supported")?
         .to_path_buf();
-    let config = DiffcoreConfig::load_with_global_llm_from_dir(&workdir)
+    let mut config = DiffcoreConfig::load_with_global_llm_from_dir(&workdir)
         .map_err(|e| format!("Config error: {}", e))?;
+    let _detected_subtrees = config.apply_detected_subtrees(&repo);
 
     let include_uncommitted = if args.include_uncommitted {
         true
@@ -354,7 +355,7 @@ fn run_analyze_and_return(args: AnalyzeArgs) -> Result<AnalysisOutput, Box<dyn s
         });
     }
 
-    let cache_key = cache::compute_cache_key(&diff_result);
+    let cache_key = cache::compute_cache_key(&diff_result, &config.ignore.paths);
     if let Some(cached) = cache::load_cached(&workdir, &cache_key) {
         return Ok(cached);
     }
@@ -442,6 +443,16 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = DiffcoreConfig::load_with_global_llm_from_dir(&workdir)
         .map_err(|e| format!("Config error: {}", e))?;
 
+    // Auto-detect git subtree imports and add them to the ignore list.
+    let detected_subtrees = config.apply_detected_subtrees(&repo);
+    if !detected_subtrees.is_empty() {
+        log::info!(
+            "Auto-ignoring {} git subtree path(s): {}",
+            detected_subtrees.len(),
+            detected_subtrees.join(", ")
+        );
+    }
+
     // Apply CLI overrides for refinement
     if args.refine {
         config.llm.refinement.enabled = true;
@@ -480,9 +491,11 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
         return write_output(&empty_output, args.output.as_deref());
     }
 
-    // Check cache (skip if LLM annotation or refinement requested — those are additive)
-    let cache_key = cache::compute_cache_key(&diff_result);
-    if !args.annotate && !args.refine && args.refine_model.is_none() {
+    // Check cache (skip if LLM annotation or refinement requested — those are additive,
+    // or if --no-cache was passed). Cache key incorporates ignore patterns so any
+    // ignore-config change (incl. auto-detected subtrees) invalidates the entry.
+    let cache_key = cache::compute_cache_key(&diff_result, &config.ignore.paths);
+    if !args.annotate && !args.refine && args.refine_model.is_none() && !args.no_cache {
         if let Some(cached) = cache::load_cached(&workdir, &cache_key) {
             return write_output(&cached, args.output.as_deref());
         }
