@@ -88,6 +88,8 @@ fn main() {
             commands::export_groups_manifest,
             commands::watch_manifest,
             commands::unwatch_manifest,
+            commands::watch_git_head,
+            commands::unwatch_git_head,
         ])
         .run(tauri::generate_context!())
     {

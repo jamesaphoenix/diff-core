@@ -401,6 +401,16 @@ export default function App() {
     }
   }, [repoPath, loadRepoInfo]);
 
+  // Watch the repo's HEAD for changes made outside the app (git pull/checkout/merge in a
+  // terminal). The watcher lives in Rust and emits "git-head-changed"; see the listener below.
+  useEffect(() => {
+    if (!IS_TAURI || !repoPath) return;
+    tauriInvoke("watch_git_head", { repoPath }).catch(() => {});
+    return () => {
+      tauriInvoke("unwatch_git_head", {}).catch(() => {});
+    };
+  }, [repoPath]);
+
   useEffect(() => {
     if (!repoPath) {
       loadLlmSettings(null);
@@ -1886,6 +1896,45 @@ export default function App() {
 
     return () => { cancelled = true; };
   }, [watchedManifestPath, importGroupsManifest]);
+
+  // Keep the latest loading state available to the git-head listener below without
+  // forcing it to re-subscribe every time loading flips.
+  const loadingRef = useRef(loading);
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+  const gitHeadDebounceRef = useRef<number | null>(null);
+
+  // Listen for git-head-changed events and re-analyze so the left panel picks up
+  // commits pulled/merged/checked out outside the app. Debounced since operations like
+  // rebase can move HEAD several times in quick succession.
+  useEffect(() => {
+    if (!IS_TAURI || !repoPath) return;
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const fn = await listen<string>("git-head-changed", (event) => {
+        if (cancelled || event.payload !== repoPath) return;
+        if (gitHeadDebounceRef.current) window.clearTimeout(gitHeadDebounceRef.current);
+        gitHeadDebounceRef.current = window.setTimeout(() => {
+          if (loadingRef.current) return;
+          loadRepoInfo(repoPath);
+          runAnalysis();
+        }, 600);
+      });
+      if (cancelled) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      if (gitHeadDebounceRef.current) window.clearTimeout(gitHeadDebounceRef.current);
+    };
+  }, [repoPath, loadRepoInfo, runAnalysis]);
 
   /** Pre-indexed comment counts by group for O(1) lookup. */
   const commentsByGroupMap = useMemo(() => {

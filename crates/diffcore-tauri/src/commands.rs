@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use log::warn;
@@ -42,6 +43,10 @@ pub struct AppState {
     pub watched_manifest_path: Mutex<Option<PathBuf>>,
     /// In-flight refinement tasks keyed by job_id, so the user can cancel them.
     pub refinement_jobs: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
+    /// Generation counter for the git HEAD watcher: each `watch_git_head` call bumps this,
+    /// and the polling thread exits once it sees a value that no longer matches its own,
+    /// so switching repos or unwatching cleanly stops the previous thread.
+    pub git_head_watch_generation: Arc<AtomicU64>,
 }
 
 /// Cached diff result with the parameters that produced it, for cache invalidation.
@@ -61,6 +66,7 @@ impl AppState {
             last_cache_key: Mutex::new(None),
             watched_manifest_path: Mutex::new(None),
             refinement_jobs: Arc::new(Mutex::new(HashMap::new())),
+            git_head_watch_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -2757,6 +2763,56 @@ pub fn unwatch_manifest(
     if let Ok(mut path) = state.watched_manifest_path.lock() {
         *path = None;
     }
+    Ok(())
+}
+
+/// Start watching a repo's HEAD for external changes (e.g. `git pull`, `checkout`, `merge`
+/// run outside the app). Emits a "git-head-changed" event to the frontend when the resolved
+/// HEAD commit OID or branch name differs from the last observed value.
+#[tauri::command]
+pub fn watch_git_head(
+    repo_path: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), CommandError> {
+    // Bump the generation counter so any previously running watcher thread exits.
+    let generation = state.git_head_watch_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let generation_counter = state.git_head_watch_generation.clone();
+
+    let path = PathBuf::from(repo_path.clone());
+    std::thread::spawn(move || {
+        let read_head = || -> Option<(Option<String>, String)> {
+            let repo = git2::Repository::open(&path).ok()?;
+            let head = repo.head().ok()?;
+            let branch = head.shorthand().map(|s| s.to_string());
+            let oid = head.target().map(|o| o.to_string()).unwrap_or_default();
+            Some((branch, oid))
+        };
+
+        let mut last = read_head();
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+
+            if generation_counter.load(Ordering::SeqCst) != generation {
+                break;
+            }
+
+            let current = read_head();
+            if current != last && current.is_some() {
+                last = current;
+                let _ = app_handle.emit("git-head-changed", &repo_path);
+            }
+        }
+    });
+
+    Ok(())
+}
+
+/// Stop watching the currently watched repo's HEAD.
+#[tauri::command]
+pub fn unwatch_git_head(state: tauri::State<'_, AppState>) -> Result<(), CommandError> {
+    state.git_head_watch_generation.fetch_add(1, Ordering::SeqCst);
     Ok(())
 }
 
