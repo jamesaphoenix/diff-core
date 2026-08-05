@@ -30,7 +30,7 @@ expression: v
       "id": "group_1",
       "name": "docs (directory)",
       "review_order": 1,
-      "risk_score": 0.225
+      "risk_score": 0.35
     }
   ],
   "infrastructure_group": {

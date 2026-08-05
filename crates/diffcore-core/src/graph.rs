@@ -346,6 +346,82 @@ impl SymbolGraph {
             .collect()
     }
 
+    /// Compute file-level centrality via PageRank over the symbol graph.
+    ///
+    /// Edges point from dependent to dependency (`A --calls--> B`), so rank mass
+    /// accumulates on the symbols many other symbols rely on — exactly the "core
+    /// module" notion of centrality that review ranking wants.
+    ///
+    /// Symbol scores are summed per file, then normalized so the most central
+    /// file in the graph scores 1.0. Returns an empty map for an empty graph.
+    ///
+    /// Deterministic: fixed damping factor and iteration count, no randomness.
+    pub fn file_centrality(&self) -> HashMap<String, f64> {
+        const DAMPING: f64 = 0.85;
+        const ITERATIONS: usize = 20;
+
+        let n = self.graph.node_count();
+        if n == 0 {
+            return HashMap::new();
+        }
+
+        // The graph is append-only (nodes are never removed), so `NodeIndex::index()`
+        // is a dense 0..n slot and can be used directly to index these vectors.
+        let mut out_degree = vec![0usize; n];
+        for idx in self.graph.node_indices() {
+            out_degree[idx.index()] = self
+                .graph
+                .neighbors_directed(idx, petgraph::Direction::Outgoing)
+                .count();
+        }
+
+        let uniform = 1.0 / n as f64;
+        let mut rank = vec![uniform; n];
+        let mut next = vec![0.0f64; n];
+
+        for _ in 0..ITERATIONS {
+            // Dangling nodes (no outgoing edges) would otherwise leak rank mass;
+            // redistribute theirs uniformly.
+            let dangling: f64 = (0..n).filter(|&i| out_degree[i] == 0).map(|i| rank[i]).sum();
+            let base = (1.0 - DAMPING) * uniform + DAMPING * dangling * uniform;
+            next.iter_mut().for_each(|r| *r = base);
+
+            for idx in self.graph.node_indices() {
+                let slot = idx.index();
+                if out_degree[slot] == 0 {
+                    continue;
+                }
+                let share = DAMPING * rank[slot] / out_degree[slot] as f64;
+                for nbr in self
+                    .graph
+                    .neighbors_directed(idx, petgraph::Direction::Outgoing)
+                {
+                    next[nbr.index()] += share;
+                }
+            }
+
+            std::mem::swap(&mut rank, &mut next);
+        }
+
+        // Aggregate symbol ranks to their owning files.
+        let mut per_file: HashMap<String, f64> = HashMap::new();
+        for idx in self.graph.node_indices() {
+            *per_file
+                .entry(self.graph[idx].file.clone())
+                .or_insert(0.0) += rank[idx.index()];
+        }
+
+        // Normalize so the most central file scores 1.0.
+        let max = per_file.values().copied().fold(0.0f64, f64::max);
+        if max > 0.0 {
+            for score in per_file.values_mut() {
+                *score /= max;
+            }
+        }
+
+        per_file
+    }
+
     /// Serialize the graph to a JSON-friendly structure.
     pub fn to_serializable(&self) -> SerializableGraph {
         let nodes: Vec<SymbolNode> = self
@@ -1305,6 +1381,87 @@ mod tests {
             .iter()
             .filter(|(_, _, et)| *et == edge_type)
             .count()
+    }
+
+    // === Centrality tests ===
+
+    #[test]
+    fn test_file_centrality_empty_graph() {
+        let graph = SymbolGraph::build(&[]);
+        assert!(graph.file_centrality().is_empty());
+    }
+
+    /// A module everything imports should outrank the modules importing it.
+    #[test]
+    fn test_file_centrality_ranks_shared_dependency_highest() {
+        let graph = build_graph_from_sources(&[
+            (
+                "src/core.ts",
+                "export function shared(x: any) { return x; }\n",
+            ),
+            (
+                "src/a.ts",
+                "import { shared } from './core';\nfunction a() { shared({}); }\n",
+            ),
+            (
+                "src/b.ts",
+                "import { shared } from './core';\nfunction b() { shared({}); }\n",
+            ),
+            (
+                "src/c.ts",
+                "import { shared } from './core';\nfunction c() { shared({}); }\n",
+            ),
+        ]);
+
+        let centrality = graph.file_centrality();
+        let core = centrality.get("src/core.ts").copied().unwrap_or(0.0);
+        let leaf = centrality.get("src/a.ts").copied().unwrap_or(0.0);
+
+        assert!(
+            core > leaf,
+            "the shared dependency ({}) should be more central than its consumer ({})",
+            core,
+            leaf,
+        );
+        // Normalized so the most central file scores exactly 1.0.
+        assert!((core - 1.0).abs() < 1e-9, "core should normalize to 1.0, got {}", core);
+    }
+
+    #[test]
+    fn test_file_centrality_scores_in_bounds() {
+        let graph = build_graph_from_sources(&[
+            ("src/utils.ts", "export function u(x: any) { return x; }\n"),
+            (
+                "src/handler.ts",
+                "import { u } from './utils';\nfunction h() { u({}); }\n",
+            ),
+        ]);
+        for (file, score) in graph.file_centrality() {
+            assert!(
+                (0.0..=1.0).contains(&score),
+                "centrality for {} out of bounds: {}",
+                file,
+                score
+            );
+        }
+    }
+
+    #[test]
+    fn test_file_centrality_is_deterministic() {
+        let sources: &[(&str, &str)] = &[
+            ("src/core.ts", "export function s(x: any) { return x; }\n"),
+            (
+                "src/a.ts",
+                "import { s } from './core';\nfunction a() { s({}); }\n",
+            ),
+            (
+                "src/b.ts",
+                "import { s } from './core';\nfunction b() { s({}); }\n",
+            ),
+        ];
+        let first = build_graph_from_sources(sources).file_centrality();
+        let second = build_graph_from_sources(sources).file_centrality();
+        assert_eq!(first, second);
     }
 
     // === Import edge tests ===

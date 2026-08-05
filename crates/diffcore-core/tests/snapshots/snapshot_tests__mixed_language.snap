@@ -55,7 +55,7 @@ expression: v
       "id": "group_1",
       "name": "getDashboard (dashboard) route",
       "review_order": 1,
-      "risk_score": 0.3125
+      "risk_score": 0.4375
     },
     {
       "edges": [],

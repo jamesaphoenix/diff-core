@@ -64,7 +64,7 @@ expression: v
       "id": "group_1",
       "name": "post_item (items) route",
       "review_order": 1,
-      "risk_score": 0.4175
+      "risk_score": 0.5425
     }
   ],
   "infrastructure_group": null,

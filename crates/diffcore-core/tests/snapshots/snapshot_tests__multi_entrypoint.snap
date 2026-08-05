@@ -95,7 +95,7 @@ expression: v
       "id": "group_1",
       "name": "createOrder (orders) route",
       "review_order": 1,
-      "risk_score": 0.3125
+      "risk_score": 0.4375
     }
   ],
   "infrastructure_group": {

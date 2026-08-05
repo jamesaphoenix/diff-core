@@ -749,10 +749,25 @@ pub fn refinement_system_prompt() -> String {
          You can suggest four types of refinements:\n\
          1. **Splits**: Break a group that contains logically unrelated changes into separate groups\n\
          2. **Merges**: Combine groups that are actually part of the same logical change\n\
-         3. **Re-ranks**: Change the review order when semantic ordering differs from risk-based ordering\n\
+         3. **Re-ranks**: Set the order the groups should be READ in\n\
          4. **Reclassifications**: Move a file from one group to another, or from 'infrastructure' \
             (ungrouped) into a flow group when it clearly belongs there. Use to_group_id='infrastructure' \
             to demote, or from_group_id='infrastructure' to promote ungrouped files into a group.\n\n\
+         IMPORTANT — Reading order is the point of re_ranks:\n\
+         The static ranking orders groups by risk, which is NOT a reading order. Your job is to \
+         turn it into one. Order the groups so a reviewer reading top to bottom never has to hold \
+         an unexplained concept in their head: every group should be understandable using only \
+         what the groups above it already established. Minimize how often the reviewer has to \
+         re-contextualize.\n\
+         In practice that means dependency direction, not risk: \
+         schemas/types/models → data access → services/business logic → API routes/handlers → \
+         UI/clients → tests and docs that describe the above. A high-risk auth change that depends \
+         on a new schema still reads AFTER that schema.\n\
+         Emit a re_rank entry for EVERY group, giving a complete 1..N ordering. A partial list \
+         leaves the remaining groups in risk order and produces a mixed, harder-to-follow sequence. \
+         Positions are 1-based, where 1 is read first.\n\
+         Note: files WITHIN each group are already ordered entrypoint-first, outward-in (by call \
+         depth from the entrypoint). Do not try to reorder files; only order the groups.\n\n\
          IMPORTANT — Ungrouped/Infrastructure files:\n\
          Review the infrastructure (ungrouped) files list carefully. Many files end up ungrouped \
          because static analysis couldn't trace a reachability path from an entrypoint, but they \

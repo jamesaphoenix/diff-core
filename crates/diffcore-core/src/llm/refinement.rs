@@ -263,22 +263,38 @@ pub fn apply_refinement(
     // 3. Apply merges
     for merge in &response.merges {
         let merge_ids: HashSet<&str> = merge.group_ids.iter().map(|s| s.as_str()).collect();
-        let mut merged_files: Vec<FileChange> = Vec::new();
+        // Source groups carry (source_order, files). Concatenating blindly would
+        // interleave two flows and destroy the outer -> inner reading order, so
+        // each source group's chain is kept intact as a block, and the blocks are
+        // ordered by the source group's existing review order.
+        let mut blocks: Vec<(u32, Vec<FileChange>)> = Vec::new();
         let mut merged_edges = Vec::new();
         let mut first_entrypoint = None;
+        // A merged group is read where its earliest-read source was read.
+        let mut merged_order = u32::MAX;
 
         for group in refined_groups
             .iter()
             .filter(|g| merge_ids.contains(g.id.as_str()))
         {
-            merged_files.extend(group.files.clone());
+            let mut files = group.files.clone();
+            // Preserve each source group's own outer -> inner ordering.
+            files.sort_by_key(|f| f.flow_position);
+            blocks.push((group.review_order, files));
             merged_edges.extend(group.edges.clone());
             if first_entrypoint.is_none() {
                 first_entrypoint = group.entrypoint.clone();
             }
+            merged_order = merged_order.min(group.review_order);
         }
 
-        // Reassign flow positions
+        // Stable sort keeps merge-list order for sources that share a review order.
+        blocks.sort_by_key(|(order, _)| *order);
+
+        let mut merged_files: Vec<FileChange> =
+            blocks.into_iter().flat_map(|(_, files)| files).collect();
+
+        // Renumber flow positions across the concatenated blocks.
         for (i, fc) in merged_files.iter_mut().enumerate() {
             fc.flow_position = i as u32;
         }
@@ -294,29 +310,73 @@ pub fn apply_refinement(
             files: merged_files,
             edges: merged_edges,
             risk_score: 0.0, // Will be re-scored
-            review_order: 0,
+            review_order: if merged_order == u32::MAX {
+                0
+            } else {
+                merged_order
+            },
         };
 
         refined_groups.retain(|g| !merge_ids.contains(g.id.as_str()));
         refined_groups.push(merged);
     }
 
-    // 4. Apply re-ranks
-    for re_rank in &response.re_ranks {
-        if let Some(group) = refined_groups.iter_mut().find(|g| g.id == re_rank.group_id) {
-            group.review_order = re_rank.new_position;
+    // 4. Establish the final reading order.
+    refined_groups = apply_reading_order(refined_groups, &response.re_ranks);
+
+    Ok((refined_groups, infra))
+}
+
+/// Sequence groups into their final reading order and renumber `review_order`.
+///
+/// The LLM's `re_ranks` are treated as *insertion requests* against the
+/// deterministic baseline rather than as absolute values written onto each
+/// group. Writing them directly (the previous behavior) collided with the
+/// untouched groups' existing orders whenever the LLM re-ranked only a subset,
+/// and the collisions were then broken arbitrarily by group id.
+///
+/// Instead: take the baseline order, pull out every group the LLM named, and
+/// re-insert each at its requested 1-based position. Groups the LLM did not
+/// mention keep their relative baseline order, which is what "the model only
+/// had an opinion about these two" should mean.
+fn apply_reading_order(
+    groups: Vec<FlowGroup>,
+    re_ranks: &[crate::llm::schema::RefinementReRank],
+) -> Vec<FlowGroup> {
+    // Baseline: existing review order, with unordered groups (0 — freshly split
+    // or merged) falling back to their current array position.
+    let mut ordered: Vec<FlowGroup> = groups;
+    ordered.sort_by_key(|g| {
+        if g.review_order == 0 {
+            u32::MAX
+        } else {
+            g.review_order
+        }
+    });
+
+    // Pull out the groups the LLM named, keeping the requested position with each.
+    let mut requested: Vec<(u32, FlowGroup)> = Vec::new();
+    for re_rank in re_ranks {
+        if let Some(pos) = ordered.iter().position(|g| g.id == re_rank.group_id) {
+            requested.push((re_rank.new_position, ordered.remove(pos)));
         }
     }
 
-    // Sort by review_order for consistency
-    refined_groups.sort_by(|a, b| a.review_order.cmp(&b.review_order).then(a.id.cmp(&b.id)));
+    // Insert in ascending requested position so earlier slots are filled first;
+    // ties keep the order the LLM listed them in.
+    requested.sort_by_key(|(pos, _)| *pos);
+    for (pos, group) in requested {
+        // Positions are 1-based; clamp anything out of range to the end.
+        let idx = (pos.saturating_sub(1) as usize).min(ordered.len());
+        ordered.insert(idx, group);
+    }
 
-    // Renumber group IDs for cleanliness
-    for (i, group) in refined_groups.iter_mut().enumerate() {
+    // The array order is now the reading order — make review_order agree with it.
+    for (i, group) in ordered.iter_mut().enumerate() {
         group.review_order = (i + 1) as u32;
     }
 
-    Ok((refined_groups, infra))
+    ordered
 }
 
 /// Apply refinement operations leniently — repair what we can, drop what we can't.
@@ -758,19 +818,20 @@ fn apply_split(source: &FlowGroup, split: &RefinementSplit, offset: usize) -> Ve
         .iter()
         .enumerate()
         .map(|(i, new_group)| {
-            let files: Vec<FileChange> = new_group
+            // Keep the source group's outer -> inner ordering: sort by the file's
+            // original flow position rather than trusting the order the LLM
+            // happened to list the paths in. Files with no counterpart in the
+            // source group have no known depth, so they sort to the end.
+            let mut files: Vec<FileChange> = new_group
                 .files
                 .iter()
-                .enumerate()
-                .map(|(pos, path)| {
+                .map(|path| {
                     if let Some(original) = file_map.get(path.as_str()) {
-                        let mut fc = (*original).clone();
-                        fc.flow_position = pos as u32;
-                        fc
+                        (*original).clone()
                     } else {
                         FileChange {
                             path: path.clone(),
-                            flow_position: pos as u32,
+                            flow_position: u32::MAX,
                             role: FileRole::Infrastructure,
                             changes: ChangeStats {
                                 additions: 0,
@@ -781,6 +842,10 @@ fn apply_split(source: &FlowGroup, split: &RefinementSplit, offset: usize) -> Ve
                     }
                 })
                 .collect();
+            files.sort_by(|a, b| a.flow_position.cmp(&b.flow_position).then(a.path.cmp(&b.path)));
+            for (pos, fc) in files.iter_mut().enumerate() {
+                fc.flow_position = pos as u32;
+            }
 
             // First sub-group inherits the entrypoint if it contains the entrypoint file
             let entrypoint = source.entrypoint.as_ref().and_then(|ep| {
@@ -798,7 +863,9 @@ fn apply_split(source: &FlowGroup, split: &RefinementSplit, offset: usize) -> Ve
                 files,
                 edges: vec![], // Edges would need to be recomputed from the graph
                 risk_score: source.risk_score, // Inherit risk score; will be re-scored
-                review_order: 0,
+                // Sub-groups are read where their source group was read; they stay
+                // adjacent because the reading-order sort is stable.
+                review_order: source.review_order,
             }
         })
         .collect()
@@ -852,6 +919,234 @@ mod tests {
             re_ranks: vec![],
             reclassifications: vec![],
             reasoning: "No refinements needed".to_string(),
+        }
+    }
+
+    // ── Reading-order Tests ──
+
+    fn ordered_group(id: &str, order: u32, files: Vec<FileChange>) -> FlowGroup {
+        FlowGroup {
+            review_order: order,
+            ..make_group(id, id, files)
+        }
+    }
+
+    /// A partial `re_ranks` list must not collide with the untouched groups'
+    /// deterministic orders — the named group moves, everything else keeps its
+    /// relative baseline order.
+    #[test]
+    fn test_partial_rerank_inserts_without_disturbing_the_rest() {
+        let groups = vec![
+            ordered_group("g1", 1, vec![make_file("a.ts", 0)]),
+            ordered_group("g2", 2, vec![make_file("b.ts", 0)]),
+            ordered_group("g3", 3, vec![make_file("c.ts", 0)]),
+            ordered_group("g4", 4, vec![make_file("d.ts", 0)]),
+        ];
+        // "read the schema group (g4) first" — say nothing about the others.
+        let response = RefinementResponse {
+            re_ranks: vec![RefinementReRank {
+                group_id: "g4".to_string(),
+                new_position: 1,
+                reason: "schema must be read before its consumers".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let (refined, _) = apply_refinement(&groups, None, &response).unwrap();
+        let ids: Vec<&str> = refined.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["g4", "g1", "g2", "g3"]);
+
+        let orders: Vec<u32> = refined.iter().map(|g| g.review_order).collect();
+        assert_eq!(orders, vec![1, 2, 3, 4], "review_order must match array order");
+    }
+
+    /// A full permutation is honored exactly.
+    #[test]
+    fn test_full_rerank_permutation_is_honored() {
+        let groups = vec![
+            ordered_group("g1", 1, vec![make_file("a.ts", 0)]),
+            ordered_group("g2", 2, vec![make_file("b.ts", 0)]),
+            ordered_group("g3", 3, vec![make_file("c.ts", 0)]),
+        ];
+        let response = RefinementResponse {
+            re_ranks: vec![
+                RefinementReRank {
+                    group_id: "g3".to_string(),
+                    new_position: 1,
+                    reason: "types first".to_string(),
+                },
+                RefinementReRank {
+                    group_id: "g1".to_string(),
+                    new_position: 2,
+                    reason: "then the service".to_string(),
+                },
+                RefinementReRank {
+                    group_id: "g2".to_string(),
+                    new_position: 3,
+                    reason: "then the route".to_string(),
+                },
+            ],
+            ..empty_refinement()
+        };
+
+        let (refined, _) = apply_refinement(&groups, None, &response).unwrap();
+        let ids: Vec<&str> = refined.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["g3", "g1", "g2"]);
+    }
+
+    /// An out-of-range position clamps to the end rather than being dropped.
+    #[test]
+    fn test_rerank_position_out_of_range_clamps() {
+        let groups = vec![
+            ordered_group("g1", 1, vec![make_file("a.ts", 0)]),
+            ordered_group("g2", 2, vec![make_file("b.ts", 0)]),
+        ];
+        let response = RefinementResponse {
+            re_ranks: vec![RefinementReRank {
+                group_id: "g1".to_string(),
+                new_position: 99,
+                reason: "read last".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let (refined, _) = apply_refinement(&groups, None, &response).unwrap();
+        let ids: Vec<&str> = refined.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["g2", "g1"]);
+    }
+
+    /// Merging must not interleave two flows: each source group's
+    /// outer -> inner chain survives as a contiguous block.
+    #[test]
+    fn test_merge_preserves_outer_to_inner_order_per_source() {
+        let groups = vec![
+            // Read second, but listed first.
+            ordered_group(
+                "g1",
+                2,
+                vec![
+                    make_file("second/route.ts", 0),
+                    make_file("second/service.ts", 1),
+                ],
+            ),
+            ordered_group(
+                "g2",
+                1,
+                vec![make_file("first/route.ts", 0), make_file("first/repo.ts", 1)],
+            ),
+        ];
+        let response = RefinementResponse {
+            merges: vec![RefinementMerge {
+                group_ids: vec!["g1".to_string(), "g2".to_string()],
+                merged_name: "combined flow".to_string(),
+                reason: "same feature".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let (refined, _) = apply_refinement(&groups, None, &response).unwrap();
+        assert_eq!(refined.len(), 1);
+
+        let paths: Vec<&str> = refined[0].files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                // g2's block first (it was read first), each block outer -> inner.
+                "first/route.ts",
+                "first/repo.ts",
+                "second/route.ts",
+                "second/service.ts",
+            ],
+        );
+
+        let positions: Vec<u32> = refined[0].files.iter().map(|f| f.flow_position).collect();
+        assert_eq!(positions, vec![0, 1, 2, 3], "flow positions renumbered in order");
+    }
+
+    /// A merged group is read where its earliest-read source was read, not
+    /// pushed to the front (which `review_order: 0` used to do).
+    #[test]
+    fn test_merged_group_inherits_earliest_source_position() {
+        let groups = vec![
+            ordered_group("g1", 1, vec![make_file("a.ts", 0)]),
+            ordered_group("g2", 2, vec![make_file("b.ts", 0)]),
+            ordered_group("g3", 3, vec![make_file("c.ts", 0)]),
+        ];
+        let response = RefinementResponse {
+            merges: vec![RefinementMerge {
+                group_ids: vec!["g2".to_string(), "g3".to_string()],
+                merged_name: "merged".to_string(),
+                reason: "same change".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let (refined, _) = apply_refinement(&groups, None, &response).unwrap();
+        let ids: Vec<&str> = refined.iter().map(|g| g.id.as_str()).collect();
+        // g1 still read first; the merge takes g2's slot rather than jumping ahead.
+        assert_eq!(ids, vec!["g1", "g2"]);
+    }
+
+    /// Splitting keeps the source group's call-depth order inside each
+    /// sub-group, regardless of the order the LLM listed the paths in.
+    #[test]
+    fn test_split_preserves_source_flow_order() {
+        let groups = vec![ordered_group(
+            "g1",
+            1,
+            vec![
+                make_file("route.ts", 0),
+                make_file("service.ts", 1),
+                make_file("repo.ts", 2),
+            ],
+        )];
+        let response = RefinementResponse {
+            splits: vec![RefinementSplit {
+                source_group_id: "g1".to_string(),
+                new_groups: vec![RefinementNewGroup {
+                    name: "the flow".to_string(),
+                    // Listed inner -> outer, i.e. backwards.
+                    files: vec![
+                        "repo.ts".to_string(),
+                        "service.ts".to_string(),
+                        "route.ts".to_string(),
+                    ],
+                }],
+                reason: "regrouping".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let (refined, _) = apply_refinement(&groups, None, &response).unwrap();
+        assert_eq!(refined.len(), 1);
+        let paths: Vec<&str> = refined[0].files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec!["route.ts", "service.ts", "repo.ts"],
+            "outer -> inner order comes from the source group, not the LLM's list order"
+        );
+    }
+
+    /// Refined output always has array order == review order.
+    #[test]
+    fn test_refined_array_order_matches_review_order() {
+        let groups = vec![
+            ordered_group("g1", 1, vec![make_file("a.ts", 0)]),
+            ordered_group("g2", 2, vec![make_file("b.ts", 0)]),
+            ordered_group("g3", 3, vec![make_file("c.ts", 0)]),
+        ];
+        let response = RefinementResponse {
+            re_ranks: vec![RefinementReRank {
+                group_id: "g2".to_string(),
+                new_position: 1,
+                reason: "foundation".to_string(),
+            }],
+            ..empty_refinement()
+        };
+
+        let (refined, _) = apply_refinement(&groups, None, &response).unwrap();
+        for (i, group) in refined.iter().enumerate() {
+            assert_eq!(group.review_order, (i + 1) as u32);
         }
     }
 

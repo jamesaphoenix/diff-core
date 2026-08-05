@@ -56,7 +56,7 @@ pub fn build_analysis_output(
         .collect();
 
     // Apply ranking to groups: update risk_score, review_order, and enrich change stats.
-    let groups: Vec<FlowGroup> = cluster_result
+    let mut groups: Vec<FlowGroup> = cluster_result
         .groups
         .iter()
         .map(|group| {
@@ -83,6 +83,20 @@ pub fn build_analysis_output(
             }
         })
         .collect();
+
+    // Emit groups in review order, so the array order IS the reading order.
+    // Consumers that just iterate `groups[]` (scripts, agents, the MCP surface)
+    // get the recommended sequence without having to sort by `review_order`
+    // themselves. Clustering emits groups in path-alphabetical order, which
+    // carries no review meaning.
+    //
+    // Sort is stable, so unranked groups (review_order == 0) keep their
+    // clustering order relative to each other.
+    groups.sort_by(|a, b| {
+        a.review_order
+            .cmp(&b.review_order)
+            .then_with(|| crate::rank::natural_group_key(&a.id).cmp(&crate::rank::natural_group_key(&b.id)))
+    });
 
     let frameworks_detected = crate::flow::detect_frameworks(parsed_files);
 
@@ -623,6 +637,74 @@ mod tests {
         let g2 = output.groups.iter().find(|g| g.id == "group_2").unwrap();
         assert_eq!(g2.risk_score, 0.35);
         assert_eq!(g2.review_order, 2);
+    }
+
+    /// The emitted array order IS the reading order — consumers that just
+    /// iterate `groups[]` must not need to sort by `review_order` themselves.
+    #[test]
+    fn test_build_output_groups_sorted_by_review_order() {
+        // Rank group_2 first, group_1 second — the inverse of clustering order.
+        let ranked = vec![
+            RankedGroup {
+                group_id: "group_1".to_string(),
+                composite_score: 0.10,
+                review_order: 2,
+            },
+            RankedGroup {
+                group_id: "group_2".to_string(),
+                composite_score: 0.90,
+                review_order: 1,
+            },
+        ];
+        let output = build_analysis_output(
+            &sample_diff_result(3),
+            diff_source_staged(),
+            &sample_parsed_files(),
+            &sample_cluster_result(),
+            &ranked,
+        );
+
+        let ids: Vec<&str> = output.groups.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["group_2", "group_1"],
+            "groups should be emitted in review order, not clustering order"
+        );
+
+        let orders: Vec<u32> = output.groups.iter().map(|g| g.review_order).collect();
+        assert_eq!(orders, vec![1, 2], "review_order should ascend down the array");
+    }
+
+    /// Unranked groups (review_order == 0) keep their clustering order.
+    #[test]
+    fn test_build_output_unranked_groups_keep_cluster_order() {
+        let output = build_analysis_output(
+            &sample_diff_result(3),
+            diff_source_staged(),
+            &sample_parsed_files(),
+            &sample_cluster_result(),
+            &[],
+        );
+        let ids: Vec<&str> = output.groups.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["group_1", "group_2"]);
+    }
+
+    /// Tie-break is numeric, so `group_2` precedes `group_10`.
+    #[test]
+    fn test_build_output_natural_id_tiebreak() {
+        let mut cluster = sample_cluster_result();
+        cluster.groups[0].id = "group_10".to_string();
+        cluster.groups[1].id = "group_2".to_string();
+
+        let output = build_analysis_output(
+            &sample_diff_result(3),
+            diff_source_staged(),
+            &sample_parsed_files(),
+            &cluster,
+            &[], // both unranked → both review_order 0 → tie-break decides
+        );
+        let ids: Vec<&str> = output.groups.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["group_2", "group_10"]);
     }
 
     #[test]

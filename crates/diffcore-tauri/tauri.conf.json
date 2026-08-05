@@ -1,6 +1,6 @@
 {
   "productName": "Diffcore",
-  "version": "0.5.14",
+  "version": "0.5.15",
   "identifier": "com.diffcore.app",
   "build": {
     "beforeDevCommand": { "script": "npm run dev", "cwd": "ui" },

@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use crate::cluster::ClusterResult;
 use crate::types::{GroupRankInput, RankWeights, RankedGroup};
 
 /// Compute the composite ranking score for a single group.
@@ -35,7 +38,7 @@ pub fn rank_groups(inputs: &[GroupRankInput], weights: &RankWeights) -> Vec<Rank
     scored.sort_by(|a, b| {
         b.1.partial_cmp(&a.1)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.0.cmp(&b.0))
+            .then_with(|| natural_group_key(&a.0).cmp(&natural_group_key(&b.0)))
     });
 
     scored
@@ -45,6 +48,79 @@ pub fn rank_groups(inputs: &[GroupRankInput], weights: &RankWeights) -> Vec<Rank
             group_id,
             composite_score: score,
             review_order: (i + 1) as u32,
+        })
+        .collect()
+}
+
+/// Split a group id into a (prefix, trailing-number) key so `group_2` sorts
+/// before `group_10` instead of after it.
+///
+/// Ids without a numeric suffix keep plain lexicographic ordering.
+pub fn natural_group_key(group_id: &str) -> (String, u64) {
+    let digits_start = group_id
+        .rfind(|c: char| !c.is_ascii_digit())
+        .map_or(0, |i| i + 1);
+
+    if digits_start == group_id.len() {
+        // No trailing digits — sort by the whole string.
+        return (group_id.to_string(), 0);
+    }
+
+    let (prefix, digits) = group_id.split_at(digits_start);
+    (prefix.to_string(), digits.parse().unwrap_or(0))
+}
+
+/// Compute a group's centrality from per-file centrality scores.
+///
+/// A group is as central as its most central file: a group that touches the
+/// codebase's core module is central even when it also touches leaf files, so
+/// `max` is the right aggregate here (a `mean` would dilute that signal).
+///
+/// Returns a neutral `0.5` when no centrality data is available (e.g. the diff
+/// contains only languages with no AST support), so the centrality term neither
+/// promotes nor demotes any group rather than zeroing out for everyone.
+pub fn compute_group_centrality(file_paths: &[&str], file_centrality: &HashMap<String, f64>) -> f64 {
+    if file_centrality.is_empty() {
+        return 0.5;
+    }
+
+    file_paths
+        .iter()
+        .filter_map(|path| file_centrality.get(*path).copied())
+        .fold(0.0f64, f64::max)
+        .clamp(0.0, 1.0)
+}
+
+/// Build ranking inputs for every group in a cluster result.
+///
+/// Shared by the CLI, the Tauri app, and the eval harness so all three score
+/// groups identically. `file_centrality` comes from
+/// [`crate::graph::SymbolGraph::file_centrality`].
+pub fn build_rank_inputs(
+    cluster_result: &ClusterResult,
+    file_centrality: &HashMap<String, f64>,
+) -> Vec<GroupRankInput> {
+    cluster_result
+        .groups
+        .iter()
+        .map(|group| {
+            let paths: Vec<&str> = group.files.iter().map(|f| f.path.as_str()).collect();
+            let risk_flags = crate::output::compute_group_risk_flags(&paths);
+            let total_add: u32 = group.files.iter().map(|f| f.changes.additions).sum();
+            let total_del: u32 = group.files.iter().map(|f| f.changes.deletions).sum();
+
+            GroupRankInput {
+                group_id: group.id.clone(),
+                risk: compute_risk_score(
+                    risk_flags.has_schema_change,
+                    risk_flags.has_api_change,
+                    risk_flags.has_auth_change,
+                    false,
+                ),
+                centrality: compute_group_centrality(&paths, file_centrality),
+                surface_area: compute_surface_area(total_add, total_del, 1000),
+                uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
+            }
         })
         .collect()
 }
@@ -389,6 +465,74 @@ mod tests {
         assert_eq!(ranked[0].review_order, 1);
         assert!(ranked[0].composite_score >= 0.0);
         assert!(ranked[0].composite_score <= 1.0);
+    }
+
+    // ── Centrality ──
+
+    #[test]
+    fn test_group_centrality_takes_max_over_files() {
+        let mut map = HashMap::new();
+        map.insert("src/core.ts".to_string(), 0.9);
+        map.insert("src/leaf.ts".to_string(), 0.1);
+
+        // A group touching the core module is central even though it also
+        // touches a leaf — max, not mean.
+        let score = compute_group_centrality(&["src/core.ts", "src/leaf.ts"], &map);
+        assert!((score - 0.9).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_group_centrality_unknown_files_score_zero() {
+        let mut map = HashMap::new();
+        map.insert("src/core.ts".to_string(), 0.9);
+        let score = compute_group_centrality(&["docs/readme.md"], &map);
+        assert!((score - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_group_centrality_empty_map_is_neutral() {
+        // No AST data at all — fall back to neutral rather than zeroing the
+        // term out for every group.
+        let score = compute_group_centrality(&["a.ts"], &HashMap::new());
+        assert!((score - 0.5).abs() < f64::EPSILON);
+    }
+
+    /// Centrality must actually discriminate: a group on the core module
+    /// should outrank an otherwise identical group on a leaf.
+    #[test]
+    fn test_centrality_changes_ranking() {
+        let inputs = vec![
+            make_input("leaf_group", 0.3, 0.05, 0.3, 0.5),
+            make_input("core_group", 0.3, 0.95, 0.3, 0.5),
+        ];
+        let ranked = rank_groups(&inputs, &RankWeights::default());
+        assert_eq!(ranked[0].group_id, "core_group");
+    }
+
+    // ── Natural id ordering ──
+
+    #[test]
+    fn test_natural_group_key_numeric_suffix() {
+        assert!(natural_group_key("group_2") < natural_group_key("group_10"));
+        assert!(natural_group_key("group_1") < natural_group_key("group_2"));
+    }
+
+    #[test]
+    fn test_natural_group_key_no_suffix_is_lexicographic() {
+        assert!(natural_group_key("a_group") < natural_group_key("b_group"));
+    }
+
+    #[test]
+    fn test_ranking_tie_break_is_numeric_not_lexicographic() {
+        let inputs = vec![
+            make_input("group_10", 0.5, 0.5, 0.5, 0.5),
+            make_input("group_2", 0.5, 0.5, 0.5, 0.5),
+        ];
+        let ranked = rank_groups(&inputs, &RankWeights::default());
+        assert_eq!(
+            ranked[0].group_id, "group_2",
+            "group_2 should tie-break ahead of group_10"
+        );
     }
 
     #[test]

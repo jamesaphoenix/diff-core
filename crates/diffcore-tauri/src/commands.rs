@@ -25,7 +25,7 @@ use diffcore_core::llm::schema::{Pass1Response, Pass2Response, RefinementRespons
 use diffcore_core::output::{self, build_analysis_output};
 use diffcore_core::pipeline;
 use diffcore_core::rank;
-use diffcore_core::types::{AnalysisOutput, GroupRankInput};
+use diffcore_core::types::AnalysisOutput;
 
 /// Application state shared across commands.
 pub struct AppState {
@@ -306,35 +306,8 @@ pub fn analyze(
 
     // Rank groups
     let weights = config.ranking.clone();
-    let rank_inputs: Vec<GroupRankInput> = cluster_result
-        .groups
-        .iter()
-        .map(|group| {
-            let risk_flags = output::compute_group_risk_flags(
-                &group
-                    .files
-                    .iter()
-                    .map(|f| f.path.as_str())
-                    .collect::<Vec<_>>(),
-            );
-            let total_add: u32 = group.files.iter().map(|f| f.changes.additions).sum();
-            let total_del: u32 = group.files.iter().map(|f| f.changes.deletions).sum();
-
-            GroupRankInput {
-                group_id: group.id.clone(),
-                risk: rank::compute_risk_score(
-                    risk_flags.has_schema_change,
-                    risk_flags.has_api_change,
-                    risk_flags.has_auth_change,
-                    false,
-                ),
-                centrality: 0.5,
-                surface_area: rank::compute_surface_area(total_add, total_del, 1000),
-                uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
-            }
-        })
-        .collect();
-
+    let file_centrality = graph.file_centrality();
+    let rank_inputs = rank::build_rank_inputs(&cluster_result, &file_centrality);
     let ranked = rank::rank_groups(&rank_inputs, &weights);
 
     // Build output
