@@ -11,7 +11,7 @@ path = "src/main.rs"
 diffcore-core = { path = "../diffcore-core" }
 clap = { version = "4", features = ["derive"] }
 serde_json = { workspace = true }
-git2 = "0.19"
+git2 = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
 log = { workspace = true }

@@ -14,6 +14,7 @@ serde = { version = "1", features = ["derive"] }
 # stable for arbitrary f64 scores (see assert_json_roundtrip).
 serde_json = { version = "1", features = ["float_roundtrip"] }
 log = "0.4"
+git2 = { version = "0.20", default-features = false }
 
 # Optimize test builds: trades slightly longer compile for faster test runtime.
 # tree-sitter parsing and query execution benefit significantly from opt-level 1.
@@ -21,3 +22,15 @@ log = "0.4"
 # Tests are isolated via TempDirs, safe to fully parallelize.
 [profile.test]
 opt-level = 1
+
+# Dev-build compile time: workspace code keeps line tables for usable
+# backtraces; the ~750 dependency crates and build scripts skip debuginfo
+# entirely (nobody steps through tauri/tokio internals in a debugger).
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
