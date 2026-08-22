@@ -212,15 +212,22 @@ impl JobHandle {
     }
 }
 
+/// Router exposing the LLM job SSE stream; mounted standalone on desktop and
+/// merged (same-origin, no CORS) into the diffcore-web server.
+pub fn sse_router(manager: Arc<ActivityManager>) -> Router {
+    Router::new()
+        .route("/llm/jobs/:job_id/events", get(stream_job_events))
+        .with_state(manager)
+}
+
 pub fn spawn_sse_server(manager: Arc<ActivityManager>) -> Result<String, std::io::Error> {
     let listener = StdTcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)))?;
     listener.set_nonblocking(true)?;
     let address = listener.local_addr()?;
 
-    let router = Router::new()
-        .route("/llm/jobs/:job_id/events", get(stream_job_events))
-        .with_state(manager)
-        .layer(CorsLayer::new().allow_origin(Any));
+    // The desktop webview loads the UI from a different origin than this
+    // localhost SSE server, so CORS is required here (and only here).
+    let router = sse_router(manager).layer(CorsLayer::new().allow_origin(Any));
 
     thread::Builder::new()
         .name("diffcore-activity-sse".to_string())

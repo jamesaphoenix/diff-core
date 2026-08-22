@@ -454,7 +454,7 @@ fn cached_comments_isolated_by_branch() {
 
         // Switch to branch-b
         let repo = Repository::discover(&repo_path).unwrap();
-        let sig = Signature::now("test", "test@test.com").unwrap();
+        let _sig = Signature::now("test", "test@test.com").unwrap();
         let head_commit = repo.head().unwrap().peel_to_commit().unwrap();
         repo.branch("branch-b", &head_commit, true).unwrap();
         repo.set_head("refs/heads/branch-b").unwrap();
@@ -647,17 +647,6 @@ fn cached_all_comment_types_roundtrip() {
         assert_eq!(loaded[2].comment_type, "group");
         assert_eq!(loaded[2].file_path, None);
     });
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// Refinement cache cross-worktree tests
-// ══════════════════════════════════════════════════════════════════════
-
-/// Helper: set DIFFCORE_REFINEMENT_CACHE_DIR for isolated testing.
-fn with_refinement_cache_dir<F: FnOnce()>(dir: &std::path::Path, f: F) {
-    std::env::set_var("DIFFCORE_REFINEMENT_CACHE_DIR", dir.as_os_str());
-    f();
-    std::env::remove_var("DIFFCORE_REFINEMENT_CACHE_DIR");
 }
 
 /// Simulated refinement JSON (lightweight, just needs to be valid for cache roundtrip).
