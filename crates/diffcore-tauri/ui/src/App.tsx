@@ -29,14 +29,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { buildManifestPrompt } from "./buildManifestPrompt";
 import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT } from "./mock";
 
-/** Detect if running inside Tauri (vs plain browser for demo/testing). */
-const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
-/** Lazy-import Tauri invoke only when in Tauri context. */
-async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
-}
+import { IS_TAURI, HAS_BACKEND, DEFAULT_REPO, invoke as tauriInvoke } from "./backend";
 
 const PROVIDER_LABELS: Record<LlmProvider, string> = {
   codex: "Codex CLI",
@@ -148,7 +141,7 @@ export default function App() {
   const [sourceFocusRequest, setSourceFocusRequest] = useState<SourceFocusRequest | null>(null);
 
   // Repo and git state
-  const [repoPath, setRepoPath] = useState(IS_TAURI ? "" : "/demo/repo");
+  const [repoPath, setRepoPath] = useState(HAS_BACKEND ? (DEFAULT_REPO ?? "") : "/demo/repo");
   const [baseRef, setBaseRef] = useState("main");
   const [headRef, setHeadRef] = useState<string | null>(null);
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
@@ -156,7 +149,7 @@ export default function App() {
   const [headBranchDropdownOpen, setHeadBranchDropdownOpen] = useState(false);
 
   // LLM API key availability
-  const [hasApiKey, setHasApiKey] = useState(!IS_TAURI); // Demo mode always has "key"
+  const [hasApiKey, setHasApiKey] = useState(!HAS_BACKEND); // Demo mode always has "key"
 
   // Diff behavior
   const [includeUncommitted, setIncludeUncommitted] = useState(true);
@@ -307,7 +300,7 @@ export default function App() {
   const loadLlmSettings = useCallback(async (path: string | null) => {
     try {
       let settings: LlmSettings;
-      if (IS_TAURI) {
+      if (HAS_BACKEND) {
         settings = await tauriInvoke<LlmSettings>("get_llm_settings", {
           repoPath: path,
         });
@@ -332,7 +325,7 @@ export default function App() {
     if (isApiProvider(settings.provider)) {
       setApiProviderDraft(settings.provider as LlmProvider);
     }
-    if (!IS_TAURI) {
+    if (!HAS_BACKEND) {
       demoLlmSettingsRef.current = settings;
       return;
     }
@@ -357,7 +350,7 @@ export default function App() {
 
   /** Load ignore paths from .diffcore.toml. */
   const loadIgnorePaths = useCallback(async (path: string | null) => {
-    if (!IS_TAURI || !path) return;
+    if (!HAS_BACKEND || !path) return;
     try {
       const paths = await tauriInvoke<string[]>("get_ignore_paths", { repoPath: path });
       setIgnorePaths(paths);
@@ -371,7 +364,7 @@ export default function App() {
     if (!path) return;
     try {
       let info: RepoInfo;
-      if (IS_TAURI) {
+      if (HAS_BACKEND) {
         info = await tauriInvoke<RepoInfo>("get_repo_info", { repoPath: path });
       } else {
         await new Promise((r) => setTimeout(r, 100));
@@ -577,7 +570,7 @@ export default function App() {
       setSourceFocusRequest(null);
       // Increment generation to mark any in-flight request as stale
       const generation = ++fileDiffGeneration.current;
-      if (IS_TAURI) {
+      if (HAS_BACKEND) {
         if (!repoPath) return;
         try {
           const diff = await tauriInvoke<FileDiffContent>("get_file_diff", {
@@ -805,7 +798,7 @@ export default function App() {
     setOpenTabs([]);
     try {
       let result: AnalysisOutput;
-      if (IS_TAURI) {
+      if (HAS_BACKEND) {
         result = await tauriInvoke<AnalysisOutput>("analyze", {
           repoPath,
           base: baseRef || "main",
@@ -834,7 +827,7 @@ export default function App() {
         handleSelectGroup(sorted[0]);
       }
       // Check for cached refinement and auto-apply if found
-      if (IS_TAURI) {
+      if (HAS_BACKEND) {
         tauriInvoke<RefinementResult | null>("get_cached_refinement", { repoPath: repoPath || null }).then((cached) => {
           if (cached) {
             applyRefinementResult(cached, { fromCache: true });
@@ -882,7 +875,7 @@ export default function App() {
     setAnnotating(true);
     setError(null);
     try {
-      if (IS_TAURI) {
+      if (HAS_BACKEND) {
         await runStreamingJob<Pass1Response>("start_annotate_overview", {
           repoPath: repoPath || null,
           llmProvider: resolvedPrimaryProvider,
@@ -918,7 +911,7 @@ export default function App() {
     setDeepAnalyzing(true);
     setError(null);
     try {
-      if (IS_TAURI) {
+      if (HAS_BACKEND) {
         await runStreamingJob<Pass2Response>("start_annotate_group", {
           groupId: selectedGroup.id,
           repoPath,
@@ -1014,7 +1007,7 @@ export default function App() {
     }
 
     // Cache the result for future sessions (non-blocking, fire-and-forget)
-    if (IS_TAURI && !opts?.fromCache) {
+    if (HAS_BACKEND && !opts?.fromCache) {
       tauriInvoke("store_refinement_cache", { result, repoPath: repoPath || null }).catch(() => {});
     }
   }, [analysis, originalGroups, handleSelectGroup, showToast]);
@@ -1025,7 +1018,7 @@ export default function App() {
     setRefining(true);
     setError(null);
     try {
-      if (IS_TAURI) {
+      if (HAS_BACKEND) {
         await runStreamingJob<RefinementResult>("start_refine_groups", {
           repoPath: repoPath || null,
           llmProvider: resolvedRefinementProvider,
@@ -1118,7 +1111,7 @@ export default function App() {
 
   // Auto-load demo data when not in Tauri
   useEffect(() => {
-    if (!IS_TAURI && !demoLoaded.current) {
+    if (!HAS_BACKEND && !demoLoaded.current) {
       demoLoaded.current = true;
       runAnalysis();
     }
@@ -1141,7 +1134,7 @@ export default function App() {
 
   // Test API for Playwright — only available in demo/browser mode
   useEffect(() => {
-    if (IS_TAURI) return;
+    if (HAS_BACKEND) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (window as any).__TEST_API__ = {
       setRepoInfo: (data: RepoInfo | null) => setRepoInfo(data),
@@ -1298,7 +1291,7 @@ export default function App() {
     };
     try {
       await saveLlmSettings(updated);
-      if (IS_TAURI) {
+      if (HAS_BACKEND) {
         await tauriInvoke("save_api_key", { repoPath: repoPath || "", apiKey: key });
       } else {
         demoLlmSettingsRef.current = updated;
@@ -1315,7 +1308,7 @@ export default function App() {
   /** Clear the stored API key from the shared diffcore config and refresh settings. */
   const handleClearApiKey = useCallback(async () => {
     try {
-      if (IS_TAURI) {
+      if (HAS_BACKEND) {
         await tauriInvoke("clear_api_key", { repoPath: repoPath || "" });
       } else if (llmSettings) {
         const updated: LlmSettings = {
@@ -1347,7 +1340,7 @@ export default function App() {
     const updated = [...ignorePaths, pattern];
     setIgnorePaths(updated);
     setIgnorePathInput("");
-    if (IS_TAURI) {
+    if (HAS_BACKEND) {
       try {
         await tauriInvoke("save_ignore_paths", { repoPath, paths: updated });
       } catch {
@@ -1361,7 +1354,7 @@ export default function App() {
     if (!repoPath) return;
     const updated = ignorePaths.filter((p) => p !== pattern);
     setIgnorePaths(updated);
-    if (IS_TAURI) {
+    if (HAS_BACKEND) {
       try {
         await tauriInvoke("save_ignore_paths", { repoPath, paths: updated });
       } catch {
@@ -1625,7 +1618,7 @@ export default function App() {
   const loadComments = useCallback(async () => {
     if (!repoPath) return;
     try {
-      if (IS_TAURI) {
+      if (HAS_BACKEND) {
         // Primary: load from branch-based cache
         const result = await tauriInvoke<ReviewComment[]>("load_comments_cached", {
           repoPath,
@@ -1666,7 +1659,7 @@ export default function App() {
   const saveComment = useCallback(
     async (comment: ReviewComment) => {
       setComments((prev) => [...prev, comment]);
-      if (IS_TAURI && repoPath) {
+      if (HAS_BACKEND && repoPath) {
         try {
           await tauriInvoke("save_comment_cached", {
             repoPath,
@@ -1684,7 +1677,7 @@ export default function App() {
   const deleteComment = useCallback(
     async (commentId: string) => {
       setComments((prev) => prev.filter((c) => c.id !== commentId));
-      if (IS_TAURI && repoPath) {
+      if (HAS_BACKEND && repoPath) {
         try {
           await tauriInvoke("delete_comment_cached", {
             repoPath,
@@ -1705,7 +1698,7 @@ export default function App() {
         prev.map((c) => (c.id === commentId ? { ...c, text: newText } : c)),
       );
       setEditingCommentId(null);
-      if (IS_TAURI && repoPath) {
+      if (HAS_BACKEND && repoPath) {
         try {
           await tauriInvoke("update_comment_cached", {
             repoPath,
@@ -1828,7 +1821,7 @@ export default function App() {
 
   /** Import a groups manifest JSON and apply it to the current analysis. */
   const importGroupsManifest = useCallback(async (manifestPath: string) => {
-    if (!IS_TAURI) return;
+    if (!HAS_BACKEND) return;
     try {
       const updated = await tauriInvoke<AnalysisOutput>("import_groups_manifest", { manifestPath });
       setAnalysis(updated);
@@ -1849,7 +1842,7 @@ export default function App() {
 
   /** Export current groups as an editable manifest JSON. */
   const exportGroupsManifest = useCallback(async () => {
-    if (!IS_TAURI || !analysis) return;
+    if (!HAS_BACKEND || !analysis) return;
     try {
       // Default path: .diffcore/groups.json in repo
       const outputPath = repoPath
@@ -3978,7 +3971,7 @@ export default function App() {
         <main className="panel panel-center">
           <div className="panel-header">
             <span className={fileDiff ? "panel-header-filepath" : "panel-header-title"} title={fileDiff?.path}>{fileDiff ? fileDiff.path : "Diff Viewer"}</span>
-            {fileDiff && (
+            {fileDiff && (IS_TAURI || !HAS_BACKEND) && (
               <div className="editor-toolbar" ref={openWithRef}>
                 <button
                   className="editor-btn open-with-btn"
