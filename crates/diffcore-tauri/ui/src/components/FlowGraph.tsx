@@ -26,6 +26,8 @@ interface FlowGraphProps {
   onNodeClick?: (filePath: string) => void;
   /** File path of the node to highlight during flow replay. */
   replayNodeId?: string | null;
+  /** Active theme scheme — drives ReactFlow chrome (controls, minimap mask). */
+  scheme?: "light" | "dark";
 }
 
 /** Color per edge type — Catppuccin palette. */
@@ -270,7 +272,7 @@ function AnimatedBezierEdge({
             width={64}
             height={20}
             rx={10}
-            fill={hovered ? "#313244" : "#1e1e2e"}
+            style={{ fill: hovered ? "var(--bg-surface)" : "var(--bg-primary)" }}
             fillOpacity={0.95}
             stroke={color}
             strokeWidth={hovered ? 1 : 0.5}
@@ -279,7 +281,7 @@ function AnimatedBezierEdge({
             x={labelX}
             y={labelY + 4}
             textAnchor="middle"
-            fill={hovered ? color : "#cdd6f4"}
+            style={{ fill: hovered ? color : "var(--text-primary)" }}
             fontSize={11}
             fontWeight={500}
             fontFamily="'JetBrains Mono', monospace"
@@ -298,7 +300,7 @@ function AnimatedBezierEdge({
             width={160}
             height={18}
             rx={4}
-            fill="#313244"
+            style={{ fill: "var(--bg-surface)" }}
             fillOpacity={0.95}
             stroke={color}
             strokeWidth={0.5}
@@ -307,7 +309,7 @@ function AnimatedBezierEdge({
             x={labelX}
             y={labelY + 27}
             textAnchor="middle"
-            fill="#a6adc8"
+            style={{ fill: "var(--text-secondary)" }}
             fontSize={9}
             fontFamily="'JetBrains Mono', monospace"
           >
@@ -393,7 +395,7 @@ function Legend() {
   );
 }
 
-export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: FlowGraphProps) {
+export default function FlowGraph({ edges, files, onNodeClick, replayNodeId, scheme = "dark" }: FlowGraphProps) {
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
     () => buildGraph(edges, files),
     [edges, files],
@@ -528,14 +530,14 @@ export default function FlowGraph({ edges, files, onNodeClick, replayNodeId }: F
         elementsSelectable={true}
         panOnDrag={true}
         zoomOnScroll={true}
-        colorMode="dark"
+        colorMode={scheme}
       >
-        <Background color="#45475a" gap={16} size={1} />
+        <Background color="var(--bg-hover)" gap={16} size={1} />
         {initialNodes.length >= 15 && (
           <MiniMap
             nodeColor={(n) => ROLE_COLORS[(n.data as Record<string, unknown>).role as string] || "#6c7086"}
-            maskColor="rgba(30, 30, 46, 0.7)"
-            style={{ background: "#181825", border: "1px solid #45475a", width: 120, height: 80 }}
+            maskColor="rgba(var(--bg-primary-rgb), 0.7)"
+            style={{ background: "var(--bg-secondary)", border: "1px solid var(--bg-hover)", width: 120, height: 80 }}
           />
         )}
         <Controls showInteractive={false} />

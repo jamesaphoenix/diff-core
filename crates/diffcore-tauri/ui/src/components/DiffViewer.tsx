@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useImperativeHandle, forwardRef, useEffect } from "react";
 import { DiffEditor } from "@monaco-editor/react";
 import type { FileDiffContent, ReviewComment } from "../types";
+import { defineMonacoThemes, monacoThemeId } from "../themes";
 
 export interface DiffViewerHandle {
   /** Scroll the modified editor to a line range, select it, and briefly highlight it. */
@@ -17,10 +18,12 @@ interface DiffViewerProps {
   onGlyphClick?: (commentId: string) => void;
   /** Called when user triggers "Go To Definition" on a word — receives the word under cursor. */
   onGoToDefinition?: (word: string) => void;
+  /** Active app theme id — selects the matching Monaco theme. */
+  themeId: string;
 }
 
 /** Monaco-based side-by-side diff viewer for the center panel. */
-const DiffViewer = forwardRef<DiffViewerHandle, DiffViewerProps>(function DiffViewer({ fileDiff, onCommentRequest, codeComments, onGlyphClick, onGoToDefinition }, ref) {
+const DiffViewer = forwardRef<DiffViewerHandle, DiffViewerProps>(function DiffViewer({ fileDiff, onCommentRequest, codeComments, onGlyphClick, onGoToDefinition, themeId }, ref) {
   const [selectionRange, setSelectionRange] = useState<{ startLine: number; endLine: number } | null>(null);
   const [commentBtnPos, setCommentBtnPos] = useState<{ top: number; left: number } | null>(null);
   const editorRef = useRef<any>(null);
@@ -188,7 +191,7 @@ const DiffViewer = forwardRef<DiffViewerHandle, DiffViewerProps>(function DiffVi
         original={fileDiff.old_content || ""}
         modified={fileDiff.new_content || ""}
         language={monacoLang}
-        theme="diffcore-dark"
+        theme={monacoThemeId(themeId)}
         options={{
           readOnly: true,
           readOnlyMessage: { value: "" },
@@ -218,30 +221,7 @@ const DiffViewer = forwardRef<DiffViewerHandle, DiffViewerProps>(function DiffVi
           // can read editor selections (used by the `c` shortcut to anchor a
           // code-level comment to whatever the user has highlighted).
           (window as any).monaco = monaco;
-          // Define custom dark theme matching the app's Catppuccin palette
-          monaco.editor.defineTheme("diffcore-dark", {
-            base: "vs-dark",
-            inherit: true,
-            rules: [],
-            colors: {
-              "editor.background": "#1e1e2e",
-              "editor.foreground": "#cdd6f4",
-              "editorLineNumber.foreground": "#6c7086",
-              "editorLineNumber.activeForeground": "#a6adc8",
-              "editor.selectionBackground": "#45475a",
-              "editor.inactiveSelectionBackground": "#31324480",
-              "editorIndentGuide.background1": "#31324480",
-              "editorIndentGuide.activeBackground1": "#45475a",
-              "diffEditor.insertedTextBackground": "#a6e3a118",
-              "diffEditor.removedTextBackground": "#f38ba818",
-              "diffEditor.insertedLineBackground": "#a6e3a110",
-              "diffEditor.removedLineBackground": "#f38ba810",
-              "scrollbar.shadow": "#00000000",
-              "scrollbarSlider.background": "#45475a80",
-              "scrollbarSlider.hoverBackground": "#6c7086",
-              "scrollbarSlider.activeBackground": "#a6adc8",
-            },
-          });
+          defineMonacoThemes(monaco);
         }}
         onMount={handleEditorMount}
       />
