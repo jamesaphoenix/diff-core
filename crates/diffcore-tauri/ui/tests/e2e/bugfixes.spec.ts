@@ -127,8 +127,10 @@ test.describe("Bugfix — Keyboard shortcuts with Monaco focus", () => {
     // Replay bar should appear
     await expect(page.locator(".replay-bar")).toBeVisible();
 
-    // Exit replay
-    await page.keyboard.press("Escape");
+    // Exit replay — r toggles replay off. (Escape is deliberately passed
+    // through to Monaco while the editor has focus, so r is the keyboard
+    // exit path from Monaco focus.)
+    await page.keyboard.press("r");
     await page.waitForTimeout(300);
     await expect(page.locator(".replay-bar")).not.toBeVisible();
   });
@@ -153,6 +155,9 @@ test.describe("Bugfix — Flow graph fullscreen", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     await waitForAnalysis(page);
+    // The flow graph now lives under the Graph subtab in the right panel
+    await page.locator(".annotation-subtab", { hasText: "Graph" }).click();
+    await expect(page.locator("[data-testid='flow-graph']")).toBeVisible();
   });
 
   test("07 — fullscreen re-centers the graph (not stuck in top-left)", async ({ page }) => {

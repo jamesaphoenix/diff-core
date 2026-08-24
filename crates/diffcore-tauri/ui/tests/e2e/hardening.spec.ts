@@ -374,7 +374,8 @@ test.describe("Hardening — LLM Controls", () => {
     await expect(page.locator(".settings-panel h3").filter({ hasText: "Refinement" })).toBeVisible();
     await expect(page.locator(".settings-panel h3").filter({ hasText: "Exclude Paths" })).toBeVisible();
     await expect(page.locator(".settings-panel label").filter({ hasText: "Primary backend" })).toBeVisible();
-    await expect(page.locator(".settings-panel label").filter({ hasText: "Model" })).toBeVisible();
+    // Both AI Access and Refinement sections have a "Model" label now
+    await expect(page.locator(".settings-panel label").filter({ hasText: "Model" }).first()).toBeVisible();
   });
 
   test("23 — settings panel: API key configured (green indicator)", async ({ page }) => {
@@ -479,11 +480,13 @@ test.describe("Hardening — LLM Annotations", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    // Click summarize
+    // Click summarize — the right panel switches to the LLM activity stream
     await page.locator(".btn-summarize").click();
-    // Brief wait for mock delay
-    await page.waitForTimeout(1200);
-    await page.getByRole("tab", { name: "Annotations" }).click();
+    // Wait for the mock activity job to start and finish
+    await expect(page.locator(".annotation-section.llm-loading")).toBeVisible();
+    await expect(page.locator(".annotation-section.llm-loading")).toBeHidden({ timeout: 15_000 });
+    // Results render in the Info tab of the right panel
+    await page.getByRole("tab", { name: "Info" }).click();
 
     // Verify LLM overview rendered
     await expect(page.locator(".llm-summary").first()).toBeVisible();
@@ -504,10 +507,13 @@ test.describe("Hardening — LLM Annotations", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    // Click "Analyze This Flow"
+    // Click "Analyze This Flow" — the right panel switches to the activity stream
     await page.locator(".btn-analyze-flow").click();
-    await page.waitForTimeout(1000);
-    await page.getByRole("tab", { name: "Annotations" }).click();
+    // Wait for the mock activity job to start and finish
+    await expect(page.locator(".annotation-section.llm-loading")).toBeVisible();
+    await expect(page.locator(".annotation-section.llm-loading")).toBeHidden({ timeout: 15_000 });
+    // Results render in the Info tab of the right panel
+    await page.getByRole("tab", { name: "Info" }).click();
 
     // Verify deep analysis rendered
     await expect(page.locator(".llm-narrative")).toBeVisible();

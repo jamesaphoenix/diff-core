@@ -110,10 +110,6 @@ test.describe("Gutter Comment Icons", () => {
 
     console.log("Comments after add:", JSON.stringify(info));
     expect(info.total).toBeGreaterThanOrEqual(1);
-
-    // Check for comment strip
-    const stripVisible = await page.locator(".comment-strip").isVisible();
-    console.log("Comment strip visible:", stripVisible);
   });
 
   test("04 — glyph icon appears in editor after code comment added", async ({ page }) => {
@@ -175,7 +171,7 @@ test.describe("Gutter Comment Icons", () => {
     expect(highlights).toBe(4);
   });
 
-  test("08 — glyph click activates comment in strip and scrolls it into view", async ({ page }) => {
+  test("08 — glyph click activates comment in comments tab and scrolls it into view", async ({ page }) => {
     // Add two comments so we can verify the right one gets activated
     await addCodeCommentViaUI(page, "First comment on lines 5-8");
 
@@ -203,24 +199,24 @@ test.describe("Gutter Comment Icons", () => {
     const glyphs = await page.locator(".comment-glyph-icon").count();
     expect(glyphs).toBe(2);
 
-    // Comment strip should show 2 items
-    const items = await page.locator(".comment-strip-item").count();
-    expect(items).toBe(2);
+    // Comments tab should show 2 cards
+    await page.getByTestId("comments-tab").click();
+    await page.waitForTimeout(300);
+    expect(await page.locator(".comments-tab-card").count()).toBe(2);
 
     // Click the first glyph icon
     const firstGlyph = page.locator(".comment-glyph-icon").first();
     await firstGlyph.click();
     await page.waitForTimeout(500);
 
-    // The first comment card should be highlighted as active
-    const activeItems = page.locator(".comment-strip-item-active");
+    // Glyph click activates the comments tab and highlights the matching card
+    await expect(page.getByTestId("comments-tab")).toHaveAttribute("aria-selected", "true");
+    const activeItems = page.locator(".comments-tab-card-active");
     expect(await activeItems.count()).toBe(1);
-
-    // The comments strip should be expanded (not collapsed)
-    await expect(page.locator(".comment-strip")).not.toHaveClass(/comment-strip-collapsed/);
+    await expect(activeItems.first()).toContainText("First comment on lines 5-8");
 
     // Take screenshot for verification
-    await page.locator(".panel-center").screenshot({
+    await page.screenshot({
       path: path.join(SCREENSHOTS_DIR, "87-glyph-click-activates-comment.png"),
     });
   });

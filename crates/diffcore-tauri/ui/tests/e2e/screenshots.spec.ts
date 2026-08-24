@@ -58,17 +58,21 @@ test.describe("Screenshots", () => {
     });
   });
 
-  test("62 — comment strip close-up", async ({ page }) => {
+  test("62 — comments tab close-up", async ({ page }) => {
     await page.goto("/");
     await waitForAnalysis(page);
 
     await addCommentViaUI(page, "Potential SQL injection here — use parameterized queries");
     await page.waitForTimeout(500);
 
-    const strip = page.locator(".comment-strip");
-    await expect(strip).toBeVisible();
-    await strip.screenshot({
-      path: path.join(SCREENSHOTS_DIR, "62-comment-strip-closeup.png"),
+    await page.getByTestId("comments-tab").click();
+    await page.waitForTimeout(300);
+
+    const tab = page.locator(".comments-tab");
+    await expect(tab).toBeVisible();
+    await expect(tab.locator(".comments-tab-card")).toHaveCount(1);
+    await tab.screenshot({
+      path: path.join(SCREENSHOTS_DIR, "62-comments-tab-closeup.png"),
     });
   });
 
