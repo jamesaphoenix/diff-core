@@ -27,3 +27,7 @@ proptest-regressions/
 loop.sh
 .fastembed_cache/
 .claude/scheduled_tasks.lock
+
+# Nix build output
+/result
+/result-*
