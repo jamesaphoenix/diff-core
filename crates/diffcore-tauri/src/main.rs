@@ -11,6 +11,7 @@
 
 mod activity_stream;
 mod commands;
+mod runtime;
 
 use commands::AppState;
 
