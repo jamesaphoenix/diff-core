@@ -1,6 +1,6 @@
 //! Tauri IPC commands — bridge between the React frontend and diffcore-core.
 //!
-//! Each `#[tauri::command]` function is callable from the frontend via `invoke()`.
+//! Each `#[cfg_attr(feature = "desktop", tauri::command)]` function is callable from the frontend via `invoke()`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -8,8 +8,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use log::warn;
-use tauri::async_runtime::JoinHandle;
+use tokio::task::JoinHandle;
+#[cfg(feature = "desktop")]
 use tauri::Emitter;
+#[cfg(feature = "desktop")]
+use tauri::State;
+#[cfg(not(feature = "desktop"))]
+use crate::state_shim::State;
 
 use crate::activity_stream::{self, ActivityEntry, JobHandle};
 use diffcore_core::cache;
@@ -111,7 +116,7 @@ impl AppState {
         let job_model = model.clone();
         let job_title = title.clone();
 
-        let handle = tauri::async_runtime::block_on(async move {
+        let handle = crate::runtime::background().block_on(async move {
             manager
                 .create_job(job_operation, job_provider, job_model, job_title)
                 .await
@@ -159,7 +164,7 @@ impl serde::Serialize for CommandError {
 /// This is the primary IPC command — equivalent to `diffcore analyze` in the CLI.
 /// When `pr_preview` is true, uses merge-base diff (shows what the branch introduces
 /// relative to where it diverged from the base).
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn analyze(
     repo_path: String,
     base: Option<String>,
@@ -169,7 +174,7 @@ pub fn analyze(
     unstaged: bool,
     pr_preview: Option<bool>,
     include_uncommitted: Option<bool>,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<AnalysisOutput, CommandError> {
     let repo_path = PathBuf::from(&repo_path);
     let repo_path = std::fs::canonicalize(&repo_path)
@@ -340,9 +345,9 @@ pub fn analyze(
 }
 
 /// Get the most recent analysis result without re-running.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn get_last_analysis(
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Option<AnalysisOutput>, CommandError> {
     let last = state
         .last_analysis
@@ -352,10 +357,10 @@ pub fn get_last_analysis(
 }
 
 /// Generate a Mermaid diagram for a specific group by ID.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn get_mermaid(
     group_id: String,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<String, CommandError> {
     let last = state
         .last_analysis
@@ -379,7 +384,7 @@ pub fn get_mermaid(
 /// Returns the raw old and new content for the Monaco diff viewer.
 /// Uses the cached DiffResult from the last `analyze()` call when parameters match,
 /// avoiding redundant git diff extraction for every file navigation.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn get_file_diff(
     repo_path: String,
     file_path: String,
@@ -389,7 +394,7 @@ pub fn get_file_diff(
     staged: bool,
     unstaged: bool,
     include_uncommitted: Option<bool>,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<FileDiffContent, CommandError> {
     // Try to use cached diff from the last analyze() call
     let cached_file = {
@@ -473,7 +478,7 @@ pub fn get_file_diff_uncached(
 }
 
 fn load_cached_analysis(
-    state: &tauri::State<'_, AppState>,
+    state: &State<'_, AppState>,
 ) -> Result<AnalysisOutput, CommandError> {
     let last = state
         .last_analysis
@@ -592,7 +597,7 @@ fn make_activity_callback(
 ) -> Arc<dyn Fn(llm::ActivityUpdate) + Send + Sync + 'static> {
     Arc::new(move |update| {
         let job = job.clone();
-        tauri::async_runtime::spawn(async move {
+        crate::runtime::background().spawn(async move {
             job.emit(ActivityEntry {
                 source: update.source,
                 level: update.level,
@@ -848,12 +853,12 @@ async fn run_refinement_with_activity(
     })
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn start_annotate_overview(
     repo_path: Option<String>,
     llm_provider: Option<String>,
     llm_model: Option<String>,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<AsyncLlmJobStart, CommandError> {
     let analysis = load_cached_analysis(&state)?;
     let (mut config, workdir) = load_config_from_path(repo_path.as_deref());
@@ -878,7 +883,7 @@ pub fn start_annotate_overview(
         state.create_llm_job("overview", &provider_name, &model_name, "Summarizing PR")?;
     let llm_config = config.llm.clone();
 
-    tauri::async_runtime::spawn(async move {
+    crate::runtime::background().spawn(async move {
         match run_overview_with_activity(analysis, llm_config, workdir, job.clone()).await {
             Ok(response) => match serde_json::to_value(&response) {
                 Ok(value) => job.complete("overview", value).await,
@@ -894,7 +899,7 @@ pub fn start_annotate_overview(
     Ok(start)
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn start_annotate_group(
     group_id: String,
     repo_path: String,
@@ -906,7 +911,7 @@ pub fn start_annotate_group(
     include_uncommitted: Option<bool>,
     llm_provider: Option<String>,
     llm_model: Option<String>,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<AsyncLlmJobStart, CommandError> {
     let analysis = load_cached_analysis(&state)?;
     let request = build_pass2_request(
@@ -938,7 +943,7 @@ pub fn start_annotate_group(
     )?;
     let llm_config = config.llm.clone();
 
-    tauri::async_runtime::spawn(async move {
+    crate::runtime::background().spawn(async move {
         match run_group_with_activity(request, llm_config, workdir, job.clone()).await {
             Ok(response) => match serde_json::to_value(&response) {
                 Ok(value) => job.complete("group", value).await,
@@ -954,12 +959,12 @@ pub fn start_annotate_group(
     Ok(start)
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn start_refine_groups(
     repo_path: Option<String>,
     llm_provider: Option<String>,
     llm_model: Option<String>,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<AsyncLlmJobStart, CommandError> {
     let analysis = load_cached_analysis(&state)?;
     let (mut config, workdir) = load_config_from_path(repo_path.as_deref());
@@ -1014,7 +1019,7 @@ pub fn start_refine_groups(
     let job_id = start.job_id.clone();
     let job_id_for_cleanup = job_id.clone();
     let jobs_for_cleanup = Arc::clone(&state.refinement_jobs);
-    let handle = tauri::async_runtime::spawn(async move {
+    let handle = crate::runtime::background().spawn(async move {
         match run_refinement_with_activity(analysis, refinement_llm_config, workdir, job.clone())
             .await
         {
@@ -1047,10 +1052,10 @@ pub fn start_refine_groups(
 /// Aborts the spawned task, dropping any in-flight HTTP request to the LLM
 /// provider, and emits a failure event on the job stream so the frontend's
 /// `EventSource` terminates cleanly.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn cancel_refine_groups(
     job_id: String,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<bool, CommandError> {
     let handle = {
         let mut map = state
@@ -1074,12 +1079,12 @@ pub async fn cancel_refine_groups(
 /// Returns structured overview with per-group summaries, risk flags,
 /// and suggested review order. The result is also stored in the cached
 /// analysis output's `annotations` field.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn annotate_overview(
     repo_path: Option<String>,
     llm_provider: Option<String>,
     llm_model: Option<String>,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Pass1Response, CommandError> {
     // Get the cached analysis to build the request
     let analysis = {
@@ -1167,7 +1172,7 @@ pub async fn annotate_overview(
 /// Run LLM Pass 2 (deep analysis) on a specific group.
 ///
 /// Returns per-file annotations, flow narrative, and cross-cutting concerns.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn annotate_group(
     group_id: String,
     repo_path: String,
@@ -1179,7 +1184,7 @@ pub async fn annotate_group(
     include_uncommitted: Option<bool>,
     llm_provider: Option<String>,
     llm_model: Option<String>,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Pass2Response, CommandError> {
     // Get the cached analysis to find the group
     let analysis = {
@@ -1280,12 +1285,12 @@ pub async fn annotate_group(
 ///
 /// Falls back to returning the original groups if refinement produces no changes
 /// or validation fails.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn refine_groups(
     repo_path: Option<String>,
     llm_provider: Option<String>,
     llm_model: Option<String>,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<RefinementResult, CommandError> {
     // Get the cached analysis
     let analysis = {
@@ -1445,10 +1450,10 @@ pub struct RefinementResult {
 ///
 /// Tries two keys: (1) diff-hash key (exact match), (2) branch-based key (same branch
 /// across worktrees, even with different uncommitted changes).
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn get_cached_refinement(
     repo_path: Option<String>,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Option<RefinementResult>, CommandError> {
     // Try diff-hash key first (exact content match)
     let diff_key = state.last_cache_key.lock().ok().and_then(|k| k.clone());
@@ -1478,11 +1483,11 @@ pub fn get_cached_refinement(
 /// Store a refinement result in the global cache (~/.diffcore/cache/refinements/).
 ///
 /// Stores under both diff-hash key and branch-based key for cross-worktree access.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn store_refinement_cache(
     result: RefinementResult,
     repo_path: Option<String>,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), CommandError> {
     let json = match serde_json::to_string(&result) {
         Ok(j) => j,
@@ -1522,21 +1527,21 @@ pub struct AsyncLlmJobStart {
 /// List all local branches in the repository.
 ///
 /// Returns branches sorted with current branch first, then alphabetically.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn list_branches(repo_path: String) -> Result<Vec<git::BranchInfo>, CommandError> {
     let repo = open_repo(&repo_path)?;
     git::list_branches(&repo).map_err(|e| CommandError::Git(format!("{}", e)))
 }
 
 /// List all git worktrees for the repository.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn list_worktrees(repo_path: String) -> Result<Vec<git::WorktreeInfo>, CommandError> {
     let repo = open_repo(&repo_path)?;
     git::list_worktrees(&repo).map_err(|e| CommandError::Git(format!("{}", e)))
 }
 
 /// Get the current branch's tracking status (ahead/behind upstream).
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn get_branch_status(repo_path: String) -> Result<git::BranchStatus, CommandError> {
     let repo = open_repo(&repo_path)?;
     git::get_branch_status(&repo).map_err(|e| CommandError::Git(format!("{}", e)))
@@ -1545,7 +1550,7 @@ pub fn get_branch_status(repo_path: String) -> Result<git::BranchStatus, Command
 /// Auto-detect the default branch and current branch for a repository.
 ///
 /// Returns a summary useful for the UI to set up initial state.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn get_repo_info(repo_path: String) -> Result<RepoInfo, CommandError> {
     let repo = open_repo(&repo_path)?;
 
@@ -1569,7 +1574,7 @@ pub fn get_repo_info(repo_path: String) -> Result<RepoInfo, CommandError> {
 /// Check whether LLM access is configured and available.
 ///
 /// This includes API-key-based providers plus subscription-backed Codex/Claude CLIs.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn check_api_key(repo_path: Option<String>) -> Result<bool, CommandError> {
     Ok(get_llm_settings(repo_path)?.has_api_key)
 }
@@ -1578,7 +1583,7 @@ pub fn check_api_key(repo_path: Option<String>) -> Result<bool, CommandError> {
 ///
 /// Reads `~/.diffcore/config.toml`, merges in any repo-local `[llm]` overrides, resolves
 /// CLI/API availability, and returns a unified `LlmSettings` struct for the settings panel.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, CommandError> {
     let (config, workdir) = load_config_from_path(repo_path.as_deref());
     let codex_status = llm::codex_cli::detect_status();
@@ -1674,7 +1679,7 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
 ///
 /// Loads the existing global config, updates the `[llm]` section with the provided
 /// settings, and writes back to `~/.diffcore/config.toml`.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn save_llm_settings(_repo_path: String, settings: LlmSettings) -> Result<(), CommandError> {
     let mut config =
         DiffcoreConfig::load_global().map_err(|e| CommandError::Config(format!("{}", e)))?;
@@ -1703,7 +1708,7 @@ pub fn save_llm_settings(_repo_path: String, settings: LlmSettings) -> Result<()
 ///
 /// The key is stored directly in the config file. Precedence is maintained:
 /// `key_cmd` > `key` (config) > env vars.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn save_api_key(_repo_path: String, api_key: String) -> Result<(), CommandError> {
     let mut config =
         DiffcoreConfig::load_global().map_err(|e| CommandError::Config(format!("{}", e)))?;
@@ -1718,7 +1723,7 @@ pub fn save_api_key(_repo_path: String, api_key: String) -> Result<(), CommandEr
 }
 
 /// Remove the stored API key from `~/.diffcore/config.toml`.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn clear_api_key(_repo_path: String) -> Result<(), CommandError> {
     let mut config =
         DiffcoreConfig::load_global().map_err(|e| CommandError::Config(format!("{}", e)))?;
@@ -1733,7 +1738,7 @@ pub fn clear_api_key(_repo_path: String) -> Result<(), CommandError> {
 }
 
 /// Get the current ignore paths from `.diffcore.toml`.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn get_ignore_paths(repo_path: Option<String>) -> Result<Vec<String>, CommandError> {
     let (config, _workdir) = load_config_from_path(repo_path.as_deref());
     Ok(config.ignore.paths)
@@ -1743,7 +1748,7 @@ pub fn get_ignore_paths(repo_path: Option<String>) -> Result<Vec<String>, Comman
 ///
 /// Loads the existing config (preserving other sections), updates the ignore
 /// paths, and writes back.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn save_ignore_paths(repo_path: String, paths: Vec<String>) -> Result<(), CommandError> {
     let repo_path_buf = PathBuf::from(&repo_path);
     let repo_path_buf = std::fs::canonicalize(&repo_path_buf)
@@ -1797,7 +1802,7 @@ fn macos_app_exists(app_name: &str) -> bool {
 ///
 /// On macOS, uses `open -a "App Name"` for GUI editors (works without PATH).
 /// Falls back to CLI binary for non-macOS or terminal-based editors.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandError> {
     let path = PathBuf::from(&file_path);
     if !path.exists() {
@@ -1930,7 +1935,7 @@ pub fn open_in_editor(editor: String, file_path: String) -> Result<(), CommandEr
 ///
 /// On macOS, checks for .app bundles in /Applications (works without PATH).
 /// On other platforms, uses `which`/`where` to find CLI binaries.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn check_editors_available() -> std::collections::HashMap<String, bool> {
     let mut result = std::collections::HashMap::new();
 
@@ -2339,7 +2344,7 @@ fn comments_file_path(repo_path: &str) -> Result<PathBuf, CommandError> {
 ///
 /// Creates the `.diffcore/` directory if it doesn't exist. Appends to existing
 /// comments if the analysis hash matches, otherwise starts fresh.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn save_comment(
     repo_path: String,
     analysis_hash: String,
@@ -2368,7 +2373,7 @@ pub fn save_comment(
 }
 
 /// Delete a comment by ID from `.diffcore/comments.json`.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn delete_comment(
     repo_path: String,
     analysis_hash: String,
@@ -2387,7 +2392,7 @@ pub fn delete_comment(
 }
 
 /// Load all comments for a given analysis hash from `.diffcore/comments.json`.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn load_comments(
     repo_path: String,
     analysis_hash: String,
@@ -2401,7 +2406,7 @@ pub fn load_comments(
 ///
 /// Includes absolute file paths, code snippets for code-level comments,
 /// and group context.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn export_comments(repo_path: String, analysis_hash: String) -> Result<String, CommandError> {
     let path = comments_file_path(&repo_path)?;
     let comments_file = load_comments_from_file(&path, &analysis_hash);
@@ -2588,7 +2593,7 @@ fn write_cached_comments_file(
 }
 
 /// Save a comment to the branch-based cache.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn save_comment_cached(
     repo_path: String,
     comment: ReviewComment,
@@ -2600,7 +2605,7 @@ pub fn save_comment_cached(
 }
 
 /// Load all comments for the current repo+branch from the cache.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn load_comments_cached(repo_path: String) -> Result<Vec<ReviewComment>, CommandError> {
     let key = comment_cache_key(&repo_path)?;
     let file = load_cached_comments_file(&key);
@@ -2608,7 +2613,7 @@ pub fn load_comments_cached(repo_path: String) -> Result<Vec<ReviewComment>, Com
 }
 
 /// Delete a comment by ID from the branch-based cache.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn delete_comment_cached(
     repo_path: String,
     comment_id: String,
@@ -2620,7 +2625,7 @@ pub fn delete_comment_cached(
 }
 
 /// Update a comment's text by ID in the branch-based cache.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn update_comment_cached(
     repo_path: String,
     comment_id: String,
@@ -2641,10 +2646,10 @@ pub fn update_comment_cached(
 /// Import a groups manifest JSON and apply it to the current analysis.
 ///
 /// Returns the updated `AnalysisOutput` with groups replaced by the manifest.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn import_groups_manifest(
     manifest_path: String,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<AnalysisOutput, CommandError> {
     use diffcore_core::manifest;
 
@@ -2669,10 +2674,10 @@ pub fn import_groups_manifest(
 }
 
 /// Export the current analysis groups as a manifest JSON file.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn export_groups_manifest(
     output_path: String,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), CommandError> {
     use diffcore_core::manifest;
 
@@ -2692,11 +2697,12 @@ pub fn export_groups_manifest(
 
 /// Start watching a manifest file for changes. Emits "manifest-changed" events
 /// to the frontend when the file is modified.
-#[tauri::command]
+#[cfg(feature = "desktop")]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn watch_manifest(
     manifest_path: String,
     app_handle: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), CommandError> {
     // Store the path for the watcher
     if let Ok(mut path) = state.watched_manifest_path.lock() {
@@ -2729,9 +2735,9 @@ pub fn watch_manifest(
 }
 
 /// Stop watching the manifest file.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn unwatch_manifest(
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), CommandError> {
     if let Ok(mut path) = state.watched_manifest_path.lock() {
         *path = None;
@@ -2742,11 +2748,12 @@ pub fn unwatch_manifest(
 /// Start watching a repo's HEAD for external changes (e.g. `git pull`, `checkout`, `merge`
 /// run outside the app). Emits a "git-head-changed" event to the frontend when the resolved
 /// HEAD commit OID or branch name differs from the last observed value.
-#[tauri::command]
+#[cfg(feature = "desktop")]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn watch_git_head(
     repo_path: String,
     app_handle: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), CommandError> {
     // Bump the generation counter so any previously running watcher thread exits.
     let generation = state.git_head_watch_generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -2783,8 +2790,8 @@ pub fn watch_git_head(
 }
 
 /// Stop watching the currently watched repo's HEAD.
-#[tauri::command]
-pub fn unwatch_git_head(state: tauri::State<'_, AppState>) -> Result<(), CommandError> {
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub fn unwatch_git_head(state: State<'_, AppState>) -> Result<(), CommandError> {
     state.git_head_watch_generation.fetch_add(1, Ordering::SeqCst);
     Ok(())
 }

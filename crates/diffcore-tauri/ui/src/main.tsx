@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
 import App from "./App";
+import { initBackend } from "./backend";
 import "./styles.css";
 import { applyTheme, loadThemePrefs, resolveThemeId } from "./themes";
 
@@ -13,8 +14,10 @@ applyTheme(resolveThemeId(loadThemePrefs(), window.matchMedia("(prefers-color-sc
 // where CSP blocks external network requests)
 loader.config({ monaco });
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+initBackend().then(() => {
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+});

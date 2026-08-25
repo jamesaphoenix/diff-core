@@ -6,18 +6,40 @@ edition.workspace = true
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+default = ["desktop"]
+desktop = [
+  "dep:tauri",
+  "dep:tauri-plugin-shell",
+  "dep:tauri-plugin-updater",
+  "dep:tauri-plugin-process",
+]
+web = ["tower-http/fs", "dep:env_logger"]
+custom-protocol = ["desktop", "tauri/custom-protocol"]
+
+[[bin]]
+name = "diffcore-tauri"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "diffcore-web"
+path = "src/bin/web.rs"
+required-features = ["web"]
+
 [dependencies]
 diffcore-core = { path = "../diffcore-core" }
-tauri = { version = "2", features = [] }
-tauri-plugin-shell = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
+tauri = { version = "2", features = [], optional = true }
+tauri-plugin-shell = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 git2 = { version = "0.19", features = ["vendored-openssl"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "2"
 log = { workspace = true }
+env_logger = { version = "0.11", optional = true }
 axum = "0.7"
 async-stream = "0.3"
 tower-http = { version = "0.6", features = ["cors"] }
@@ -28,6 +50,8 @@ futures-core = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
 serde_json = { workspace = true }
 reqwest = "0.12"
 
