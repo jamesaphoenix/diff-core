@@ -27,6 +27,7 @@ import SourceExplorer, { type SourceFocusRequest } from "./components/SourceExpl
 // import RiskHeatmap from "./components/RiskHeatmap";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { buildManifestPrompt } from "./buildManifestPrompt";
+import { THEMES, applyTheme, getTheme, loadThemePrefs, saveThemePrefs, resolveThemeId, type ThemeMode, type ThemePrefs } from "./themes";
 import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT } from "./mock";
 
 /** Detect if running inside Tauri (vs plain browser for demo/testing). */
@@ -160,6 +161,32 @@ export default function App() {
 
   // Diff behavior
   const [includeUncommitted, setIncludeUncommitted] = useState(true);
+
+  // Appearance
+  const [themePrefs, setThemePrefs] = useState<ThemePrefs>(loadThemePrefs);
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
+  const activeThemeId = resolveThemeId(themePrefs, systemDark);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    applyTheme(activeThemeId);
+  }, [activeThemeId]);
+
+  const updateThemePrefs = useCallback((patch: Partial<ThemePrefs>) => {
+    setThemePrefs((prev) => {
+      const next = { ...prev, ...patch };
+      saveThemePrefs(next);
+      return next;
+    });
+  }, []);
 
   // LLM settings
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
@@ -1987,10 +2014,10 @@ export default function App() {
 
   const editorIcons: Record<EditorId, string> = {
     vscode: `<svg width="16" height="16" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg"><path d="M180.3 4.5l-56 43.2L59 4.2a8.3 8.3 0 0 0-10.2 1.5L5.1 47.4a8 8 0 0 0 0 11.2L44 96l-39 37.4a8 8 0 0 0 0 11.2l43.7 41.7a8.3 8.3 0 0 0 10.2 1.5l65.3-43.5 56 43.2a12.2 12.2 0 0 0 7 2.5c2 0 4-.5 5.8-1.6l47.5-23a12 12 0 0 0 6.5-10.6V33.2c0-4.4-2.5-8.5-6.5-10.6L193.1 0c-4-2-8.8-1.3-12.8 2.5v2zM192 52.8v150.4L123 128z" fill="#007ACC"/></svg>`,
-    cursor: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1l6.5 14L10 9l6-2.5z" stroke="#cdd6f4" stroke-width="1.5" stroke-linejoin="round" fill="none"/><path d="M10 9l4.5 4.5" stroke="#cdd6f4" stroke-width="1.5" stroke-linecap="round"/></svg>`,
-    zed: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 3h12L2 13h12" stroke="#cdd6f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    cursor: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1l6.5 14L10 9l6-2.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/><path d="M10 9l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    zed: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 3h12L2 13h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
     vim: `<svg width="16" height="16" viewBox="0 0 544 544" xmlns="http://www.w3.org/2000/svg"><polygon points="272,16 16,272 144,272 272,144 272,272 400,272 528,272 272,16" fill="#019833"/><polygon points="272,528 528,272 400,272 272,400 272,272 144,272 16,272 272,528" fill="#33cc33"/></svg>`,
-    terminal: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="2" width="14" height="12" rx="2" stroke="#cdd6f4" stroke-width="1.2"/><path d="M4 6l2.5 2L4 10" stroke="#a6e3a1" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 10H12" stroke="#6c7086" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+    terminal: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M4 6l2.5 2L4 10" stroke="#a6e3a1" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 10H12" stroke="#6c7086" stroke-width="1.2" stroke-linecap="round"/></svg>`,
   };
 
   const allEditorOptions: { id: EditorId; label: string }[] = [
@@ -2512,6 +2539,7 @@ export default function App() {
             <FlowGraph
               edges={selectedGroup.edges}
               files={selectedGroup.files}
+              scheme={getTheme(activeThemeId).scheme}
               onNodeClick={handleGraphNodeClick}
               replayNodeId={replayActive && selectedGroup.files[replayStep] ? selectedGroup.files[replayStep].path : null}
             />
@@ -3269,6 +3297,55 @@ export default function App() {
               </button>
             </div>
             <div className="settings-body">
+              {/* Appearance */}
+              <div className="settings-section">
+                <h3>Appearance</h3>
+                <div className="settings-row">
+                  <label>Mode</label>
+                </div>
+                <div className="theme-mode-toggle">
+                  {(["light", "dark", "system"] as ThemeMode[]).map((m) => (
+                    <button
+                      key={m}
+                      className={themePrefs.mode === m ? "active" : ""}
+                      onClick={() => updateThemePrefs({ mode: m })}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+                <div className="settings-row" style={{ marginTop: 12 }}>
+                  <label>Dark theme</label>
+                </div>
+                <select
+                  className="settings-select"
+                  value={themePrefs.dark}
+                  onChange={(e) => updateThemePrefs({ dark: e.target.value })}
+                >
+                  {THEMES.filter((t) => t.scheme === "dark").map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="settings-row" style={{ marginTop: 12 }}>
+                  <label>Light theme</label>
+                </div>
+                <select
+                  className="settings-select"
+                  value={themePrefs.light}
+                  onChange={(e) => updateThemePrefs({ light: e.target.value })}
+                >
+                  {THEMES.filter((t) => t.scheme === "light").map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="settings-hint">
+                  System follows your OS color scheme, switching between the dark and light themes above.
+                </p>
+              </div>
               {/* Diff Behavior */}
               <div className="settings-section">
                 <h3>Diff Behavior</h3>
@@ -4106,6 +4183,7 @@ export default function App() {
               <CrashTest panel="Diff Viewer" />
               <DiffViewer
                 ref={diffViewerRef}
+                themeId={activeThemeId}
                 fileDiff={fileDiff}
                 onCommentRequest={(startLine: number, endLine: number, selectedCode: string) => {
                   const group = selectedGroupRef.current;

@@ -186,7 +186,7 @@ export default function RiskHeatmap({ groups, selectedGroupId, onSelectGroup }: 
                 rx={3}
                 fill={color}
                 fillOpacity={isSelected ? 0.45 : isHovered ? 0.35 : 0.25}
-                stroke={isSelected ? "#cdd6f4" : isHovered ? color : "transparent"}
+                style={{ stroke: isSelected ? "var(--text-primary)" : isHovered ? color : "transparent" }}
                 strokeWidth={isSelected ? 2 : 1.5}
               />
               {/* Group name */}
@@ -197,7 +197,6 @@ export default function RiskHeatmap({ groups, selectedGroupId, onSelectGroup }: 
                   textAnchor="middle"
                   dominantBaseline="middle"
                   className="heatmap-label"
-                  fill="#cdd6f4"
                 >
                   {truncateName(rect.group.name, Math.floor(rect.w / 6))}
                 </text>
