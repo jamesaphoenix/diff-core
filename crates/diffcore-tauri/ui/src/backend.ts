@@ -23,7 +23,7 @@ export async function initBackend(): Promise<void> {
       }
     }
   } catch {
-    // No server — demo mode with mock data.
+    // No server: demo mode with mock data.
   }
 }
 

@@ -42,7 +42,7 @@ struct ServerState {
 ///
 /// `allowed_hosts` guards against DNS rebinding and cross-origin requests:
 /// requests with a Host or Origin header naming a host outside the set are
-/// rejected. Headerless clients (curl, tests) pass — the guard targets
+/// rejected. Headerless clients (curl, tests) pass. The guard targets
 /// browsers, which always send both.
 pub fn router(
     ui_dir: &std::path::Path,
@@ -158,8 +158,7 @@ fn req<T: DeserializeOwned>(args: &mut Args, key: &str) -> Result<T, InvokeError
     let value = args
         .remove(key)
         .ok_or_else(|| bad_args(format!("missing argument: {key}")))?;
-    serde_json::from_value(value)
-        .map_err(|e| bad_args(format!("invalid argument {key}: {e}")))
+    serde_json::from_value(value).map_err(|e| bad_args(format!("invalid argument {key}: {e}")))
 }
 
 /// Optional / defaultable argument: absent or null becomes `T::default()`.
@@ -172,8 +171,7 @@ fn opt<T: DeserializeOwned + Default>(args: &mut Args, key: &str) -> Result<T, I
 }
 
 fn ok<T: serde::Serialize>(value: T) -> Result<Value, InvokeError> {
-    serde_json::to_value(value)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(value).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke(
@@ -193,8 +191,7 @@ async fn invoke(
     match cmd.as_str() {
         "cancel_refine_groups" => {
             let job_id = req(&mut args, "jobId")?;
-            return ok(commands::cancel_refine_groups(job_id, State(&state.app)).await?)
-                .map(Json);
+            return ok(commands::cancel_refine_groups(job_id, State(&state.app)).await?).map(Json);
         }
         "annotate_overview" => {
             let (a, b, c) = llm_args(&mut args)?;
@@ -231,7 +228,12 @@ async fn invoke(
     // the blocking pool.
     let result = tokio::task::spawn_blocking(move || dispatch_sync(&cmd, &mut args, &state.app))
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("task join error: {e}")))??;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("task join error: {e}"),
+            )
+        })??;
     Ok(Json(result))
 }
 
@@ -402,9 +404,9 @@ fn dispatch_sync(cmd: &str, args: &mut Args, app: &AppState) -> Result<Value, In
         "watch_manifest" | "watch_git_head" => Err(unsupported(
             "file watching is desktop-only; refresh manually in web mode",
         )),
-        "open_in_editor" | "check_editors_available" => Err(unsupported(
-            "editor integration is desktop-only",
-        )),
+        "open_in_editor" | "check_editors_available" => {
+            Err(unsupported("editor integration is desktop-only"))
+        }
         _ => Err(unsupported("unknown command")),
     }
 }

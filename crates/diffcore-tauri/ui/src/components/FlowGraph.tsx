@@ -26,7 +26,7 @@ interface FlowGraphProps {
   onNodeClick?: (filePath: string) => void;
   /** File path of the node to highlight during flow replay. */
   replayNodeId?: string | null;
-  /** Active theme scheme — drives ReactFlow chrome (controls, minimap mask). */
+  /** Active theme scheme drives ReactFlow chrome (controls, minimap mask). */
   scheme?: "light" | "dark";
 }
 

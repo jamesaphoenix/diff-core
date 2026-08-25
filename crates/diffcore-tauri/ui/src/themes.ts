@@ -1,4 +1,4 @@
-/** Theme registry — single source of truth for app CSS variables and Monaco themes. */
+/** Theme registry: single source of truth for app CSS variables and Monaco themes. */
 
 export interface ThemeColors {
   bgPrimary: string;

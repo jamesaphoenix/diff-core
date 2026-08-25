@@ -1,4 +1,4 @@
-/* diffcore — three-panel layout.
+/* diffcore: three-panel layout.
    Theme tokens default to Catppuccin Mocha; themes.ts overrides them at runtime. */
 
 :root {

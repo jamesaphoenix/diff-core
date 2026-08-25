@@ -29,7 +29,8 @@ fn test_repo() -> tempfile::TempDir {
     index.write().unwrap();
     let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
     let sig = git2::Signature::now("test", "test@localhost").unwrap();
-    repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[]).unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+        .unwrap();
     dir
 }
 
@@ -73,7 +74,10 @@ async fn invoke_get_repo_info_roundtrip() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = body_json(response).await;
-    assert!(body["current_branch"].is_string(), "unexpected body: {body}");
+    assert!(
+        body["current_branch"].is_string(),
+        "unexpected body: {body}"
+    );
 }
 
 #[tokio::test]
@@ -105,7 +109,11 @@ async fn invoke_missing_arg_maps_to_400() {
 async fn unknown_and_desktop_only_commands_map_to_501() {
     let ui = ui_dir();
     let router = test_router(ui.path(), None);
-    for cmd in ["definitely_not_a_command", "watch_git_head", "open_in_editor"] {
+    for cmd in [
+        "definitely_not_a_command",
+        "watch_git_head",
+        "open_in_editor",
+    ] {
         let response = router
             .clone()
             .oneshot(invoke_request(cmd, json!({ "repoPath": "x" })))
@@ -133,7 +141,10 @@ async fn spa_fallback_serves_index() {
 async fn foreign_host_or_origin_is_rejected() {
     let ui = ui_dir();
     let router = test_router(ui.path(), None);
-    for (name, value) in [("host", "evil.example:4400"), ("origin", "http://evil.example")] {
+    for (name, value) in [
+        ("host", "evil.example:4400"),
+        ("origin", "http://evil.example"),
+    ] {
         let request = Request::get("/api/health")
             .header(name, value)
             .body(Body::empty())

@@ -18,7 +18,7 @@ interface DiffViewerProps {
   onGlyphClick?: (commentId: string) => void;
   /** Called when user triggers "Go To Definition" on a word — receives the word under cursor. */
   onGoToDefinition?: (word: string) => void;
-  /** Active app theme id — selects the matching Monaco theme. */
+  /** Active app theme id selects the matching Monaco theme. */
   themeId: string;
 }
 

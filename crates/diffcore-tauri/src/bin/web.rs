@@ -1,4 +1,4 @@
-//! diffcore-web — headless server hosting the diffcore UI in a browser.
+//! diffcore-web: headless server hosting the diffcore UI in a browser.
 //!
 //! Binds 127.0.0.1 by default; there is no auth. For remote use, reach it
 //! through an SSH tunnel or a reverse proxy that provides auth.
@@ -43,7 +43,7 @@ fn parse_args() -> Result<WebOptions, String> {
     }
     if !opts.ui_dir.join("index.html").is_file() {
         return Err(format!(
-            "UI build not found at {} — run `npm --prefix crates/diffcore-tauri/ui run build` or pass --ui-dir",
+            "UI build not found at {}. Run `npm --prefix crates/diffcore-tauri/ui run build` or pass --ui-dir",
             opts.ui_dir.display()
         ));
     }
@@ -52,7 +52,10 @@ fn parse_args() -> Result<WebOptions, String> {
 
 /// Built UI in the nix store layout (`../share/diffcore/ui`) or the in-repo dist.
 fn default_ui_dir() -> PathBuf {
-    if let Some(exe_dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)) {
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(PathBuf::from))
+    {
         let store_ui = exe_dir.join("../share/diffcore/ui");
         if store_ui.join("index.html").is_file() {
             return store_ui;

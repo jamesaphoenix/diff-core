@@ -29,10 +29,10 @@ New pieces:
    axum.
 4. **`diffcore-web` binary** (`src/bin/web.rs` + `src/web_server.rs`): axum
    server with
-   - `POST /api/invoke/{cmd}` — JSON body = command args (camelCase keys,
+   - `POST /api/invoke/{cmd}`: JSON body = command args (camelCase keys,
      mirroring tauri IPC 1:1), dispatched by a hand-written match; sync commands
      run under `spawn_blocking`. Unknown/desktop-only commands → 501.
-   - `GET /api/health` — `{ "ok": true, "default_repo": <--repo flag> }`; the
+   - `GET /api/health`: `{ "ok": true, "default_repo": <--repo flag> }`; the
      UI probes this to enter web mode.
    - the existing SSE routes merged in (same origin; `activity_stream_base_url`
      is set to `""` so `stream_url` comes out relative).
@@ -77,7 +77,7 @@ ssh -L 4400:localhost:4400 server   # then open http://localhost:4400
 ```
 
 When binding non-loopback (`--host 0.0.0.0`) or fronting with a reverse proxy,
-pass each hostname/IP clients will use via `--allowed-host` — the Host/Origin
+pass each hostname/IP clients will use via `--allowed-host`. The Host/Origin
 guard rejects anything else with 403.
 
 ## Testing
