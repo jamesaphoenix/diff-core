@@ -70,7 +70,9 @@ rustPlatform.buildRustPackage {
     npm --prefix crates/diffcore-tauri/ui run build
   '';
 
-  # Desktop app + CLI (default features, production webview assets).
+  # Desktop app + CLI (production webview assets). The `web` feature is
+  # mutually exclusive with `desktop` upstream, so diffcore-web needs its
+  # own derivation.
   cargoBuildFlags = [
     "--features"
     "diffcore-tauri/custom-protocol"
