@@ -199,10 +199,9 @@ test.describe("Gutter Comment Icons", () => {
     const glyphs = await page.locator(".comment-glyph-icon").count();
     expect(glyphs).toBe(2);
 
-    // Comments tab should show 2 cards
-    await page.getByTestId("comments-tab").click();
-    await page.waitForTimeout(300);
-    expect(await page.locator(".comments-tab-card").count()).toBe(2);
+    // Comments tab badge should show 2 — checked without opening the tab, so the
+    // glyph-click activation assert below stays meaningful
+    await expect(page.getByTestId("comments-tab").locator(".panel-tab-count")).toHaveText("2");
 
     // Click the first glyph icon
     const firstGlyph = page.locator(".comment-glyph-icon").first();

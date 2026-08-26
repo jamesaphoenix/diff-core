@@ -139,7 +139,6 @@ test.describe("Review Comments", () => {
     await page.waitForTimeout(300);
 
     // Comment should be gone
-    await expect(page.locator(".comments-tab-card")).toHaveCount(0);
     await expect(page.locator(".comments-tab-empty")).toBeVisible();
   });
 

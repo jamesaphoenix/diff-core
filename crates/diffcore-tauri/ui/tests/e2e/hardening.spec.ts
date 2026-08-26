@@ -483,8 +483,8 @@ test.describe("Hardening — LLM Annotations", () => {
     // Click summarize — the right panel switches to the LLM activity stream
     await page.locator(".btn-summarize").click();
     // Wait for the mock activity job to start and finish
-    await expect(page.locator(".annotation-section.llm-loading")).toBeVisible();
-    await expect(page.locator(".annotation-section.llm-loading")).toBeHidden({ timeout: 15_000 });
+    await expect(page.locator(".annotation-section.llm-loading:not(.llm-setup-cta)")).toBeVisible();
+    await expect(page.locator(".annotation-section.llm-loading:not(.llm-setup-cta)")).toBeHidden({ timeout: 15_000 });
     // Results render in the Info tab of the right panel
     await page.getByRole("tab", { name: "Info" }).click();
 
@@ -510,8 +510,8 @@ test.describe("Hardening — LLM Annotations", () => {
     // Click "Analyze This Flow" — the right panel switches to the activity stream
     await page.locator(".btn-analyze-flow").click();
     // Wait for the mock activity job to start and finish
-    await expect(page.locator(".annotation-section.llm-loading")).toBeVisible();
-    await expect(page.locator(".annotation-section.llm-loading")).toBeHidden({ timeout: 15_000 });
+    await expect(page.locator(".annotation-section.llm-loading:not(.llm-setup-cta)")).toBeVisible();
+    await expect(page.locator(".annotation-section.llm-loading:not(.llm-setup-cta)")).toBeHidden({ timeout: 15_000 });
     // Results render in the Info tab of the right panel
     await page.getByRole("tab", { name: "Info" }).click();
 

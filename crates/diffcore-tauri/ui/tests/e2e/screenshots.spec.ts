@@ -43,20 +43,10 @@ test.describe("Screenshots", () => {
     });
   });
 
-  test("61 — comment strip with comments", async ({ page }) => {
-    await page.goto("/");
-    await waitForAnalysis(page);
-
-    // Add two comments
-    await addCommentViaUI(page, "This validation logic needs error boundaries");
-    await addCommentViaUI(page, "Consider extracting this into a shared utility");
-    await page.waitForTimeout(500);
-
-    // Focus on center panel to show the strip
-    await page.locator(".panel-center").screenshot({
-      path: path.join(SCREENSHOTS_DIR, "61-comment-strip.png"),
-    });
-  });
+  // Tests 61 and 63-66 were deleted: the comment strip is dead code, the edges
+  // toggle moved to the Edges subtab (covered in ui-improvements.spec.ts), and
+  // the graph captures are owned by visual-polish (11-flow-graph.png) and
+  // hardening (37-graph-fullscreen.png).
 
   test("62 — comments tab close-up", async ({ page }) => {
     await page.goto("/");
@@ -66,74 +56,12 @@ test.describe("Screenshots", () => {
     await page.waitForTimeout(500);
 
     await page.getByTestId("comments-tab").click();
-    await page.waitForTimeout(300);
 
     const tab = page.locator(".comments-tab");
-    await expect(tab).toBeVisible();
     await expect(tab.locator(".comments-tab-card")).toHaveCount(1);
     await tab.screenshot({
       path: path.join(SCREENSHOTS_DIR, "62-comments-tab-closeup.png"),
     });
-  });
-
-  test("63 — edges section collapsed (default)", async ({ page }) => {
-    await page.goto("/");
-    await waitForAnalysis(page);
-
-    // Scroll the right panel to show edges toggle
-    const edgesToggle = page.locator(".annotation-section .flow-graph-toggle").filter({ hasText: "Edges" });
-    if (await edgesToggle.isVisible()) {
-      await edgesToggle.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(300);
-      await page.locator(".panel-right").screenshot({
-        path: path.join(SCREENSHOTS_DIR, "63-edges-collapsed.png"),
-      });
-    }
-  });
-
-  test("64 — edges section expanded", async ({ page }) => {
-    await page.goto("/");
-    await waitForAnalysis(page);
-
-    const edgesToggle = page.locator(".annotation-section .flow-graph-toggle").filter({ hasText: "Edges" });
-    if (await edgesToggle.isVisible()) {
-      await edgesToggle.click();
-      await page.waitForTimeout(300);
-      await edgesToggle.scrollIntoViewIfNeeded();
-      await page.locator(".panel-right").screenshot({
-        path: path.join(SCREENSHOTS_DIR, "64-edges-expanded.png"),
-      });
-    }
-  });
-
-  test("65 — flow graph (normal view)", async ({ page }) => {
-    await page.goto("/");
-    await waitForAnalysis(page);
-
-    const graph = page.locator("[data-testid='flow-graph']");
-    if (await graph.isVisible()) {
-      await graph.screenshot({
-        path: path.join(SCREENSHOTS_DIR, "65-flow-graph.png"),
-      });
-    }
-  });
-
-  test("66 — flow graph fullscreen", async ({ page }) => {
-    await page.goto("/");
-    await waitForAnalysis(page);
-
-    const fsBtn = page.locator(".flow-fullscreen-btn");
-    if (await fsBtn.isVisible()) {
-      await fsBtn.click();
-      await page.waitForTimeout(1000);
-
-      await page.screenshot({
-        path: path.join(SCREENSHOTS_DIR, "66-flow-graph-fullscreen.png"),
-        fullPage: false,
-      });
-
-      await page.keyboard.press("Escape");
-    }
   });
 
   test("67 — open-with dropdown with icons", async ({ page }) => {

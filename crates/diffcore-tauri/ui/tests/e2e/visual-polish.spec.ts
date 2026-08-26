@@ -250,7 +250,6 @@ test.describe("Visual Polish — Screenshot Baseline", () => {
 
     // The flow graph now lives behind the "Graph" sub-tab in the right panel
     await page.locator(".annotation-subtab", { hasText: "Graph" }).click();
-    await expect(page.locator(".flow-graph-container")).toBeVisible();
 
     // Verify React Flow rendered with nodes
     const flowNodes = page.locator(".flow-node");

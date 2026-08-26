@@ -30,7 +30,6 @@ async function addCommentViaUI(page: Page, text: string) {
 
 async function openCommentsTab(page: Page) {
   await page.getByTestId("comments-tab").click();
-  await page.waitForTimeout(300);
 }
 
 // ── File Comment Icon ──

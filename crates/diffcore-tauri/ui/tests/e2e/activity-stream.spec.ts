@@ -235,18 +235,12 @@ test.describe("AI activity stream", () => {
     await expect(cards.first()).toContainText("Preparing refinement request");
     await expect(cards.last()).toContainText("Refinement rationale");
 
-    // Cards were intentionally made more compact, so instead of a fixed pixel
-    // floor, assert nothing is squashed: every card fully fits its own content
-    // (cards use overflow: hidden, so squashing would clip) and none collapses.
+    // compact cards: not collapsed, not clipping (overflow: hidden)
     const metrics = await cards.evaluateAll((elements) =>
-      elements.map((element) => ({
-        height: Math.round(element.getBoundingClientRect().height),
-        scrollHeight: element.scrollHeight,
-        clientHeight: element.clientHeight,
-      })),
+      elements.map((element) => [element.clientHeight, element.scrollHeight]),
     );
-    for (const { height, scrollHeight, clientHeight } of metrics) {
-      expect(height).toBeGreaterThanOrEqual(40);
+    for (const [clientHeight, scrollHeight] of metrics) {
+      expect(clientHeight).toBeGreaterThanOrEqual(40);
       expect(clientHeight).toBeGreaterThanOrEqual(scrollHeight - 1);
     }
   });
