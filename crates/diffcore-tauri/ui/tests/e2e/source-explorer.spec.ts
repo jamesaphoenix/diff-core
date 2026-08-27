@@ -24,19 +24,23 @@ test.describe("Source Explorer", () => {
     await expect(page.locator(".source-outline-section-header").filter({ hasText: "Operations" })).toBeVisible();
     await expect(page.locator(".source-outline-section-header").filter({ hasText: "Dependencies" })).toBeVisible();
     await expect(page.locator(".source-outline-item").filter({ hasText: "POST /api/users" })).toBeVisible();
-    await expect(page.locator(".source-editor-surface .monaco-editor")).toBeVisible();
+    // The outline lives in the right panel; the Monaco diff editor stays in the center panel
+    await expect(page.locator(".panel-center").getByRole("code").first()).toBeVisible();
   });
 
   test("02 — clicking a file symbol updates the native editor context", async ({ page }) => {
     await page.locator(".file-item").filter({ hasText: "services/user-service.ts" }).click();
     await openSourceView(page);
 
+    // The outline header shows the file being inspected
+    await expect(page.locator(".source-outline-file")).toContainText("services/user-service.ts");
+
     const symbol = page.locator(".source-outline-item").filter({ hasText: "UserService.create" });
     await symbol.click();
 
-    await expect(page.locator(".source-editor-title")).toContainText("UserService.create");
-    await expect(page.locator(".source-editor-subtitle")).toContainText("Fn");
+    // The clicked symbol becomes the active outline item and is marked as a function
     await expect(symbol).toHaveClass(/active/);
+    await expect(symbol.locator(".source-outline-kind")).toHaveText("Fn");
   });
 
   test("03 — interface-heavy files render interfaces and types natively", async ({ page }) => {
@@ -58,7 +62,11 @@ test.describe("Source Explorer", () => {
 
     await expect(page.locator(".file-item.selected")).toContainText("repositories/user-repo.ts");
     await expect(page.locator(".source-explorer")).toBeVisible();
-    await expect(page.locator(".source-editor-title")).toContainText("UserRepository.insert");
+    // The outline now shows the linked file, with the target symbol focused
+    await expect(page.locator(".source-outline-file")).toContainText("repositories/user-repo.ts");
+    await expect(
+      page.locator(".source-outline-item.active").filter({ hasText: "UserRepository.insert" }),
+    ).toBeVisible();
   });
 
   test("05 — source explorer surfaces stay on the dark theme while scrolling", async ({ page }) => {

@@ -169,11 +169,16 @@ test.describe("AI activity stream", () => {
     const panel = page.locator(".panel-right");
     const logPanel = page.getByTestId("activity-log-panel");
     const latestCard = page.getByTestId("activity-entry").last();
-    const inspector = page.getByTestId("activity-inspector");
 
     await latestCard.click();
-    await expect(inspector).toContainText("stdout.command_execution");
-    await expect(inspector).toContainText("\"path\": \"crates/diffcore-tauri/ui/src/App.tsx\"");
+    // The dedicated inspector was replaced by inline hint chips on the card;
+    // the event type and payload are exposed via the chips' title attributes.
+    await expect(
+      latestCard.locator('.activity-card-hint[title="stdout.command_execution"]'),
+    ).toBeVisible();
+    await expect(
+      latestCard.locator(".activity-card-hint", { hasText: "Payload" }),
+    ).toHaveAttribute("title", /"path": "crates\/diffcore-tauri\/ui\/src\/App\.tsx"/);
     await expect(page.getByTestId("activity-panel")).toContainText("Latest stream captured from Codex CLI");
 
     for (const locator of [panel, logPanel, page.locator(".activity-view-switch")]) {
@@ -230,10 +235,14 @@ test.describe("AI activity stream", () => {
     await expect(cards.first()).toContainText("Preparing refinement request");
     await expect(cards.last()).toContainText("Refinement rationale");
 
-    const heights = await cards.evaluateAll((elements) =>
-      elements.map((element) => Math.round(element.getBoundingClientRect().height)),
+    // compact cards: not collapsed, not clipping (overflow: hidden)
+    const metrics = await cards.evaluateAll((elements) =>
+      elements.map((element) => [element.clientHeight, element.scrollHeight]),
     );
-    expect(heights.every((height) => height >= 78)).toBeTruthy();
+    for (const [clientHeight, scrollHeight] of metrics) {
+      expect(clientHeight).toBeGreaterThanOrEqual(40);
+      expect(clientHeight).toBeGreaterThanOrEqual(scrollHeight - 1);
+    }
   });
 
   test("surfaces the effective Codex backend in Settings when local auth is available", async ({ page }) => {

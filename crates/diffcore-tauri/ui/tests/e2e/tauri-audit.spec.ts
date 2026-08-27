@@ -203,6 +203,11 @@ test.describe("Error Boundaries", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
+    // The Flow Graph only mounts under the Graph subtab in the right panel —
+    // open it so its error boundary can catch the crash.
+    await page.locator(".annotation-subtab", { hasText: "Graph" }).click();
+    await expect(page.locator("[data-testid='flow-graph']")).toBeVisible();
+
     // Crash both Diff Viewer and Flow Graph
     await page.evaluate(() => {
       (window as any).__TEST_API__.crashPanel("Diff Viewer");
@@ -431,10 +436,11 @@ test.describe("Large Dataset Performance", () => {
     await expect(page.locator(".group-item").first()).toBeVisible({ timeout: 5_000 });
     await page.waitForTimeout(500);
 
-    // Click the 50th group
+    // Click the 50th group's header — clicking a file row inside a group
+    // opens that file in a tab without switching the selected group.
     const targetGroup = page.locator(".group-item:not(.infra-group)").nth(49);
     const startTime = Date.now();
-    await targetGroup.click();
+    await targetGroup.locator(".group-name").click();
 
     // Wait for it to become selected
     await expect(targetGroup).toHaveClass(/selected/, { timeout: 2_000 });
@@ -500,7 +506,8 @@ test.describe("State Desync Prevention", () => {
     const groupCount = await groups.count();
 
     for (let i = 0; i < Math.min(groupCount, 3); i++) {
-      await groups.nth(i).click();
+      // Click the group header — file rows open tabs without switching group
+      await groups.nth(i).locator(".group-name").click();
       // Don't wait — rapid clicks
     }
 

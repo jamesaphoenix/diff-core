@@ -85,9 +85,11 @@ test.describe("Review Comments", () => {
     // Toast should show "Comment saved"
     await expect(page.locator(".toast")).toContainText("Comment saved");
 
-    const commentStripItem = page.locator(".comment-strip-item").first();
-    await expect(commentStripItem).toBeVisible();
-    await expect(commentStripItem.locator(".comment-strip-text")).toContainText("This needs more validation");
+    // Comment should appear in the right-panel comments tab
+    await page.getByTestId("comments-tab").click();
+    const card = page.locator(".comments-tab-card").first();
+    await expect(card).toBeVisible();
+    await expect(card.locator(".comments-tab-card-text")).toContainText("This needs more validation");
   });
 
   test("04 — comment count badge shows on group with comments", async ({ page }) => {
@@ -114,27 +116,30 @@ test.describe("Review Comments", () => {
     // Add second comment (still file-level)
     await addCommentViaUI(page, "Second comment");
 
-    const commentStripItems = page.locator(".comment-strip-item");
-    await expect(commentStripItems).toHaveCount(2);
+    await page.getByTestId("comments-tab").click();
+    const cards = page.locator(".comments-tab-card");
+    await expect(cards).toHaveCount(2);
 
-    const firstItem = commentStripItems.nth(0);
-    await expect(firstItem.locator(".comment-strip-badge")).toHaveText("file");
-    await expect(firstItem.locator(".comment-strip-text")).toContainText("First comment");
+    const firstCard = cards.nth(0);
+    await expect(firstCard.locator(".comment-strip-badge")).toHaveText("file");
+    await expect(firstCard.locator(".comments-tab-card-text")).toContainText("First comment");
 
-    const secondItem = commentStripItems.nth(1);
-    await expect(secondItem.locator(".comment-strip-text")).toContainText("Second comment");
+    const secondCard = cards.nth(1);
+    await expect(secondCard.locator(".comments-tab-card-text")).toContainText("Second comment");
   });
 
   test("07 — delete comment via X button", async ({ page }) => {
     await addCommentViaUI(page, "To be deleted");
-    await expect(page.locator(".comment-strip-item")).toHaveCount(1);
+
+    await page.getByTestId("comments-tab").click();
+    await expect(page.locator(".comments-tab-card")).toHaveCount(1);
 
     // Click delete button
     await page.locator(".comment-strip-delete").click();
     await page.waitForTimeout(300);
 
     // Comment should be gone
-    await expect(page.locator(".comment-strip-item")).toHaveCount(0);
+    await expect(page.locator(".comments-tab-empty")).toBeVisible();
   });
 
   test("08 — copy comments button copies all comments to clipboard", async ({ page, context }) => {
@@ -231,8 +236,8 @@ test.describe("Review Comments", () => {
     // Add a comment to the first group
     await addCommentViaUI(page, "Persistent comment");
 
-    // Verify comment is there
-    await expect(page.locator(".comment-strip-item")).toHaveCount(1);
+    // Verify comment count shows on the comments tab
+    await expect(page.getByTestId("comments-tab").locator(".panel-tab-count")).toHaveText("1");
 
     // Switch to next group (J = next group)
     await page.keyboard.press("J");
@@ -249,8 +254,9 @@ test.describe("Review Comments", () => {
     // Verify we're back on the first group
     await expect(page.locator(".group-detail-name")).toHaveText(firstGroupName!);
 
-    // Comment should still be there
-    await expect(page.locator(".comment-strip-item")).toHaveCount(1);
-    await expect(page.locator(".comment-strip-text")).toContainText("Persistent comment");
+    // Comment should still be there in the comments tab
+    await page.getByTestId("comments-tab").click();
+    await expect(page.locator(".comments-tab-card")).toHaveCount(1);
+    await expect(page.locator(".comments-tab-card-text")).toContainText("Persistent comment");
   });
 });

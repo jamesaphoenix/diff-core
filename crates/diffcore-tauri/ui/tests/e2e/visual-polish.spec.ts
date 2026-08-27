@@ -80,22 +80,25 @@ test.describe("Visual Polish — Screenshot Baseline", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    await page.locator(".panel-right").screenshot({
-      path: path.join(SCREENSHOTS_DIR, "04-annotations-panel.png"),
-    });
-
-    // Verify group details shown
+    // Verify group details shown (Info sub-tab, active by default)
     await expect(page.locator(".group-detail-name")).toContainText("POST /api/users");
     await expect(page.locator(".entrypoint-info")).toBeVisible();
 
-    // Verify React Flow graph rendered
+    // The flow graph now lives behind the "Graph" sub-tab
+    await page.locator(".annotation-subtab", { hasText: "Graph" }).click();
     await expect(page.locator("[data-testid='flow-graph'] .react-flow")).toBeVisible();
 
     // Verify flow nodes rendered (one per file in group)
     const flowNodes = page.locator(".flow-node");
+    await expect(flowNodes.first()).toBeVisible();
     expect(await flowNodes.count()).toBeGreaterThanOrEqual(3);
 
-    // Verify edges list
+    await page.locator(".panel-right").screenshot({
+      path: path.join(SCREENSHOTS_DIR, "04-annotations-panel.png"),
+    });
+
+    // Verify edges list behind the "Edges" sub-tab
+    await page.locator(".annotation-subtab", { hasText: "Edges" }).click();
     await expect(page.locator(".edge-list")).toBeVisible();
     const edges = page.locator(".edge-item");
     expect(await edges.count()).toBeGreaterThanOrEqual(3);
@@ -123,9 +126,10 @@ test.describe("Visual Polish — Screenshot Baseline", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    // Click on the third group
+    // Click on the third group's header (file lists are always expanded, so a
+    // click on the item's center would land on a file row and only open that file)
     const thirdGroup = page.locator(".group-item").nth(2);
-    await thirdGroup.click();
+    await thirdGroup.locator(".group-name").click();
     await page.waitForTimeout(1500);
 
     await page.screenshot({
@@ -234,21 +238,27 @@ test.describe("Visual Polish — Screenshot Baseline", () => {
 
     // Verify inputs populated
     await expect(page.locator(".repo-input")).toHaveValue("/demo/repo");
-    // Base branch is now a dropdown; verify the displayed branch name
-    await expect(page.locator(".branch-dropdown-trigger .branch-name")).toContainText("main");
+    // There are now two branch dropdowns (head + base); verify the base one shows main
+    await expect(
+      page.getByTestId("base-branch-dropdown").locator(".branch-name"),
+    ).toContainText("main");
   });
 
   test("11 — flow graph close-up", async ({ page }) => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    await page.locator(".flow-graph-container").screenshot({
-      path: path.join(SCREENSHOTS_DIR, "11-flow-graph.png"),
-    });
+    // The flow graph now lives behind the "Graph" sub-tab in the right panel
+    await page.locator(".annotation-subtab", { hasText: "Graph" }).click();
 
     // Verify React Flow rendered with nodes
     const flowNodes = page.locator(".flow-node");
+    await expect(flowNodes.first()).toBeVisible();
     expect(await flowNodes.count()).toBeGreaterThanOrEqual(3);
+
+    await page.locator(".flow-graph-container").screenshot({
+      path: path.join(SCREENSHOTS_DIR, "11-flow-graph.png"),
+    });
 
     // Verify nodes have labels and roles
     await expect(flowNodes.first().locator(".flow-node-label")).toBeVisible();
