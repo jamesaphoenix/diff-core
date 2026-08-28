@@ -24,17 +24,13 @@ them with `git ls-remote` + `git fetch` alone.
 | GitHub REST | `api.github.com/repos/{owner}/{repo}/pulls/{n}` | `refs/pull/{n}/head` | `refs/pull/{n}/merge` |
 | GitLab.com | `gitlab.com/{ns…}/{repo}/-/merge_requests/{n}` | `refs/merge-requests/{n}/head` | `refs/merge-requests/{n}/merge` |
 | GitLab self-managed (CE/EE) | `{host}/{ns…}/{repo}/-/merge_requests/{n}` | `refs/merge-requests/{n}/head` | `refs/merge-requests/{n}/merge` |
-| Gitea | `{host}/{owner}/{repo}/pulls/{n}` | `refs/pull/{n}/head` | — |
-| Forgejo | `{host}/{owner}/{repo}/pulls/{n}` | `refs/pull/{n}/head` | — |
-| Codeberg | `codeberg.org/{owner}/{repo}/pulls/{n}` | `refs/pull/{n}/head` | — |
-| Gitee | `gitee.com/{owner}/{repo}/pulls/{n}` | `refs/pull/{n}/head` | — |
-| Gogs | `{host}/{owner}/{repo}/pulls/{n}` | `refs/pull/{n}/head` | — |
+| Gitea / Forgejo / Codeberg / Gitee / Gogs | `{host}/{owner}/{repo}/pulls/{n}` | `refs/pull/{n}/head` | — |
 | Bitbucket Data Center / Server | `{host}/projects/{KEY}/repos/{repo}/pull-requests/{n}` | `refs/pull-requests/{n}/from` | `refs/pull-requests/{n}/merge` |
 | Azure DevOps Services | `dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{n}` | `refs/pull/{n}/head` | `refs/pull/{n}/merge` |
 | Azure DevOps (legacy host) | `{org}.visualstudio.com/{project}/_git/{repo}/pullrequest/{n}` | `refs/pull/{n}/head` | `refs/pull/{n}/merge` |
 | Azure DevOps Server / TFS | `{host}/{collection}/{project}/_git/{repo}/pullrequest/{n}` | `refs/pull/{n}/head` | `refs/pull/{n}/merge` |
-| Gerrit | `{host}/c/{project}/+/{change}[/{patchset}]` | `refs/changes/{nn}/{change}/{ps}` | — |
-| SourceForge (Allura) | `sourceforge.net/p/{project}/{repo}/merge-requests/{n}` | `refs/merge-requests/{n}/head` | — |
+| Pagure | `{host}/{repo}/pull-request/{n}`, `/fork/{user}/{repo}/pull-request/{n}` | `refs/pull/{n}/head` | — |
+| Gerrit | `{host}[/{ctx}]/c/{project}/+/{change}[/{patchset}]` | `refs/changes/{nn}/{change}/{ps}` | — |
 
 Notes:
 
@@ -48,8 +44,12 @@ Notes:
   pre-11.0 URL shape without `/-/` still parses.
 - **Gerrit** shards its refs by the last two digits of the change number, zero
   padded (change `1234` → `refs/changes/34/1234/{patchset}`). A patchset pinned in
-  the URL wins; otherwise the newest patchset is used.
+  the URL wins; otherwise the newest patchset is used. The UI is commonly mounted
+  under a context path (`gerrit.wikimedia.org/r/c/…`), which is handled.
 - **Bitbucket DC** names the head ref `from`, not `head`.
+- **Azure DevOps** publishes only `refs/pull/{n}/merge` on some versions. When no
+  head ref is listed, the head is taken from the merge commit's second parent and
+  the base from its first.
 
 ## Not supported
 
@@ -60,6 +60,7 @@ manually, rather than a generic parse error.
 | Provider | URL shape | Why |
 |---|---|---|
 | Bitbucket Cloud | `bitbucket.org/{workspace}/{repo}/pull-requests/{n}` | No PR ref namespace; requires the 2.0 REST API |
+| SourceForge (Allura) | `sourceforge.net/p/{project}/{repo}/merge-requests/{n}` | Verified: `ls-remote` lists no `refs/merge-requests/*`. Allura keeps the MR head in the submitter's fork, reachable only via its REST API |
 | Launchpad | `code.launchpad.net/~{user}/{proj}/+git/{repo}/+merge/{n}` | Merge proposals live outside the git repo |
 | AWS CodeCommit | `console.aws.amazon.com/codesuite/codecommit/…/pull-requests/{id}` | No PR refs; SigV4-signed API only. Closed to new customers since 2024 |
 | Phabricator / Phorge | `{host}/D{id}` | Differential revisions are staged as `refs/tags/phabricator/diff/{id}` only when a staging repo is configured |
@@ -80,6 +81,16 @@ Diffcore reports the *fork point*, so a plain `base..head` diff equals the provi
    landed the PR.
 4. The reported base is then `merge-base(target, head)`.
 
-Known gap: squash- and rebase-merged PRs leave no merge commit, so on providers
-without a retained merge ref their base is unrecoverable from git alone and the diff
-comes out empty. Fixing that needs a provider API call.
+Squash- and rebase-merges are fine: both rewrite the commit, so the PR head is not an
+ancestor of the default branch and step 2's plain merge base is already the fork point.
+
+Known gap: **fast-forward merges** (GitLab's "Fast-forward merge" method, Gitea's
+"Rebase then fast-forward", any manually fast-forwarded branch) leave no merge commit
+*and* no rewritten SHA, so the base cannot be recovered from git alone. Rather than
+present a successful review of zero files, `resolve` fails with an explicit error.
+Fixing it properly needs a provider API call.
+
+Cached clones live under the cache root keyed by a hash of the clone URL, and each
+resolve re-fetches `refs/heads/*` so the default branch used in step 2 does not go
+stale as the cache ages. A lock file serialises concurrent resolves of the same
+repository, since they share one working tree.

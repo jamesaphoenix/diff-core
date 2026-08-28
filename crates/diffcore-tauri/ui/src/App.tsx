@@ -155,6 +155,10 @@ export default function App() {
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   // Set after a PR/MR URL resolves; see the effect below runAnalysis.
   const [pendingAnalysis, setPendingAnalysis] = useState(false);
+  /** True while baseRef/headRef come from a resolved PR. The cached checkout is
+   *  detached, so letting loadRepoInfo auto-detect would replace the PR's fork
+   *  point and tip with the checkout's default branch and a bare HEAD. */
+  const prRefs = useRef(false);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [headBranchDropdownOpen, setHeadBranchDropdownOpen] = useState(false);
 
@@ -407,10 +411,12 @@ export default function App() {
         info = MOCK_REPO_INFO;
       }
       setRepoInfo(info);
-      // Auto-set base ref to the detected default branch
-      setBaseRef(info.default_branch);
-      // Auto-set head ref to the current branch (what we're comparing FROM)
-      setHeadRef(info.current_branch ?? "HEAD");
+      if (!prRefs.current) {
+        // Auto-set base ref to the detected default branch
+        setBaseRef(info.default_branch);
+        // Auto-set head ref to the current branch (what we're comparing FROM)
+        setHeadRef(info.current_branch ?? "HEAD");
+      }
     } catch {
       // Non-fatal: we can still analyze without repo info
       setRepoInfo(null);
@@ -433,7 +439,7 @@ export default function App() {
   // Watch the repo's HEAD for changes made outside the app (git pull/checkout/merge in a
   // terminal). The watcher lives in Rust and emits "git-head-changed"; see the listener below.
   useEffect(() => {
-    if (!IS_TAURI || !repoPath || isPrUrl(repoPath)) return;
+    if (!IS_TAURI || !repoPath || isPrUrl(repoPath) || prRefs.current) return;
     tauriInvoke("watch_git_head", { repoPath }).catch(() => {});
     return () => {
       tauriInvoke("unwatch_git_head", {}).catch(() => {});
@@ -800,7 +806,8 @@ export default function App() {
   );
 
   const runAnalysis = useCallback(async () => {
-    if (!repoPath) return;
+    const path = repoPath.trim();
+    if (!path) return;
     setLoading(true);
     setError(null);
     // Reset LLM state on new analysis
@@ -836,7 +843,7 @@ export default function App() {
       let result: AnalysisOutput;
       if (HAS_BACKEND) {
         result = await tauriInvoke<AnalysisOutput>("analyze", {
-          repoPath,
+          repoPath: path,
           base: baseRef || "main",
           head: headRef || null,
           range: null,
@@ -864,7 +871,7 @@ export default function App() {
       }
       // Check for cached refinement and auto-apply if found
       if (HAS_BACKEND) {
-        tauriInvoke<RefinementResult | null>("get_cached_refinement", { repoPath: repoPath || null }).then((cached) => {
+        tauriInvoke<RefinementResult | null>("get_cached_refinement", { repoPath: path || null }).then((cached) => {
           if (cached) {
             applyRefinementResult(cached, { fromCache: true });
           }
@@ -901,6 +908,7 @@ export default function App() {
       repoInputRef.current?.select();
       return;
     }
+    prRefs.current = true;
     setRepoPath(resolved.path);
     setBaseRef(resolved.base);
     setHeadRef(resolved.head);
@@ -3006,7 +3014,10 @@ export default function App() {
             type="text"
             placeholder="Repository path or pull/merge request URL..."
             value={repoPath}
-            onChange={(e) => setRepoPath(e.target.value)}
+            onChange={(e) => {
+              prRefs.current = false;
+              setRepoPath(e.target.value);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && repoPath && !loading) {
                 (e.target as HTMLInputElement).blur();

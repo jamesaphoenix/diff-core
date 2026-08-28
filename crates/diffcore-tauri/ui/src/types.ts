@@ -158,10 +158,8 @@ export interface ResolvedPr {
   path: string;
   /** Merge base of the PR against its target branch. */
   base: string;
-  /** Ref pointing at the PR's head commit. */
+  /** Local branch `pr-{n}` at the PR's head commit. */
   head: string;
-  provider: string;
-  number: number;
 }
 
 // ── LLM Annotation Types ──
