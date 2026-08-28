@@ -11,21 +11,18 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 use url::Url;
 
-/// How long `resolve` waits for another process to finish with the same cached
-/// clone before giving up, and how long a lock file may sit before it is
-/// assumed to belong to a crashed process.
-const LOCK_WAIT: Duration = Duration::from_secs(900);
-const LOCK_STALE: Duration = Duration::from_secs(3600);
+/// How long a lock file may sit before it is assumed to belong to a process
+/// that died mid-clone. Longer than a slow monorepo clone, short enough that a
+/// Ctrl-C during one does not wedge the cache for the rest of the day.
+const LOCK_STALE: Duration = Duration::from_secs(1800);
 
 #[derive(Debug, thiserror::Error)]
 pub enum PrUrlError {
-    #[error("not a recognised pull/merge request URL: {0}")]
-    Unrecognised(String),
     #[error(
         "{0} does not publish pull-request refs over git — clone the repository and pick the source/target branches manually"
     )]
@@ -36,7 +33,9 @@ pub enum PrUrlError {
         "{0} #{1} resolves to an empty diff: it was fast-forward merged (leaving no merge commit to recover the base branch from) or contains no commits. Open the repository directly and pick the branches by hand."
     )]
     EmptyDiff(&'static str, u64),
-    #[error("another diffcore process is still using {0}")]
+    #[error(
+        "another diffcore process is using this cached clone. If none is running, delete {0}"
+    )]
     CacheBusy(String),
     #[error("`git {0}` failed: {1}")]
     Git(String, String),
@@ -70,6 +69,8 @@ pub enum Provider {
     SourceForge,
     /// Launchpad merge proposals — no PR refs over git.
     Launchpad,
+    /// AWS CodeCommit — no PR refs; SigV4-signed API only.
+    CodeCommit,
 }
 
 impl Provider {
@@ -85,6 +86,7 @@ impl Provider {
             Provider::Gerrit => "Gerrit",
             Provider::SourceForge => "SourceForge",
             Provider::Launchpad => "Launchpad",
+            Provider::CodeCommit => "AWS CodeCommit",
         }
     }
 
@@ -285,6 +287,24 @@ pub fn parse(input: &str) -> Option<PrUrl> {
         });
     }
 
+    // AWS CodeCommit console: /codesuite/codecommit/repositories/{repo}/pull-requests/{n}.
+    // Checked before the generic scan, which would otherwise see `pull-requests`
+    // and blame Bitbucket Cloud.
+    if let Some(i) = s.iter().position(|x| *x == "codecommit") {
+        if let Some((_, number)) = find_marker(&s, "pull-requests") {
+            let repo = s.get(i + 2).copied().unwrap_or("");
+            return Some(PrUrl {
+                provider: Provider::CodeCommit,
+                clone_url: format!("{base}/{}", s.join("/")),
+                host,
+                owner: String::new(),
+                repo: repo.to_string(),
+                number,
+                patchset: None,
+            });
+        }
+    }
+
     // Remaining forges share `{namespace...}/{repo}/<marker>/{n}`.
     let (provider, i, number) = [
         (Provider::BitbucketCloud, "pull-requests"),
@@ -326,14 +346,8 @@ pub fn parse(input: &str) -> Option<PrUrl> {
 /// or namespace literally named `pull` / `merge_requests` does not shadow the
 /// real route later in the path.
 fn find_marker(segs: &[&str], marker: &str) -> Option<(usize, u64)> {
-    let mut end = segs.len();
-    while let Some(i) = segs[..end].iter().rposition(|x| *x == marker) {
-        if let Some(n) = segs.get(i + 1).and_then(|v| parse_number(v)) {
-            return Some((i, n));
-        }
-        end = i;
-    }
-    None
+    let i = segs.iter().rposition(|x| *x == marker)?;
+    Some((i, parse_number(segs.get(i + 1)?)?))
 }
 
 /// Strip a `.diff` / `.patch` suffix and parse the remainder as a number.
@@ -362,7 +376,10 @@ impl PrUrl {
             Provider::BitbucketServer => format!("refs/pull-requests/{n}/*"),
             // refs/changes/{last two digits, zero padded}/{change}/{patchset}
             Provider::Gerrit => format!("refs/changes/{:02}/{n}/*", n % 100),
-            Provider::BitbucketCloud | Provider::SourceForge | Provider::Launchpad => return None,
+            Provider::BitbucketCloud
+            | Provider::SourceForge
+            | Provider::Launchpad
+            | Provider::CodeCommit => return None,
         })
     }
 
@@ -390,11 +407,15 @@ impl PrUrl {
             };
             return Some((Some(head), None));
         }
+        // Gitee spells the merge ref `/MERGE`; match the tail case-insensitively.
+        let tail_is = |r: &String, want: &str| {
+            r.rsplit('/').next().is_some_and(|t| t.eq_ignore_ascii_case(want))
+        };
         let head = refs
             .iter()
-            .find(|r| r.ends_with("/head") || r.ends_with("/from"))
+            .find(|r| tail_is(r, "head") || tail_is(r, "from"))
             .cloned();
-        let merge = refs.iter().find(|r| r.ends_with("/merge")).cloned();
+        let merge = refs.iter().find(|r| tail_is(r, "merge")).cloned();
         if head.is_none() && merge.is_none() {
             return None;
         }
@@ -406,13 +427,7 @@ impl PrUrl {
     /// The trailing hash keeps distinct remotes apart: slugging turns `/` into
     /// `-`, so `gitlab.com/a/b/repo` and `gitlab.com/a-b/repo` would otherwise
     /// share a checkout and silently serve each other's diffs.
-    fn cache_dir(&self) -> Result<PathBuf, PrUrlError> {
-        let root = std::env::var_os("DIFFCORE_REPO_CACHE_DIR")
-            .map(PathBuf::from)
-            .or_else(|| {
-                crate::config::diffcore_config_home().map(|h| h.join("cache").join("repos"))
-            })
-            .ok_or(PrUrlError::NoCacheDir)?;
+    fn cache_dir(&self, root: &Path) -> Result<PathBuf, PrUrlError> {
         let digest = hex::encode(Sha256::digest(self.clone_url.as_bytes()));
         Ok(root.join(slug(&self.host)).join(format!(
             "{}-{}",
@@ -470,8 +485,7 @@ fn lock_cache(dir: &Path) -> Result<CacheLock, PrUrlError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let deadline = Instant::now() + LOCK_WAIT;
-    loop {
+    for _ in 0..2 {
         match std::fs::OpenOptions::new()
             .create_new(true)
             .write(true)
@@ -479,24 +493,26 @@ fn lock_cache(dir: &Path) -> Result<CacheLock, PrUrlError> {
         {
             Ok(_) => return Ok(CacheLock(path)),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                // Reap a lock left behind by a process that died mid-clone.
-                let stale = std::fs::metadata(&path)
+                let age = std::fs::metadata(&path)
                     .and_then(|m| m.modified())
                     .ok()
-                    .and_then(|m| m.elapsed().ok())
-                    .is_some_and(|age| age > LOCK_STALE);
-                if stale {
-                    let _ = std::fs::remove_file(&path);
-                    continue;
+                    .and_then(|m| m.elapsed().ok());
+                if !age.is_some_and(|age| age > LOCK_STALE) {
+                    break;
                 }
-                if Instant::now() > deadline {
-                    return Err(PrUrlError::CacheBusy(dir.display().to_string()));
+                // Claim the stale lock by renaming it somewhere unique: rename
+                // is atomic, so of two processes racing to reap, only the one
+                // that moves *this* file proceeds. Unlinking by path instead
+                // would let the loser delete the winner's fresh lock.
+                let claimed = PathBuf::from(format!("{}.{}", path.display(), std::process::id()));
+                if std::fs::rename(&path, &claimed).is_ok() {
+                    let _ = std::fs::remove_file(&claimed);
                 }
-                std::thread::sleep(Duration::from_millis(250));
             }
             Err(e) => return Err(e.into()),
         }
     }
+    Err(PrUrlError::CacheBusy(path.display().to_string()))
 }
 
 /// Clone (or reuse) the repository behind `pr` and fetch its PR refs.
@@ -510,6 +526,16 @@ fn lock_cache(dir: &Path) -> Result<CacheLock, PrUrlError> {
 /// waiting. Interactive credential prompts are suppressed instead, so the
 /// failure mode for a private repo is a fast error rather than a hang.
 pub fn resolve(pr: &PrUrl) -> Result<ResolvedPr, PrUrlError> {
+    let root = std::env::var_os("DIFFCORE_REPO_CACHE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| crate::config::diffcore_config_home().map(|h| h.join("cache").join("repos")))
+        .ok_or(PrUrlError::NoCacheDir)?;
+    resolve_in(pr, &root)
+}
+
+/// `resolve`, against an explicit cache root. Tests use this so they never have
+/// to mutate the process environment, which races every other thread's getenv.
+pub(crate) fn resolve_in(pr: &PrUrl, root: &Path) -> Result<ResolvedPr, PrUrlError> {
     let glob = pr
         .ref_glob()
         .ok_or(PrUrlError::NoGitRefs(pr.provider.name()))?;
@@ -523,7 +549,7 @@ pub fn resolve(pr: &PrUrl) -> Result<ResolvedPr, PrUrlError> {
         PrUrlError::NotFound(pr.provider.unit(), pr.number, pr.clone_url.clone())
     })?;
 
-    let dir = pr.cache_dir()?;
+    let dir = pr.cache_dir(root)?;
     let _lock = lock_cache(&dir)?;
 
     if dir.join(".git").exists() {
@@ -564,6 +590,10 @@ pub fn resolve(pr: &PrUrl) -> Result<ResolvedPr, PrUrlError> {
     }
     let argv: Vec<&str> = args.iter().map(String::as_str).collect();
     git(&dir, &argv)?;
+    // `--prune` deletes the old branch on an upstream rename but leaves
+    // refs/remotes/origin/HEAD symrefed at it, so default_branch would return a
+    // dangling ref and every base computed from it would fail.
+    git(&dir, &["remote", "set-head", "origin", "--auto"])?;
 
     // Azure DevOps publishes only the merge ref; its second parent is the PR tip.
     if head_ref.is_none() {
@@ -677,10 +707,6 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, PrUrlError> {
 )]
 mod tests {
     use super::*;
-
-    /// `resolve` and `cache_dir` both read DIFFCORE_REPO_CACHE_DIR, which is
-    /// process-global — serialize the tests that set it.
-    static CACHE_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn p(u: &str) -> PrUrl {
         parse(u).unwrap_or_else(|| panic!("expected {u} to parse"))
@@ -867,13 +893,14 @@ mod tests {
         }
     }
 
-    fn with_cache<T>(f: impl FnOnce(&Path) -> T) -> T {
-        let _guard = CACHE_ENV.lock();
+    /// Gives each test its own origin root and cache root. Deliberately does not
+    /// touch DIFFCORE_REPO_CACHE_DIR: `set_var` mutates the whole process while
+    /// 1700 other tests are calling getenv, which is a data race today and a
+    /// hard error in edition 2024.
+    fn with_cache<T>(f: impl FnOnce(&Path, &Path) -> T) -> T {
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("DIFFCORE_REPO_CACHE_DIR", tmp.path().join("cache"));
-        let out = f(tmp.path());
-        std::env::remove_var("DIFFCORE_REPO_CACHE_DIR");
-        out
+        let cache = tmp.path().join("cache");
+        f(tmp.path(), &cache)
     }
 
     fn changed_files(dir: &Path, base: &str, head: &str) -> String {
@@ -885,7 +912,7 @@ mod tests {
 
     #[test]
     fn resolve_uses_the_merge_ref_parent_as_the_target_tip() {
-        with_cache(|root| {
+        with_cache(|root, cache| {
             let o = Origin::new(root, "origin");
             let fork = o.run(&["rev-parse", "HEAD"]);
             let tip = o.open_pr(1, "feature.txt");
@@ -899,8 +926,8 @@ mod tests {
             o.run(&["update-ref", "refs/pull/1/merge", &merge]);
 
             let pr = local_pr(&o, 1);
-            let r = resolve(&pr).unwrap();
-            let again = resolve(&pr).unwrap();
+            let r = resolve_in(&pr, cache).unwrap();
+            let again = resolve_in(&pr, cache).unwrap();
             assert_eq!(r.path, again.path, "second resolve must reuse the clone");
 
             let dir = PathBuf::from(&r.path);
@@ -912,7 +939,7 @@ mod tests {
 
     #[test]
     fn resolve_recovers_the_base_of_a_pr_that_already_landed() {
-        with_cache(|root| {
+        with_cache(|root, cache| {
             let o = Origin::new(root, "origin");
             let fork = o.run(&["rev-parse", "HEAD"]);
             let tip = o.open_pr(1, "feature.txt");
@@ -921,7 +948,7 @@ mod tests {
             o.run(&["merge", "-q", "--no-ff", &tip, "-m", "landed"]);
             o.commit("after.txt", "later\n", "unrelated later work");
 
-            let r = resolve(&local_pr(&o, 1)).unwrap();
+            let r = resolve_in(&local_pr(&o, 1), cache).unwrap();
             let dir = PathBuf::from(&r.path);
             assert_eq!(git(&dir, &["rev-parse", &r.base]).unwrap().trim(), fork);
             assert_eq!(changed_files(&dir, &r.base, &r.head), "feature.txt");
@@ -930,7 +957,7 @@ mod tests {
 
     #[test]
     fn resolve_handles_a_squash_merged_pr() {
-        with_cache(|root| {
+        with_cache(|root, cache| {
             let o = Origin::new(root, "origin");
             let tip = o.open_pr(1, "feature.txt");
             // Squash rewrites the SHA, so the head is not an ancestor of main
@@ -938,7 +965,7 @@ mod tests {
             o.run(&["merge", "-q", "--squash", &tip]);
             o.run(&["commit", "-qm", "squashed"]);
 
-            let r = resolve(&local_pr(&o, 1)).unwrap();
+            let r = resolve_in(&local_pr(&o, 1), cache).unwrap();
             let dir = PathBuf::from(&r.path);
             assert_eq!(changed_files(&dir, &r.base, &r.head), "feature.txt");
         });
@@ -946,14 +973,14 @@ mod tests {
 
     #[test]
     fn resolve_rejects_a_fast_forward_merged_pr_instead_of_returning_nothing() {
-        with_cache(|root| {
+        with_cache(|root, cache| {
             let o = Origin::new(root, "origin");
             let tip = o.open_pr(1, "feature.txt");
             // Fast-forward leaves no merge commit and no new SHA, so the base
             // is unrecoverable from git alone.
             o.run(&["merge", "-q", "--ff-only", &tip]);
 
-            match resolve(&local_pr(&o, 1)) {
+            match resolve_in(&local_pr(&o, 1), cache) {
                 Err(PrUrlError::EmptyDiff(_, 1)) => {}
                 other => panic!("expected EmptyDiff, got {other:?}"),
             }
@@ -962,11 +989,11 @@ mod tests {
 
     #[test]
     fn resolve_refreshes_the_default_branch_on_a_cached_clone() {
-        with_cache(|root| {
+        with_cache(|root, cache| {
             let o = Origin::new(root, "origin");
             o.open_pr(1, "first.txt");
             // Populate the cache while main is still at the first commit.
-            resolve(&local_pr(&o, 1)).unwrap();
+            resolve_in(&local_pr(&o, 1), cache).unwrap();
 
             // Upstream moves on, and a later PR forks from the new tip.
             let new_base = o.commit("mainline.txt", "new mainline\n", "main advances");
@@ -975,7 +1002,7 @@ mod tests {
             // Without re-fetching refs/heads/*, origin/HEAD is frozen at the
             // original clone and the merge base lands before "main advances",
             // pulling mainline.txt into the PR's diff.
-            let r = resolve(&local_pr(&o, 2)).unwrap();
+            let r = resolve_in(&local_pr(&o, 2), cache).unwrap();
             let dir = PathBuf::from(&r.path);
             assert_eq!(git(&dir, &["rev-parse", &r.base]).unwrap().trim(), new_base);
             assert_eq!(git(&dir, &["rev-parse", &r.head]).unwrap().trim(), tip2);
@@ -985,7 +1012,7 @@ mod tests {
 
     #[test]
     fn resolve_derives_the_head_from_a_merge_only_ref() {
-        with_cache(|root| {
+        with_cache(|root, cache| {
             let o = Origin::new(root, "origin");
             let fork = o.run(&["rev-parse", "HEAD"]);
             let tip = o.open_pr(1, "feature.txt");
@@ -998,7 +1025,7 @@ mod tests {
             ]);
             o.run(&["update-ref", "refs/pull/1/merge", &merge]);
 
-            let r = resolve(&local_pr(&o, 1)).unwrap();
+            let r = resolve_in(&local_pr(&o, 1), cache).unwrap();
             let dir = PathBuf::from(&r.path);
             assert_eq!(git(&dir, &["rev-parse", &r.head]).unwrap().trim(), tip);
             assert_eq!(git(&dir, &["rev-parse", &r.base]).unwrap().trim(), fork);
@@ -1007,7 +1034,7 @@ mod tests {
 
     #[test]
     fn distinct_remotes_never_share_a_cache_directory() {
-        with_cache(|root| {
+        with_cache(|root, cache| {
             // Slugging turns `/` into `-`, so these two owners collide on the
             // filesystem; the clone-URL hash is what keeps them apart.
             let a = Origin::new(root, "a");
@@ -1020,8 +1047,8 @@ mod tests {
             let mut pr_b = local_pr(&b, 1);
             pr_b.owner = "x-y".to_string();
 
-            let ra = resolve(&pr_a).unwrap();
-            let rb = resolve(&pr_b).unwrap();
+            let ra = resolve_in(&pr_a, cache).unwrap();
+            let rb = resolve_in(&pr_b, cache).unwrap();
             assert_ne!(ra.path, rb.path);
             assert_eq!(changed_files(Path::new(&ra.path), &ra.base, &ra.head), "from-a.txt");
             assert_eq!(changed_files(Path::new(&rb.path), &rb.base, &rb.head), "from-b.txt");
@@ -1029,33 +1056,46 @@ mod tests {
     }
 
     #[test]
-    fn cache_dir_stays_inside_its_root() {
-        with_cache(|_| {
-            // `..` as a host must not walk out of the cache root.
-            let mut pr = PrUrl {
-                provider: Provider::GitHub,
-                host: "..".to_string(),
-                owner: "..".to_string(),
-                repo: "..".to_string(),
-                number: 1,
-                patchset: None,
-                clone_url: "https://example.test/o/r.git".to_string(),
-            };
-            let root = PathBuf::from(std::env::var_os("DIFFCORE_REPO_CACHE_DIR").unwrap());
-            let dir = pr.cache_dir().unwrap();
-            assert!(dir.starts_with(&root), "{dir:?} escaped {root:?}");
-            assert!(!dir.components().any(|c| c == std::path::Component::ParentDir));
+    fn resolve_survives_an_upstream_default_branch_rename() {
+        with_cache(|root, cache| {
+            let o = Origin::new(root, "origin");
+            o.open_pr(1, "first.txt");
+            resolve_in(&local_pr(&o, 1), cache).unwrap();
 
-            pr.host = "gitea.internal:3000".to_string();
-            pr.repo = "my repo".to_string();
-            let dir = pr.cache_dir().unwrap();
-            let rest = dir.strip_prefix(&root).unwrap();
-            let mut it = rest.components();
-            assert_eq!(it.next().unwrap().as_os_str(), "gitea.internal-3000");
-            assert!(
-                it.next().unwrap().as_os_str().to_string_lossy().starts_with("my-repo-"),
-                "repo dir should be slugged and hash-suffixed: {rest:?}"
-            );
+            // Upstream renames its default branch. --prune deletes the old
+            // remote-tracking branch but leaves origin/HEAD symrefed at it, so
+            // without `remote set-head` the default branch is a dangling ref and
+            // every base computed from it fails.
+            o.run(&["branch", "-m", "main", "trunk"]);
+            let new_base = o.run(&["rev-parse", "trunk"]);
+            o.run(&["checkout", "-q", "-B", "pr2", "trunk"]);
+            let tip = o.commit("second.txt", "pr work\n", "pr work");
+            o.run(&["checkout", "-q", "trunk"]);
+            o.run(&["update-ref", "refs/pull/2/head", &tip]);
+
+            let r = resolve_in(&local_pr(&o, 2), cache).unwrap();
+            let dir = PathBuf::from(&r.path);
+            assert_eq!(git(&dir, &["rev-parse", &r.base]).unwrap().trim(), new_base);
+            assert_eq!(changed_files(&dir, &r.base, &r.head), "second.txt");
+        });
+    }
+
+    #[test]
+    fn a_hostile_host_or_repo_name_cannot_escape_the_cache_root() {
+        with_cache(|root, cache| {
+            let o = Origin::new(root, "origin");
+            o.open_pr(1, "feature.txt");
+            o.commit("later.txt", "later\n", "main moves on");
+
+            let mut pr = local_pr(&o, 1);
+            pr.host = "../../etc".to_string();
+            pr.owner = "..".to_string();
+            pr.repo = "..".to_string();
+
+            let r = resolve_in(&pr, cache).unwrap();
+            let path = PathBuf::from(&r.path);
+            assert!(path.starts_with(cache), "{path:?} escaped {cache:?}");
+            assert!(!path.components().any(|c| c == std::path::Component::ParentDir));
         });
     }
 }

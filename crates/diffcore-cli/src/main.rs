@@ -113,8 +113,10 @@ struct AnalyzeArgs {
     no_cache: bool,
 
     /// Path to the git repository, or a pull/merge request URL
-    /// (GitHub, GitLab, Gitea/Forgejo, Bitbucket DC, Azure DevOps, Gerrit).
-    /// URLs are cloned into ~/.diffcore/cache/repos and resolved to base/head refs.
+    /// (GitHub, GitLab, Gitea/Forgejo, Pagure, Bitbucket DC, Azure DevOps, Gerrit).
+    /// URLs are cloned into ~/.diffcore/cache/repos (override with
+    /// DIFFCORE_REPO_CACHE_DIR) and resolved to base/head refs, overriding
+    /// --base/--head.
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 }
@@ -335,9 +337,17 @@ fn resolve_pr_url_args(args: &mut AnalyzeArgs) -> Result<(), Box<dyn std::error:
     );
     let resolved = pr_url::resolve(&pr)?;
     info!("Using cached checkout at {}", resolved.path);
+    // Override rather than fill in: the resolved refs are the whole point of
+    // passing a PR URL, and a stale `--base main` would otherwise be diffed
+    // against the cached clone's own default branch and silently wrong.
+    for (flag, supplied) in [("--base", &args.base), ("--head", &args.head)] {
+        if let Some(v) = supplied {
+            warn!("ignoring {flag} {v}: refs come from {}", pr.provider.unit());
+        }
+    }
     args.repo = PathBuf::from(&resolved.path);
-    args.base.get_or_insert(resolved.base);
-    args.head.get_or_insert(resolved.head);
+    args.base = Some(resolved.base);
+    args.head = Some(resolved.head);
     // The checkout is detached at the PR head; never mix in working-tree state.
     args.include_uncommitted = false;
     args.no_include_uncommitted = true;

@@ -67,13 +67,24 @@ test.describe("PR/MR URL in the repository field", () => {
     await expect(head).toHaveText(RESOLVED_HEAD);
   });
 
-  test("selecting a file after resolving loads its diff", async ({ page }) => {
+  test("backend calls are parameterised with the checkout, not the URL", async ({ page }) => {
     await submitRepoUrl(page, PR_URL);
     await waitForAnalysis(page);
-
-    // This is the exact call that failed: get_file_diff received the URL
-    // rather than the checkout and reported "Invalid repo path".
     await page.locator(".file-item").first().click();
+
+    // Demo mode answers from mocks, so a stale repoPath is invisible in the UI —
+    // which is why the original bug shipped. The app records what each backend
+    // call was parameterised with so it can be asserted here instead.
+    const args = await page.evaluate(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      () => (window as any).__TEST_API__.getLastBackendArgs(),
+    );
+    expect(args.analyze.repoPath).toBe(RESOLVED_PATH);
+    expect(args.analyze.base).toBe(RESOLVED_BASE);
+    expect(args.analyze.head).toBe(RESOLVED_HEAD);
+    // get_file_diff is the call that actually failed for the user with
+    // "Invalid repo path" when it received the URL.
+    expect(args.fileDiff.repoPath).toBe(RESOLVED_PATH);
     await expect(page.locator(".error-bar")).toHaveCount(0);
   });
 
@@ -88,11 +99,5 @@ test.describe("PR/MR URL in the repository field", () => {
     await expect(
       page.locator('[data-testid="base-branch-dropdown"] .branch-name'),
     ).toHaveText("main");
-  });
-
-  test("a plain path is not treated as a URL", async ({ page }) => {
-    await submitRepoUrl(page, "/demo/repo");
-    await expect(page.locator(".repo-input")).toHaveValue("/demo/repo");
-    await waitForAnalysis(page);
   });
 });

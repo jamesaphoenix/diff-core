@@ -46,10 +46,14 @@ jobs:
         working-directory: crates/diffcore-tauri/ui
         run: npm run build
 
-      # CI runs on ubuntu, where npm's prebuilt browsers work. The nix devshell
-      # instead supplies pkgs.playwright-driver.browsers, because the npm builds
-      # are unpatched and will not launch on NixOS. Both paths need the browser
-      # revision to match the pinned @playwright/test version.
+      - name: Run Rust test suite
+        run: cargo test --workspace --locked
+
+      # Runs after the Rust suite so an E2E flake cannot stop it reporting.
+      # CI uses npm's prebuilt browsers, which are fine on ubuntu; the nix
+      # devshell instead supplies pkgs.playwright-driver.browsers, because the
+      # npm builds are unpatched and will not launch on NixOS. Both paths need
+      # the browser revision to match the pinned @playwright/test version.
       - name: Install Playwright browser
         working-directory: crates/diffcore-tauri/ui
         run: npx playwright install --with-deps chromium
@@ -63,8 +67,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: crates/diffcore-tauri/ui/playwright-report/
+          path: |
+            crates/diffcore-tauri/ui/playwright-report/
+            crates/diffcore-tauri/ui/test-results/
           retention-days: 7
-
-      - name: Run Rust test suite
-        run: cargo test --workspace --locked

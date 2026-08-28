@@ -1,14 +1,26 @@
 # Pull/Merge Request URLs
 
 The repository field in the desktop app (and `diffcore analyze --repo`) accepts a
-pull-request URL in place of a filesystem path. Diffcore clones the repository into
-`~/.diffcore/cache/repos/<host>/<owner>/<repo>` (override with
-`DIFFCORE_REPO_CACHE_DIR`), fetches the provider's PR ref namespace, and resolves the
-URL to a `base..head` pair matching what the provider shows under "Files changed".
+pull-request URL in place of a filesystem path. Diffcore clones the repository under
+`~/.diffcore/cache/repos` (override with `DIFFCORE_REPO_CACHE_DIR`), fetches the
+provider's PR ref namespace, and resolves the URL to a `base..head` pair matching
+what the provider shows under "Files changed". A PR URL overrides `--base`/`--head`.
+
+Clones are full and never evicted, so the cache grows without bound — a few
+monorepo PRs can cost tens of gigabytes. Point `DIFFCORE_REPO_CACHE_DIR` somewhere
+you are willing to delete, and keep it private: clones inherit the ambient umask,
+so a world-readable directory yields world-readable clones of private repos.
 
 No API token is involved. Cloning shells out to the `git` CLI, so private repositories
-work through your existing credential helper or SSH agent; `GIT_TERMINAL_PROMPT=0` is
-set so a missing credential fails fast instead of hanging.
+work through your existing credential helper or SSH agent.
+
+Interactive prompts are suppressed (`GIT_TERMINAL_PROMPT`, `GIT_ASKPASS`,
+`SSH_ASKPASS`, SSH `BatchMode`), but that is not a guarantee against hanging: a
+configured `credential.helper` runs before any of them and may block on a locked
+keyring or a biometric prompt. There is deliberately no wall-clock timeout, because
+a first clone of a large monorepo legitimately takes minutes. If a resolve appears
+stuck on a private repository, check whether your credential helper is waiting for
+input.
 
 Implementation: [`crates/diffcore-core/src/pr_url.rs`](../crates/diffcore-core/src/pr_url.rs).
 
@@ -26,9 +38,7 @@ them with `git ls-remote` + `git fetch` alone.
 | GitLab self-managed (CE/EE) | `{host}/{ns…}/{repo}/-/merge_requests/{n}` | `refs/merge-requests/{n}/head` | `refs/merge-requests/{n}/merge` |
 | Gitea / Forgejo / Codeberg / Gitee / Gogs | `{host}/{owner}/{repo}/pulls/{n}` | `refs/pull/{n}/head` | — |
 | Bitbucket Data Center / Server | `{host}/projects/{KEY}/repos/{repo}/pull-requests/{n}` | `refs/pull-requests/{n}/from` | `refs/pull-requests/{n}/merge` |
-| Azure DevOps Services | `dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{n}` | `refs/pull/{n}/head` | `refs/pull/{n}/merge` |
-| Azure DevOps (legacy host) | `{org}.visualstudio.com/{project}/_git/{repo}/pullrequest/{n}` | `refs/pull/{n}/head` | `refs/pull/{n}/merge` |
-| Azure DevOps Server / TFS | `{host}/{collection}/{project}/_git/{repo}/pullrequest/{n}` | `refs/pull/{n}/head` | `refs/pull/{n}/merge` |
+| Azure DevOps (Services, `{org}.visualstudio.com`, Server/TFS) | `{host}/{org}/{project}/_git/{repo}/pullrequest/{n}` | *see note* | `refs/pull/{n}/merge` |
 | Pagure | `{host}/{repo}/pull-request/{n}`, `/fork/{user}/{repo}/pull-request/{n}` | `refs/pull/{n}/head` | — |
 | Gerrit | `{host}[/{ctx}]/c/{project}/+/{change}[/{patchset}]` | `refs/changes/{nn}/{change}/{ps}` | — |
 
@@ -47,26 +57,39 @@ Notes:
   the URL wins; otherwise the newest patchset is used. The UI is commonly mounted
   under a context path (`gerrit.wikimedia.org/r/c/…`), which is handled.
 - **Bitbucket DC** names the head ref `from`, not `head`.
-- **Azure DevOps** publishes only `refs/pull/{n}/merge` on some versions. When no
-  head ref is listed, the head is taken from the merge commit's second parent and
-  the base from its first.
+- **Azure DevOps is unverified.** It refuses anonymous `ls-remote` even on public
+  projects, so it needs configured credentials and we could not observe its ref
+  layout. Published guidance consistently shows `refs/pull/{n}/merge` and not
+  `/head`, so the code treats a missing head ref as normal and derives the head from
+  the merge commit's second parent (base from its first). Treat this row as
+  inferred, not confirmed.
 
 ## Not supported
 
-These providers do not expose pull requests as git refs. Diffcore still recognises
-their URLs and fails with a message telling you to clone the repo and pick branches
-manually, rather than a generic parse error.
+### Recognised, but unsupported
+
+Diffcore parses these and fails with a message naming the provider, rather than a
+generic parse error — they publish no pull-request refs over git.
 
 | Provider | URL shape | Why |
 |---|---|---|
 | Bitbucket Cloud | `bitbucket.org/{workspace}/{repo}/pull-requests/{n}` | No PR ref namespace; requires the 2.0 REST API |
+| AWS CodeCommit | `console.aws.amazon.com/codesuite/codecommit/repositories/{repo}/pull-requests/{n}` | No PR refs; SigV4-signed API only. Closed to new customers since 2024 |
 | SourceForge (Allura) | `sourceforge.net/p/{project}/{repo}/merge-requests/{n}` | Verified: `ls-remote` lists no `refs/merge-requests/*`. Allura keeps the MR head in the submitter's fork, reachable only via its REST API |
 | Launchpad | `code.launchpad.net/~{user}/{proj}/+git/{repo}/+merge/{n}` | Merge proposals live outside the git repo |
-| AWS CodeCommit | `console.aws.amazon.com/codesuite/codecommit/…/pull-requests/{id}` | No PR refs; SigV4-signed API only. Closed to new customers since 2024 |
+
+### Not recognised
+
+Listed for completeness. These fall through to being treated as a filesystem path,
+so the error names the path rather than the provider.
+
+| Provider | URL shape | Why |
+|---|---|---|
 | Phabricator / Phorge | `{host}/D{id}` | Differential revisions are staged as `refs/tags/phabricator/diff/{id}` only when a staging repo is configured |
 | SourceHut | `lists.sr.ht/…` | Patch-series over email; no PR object |
-| Radicle | `rad:{id}` | Patches live in the Radicle peer-to-peer layer |
+| Radicle | `rad:{id}` | Not an http(s) URL; patches live in the peer-to-peer layer |
 | Google Cloud Source Repositories | — | No pull-request concept |
+| Gerrit (legacy) | `{host}/r/#/c/{n}/` | The change number lives in the URL fragment, which is stripped before parsing |
 
 ## How the base revision is chosen
 

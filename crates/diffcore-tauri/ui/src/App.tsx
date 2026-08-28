@@ -85,6 +85,9 @@ function isApiProvider(provider: string): boolean {
   return provider === "anthropic" || provider === "openai" || provider === "gemini";
 }
 
+/** What a backend call was actually parameterised with; see lastBackendArgs. */
+type BackendArgs = { repoPath: string; base: string; head: string | null };
+
 /** Coarse check — the backend decides whether a URL is actually a PR/MR we support. */
 function isPrUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
@@ -155,6 +158,10 @@ export default function App() {
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   // Set after a PR/MR URL resolves; see the effect below runAnalysis.
   const [pendingAnalysis, setPendingAnalysis] = useState(false);
+  /** Records the repo/base/head each backend call was made with, so demo-mode
+   *  tests can assert on values that would otherwise vanish into a mock. A stale
+   *  closure here is exactly the bug class that shipped once already. */
+  const lastBackendArgs = useRef<{ analyze?: BackendArgs; fileDiff?: BackendArgs }>({});
   /** True while baseRef/headRef come from a resolved PR. The cached checkout is
    *  detached, so letting loadRepoInfo auto-detect would replace the PR's fork
    *  point and tip with the checkout's default branch and a bare HEAD. */
@@ -612,6 +619,7 @@ export default function App() {
       setSourceFocusRequest(null);
       // Increment generation to mark any in-flight request as stale
       const generation = ++fileDiffGeneration.current;
+      lastBackendArgs.current.fileDiff = { repoPath, base: baseRef, head: headRef };
       if (HAS_BACKEND) {
         if (!repoPath) return;
         try {
@@ -808,6 +816,7 @@ export default function App() {
   const runAnalysis = useCallback(async () => {
     const path = repoPath.trim();
     if (!path) return;
+    lastBackendArgs.current.analyze = { repoPath: path, base: baseRef, head: headRef };
     setLoading(true);
     setError(null);
     // Reset LLM state on new analysis
@@ -1220,6 +1229,7 @@ export default function App() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (window as any).__TEST_API__ = {
       setRepoInfo: (data: RepoInfo | null) => setRepoInfo(data),
+      getLastBackendArgs: () => lastBackendArgs.current,
       setLlmSettings: (data: LlmSettings) => {
         demoLlmSettingsRef.current = data;
         setLlmSettings(data);
