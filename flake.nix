@@ -49,8 +49,20 @@
           packages = [
             pkgs.sccache
             pkgs.mold
+            pkgs.nodejs
+            pkgs.playwright-driver.browsers
           ];
           RUSTC_WRAPPER = "sccache";
+
+          # Playwright browsers come from nixpkgs, never from npm's downloader:
+          # the downloaded builds are not patched for NixOS and die on launch.
+          # `@playwright/test` in crates/diffcore-tauri/ui/package.json is pinned
+          # to exactly this driver's version — a mismatch makes playwright look
+          # for a browser revision these browsers do not contain.
+          PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+          PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
+
           shellHook = ''
             export RUSTFLAGS="''${RUSTFLAGS:-} -Clink-arg=-fuse-ld=mold"
           '';

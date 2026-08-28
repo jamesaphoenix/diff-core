@@ -29,7 +29,7 @@ import SourceExplorer, { type SourceFocusRequest } from "./components/SourceExpl
 import ErrorBoundary from "./components/ErrorBoundary";
 import { buildManifestPrompt } from "./buildManifestPrompt";
 import { THEMES, applyTheme, getTheme, loadThemePrefs, saveThemePrefs, resolveThemeId, type ThemeMode, type ThemePrefs } from "./themes";
-import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT } from "./mock";
+import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT, MOCK_RESOLVED_PR } from "./mock";
 
 import { IS_TAURI, HAS_BACKEND, DEFAULT_REPO, invoke as tauriInvoke } from "./backend";
 
@@ -892,7 +892,7 @@ export default function App() {
   const submitRepoInput = useCallback(async () => {
     const value = repoPath.trim();
     if (!value || loading) return;
-    if (!HAS_BACKEND || !isPrUrl(value)) {
+    if (!isPrUrl(value)) {
       runAnalysis();
       return;
     }
@@ -900,7 +900,9 @@ export default function App() {
     setError(null);
     let resolved: ResolvedPr;
     try {
-      resolved = await tauriInvoke<ResolvedPr>("resolve_pr_url", { url: value });
+      resolved = HAS_BACKEND
+        ? await tauriInvoke<ResolvedPr>("resolve_pr_url", { url: value })
+        : MOCK_RESOLVED_PR;
     } catch (e) {
       setLoading(false);
       setError(String(e));

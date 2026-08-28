@@ -37,7 +37,7 @@ rustPlatform.buildRustPackage {
 
   npmDeps = fetchNpmDeps {
     src = ./crates/diffcore-tauri/ui;
-    hash = "sha256-RdhH63p7Cb9IjDx3SmMAtZRL+py54BMYoLHrarNlmS8=";
+    hash = "sha256-AQFay57TfO62s0m1UhFZFlNu5/l/k0zBwmnhhl7+5sw=";
   };
   npmRoot = "crates/diffcore-tauri/ui";
 

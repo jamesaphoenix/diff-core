@@ -799,6 +799,16 @@ export const MOCK_LLM_SETTINGS: LlmSettings = {
   include_uncommitted: true,
 };
 
+/** Demo stand-in for `resolve_pr_url`, so the PR-URL flow is reachable in
+ *  browser/demo mode and can be covered by Playwright. Deliberately differs
+ *  from MOCK_REPO_INFO's branches: a regression that lets loadRepoInfo
+ *  auto-detect over these refs is then visible in the branch selectors. */
+export const MOCK_RESOLVED_PR = {
+  path: "/demo/repo-pr",
+  base: "a1b2c3d",
+  head: "pr-42",
+};
+
 export const MOCK_REPO_INFO: RepoInfo = {
   current_branch: "feature/user-auth",
   default_branch: "main",
