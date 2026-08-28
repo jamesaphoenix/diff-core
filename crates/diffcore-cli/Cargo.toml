@@ -8,14 +8,13 @@ name = "diffcore"
 path = "src/main.rs"
 
 [dependencies]
-diffcore-core = { path = "../diffcore-core" }
+diffcore-core = { path = "../diffcore-core", features = ["logging"] }
 clap = { version = "4", features = ["derive"] }
 serde_json = { workspace = true }
 git2 = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
 log = { workspace = true }
-env_logger = "0.11"
 
 [features]
 embeddings = ["diffcore-core/embeddings"]

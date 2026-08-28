@@ -272,7 +272,7 @@ struct EmbedDiffArgs {
 }
 
 fn main() {
-    env_logger::init();
+    diffcore_core::logging::init(None);
     let cli = Cli::parse();
 
     match cli.command {
@@ -697,7 +697,7 @@ async fn run_refinement(
     );
 
     for w in &warnings {
-        eprintln!("refinement repair: {}", w.message);
+        warn!(target: "refinement", "repair: {}", w.message);
     }
 
     analysis_output.groups = refined_groups;

@@ -14,6 +14,8 @@ serde = { version = "1", features = ["derive"] }
 # stable for arbitrary f64 scores (see assert_json_roundtrip).
 serde_json = { version = "1", features = ["float_roundtrip"] }
 log = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 git2 = { version = "0.20", default-features = false }
 
 # Optimize test builds: trades slightly longer compile for faster test runtime.

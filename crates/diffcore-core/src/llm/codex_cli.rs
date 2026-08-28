@@ -276,11 +276,7 @@ where
             output.push('\n');
         }
         if let Some(update) = summarize_codex_line(&line, stream_name) {
-            if let Some(callback) = &activity_callback {
-                callback(update);
-            } else {
-                super::emit_activity(update);
-            }
+            super::emit_activity_with(update, activity_callback.as_ref());
         }
     }
     Ok(output)
@@ -316,14 +312,24 @@ fn summarize_codex_line(line: &str, stream_name: &str) -> Option<super::Activity
         )),
         Some("item.started") => summarize_codex_item(parsed.get("item")?, stream_name, true),
         Some("item.completed") => summarize_codex_item(parsed.get("item")?, stream_name, false),
-        _ => Some(super::ActivityUpdate {
-            source: "codex".to_string(),
-            level: "info".to_string(),
-            message: truncate_for_activity(trimmed),
-            event_type,
-            payload: Some(parsed),
-            timestamp_ms: super::timestamp_ms(),
-        }),
+        other => {
+            let level = level_for_event(other.unwrap_or_default());
+            // Failures nest the useful text; the raw line truncates before it.
+            let detail = parsed
+                .get("error")
+                .and_then(|error| error.get("message").or(Some(error)))
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| parsed.get("message").and_then(serde_json::Value::as_str))
+                .unwrap_or(trimmed);
+            Some(super::ActivityUpdate {
+                source: "codex".to_string(),
+                level,
+                message: truncate_for_activity(detail),
+                event_type,
+                payload: Some(parsed),
+                timestamp_ms: super::timestamp_ms(),
+            })
+        }
     }
 }
 
@@ -383,6 +389,7 @@ fn summarize_codex_item(
                 .get("path")
                 .and_then(serde_json::Value::as_str)
                 .or_else(|| item.get("file").and_then(serde_json::Value::as_str))
+                .or_else(|| item.get("message").and_then(serde_json::Value::as_str))
                 .map(truncate_for_activity);
             let base_message =
                 if other.contains("search") || other.contains("grep") || other.contains("find") {
@@ -406,7 +413,7 @@ fn summarize_codex_item(
                 .unwrap_or(base_message);
             Some(super::ActivityUpdate {
                 source: "codex".to_string(),
-                level: "info".to_string(),
+                level: level_for_event(other),
                 message,
                 event_type: Some(format!("{}.{}", stream_name, other)),
                 payload: Some(item.clone()),
@@ -414,6 +421,17 @@ fn summarize_codex_item(
             })
         }
     }
+}
+
+/// Called only from the catch-all arms, i.e. on names nothing else matched.
+/// Codex labels failures `error` / `turn.failed`.
+fn level_for_event(name: &str) -> String {
+    if name.contains("error") || name.contains("failed") {
+        "error"
+    } else {
+        "info"
+    }
+    .to_string()
 }
 
 fn humanize_event_name(value: &str) -> String {
@@ -460,7 +478,7 @@ fn looks_like_structured_json(text: &str) -> bool {
 mod tests {
     use serde_json::json;
 
-    use super::{pretty_codex_command, summarize_codex_item};
+    use super::{pretty_codex_command, summarize_codex_item, summarize_codex_line};
 
     #[test]
     fn pretty_codex_command_unwraps_shell_prefixes() {
@@ -488,6 +506,40 @@ mod tests {
         assert_eq!(
             update.message,
             "Inspecting a file: crates/diffcore-tauri/ui/src/App.tsx"
+        );
+    }
+
+    /// Codex failures used to render as `INFO "Completed error"`, so a real
+    /// backend failure was invisible under `RUST_LOG=warn` and carried no detail.
+    #[test]
+    fn codex_error_items_are_reported_as_errors_with_detail() {
+        let item = json!({
+            "type": "error",
+            "message": "stream error: 400 Bad Request"
+        });
+
+        let update = summarize_codex_item(&item, "stdout", false).expect("activity update");
+
+        assert_eq!(update.level, "error");
+        assert!(
+            update.message.contains("stream error: 400 Bad Request"),
+            "detail dropped: {}",
+            update.message
+        );
+    }
+
+    #[test]
+    fn unrecognised_codex_failure_events_are_reported_as_errors() {
+        let line = json!({ "type": "turn.failed", "error": "context window exceeded" });
+
+        let update =
+            summarize_codex_line(&line.to_string(), "stdout").expect("activity update");
+
+        assert_eq!(update.level, "error");
+        assert!(
+            update.message.contains("context window exceeded"),
+            "detail buried in raw JSON: {}",
+            update.message
         );
     }
 }

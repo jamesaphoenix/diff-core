@@ -199,6 +199,24 @@ When using direct API providers (`anthropic`, `openai`, `gemini`), Diffcore chec
 
 When using `codex` or `claude`, Diffcore uses the local CLI login instead of an API key and lets that agent inspect the repository with structured output constraints.
 
+### Logging
+
+`diffcore` and `diffcore-web` log to stderr at `info` by default, so piping
+stdout to `jq` still works; the desktop app logs to a file (see below).
+
+Backend activity (`codex`, `claude`) logs on the `activity` target with `source`
+and `event_type` fields — the same events the desktop UI shows; the IR cache logs
+on `ir_cache`.
+
+```bash
+RUST_LOG=info,activity=warn diffcore analyze --base main   # mute per-event chatter
+DIFFCORE_LOG_FORMAT=json diffcore analyze --base main 2> analyze.log.jsonl
+```
+
+Launched from a terminal the desktop app logs there like the others; launched
+from Finder or a `.desktop` entry — where stderr is discarded — it falls back to
+`~/.diffcore/desktop.log`. `DIFFCORE_LOG_FILE` overrides the path for any binary.
+
 ## Architecture
 
 ```

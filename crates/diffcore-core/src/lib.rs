@@ -19,6 +19,8 @@ pub mod git;
 pub mod graph;
 pub mod ir;
 pub mod llm;
+#[cfg(feature = "logging")]
+pub mod logging;
 pub mod output;
 pub mod pipeline;
 pub mod query_engine;

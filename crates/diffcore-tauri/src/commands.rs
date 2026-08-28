@@ -155,7 +155,11 @@ impl serde::Serialize for CommandError {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        // Only reached when the error crosses the IPC boundary into the UI, so
+        // internally-handled errors stay quiet.
+        let message = self.to_string();
+        tracing::error!(target: "command", "{message}");
+        serializer.serialize_str(&message)
     }
 }
 
@@ -611,9 +615,20 @@ fn make_activity_callback(
     })
 }
 
+/// Entries created here; core activity is logged by `emit_activity_with`.
+async fn emit_logged_activity(job: &JobHandle, entry: ActivityEntry) {
+    tracing::info!(
+        target: "activity",
+        source = entry.source.as_str(),
+        event_type = entry.event_type.as_deref().unwrap_or("-"),
+        "{}",
+        entry.message
+    );
+    job.emit(entry).await;
+}
+
 async fn emit_diffcore_activity(job: &JobHandle, message: impl Into<String>) {
-    job.emit(ActivityEntry::info("diffcore", message, None))
-        .await;
+    emit_logged_activity(job, ActivityEntry::info("diffcore", message, None)).await;
 }
 
 fn provider_supports_tool_activity(provider: &str) -> bool {
@@ -788,11 +803,14 @@ async fn run_refinement_with_activity(
     .map_err(|e| CommandError::Llm(format!("{}", e)))?;
 
     if let Some(reasoning) = refinement_reasoning_excerpt(&response.reasoning) {
-        job.emit(ActivityEntry::info(
-            provider_name.clone(),
-            format!("Refinement rationale: {}", reasoning),
-            Some("refinement.reasoning".to_string()),
-        ))
+        emit_logged_activity(
+            &job,
+            ActivityEntry::info(
+                provider_name.clone(),
+                format!("Refinement rationale: {}", reasoning),
+                Some("refinement.reasoning".to_string()),
+            ),
+        )
         .await;
     }
 
@@ -825,6 +843,7 @@ async fn run_refinement_with_activity(
     );
 
     for warning in &warnings {
+        tracing::warn!(target: "refinement", "repair: {}", warning.message);
         job.emit(ActivityEntry::info(
             provider_name.clone(),
             format!("Refinement repair: {}", warning.message),
