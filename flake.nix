@@ -13,14 +13,16 @@
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
       diffCoreFor = pkgs: pkgs.callPackage ./default.nix { };
+      diffCoreWebFor = pkgs: pkgs.callPackage ./default.nix { webMode = true; };
     in
     {
       packages = forAllSystems (pkgs: rec {
         diff-core = diffCoreFor pkgs;
+        diffcore-web = diffCoreWebFor pkgs;
         default = diff-core;
       });
 
-      # The two modes: `nix run .#cli|desktop`
+      # The three modes: `nix run .#cli|desktop|web`
       apps = forAllSystems (
         pkgs:
         let
@@ -33,6 +35,10 @@
         rec {
           cli = app "diffcore";
           desktop = app "diffcore-tauri";
+          web = {
+            type = "app";
+            program = "${diffCoreWebFor pkgs}/bin/diffcore-web";
+          };
           default = desktop;
         }
       );
