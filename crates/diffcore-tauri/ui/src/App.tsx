@@ -90,8 +90,6 @@ function isPrUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
 }
 
-/** Explicit analysis target, for when React state has not committed yet. */
-type AnalyzeTarget = { repoPath: string; base: string; head: string | null };
 
 function TruncatedText({
   text,
@@ -155,6 +153,8 @@ export default function App() {
   const [baseRef, setBaseRef] = useState("main");
   const [headRef, setHeadRef] = useState<string | null>(null);
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
+  // Set after a PR/MR URL resolves; see the effect below runAnalysis.
+  const [pendingAnalysis, setPendingAnalysis] = useState(false);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [headBranchDropdownOpen, setHeadBranchDropdownOpen] = useState(false);
 
@@ -799,11 +799,8 @@ export default function App() {
     [handleSelectFile],
   );
 
-  const runAnalysis = useCallback(async (target?: AnalyzeTarget) => {
-    const path = target?.repoPath ?? repoPath;
-    const base = target?.base ?? baseRef;
-    const head = target?.head ?? headRef;
-    if (!path) return;
+  const runAnalysis = useCallback(async () => {
+    if (!repoPath) return;
     setLoading(true);
     setError(null);
     // Reset LLM state on new analysis
@@ -839,9 +836,9 @@ export default function App() {
       let result: AnalysisOutput;
       if (HAS_BACKEND) {
         result = await tauriInvoke<AnalysisOutput>("analyze", {
-          repoPath: path,
-          base: base || "main",
-          head: head || null,
+          repoPath,
+          base: baseRef || "main",
+          head: headRef || null,
           range: null,
           staged: false,
           unstaged: false,
@@ -867,7 +864,7 @@ export default function App() {
       }
       // Check for cached refinement and auto-apply if found
       if (HAS_BACKEND) {
-        tauriInvoke<RefinementResult | null>("get_cached_refinement", { repoPath: path || null }).then((cached) => {
+        tauriInvoke<RefinementResult | null>("get_cached_refinement", { repoPath: repoPath || null }).then((cached) => {
           if (cached) {
             applyRefinementResult(cached, { fromCache: true });
           }
@@ -907,8 +904,17 @@ export default function App() {
     setRepoPath(resolved.path);
     setBaseRef(resolved.base);
     setHeadRef(resolved.head);
-    await runAnalysis({ repoPath: resolved.path, base: resolved.base, head: resolved.head });
+    // Stay in the loading state until the queued analysis picks it up.
+    setPendingAnalysis(true);
   }, [repoPath, loading, runAnalysis]);
+
+  // Runs once the resolved repo path has committed, so runAnalysis and every
+  // callback it triggers close over the checkout rather than the URL.
+  useEffect(() => {
+    if (!pendingAnalysis) return;
+    setPendingAnalysis(false);
+    runAnalysis();
+  }, [pendingAnalysis, runAnalysis]);
 
   const recommendedSubscriptionProvider: SubscriptionProvider | null = llmSettings?.codex_authenticated
     ? "codex"
