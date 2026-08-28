@@ -343,6 +343,7 @@ fn dispatch_sync(cmd: &str, args: &mut Args, app: &AppState) -> Result<Value, In
         "list_worktrees" => ok(commands::list_worktrees(req(args, "repoPath")?)?),
         "get_branch_status" => ok(commands::get_branch_status(req(args, "repoPath")?)?),
         "get_repo_info" => ok(commands::get_repo_info(req(args, "repoPath")?)?),
+        "resolve_pr_url" => ok(commands::resolve_pr_url(req(args, "url")?)?),
         "check_api_key" => ok(commands::check_api_key(opt(args, "repoPath")?)?),
         "get_llm_settings" => ok(commands::get_llm_settings(opt(args, "repoPath")?)?),
         "save_llm_settings" => ok(commands::save_llm_settings(

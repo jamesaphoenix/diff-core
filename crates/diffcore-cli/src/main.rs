@@ -26,6 +26,7 @@ use diffcore_core::llm;
 use diffcore_core::llm::refinement;
 use diffcore_core::output::{self, build_analysis_output};
 use diffcore_core::pipeline;
+use diffcore_core::pr_url;
 use diffcore_core::rank;
 use diffcore_core::types::AnalysisOutput;
 
@@ -111,7 +112,9 @@ struct AnalyzeArgs {
     #[arg(long)]
     no_cache: bool,
 
-    /// Path to the git repository (defaults to current directory)
+    /// Path to the git repository, or a pull/merge request URL
+    /// (GitHub, GitLab, Gitea/Forgejo, Bitbucket DC, Azure DevOps, Gerrit).
+    /// URLs are cloned into ~/.diffcore/cache/repos and resolved to base/head refs.
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 }
@@ -316,8 +319,34 @@ fn main() {
     }
 }
 
+/// When `--repo` is a pull/merge request URL, clone (or reuse) the repository in
+/// the diffcore cache, fetch the PR refs, and rewrite `--repo`/`--base`/`--head`
+/// to point at the resolved local checkout.
+fn resolve_pr_url_args(args: &mut AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(pr) = args.repo.to_str().and_then(pr_url::parse) else {
+        return Ok(());
+    };
+    info!(
+        "Resolving {} #{} on {} ({})",
+        pr.provider.unit(),
+        pr.number,
+        pr.host,
+        pr.provider.name()
+    );
+    let resolved = pr_url::resolve(&pr)?;
+    info!("Using cached checkout at {}", resolved.path);
+    args.repo = PathBuf::from(&resolved.path);
+    args.base.get_or_insert(resolved.base);
+    args.head.get_or_insert(resolved.head);
+    // The checkout is detached at the PR head; never mix in working-tree state.
+    args.include_uncommitted = false;
+    args.no_include_uncommitted = true;
+    Ok(())
+}
+
 /// Run analysis and return the output (without writing or LLM steps).
-fn run_analyze_and_return(args: AnalyzeArgs) -> Result<AnalysisOutput, Box<dyn std::error::Error>> {
+fn run_analyze_and_return(mut args: AnalyzeArgs) -> Result<AnalysisOutput, Box<dyn std::error::Error>> {
+    resolve_pr_url_args(&mut args)?;
     let repo_path = std::fs::canonicalize(&args.repo)?;
     let repo =
         Repository::discover(&repo_path).map_err(|e| format!("Not a git repository: {}", e))?;
@@ -404,7 +433,8 @@ fn run_analyze_and_return(args: AnalyzeArgs) -> Result<AnalysisOutput, Box<dyn s
     Ok(analysis_output)
 }
 
-fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
+fn run_analyze(mut args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
+    resolve_pr_url_args(&mut args)?;
     // Resolve repo path
     let repo_path = std::fs::canonicalize(&args.repo)?;
     let repo =

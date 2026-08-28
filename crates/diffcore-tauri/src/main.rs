@@ -73,6 +73,7 @@ fn main() {
             commands::list_worktrees,
             commands::get_branch_status,
             commands::get_repo_info,
+            commands::resolve_pr_url,
             commands::check_api_key,
             commands::get_llm_settings,
             commands::save_llm_settings,

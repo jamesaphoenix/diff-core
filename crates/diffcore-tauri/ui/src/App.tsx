@@ -7,6 +7,7 @@ import type {
   Pass1GroupAnnotation,
   Pass2Response,
   RepoInfo,
+  ResolvedPr,
   BranchInfo,
   LlmSettings,
   LlmProvider,
@@ -83,6 +84,14 @@ const SUBSCRIPTION_BACKENDS: Array<{
 function isApiProvider(provider: string): boolean {
   return provider === "anthropic" || provider === "openai" || provider === "gemini";
 }
+
+/** Coarse check — the backend decides whether a URL is actually a PR/MR we support. */
+function isPrUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim());
+}
+
+/** Explicit analysis target, for when React state has not committed yet. */
+type AnalyzeTarget = { repoPath: string; base: string; head: string | null };
 
 function TruncatedText({
   text,
@@ -414,7 +423,7 @@ export default function App() {
 
   // Load repo info when repo path changes
   useEffect(() => {
-    if (repoPath) {
+    if (repoPath && !isPrUrl(repoPath)) {
       loadRepoInfo(repoPath);
     } else {
       setRepoInfo(null);
@@ -424,7 +433,7 @@ export default function App() {
   // Watch the repo's HEAD for changes made outside the app (git pull/checkout/merge in a
   // terminal). The watcher lives in Rust and emits "git-head-changed"; see the listener below.
   useEffect(() => {
-    if (!IS_TAURI || !repoPath) return;
+    if (!IS_TAURI || !repoPath || isPrUrl(repoPath)) return;
     tauriInvoke("watch_git_head", { repoPath }).catch(() => {});
     return () => {
       tauriInvoke("unwatch_git_head", {}).catch(() => {});
@@ -790,8 +799,11 @@ export default function App() {
     [handleSelectFile],
   );
 
-  const runAnalysis = useCallback(async () => {
-    if (!repoPath) return;
+  const runAnalysis = useCallback(async (target?: AnalyzeTarget) => {
+    const path = target?.repoPath ?? repoPath;
+    const base = target?.base ?? baseRef;
+    const head = target?.head ?? headRef;
+    if (!path) return;
     setLoading(true);
     setError(null);
     // Reset LLM state on new analysis
@@ -827,9 +839,9 @@ export default function App() {
       let result: AnalysisOutput;
       if (HAS_BACKEND) {
         result = await tauriInvoke<AnalysisOutput>("analyze", {
-          repoPath,
-          base: baseRef || "main",
-          head: headRef || null,
+          repoPath: path,
+          base: base || "main",
+          head: head || null,
           range: null,
           staged: false,
           unstaged: false,
@@ -855,7 +867,7 @@ export default function App() {
       }
       // Check for cached refinement and auto-apply if found
       if (HAS_BACKEND) {
-        tauriInvoke<RefinementResult | null>("get_cached_refinement", { repoPath: repoPath || null }).then((cached) => {
+        tauriInvoke<RefinementResult | null>("get_cached_refinement", { repoPath: path || null }).then((cached) => {
           if (cached) {
             applyRefinementResult(cached, { fromCache: true });
           }
@@ -870,6 +882,33 @@ export default function App() {
       setLoading(false);
     }
   }, [repoPath, baseRef, headRef, handleSelectGroup, closeActivityStream]);
+
+  /** Analyze whatever is in the repository field — a local path, or a PR/MR URL
+   *  that we first clone and resolve to a base/head pair. */
+  const submitRepoInput = useCallback(async () => {
+    const value = repoPath.trim();
+    if (!value || loading) return;
+    if (!HAS_BACKEND || !isPrUrl(value)) {
+      runAnalysis();
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    let resolved: ResolvedPr;
+    try {
+      resolved = await tauriInvoke<ResolvedPr>("resolve_pr_url", { url: value });
+    } catch (e) {
+      setLoading(false);
+      setError(String(e));
+      repoInputRef.current?.focus();
+      repoInputRef.current?.select();
+      return;
+    }
+    setRepoPath(resolved.path);
+    setBaseRef(resolved.base);
+    setHeadRef(resolved.head);
+    await runAnalysis({ repoPath: resolved.path, base: resolved.base, head: resolved.head });
+  }, [repoPath, loading, runAnalysis]);
 
   const recommendedSubscriptionProvider: SubscriptionProvider | null = llmSettings?.codex_authenticated
     ? "codex"
@@ -2959,13 +2998,13 @@ export default function App() {
             ref={repoInputRef}
             className="input repo-input"
             type="text"
-            placeholder="Repository path..."
+            placeholder="Repository path or pull/merge request URL..."
             value={repoPath}
             onChange={(e) => setRepoPath(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && repoPath && !loading) {
                 (e.target as HTMLInputElement).blur();
-                runAnalysis();
+                submitRepoInput();
               }
             }}
           />
@@ -3055,7 +3094,7 @@ export default function App() {
 
           <button
             className="btn btn-primary"
-            onClick={runAnalysis}
+            onClick={() => submitRepoInput()}
             disabled={loading || !repoPath}
           >
             {loading ? "Analyzing..." : "Analyze"}
