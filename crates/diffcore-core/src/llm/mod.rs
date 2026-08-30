@@ -154,8 +154,28 @@ where
     ACTIVITY_CALLBACK.scope(callback, future).await
 }
 
+/// Callback is passed explicitly because task-locals do not cross `tokio::spawn`.
+pub(crate) fn emit_activity_with(mut update: ActivityUpdate, callback: Option<&ActivityCallback>) {
+    // Backend output reaches persistent logs now, not just the in-memory UI stream.
+    update.message = redact_api_keys(&update.message);
+    let source = update.source.as_str();
+    let event_type = update.event_type.as_deref().unwrap_or("-");
+    let message = update.message.as_str();
+    match update.level.as_str() {
+        "error" => tracing::error!(target: "activity", source, event_type, "{message}"),
+        "warning" => tracing::warn!(target: "activity", source, event_type, "{message}"),
+        _ => tracing::info!(target: "activity", source, event_type, "{message}"),
+    }
+    match callback {
+        Some(callback) => callback(update),
+        None => {
+            let _ = ACTIVITY_CALLBACK.try_with(|callback| callback(update));
+        }
+    }
+}
+
 pub(crate) fn emit_activity(update: ActivityUpdate) {
-    let _ = ACTIVITY_CALLBACK.try_with(|callback| callback(update));
+    emit_activity_with(update, None);
 }
 
 pub(crate) fn current_activity_callback() -> Option<ActivityCallback> {
@@ -616,7 +636,10 @@ pub fn estimate_tokens(text: &str) -> usize {
 /// displayed in the UI or logs.
 pub fn redact_api_keys(text: &str) -> String {
     // Truncate to a safe length first (no error body needs to be > 500 chars)
-    let truncated = if text.len() > 500 { &text[..500] } else { text };
+    let truncated = match text.char_indices().nth(500) {
+        Some((idx, _)) => &text[..idx],
+        None => text,
+    };
 
     let mut result = truncated.to_string();
 
@@ -630,16 +653,27 @@ pub fn redact_api_keys(text: &str) -> String {
     ];
 
     for &(prefix, replacement) in prefixes {
-        while let Some(start) = result.find(prefix) {
+        let mut from = 0;
+        while let Some(rel) = result[from..].find(prefix) {
+            let start = from + rel;
+            // `sk-` occurs inside ordinary words (task-, risk-, disk-), so a key
+            // must start one.
+            let at_word_start = start == 0
+                || !result[..start]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_alphanumeric);
             // Find the end of the key (alphanumeric, dash, underscore chars)
             let key_end = result[start + prefix.len()..]
                 .find(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
                 .map_or(result.len(), |pos| start + prefix.len() + pos);
             // Only redact if the key-like string is at least 10 chars total
-            if key_end - start >= 10 {
+            if at_word_start && key_end - start >= 10 {
                 result.replace_range(start..key_end, replacement);
+                from = start + replacement.len();
             } else {
-                break;
+                // Skip past this match; a later one may still be a real key.
+                from = start + prefix.len();
             }
         }
     }
@@ -1534,6 +1568,28 @@ mod tests {
         assert!(redacted.contains("[REDACTED_ANTHROPIC_KEY]"));
     }
 
+    /// Activity messages cap at 180 *chars*; non-ASCII made that >500 bytes,
+    /// and the old byte-slice truncation panicked mid-codepoint.
+    #[test]
+    fn redaction_does_not_panic_on_multibyte_text() {
+        let text = "构".repeat(183);
+        assert!(!redact_api_keys(&text).is_empty());
+    }
+
+    /// `sk-` occurs inside ordinary words, and bailing on the first non-key
+    /// match used to skip real keys later in the same line.
+    #[test]
+    fn redaction_leaves_ordinary_words_alone_and_still_finds_keys() {
+        assert_eq!(
+            redact_api_keys("Codex is running task-manager build"),
+            "Codex is running task-manager build"
+        );
+
+        let redacted = redact_api_keys("disk-usage high; using sk-abcdefghijklmnopqrstuv now");
+        assert!(redacted.contains("disk-usage"), "{redacted}");
+        assert!(!redacted.contains("sk-abcdef"), "key not redacted: {redacted}");
+    }
+
     #[test]
     fn test_redact_openai_key() {
         let body =
@@ -1590,5 +1646,53 @@ mod tests {
             let result = validate_key_cmd(&cmd);
             assert!(result.is_err(), "Should reject char '{}' but didn't", ch);
         }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod activity_logging_tests {
+    use super::*;
+    use std::io;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct Capture(Mutex<Vec<u8>>);
+
+    // `MakeWriter` is already implemented for `Arc<W> where &W: io::Write`.
+    impl io::Write for &Capture {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if let Ok(mut sink) = self.0.lock() {
+                sink.extend_from_slice(buf);
+            }
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn capture_logs(body: impl FnOnce()) -> String {
+        let capture = Arc::new(Capture::default());
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(Arc::clone(&capture))
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, body);
+        let bytes = capture.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        String::from_utf8(bytes).unwrap_or_default()
+    }
+
+    #[test]
+    fn activity_levels_map_onto_tracing_levels() {
+        let out = capture_logs(|| {
+            emit_activity(ActivityUpdate::warning("codex", "rate limited", None));
+            emit_activity(ActivityUpdate::info("claude", "starting pass 1", None));
+            emit_activity(ActivityUpdate::error("codex", "backend exited", None));
+        });
+
+        assert!(out.contains("WARN") && out.contains("rate limited"), "{out}");
+        assert!(out.contains("INFO") && out.contains("starting pass 1"), "{out}");
+        assert!(out.contains("ERROR") && out.contains("backend exited"), "{out}");
+        assert!(out.contains("source=\"codex\""), "fields missing: {out}");
     }
 }

@@ -199,12 +199,14 @@ impl JobHandle {
     }
 
     pub async fn fail(&self, error: impl Into<String>) {
+        let error = error.into();
+        tracing::error!(target: "activity", job_id = %self.job_id, "{error}");
         self.manager
             .push_event(
                 &self.job_id,
                 JobEvent::Failed {
                     job_id: self.job_id.clone(),
-                    error: error.into(),
+                    error,
                     timestamp_ms: timestamp_ms(),
                 },
             )

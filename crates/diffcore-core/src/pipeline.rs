@@ -18,7 +18,6 @@
 //! ```
 
 use dashmap::DashMap;
-use log::{debug, info, warn};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -30,14 +29,6 @@ use crate::query_engine::QueryEngine;
 // ---------------------------------------------------------------------------
 // Content-addressed IrFile cache
 // ---------------------------------------------------------------------------
-
-/// Returns true when `DIFFCORE_CACHE_DEBUG=1` is set.
-/// Checked once per process via `OnceLock`.
-fn cache_debug_enabled() -> bool {
-    use std::sync::OnceLock;
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var("DIFFCORE_CACHE_DEBUG").as_deref() == Ok("1"))
-}
 
 /// A thread-safe, content-addressed cache for parsed `IrFile` results.
 ///
@@ -79,15 +70,11 @@ impl IrCache {
         match self.inner.get(&key) {
             Some(entry) => {
                 self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if cache_debug_enabled() {
-                    eprintln!("[IrCache] HIT  {}", path);
-                }
+                tracing::trace!(target: "ir_cache", path, "hit");
                 Some(entry.value().clone())
             }
             None => {
-                if cache_debug_enabled() {
-                    eprintln!("[IrCache] MISS {}", path);
-                }
+                tracing::trace!(target: "ir_cache", path, "miss");
                 None
             }
         }
@@ -122,23 +109,19 @@ impl IrCache {
     }
 
     /// Log cache statistics at debug level.
-    /// Also prints to stderr when `DIFFCORE_CACHE_DEBUG=1`.
     pub fn log_stats(&self) {
         let hits = self.hits();
         let misses = self.misses();
         let total = hits + misses;
         if total > 0 {
-            let msg = format!(
-                "IrCache stats: {} hits, {} misses, {} entries ({:.0}% hit rate)",
+            tracing::debug!(
+                target: "ir_cache",
                 hits,
                 misses,
-                self.len(),
-                (hits as f64 / total as f64) * 100.0
+                entries = self.len(),
+                hit_rate = (hits as f64 / total as f64) * 100.0,
+                "cache stats"
             );
-            debug!("{}", msg);
-            if cache_debug_enabled() {
-                eprintln!("[IrCache] {}", msg);
-            }
         }
     }
 }
@@ -233,7 +216,8 @@ impl DiskIrCache {
                 let ir: IrFile = match bincode::deserialize(&bytes) {
                     Ok(ir) => ir,
                     Err(e) => {
-                        warn!(
+                        tracing::warn!(
+                            target: "ir_cache",
                             "Skipping malformed IR cache entry {}: {}",
                             path.display(),
                             e
@@ -248,7 +232,7 @@ impl DiskIrCache {
 
             let count = loaded_keys.len();
             if count > 0 {
-                debug!("Loaded {} IR cache entries from disk", count);
+                tracing::debug!(target: "ir_cache", "Loaded {} entries from disk", count);
             }
         }
 
@@ -270,8 +254,9 @@ impl DiskIrCache {
     /// This is best-effort: I/O errors are logged as warnings but never propagate.
     pub fn flush(&self) {
         if let Err(e) = std::fs::create_dir_all(&self.dir) {
-            warn!(
-                "Failed to create IR cache directory {}: {}",
+            tracing::warn!(
+                target: "ir_cache",
+                "Failed to create cache directory {}: {}",
                 self.dir.display(),
                 e
             );
@@ -292,19 +277,19 @@ impl DiskIrCache {
             match bincode::serialize(entry.value()) {
                 Ok(bytes) => {
                     if let Err(e) = std::fs::write(&path, &bytes) {
-                        warn!("Failed to write IR cache entry {}: {}", path.display(), e);
+                        tracing::warn!(target: "ir_cache", "Failed to write entry {}: {}", path.display(), e);
                     } else {
                         new_count += 1;
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to serialize IR cache entry: {}", e);
+                    tracing::warn!(target: "ir_cache", "Failed to serialize entry: {}", e);
                 }
             }
         }
 
         if new_count > 0 {
-            info!("Wrote {} new IR cache entries to disk", new_count);
+            tracing::info!(target: "ir_cache", "Wrote {} new entries to disk", new_count);
         }
 
         // LRU eviction: if total size exceeds limit, remove oldest files first.
@@ -350,7 +335,7 @@ impl DiskIrCache {
                 break;
             }
             if let Err(e) = std::fs::remove_file(path) {
-                warn!("Failed to evict IR cache entry {}: {}", path.display(), e);
+                tracing::warn!(target: "ir_cache", "Failed to evict entry {}: {}", path.display(), e);
             } else {
                 total_size -= size;
                 evicted += 1;
@@ -358,8 +343,9 @@ impl DiskIrCache {
         }
 
         if evicted > 0 {
-            info!(
-                "Evicted {} IR cache entries (disk usage now ~{} bytes)",
+            tracing::info!(
+                target: "ir_cache",
+                "Evicted {} entries (disk usage now ~{} bytes)",
                 evicted, total_size
             );
         }
@@ -424,7 +410,7 @@ pub fn parse_to_ir(
     // Non-fatal: file may have syntax errors or unsupported language.
     match data_flow_result {
         Ok(df) => ir.enrich_with_data_flow(&df),
-        Err(e) => warn!(
+        Err(e) => tracing::warn!(
             "Data flow extraction failed for {}: {} (non-fatal, skipping enrichment)",
             path, e
         ),
@@ -493,7 +479,7 @@ pub fn parse_files_parallel(files: &[(&str, &str)]) -> Vec<ParsedFile> {
         match result {
             Ok(file) => parsed.push(file),
             Err((path, e)) => {
-                warn!("Skipping file {} due to parse error: {}", path, e);
+                tracing::warn!("Skipping file {} due to parse error: {}", path, e);
             }
         }
     }

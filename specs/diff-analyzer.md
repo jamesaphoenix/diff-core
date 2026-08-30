@@ -1083,7 +1083,7 @@ Goal: cache deterministic intermediate results so repeated/unchanged inputs skip
 
 - [x] All existing tests still pass (1638 tests: 1426 unit + 212 integration)
 - [x] Add a benchmark test (criterion) for: graph_build_from_ir (20/50/100 files, parallel vs serial) and flow_analysis/heuristic_patterns (20/50/100 files with 37 mixed call sites each)
-- [x] Cache hit/miss logging behind `DIFFCORE_CACHE_DEBUG=1` env var (per-operation HIT/MISS lines + summary stats to stderr)
+- [x] Cache hit/miss logging via tracing (`RUST_LOG=ir_cache=trace` for per-operation lines, `ir_cache=debug` for summary stats)
 - [x] No behavior change: cached results are byte-identical to uncached results (verified by `ir_cache_cached_result_byte_identical` test)
 
 ---

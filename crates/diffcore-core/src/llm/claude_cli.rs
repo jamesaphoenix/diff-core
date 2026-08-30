@@ -269,11 +269,7 @@ where
             output.push('\n');
         }
         if let Some(update) = summarize_claude_line(&line, stream_name, parse_json) {
-            if let Some(callback) = &activity_callback {
-                callback(update);
-            } else {
-                super::emit_activity(update);
-            }
+            super::emit_activity_with(update, activity_callback.as_ref());
         }
     }
     Ok(output)
@@ -555,9 +551,44 @@ fn truncate_for_activity(text: &str) -> String {
 mod tests {
     use serde_json::json;
 
+    use std::sync::{Arc, Mutex};
+
     use super::{
-        parse_claude_structured_output, summarize_claude_assistant, summarize_claude_tool_input,
+        collect_claude_stream, parse_claude_structured_output, summarize_claude_assistant,
+        summarize_claude_tool_input,
     };
+    use crate::llm::activity_logging_tests::capture_logs;
+    use crate::llm::{ActivityCallback, ActivityUpdate};
+
+    /// Regression: the stream collectors used to call the UI callback *instead*
+    /// of the logging path, so the desktop app showed warnings the terminal
+    /// never saw. Both must fire.
+    #[test]
+    fn stream_events_are_logged_when_a_ui_callback_is_installed() {
+        let seen: Arc<Mutex<Vec<ActivityUpdate>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        let callback: ActivityCallback = Arc::new(move |update: ActivityUpdate| {
+            if let Ok(mut seen) = sink.lock() {
+                seen.push(update);
+            }
+        });
+
+        let out = capture_logs(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("runtime");
+            rt.block_on(async {
+                let stderr = &b"Sandbox disabled: bwrap not installed\n"[..];
+                collect_claude_stream(stderr, "stderr", false, Some(callback))
+                    .await
+                    .expect("collect");
+            });
+        });
+
+        assert!(out.contains("WARN"), "not logged to the terminal: {out}");
+        assert!(out.contains("Sandbox disabled"), "{out}");
+        assert_eq!(seen.lock().unwrap().len(), 1, "UI callback must still fire");
+    }
 
     #[test]
     fn tool_input_prefers_concrete_path_details() {

@@ -66,7 +66,7 @@ fn default_ui_dir() -> PathBuf {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    diffcore_core::logging::init(None);
     let opts = match parse_args() {
         Ok(opts) => opts,
         Err(msg) => {

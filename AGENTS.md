@@ -69,6 +69,7 @@ Large-diff work is a separate evaluation track, not part of the default live-rep
 - **LLM-as-judge** — evaluator that scores analysis quality across 5 criteria
 - **Eval suite** — 5 synthetic fixture codebases, deterministic scoring, 0.89 avg score
 - **Config** — `.diffcore.toml` with entrypoint globs, layer names, ignore patterns, LLM settings, refinement settings
+- **Logging** — `tracing` + `tracing-subscriber` behind `diffcore-core`'s `logging` feature; `RUST_LOG` sets the filter (default `info`), `DIFFCORE_LOG_FORMAT=json` switches to line-delimited JSON, `DIFFCORE_LOG_FILE` redirects to a file (the desktop app falls back to `~/.diffcore/desktop.log` when stderr is not a terminal, since GUI bundles discard it). Backend activity logs on the `activity` target, IR cache on `ir_cache`. `log`-crate call sites bridge in automatically.
 
 ## Tests
 

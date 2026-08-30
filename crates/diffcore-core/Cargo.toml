@@ -30,6 +30,8 @@ bincode = "1"
 dashmap = "6"
 once_cell = "1"
 log = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
 tempfile = "3"
 tree-sitter-c-sharp = "0.23.1"
 tree-sitter-php = "0.24.2"
@@ -48,12 +50,14 @@ test-support = []
 ## Enables local code embeddings via fastembed (ONNX Runtime + Jina Code model).
 ## Used for semantic similarity between file diffs in clustering.
 embeddings = ["dep:fastembed"]
+## Subscriber stack for the binaries; library consumers skip it.
+logging = ["dep:tracing-subscriber"]
 
 # Enable test-support feature automatically when running tests
 # (dev-dependencies trigger `cfg(test)` in unit tests but not integration tests,
 # so we also enable the feature here for integration test access to `with_base_url`).
 [dev-dependencies]
-diffcore-core = { path = ".", features = ["test-support"] }
+diffcore-core = { path = ".", features = ["test-support", "logging"] }
 proptest = "1"
 tokio = { version = "1", features = ["full", "test-util"] }
 wiremock = "0.6"

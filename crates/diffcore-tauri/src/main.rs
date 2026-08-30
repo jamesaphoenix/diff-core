@@ -39,6 +39,14 @@ fn set_macos_dock_icon() {
 }
 
 fn main() {
+    // Used only when stderr is not a terminal: GUI bundles discard it (no
+    // console on Windows release, Finder/.desktop launches drop it). Launched
+    // from a terminal, the desktop app still logs there.
+    // `~/.diffcore` matches the cache convention and is not world-writable.
+    let log_file = std::env::var_os("HOME")
+        .map(|home| std::path::PathBuf::from(home).join(".diffcore").join("desktop.log"))
+        .unwrap_or_else(|| std::env::temp_dir().join("diffcore-desktop.log"));
+    diffcore_core::logging::init(Some(log_file));
     if let Err(e) = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

@@ -14,7 +14,7 @@ desktop = [
   "dep:tauri-plugin-updater",
   "dep:tauri-plugin-process",
 ]
-web = ["tower-http/fs", "dep:env_logger"]
+web = ["tower-http/fs"]
 custom-protocol = ["desktop", "tauri/custom-protocol"]
 
 [[bin]]
@@ -28,7 +28,7 @@ path = "src/bin/web.rs"
 required-features = ["web"]
 
 [dependencies]
-diffcore-core = { path = "../diffcore-core" }
+diffcore-core = { path = "../diffcore-core", features = ["logging"] }
 tauri = { version = "2", features = [], optional = true }
 tauri-plugin-shell = { version = "2", optional = true }
 tauri-plugin-updater = { version = "2", optional = true }
@@ -39,7 +39,7 @@ git2 = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 thiserror = "2"
 log = { workspace = true }
-env_logger = { version = "0.11", optional = true }
+tracing = { workspace = true }
 axum = "0.7"
 async-stream = "0.3"
 tower-http = { version = "0.6", features = ["cors"] }
