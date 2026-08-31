@@ -2,7 +2,9 @@
  * Mock data for demo mode — used when running outside Tauri (browser dev/Playwright).
  * Provides realistic fixture data so all UI states can be exercised without IPC.
  */
-import type { AnalysisOutput, FileDiffContent, LlmSettings, Pass1Response, Pass2Response, RefinementResult, RepoInfo } from "./types";
+import type { AnalysisOutput, FileDiffContent, LlmSettings, Pass1Response, Pass2Response, RefinementResult, RepoInfo,
+  ResolvedPr,
+} from "./types";
 
 export const MOCK_ANALYSIS: AnalysisOutput = {
   version: "1.0.0",
@@ -797,6 +799,16 @@ export const MOCK_LLM_SETTINGS: LlmSettings = {
   claude_available: true,
   claude_authenticated: true,
   include_uncommitted: true,
+};
+
+/** Demo stand-in for `resolve_pr_url`, so the PR-URL flow is reachable in
+ *  browser/demo mode and can be covered by Playwright. Deliberately differs
+ *  from MOCK_REPO_INFO's branches: a regression that lets loadRepoInfo
+ *  auto-detect over these refs is then visible in the branch selectors. */
+export const MOCK_RESOLVED_PR: ResolvedPr = {
+  path: "/demo/repo-pr",
+  base: "a1b2c3d",
+  head: "pr-42",
 };
 
 export const MOCK_REPO_INFO: RepoInfo = {

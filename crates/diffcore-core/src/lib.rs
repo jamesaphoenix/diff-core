@@ -23,6 +23,7 @@ pub mod llm;
 pub mod logging;
 pub mod output;
 pub mod pipeline;
+pub mod pr_url;
 pub mod query_engine;
 pub mod manifest;
 pub mod rank;

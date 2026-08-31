@@ -1265,6 +1265,7 @@ dependencies = [
  "tree-sitter-scala",
  "tree-sitter-swift",
  "tree-sitter-typescript",
+ "url",
  "wiremock",
 ]
 

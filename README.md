@@ -108,6 +108,12 @@ diffcore analyze --base main --refine --refine-model gpt-4o
 # Analyze a different repo
 diffcore analyze --base main --repo /path/to/repo
 
+# Analyze a pull/merge request by URL — clones into ~/.diffcore/cache/repos and
+# resolves base/head from the provider's PR refs. GitHub, GitLab, Gitea/Forgejo,
+# Pagure, Bitbucket Data Center, Azure DevOps and Gerrit; see
+# docs/pr-url-providers.md for URL shapes and the forges that cannot work.
+diffcore analyze --repo https://github.com/BurntSushi/ripgrep/pull/2900
+
 # Open a flow group in an external diff tool
 diffcore launch --tool bcompare --group group_1 --input review.json
 ```

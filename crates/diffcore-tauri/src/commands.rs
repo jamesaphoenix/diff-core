@@ -29,6 +29,7 @@ use diffcore_core::llm::refinement;
 use diffcore_core::llm::schema::{Pass1Response, Pass2Response, RefinementResponse};
 use diffcore_core::output::{self, build_analysis_output};
 use diffcore_core::pipeline;
+use diffcore_core::pr_url;
 use diffcore_core::rank;
 use diffcore_core::types::AnalysisOutput;
 
@@ -1588,6 +1589,24 @@ pub fn get_repo_info(repo_path: String) -> Result<RepoInfo, CommandError> {
         status,
         is_worktree,
     })
+}
+
+/// Resolve a pull/merge request URL into a local checkout plus base/head refs.
+///
+/// The repository field accepts a PR URL from any supported forge; the app calls
+/// this first, then re-runs its normal path-based flow against the returned path.
+///
+/// `async` and offloaded: the first clone of a large repository runs for minutes,
+/// and Tauri executes non-async commands on the main thread, which would freeze
+/// the window for the duration with no way to cancel.
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn resolve_pr_url(url: String) -> Result<pr_url::ResolvedPr, CommandError> {
+    let pr = pr_url::parse(&url)
+        .ok_or_else(|| CommandError::Git(format!("Not a pull/merge request URL: {}", url)))?;
+    tokio::task::spawn_blocking(move || pr_url::resolve(&pr))
+        .await
+        .map_err(|e| CommandError::Git(format!("resolve task failed: {e}")))?
+        .map_err(|e| CommandError::Git(e.to_string()))
 }
 
 /// Check whether LLM access is configured and available.

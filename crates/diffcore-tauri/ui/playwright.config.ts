@@ -6,12 +6,14 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   fullyParallel: false,
   retries: 0,
-  reporter: "list",
+  // `list` for the terminal, `html` so CI has something to upload.
+  reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: "http://127.0.0.1:4173",
     viewport: { width: 1440, height: 900 },
     actionTimeout: 5_000,
-    screenshot: "off",
+    screenshot: "only-on-failure",
+    trace: "retain-on-failure",
   },
   projects: [
     {

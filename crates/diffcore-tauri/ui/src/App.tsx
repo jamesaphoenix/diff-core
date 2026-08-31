@@ -7,6 +7,7 @@ import type {
   Pass1GroupAnnotation,
   Pass2Response,
   RepoInfo,
+  ResolvedPr,
   BranchInfo,
   LlmSettings,
   LlmProvider,
@@ -28,7 +29,7 @@ import SourceExplorer, { type SourceFocusRequest } from "./components/SourceExpl
 import ErrorBoundary from "./components/ErrorBoundary";
 import { buildManifestPrompt } from "./buildManifestPrompt";
 import { THEMES, applyTheme, getTheme, loadThemePrefs, saveThemePrefs, resolveThemeId, type ThemeMode, type ThemePrefs } from "./themes";
-import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT } from "./mock";
+import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT, MOCK_RESOLVED_PR } from "./mock";
 
 import { IS_TAURI, HAS_BACKEND, DEFAULT_REPO, invoke as tauriInvoke } from "./backend";
 
@@ -83,6 +84,15 @@ const SUBSCRIPTION_BACKENDS: Array<{
 function isApiProvider(provider: string): boolean {
   return provider === "anthropic" || provider === "openai" || provider === "gemini";
 }
+
+/** What a backend call was actually parameterised with; see lastBackendArgs. */
+type BackendArgs = { repoPath: string; base: string; head: string | null };
+
+/** Coarse check — the backend decides whether a URL is actually a PR/MR we support. */
+function isPrUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim());
+}
+
 
 function TruncatedText({
   text,
@@ -146,6 +156,16 @@ export default function App() {
   const [baseRef, setBaseRef] = useState("main");
   const [headRef, setHeadRef] = useState<string | null>(null);
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
+  // Set after a PR/MR URL resolves; see the effect below runAnalysis.
+  const [pendingAnalysis, setPendingAnalysis] = useState(false);
+  /** Records the repo/base/head each backend call was made with, so demo-mode
+   *  tests can assert on values that would otherwise vanish into a mock. A stale
+   *  closure here is exactly the bug class that shipped once already. */
+  const lastBackendArgs = useRef<{ analyze?: BackendArgs; fileDiff?: BackendArgs }>({});
+  /** True while baseRef/headRef come from a resolved PR. The cached checkout is
+   *  detached, so letting loadRepoInfo auto-detect would replace the PR's fork
+   *  point and tip with the checkout's default branch and a bare HEAD. */
+  const prRefs = useRef(false);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [headBranchDropdownOpen, setHeadBranchDropdownOpen] = useState(false);
 
@@ -398,10 +418,12 @@ export default function App() {
         info = MOCK_REPO_INFO;
       }
       setRepoInfo(info);
-      // Auto-set base ref to the detected default branch
-      setBaseRef(info.default_branch);
-      // Auto-set head ref to the current branch (what we're comparing FROM)
-      setHeadRef(info.current_branch ?? "HEAD");
+      if (!prRefs.current) {
+        // Auto-set base ref to the detected default branch
+        setBaseRef(info.default_branch);
+        // Auto-set head ref to the current branch (what we're comparing FROM)
+        setHeadRef(info.current_branch ?? "HEAD");
+      }
     } catch {
       // Non-fatal: we can still analyze without repo info
       setRepoInfo(null);
@@ -414,7 +436,7 @@ export default function App() {
 
   // Load repo info when repo path changes
   useEffect(() => {
-    if (repoPath) {
+    if (repoPath && !isPrUrl(repoPath)) {
       loadRepoInfo(repoPath);
     } else {
       setRepoInfo(null);
@@ -424,7 +446,7 @@ export default function App() {
   // Watch the repo's HEAD for changes made outside the app (git pull/checkout/merge in a
   // terminal). The watcher lives in Rust and emits "git-head-changed"; see the listener below.
   useEffect(() => {
-    if (!IS_TAURI || !repoPath) return;
+    if (!IS_TAURI || !repoPath || isPrUrl(repoPath) || prRefs.current) return;
     tauriInvoke("watch_git_head", { repoPath }).catch(() => {});
     return () => {
       tauriInvoke("unwatch_git_head", {}).catch(() => {});
@@ -597,6 +619,7 @@ export default function App() {
       setSourceFocusRequest(null);
       // Increment generation to mark any in-flight request as stale
       const generation = ++fileDiffGeneration.current;
+      lastBackendArgs.current.fileDiff = { repoPath, base: baseRef, head: headRef };
       if (HAS_BACKEND) {
         if (!repoPath) return;
         try {
@@ -791,7 +814,9 @@ export default function App() {
   );
 
   const runAnalysis = useCallback(async () => {
-    if (!repoPath) return;
+    const path = repoPath.trim();
+    if (!path) return;
+    lastBackendArgs.current.analyze = { repoPath: path, base: baseRef, head: headRef };
     setLoading(true);
     setError(null);
     // Reset LLM state on new analysis
@@ -827,7 +852,7 @@ export default function App() {
       let result: AnalysisOutput;
       if (HAS_BACKEND) {
         result = await tauriInvoke<AnalysisOutput>("analyze", {
-          repoPath,
+          repoPath: path,
           base: baseRef || "main",
           head: headRef || null,
           range: null,
@@ -855,7 +880,7 @@ export default function App() {
       }
       // Check for cached refinement and auto-apply if found
       if (HAS_BACKEND) {
-        tauriInvoke<RefinementResult | null>("get_cached_refinement", { repoPath: repoPath || null }).then((cached) => {
+        tauriInvoke<RefinementResult | null>("get_cached_refinement", { repoPath: path || null }).then((cached) => {
           if (cached) {
             applyRefinementResult(cached, { fromCache: true });
           }
@@ -870,6 +895,45 @@ export default function App() {
       setLoading(false);
     }
   }, [repoPath, baseRef, headRef, handleSelectGroup, closeActivityStream]);
+
+  /** Analyze whatever is in the repository field — a local path, or a PR/MR URL
+   *  that we first clone and resolve to a base/head pair. */
+  const submitRepoInput = useCallback(async () => {
+    const value = repoPath.trim();
+    if (!value || loading) return;
+    if (!isPrUrl(value)) {
+      runAnalysis();
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    let resolved: ResolvedPr;
+    try {
+      resolved = HAS_BACKEND
+        ? await tauriInvoke<ResolvedPr>("resolve_pr_url", { url: value })
+        : MOCK_RESOLVED_PR;
+    } catch (e) {
+      setLoading(false);
+      setError(String(e));
+      repoInputRef.current?.focus();
+      repoInputRef.current?.select();
+      return;
+    }
+    prRefs.current = true;
+    setRepoPath(resolved.path);
+    setBaseRef(resolved.base);
+    setHeadRef(resolved.head);
+    // Stay in the loading state until the queued analysis picks it up.
+    setPendingAnalysis(true);
+  }, [repoPath, loading, runAnalysis]);
+
+  // Runs once the resolved repo path has committed, so runAnalysis and every
+  // callback it triggers close over the checkout rather than the URL.
+  useEffect(() => {
+    if (!pendingAnalysis) return;
+    setPendingAnalysis(false);
+    runAnalysis();
+  }, [pendingAnalysis, runAnalysis]);
 
   const recommendedSubscriptionProvider: SubscriptionProvider | null = llmSettings?.codex_authenticated
     ? "codex"
@@ -1165,6 +1229,7 @@ export default function App() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (window as any).__TEST_API__ = {
       setRepoInfo: (data: RepoInfo | null) => setRepoInfo(data),
+      getLastBackendArgs: () => lastBackendArgs.current,
       setLlmSettings: (data: LlmSettings) => {
         demoLlmSettingsRef.current = data;
         setLlmSettings(data);
@@ -2959,13 +3024,16 @@ export default function App() {
             ref={repoInputRef}
             className="input repo-input"
             type="text"
-            placeholder="Repository path..."
+            placeholder="Repository path or pull/merge request URL..."
             value={repoPath}
-            onChange={(e) => setRepoPath(e.target.value)}
+            onChange={(e) => {
+              prRefs.current = false;
+              setRepoPath(e.target.value);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && repoPath && !loading) {
                 (e.target as HTMLInputElement).blur();
-                runAnalysis();
+                submitRepoInput();
               }
             }}
           />
@@ -3055,7 +3123,7 @@ export default function App() {
 
           <button
             className="btn btn-primary"
-            onClick={runAnalysis}
+            onClick={() => submitRepoInput()}
             disabled={loading || !repoPath}
           >
             {loading ? "Analyzing..." : "Analyze"}

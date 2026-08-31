@@ -152,6 +152,16 @@ export interface RepoInfo {
   is_worktree: boolean;
 }
 
+/** A pull/merge request URL resolved to a local checkout — see `resolve_pr_url`. */
+export interface ResolvedPr {
+  /** Local working tree, cloned into the diffcore cache on first use. */
+  path: string;
+  /** Merge base of the PR against its target branch. */
+  base: string;
+  /** Local branch `pr-{n}` at the PR's head commit. */
+  head: string;
+}
+
 // ── LLM Annotation Types ──
 
 /** Pass 1 overview response — per-group summaries + overall summary. */

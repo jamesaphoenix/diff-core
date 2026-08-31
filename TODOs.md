@@ -6,8 +6,12 @@ Replace GitHub's PR review tab entirely — do the full review in Diffcore, push
 
 ### Phase 1: GitHub Login + PR Fetching
 - GitHub OAuth login flow in Tauri app
-- `diffcore review <pr-url>` — fetch PR diff directly from GitHub API
-- Store GitHub token securely (keychain / 1Password)
+- ~~Fetch a PR diff by URL~~ — done without an API: the repository field and
+  `diffcore analyze --repo` take PR/MR URLs across forges and resolve them from
+  the provider's git refs. See [docs/pr-url-providers.md](./docs/pr-url-providers.md).
+- Store GitHub token securely (keychain / 1Password). An API token would also
+  close the gaps git refs cannot cover: Bitbucket Cloud (no PR refs at all) and
+  fast-forward-merged PRs (no recoverable base branch).
 
 ### Phase 2: Bidirectional Comment Sync
 - Push review comments from Diffcore back to GitHub as a PR review
