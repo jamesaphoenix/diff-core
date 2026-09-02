@@ -27,6 +27,10 @@ proptest-regressions/
 loop.sh
 .fastembed_cache/
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
+
+# One-off agent instructions
+/prompt.md
 
 # Nix build output
 /result
