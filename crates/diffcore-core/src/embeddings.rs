@@ -73,10 +73,9 @@ impl EmbeddingCache {
         }
     }
 
-    /// Default cache location: `~/.cache/diffcore/embeddings/`
+    /// Default cache location: `$XDG_CACHE_HOME/diffcore/embeddings/`
     pub fn default_cache() -> Self {
-        let dir = dirs_fallback().join("diffcore").join("embeddings");
-        Self::new(&dir)
+        Self::new(&embeddings_cache_dir())
     }
 
     /// Compute a cache key for a file path + content pair.
@@ -136,12 +135,11 @@ impl EmbeddingCache {
     }
 }
 
-/// Fallback for cache directory — uses `~/.cache` on all platforms.
-fn dirs_fallback() -> PathBuf {
-    if let Some(home) = std::env::var_os("HOME") {
-        PathBuf::from(home).join(".cache")
-    } else {
-        PathBuf::from("/tmp")
+/// Embeddings cache directory, honouring XDG like every other per-user path.
+fn embeddings_cache_dir() -> PathBuf {
+    match crate::paths::cache_dir() {
+        Some(dir) => dir.join("embeddings"),
+        None => std::env::temp_dir().join("diffcore-embeddings"),
     }
 }
 

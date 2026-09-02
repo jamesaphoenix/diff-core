@@ -24,7 +24,8 @@ function baseMissingSettings(overrides: Record<string, unknown> = {}) {
     has_api_key: false,
     refinement_provider: "openai",
     refinement_model: "gpt-5.4",
-    global_config_path: "~/.diffcore/config.toml",
+    global_config_path: "~/.config/diffcore/config.toml",
+    api_key_in_config: false,
     codex_available: false,
     codex_authenticated: false,
     claude_available: false,
@@ -99,5 +100,67 @@ test.describe("AI onboarding", () => {
     await expect(onboarding).not.toBeVisible();
     await page.locator(".top-bar-right .btn-ai-setup").click();
     await expect(onboarding).toBeVisible();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// API key removal
+//
+// Regression guard: the Clear button used to be gated on
+// `api_key_source === "~/.diffcore/config.toml"`, a string comparison against
+// a display path. Moving the config to XDG changed that path and silently
+// removed the only way to delete a stored plaintext key from the UI.
+// ═══════════════════════════════════════════════════════════════════
+
+test.describe("Stored API key removal", () => {
+  test.beforeEach(async ({ page }) => {
+    await waitForDemoApp(page);
+  });
+
+  test("Clear button shows when a key is stored in the config file", async ({ page }) => {
+    await setLlmSettings(
+      page,
+      baseMissingSettings({
+        provider: "anthropic",
+        has_api_key: true,
+        api_key_in_config: true,
+        api_key_source: "~/.config/diffcore/config.toml",
+      }),
+    );
+
+    await page.locator(".btn-settings").click();
+    await expect(page.locator(".btn-clear-key")).toBeVisible();
+  });
+
+  test("Clear button stays hidden when the key comes from somewhere else", async ({ page }) => {
+    await setLlmSettings(
+      page,
+      baseMissingSettings({
+        provider: "anthropic",
+        has_api_key: true,
+        api_key_in_config: false,
+        api_key_source: "ANTHROPIC_API_KEY",
+      }),
+    );
+
+    await page.locator(".btn-settings").click();
+    await expect(page.locator(".btn-clear-key")).toHaveCount(0);
+  });
+
+  test("Clear button does not depend on the config file path", async ({ page }) => {
+    // The whole point: an unrecognised path must not hide the control.
+    await setLlmSettings(
+      page,
+      baseMissingSettings({
+        provider: "anthropic",
+        has_api_key: true,
+        api_key_in_config: true,
+        api_key_source: "/some/entirely/unexpected/location/config.toml",
+        global_config_path: "/some/entirely/unexpected/location/config.toml",
+      }),
+    );
+
+    await page.locator(".btn-settings").click();
+    await expect(page.locator(".btn-clear-key")).toBeVisible();
   });
 });

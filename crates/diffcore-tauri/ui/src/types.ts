@@ -234,11 +234,21 @@ export interface LlmSettings {
   refinement_provider: string;
   refinement_model: string;
   global_config_path: string;
+  api_key_in_config: boolean;
   codex_available: boolean;
   codex_authenticated: boolean;
   claude_available: boolean;
   claude_authenticated: boolean;
   include_uncommitted: boolean;
+}
+
+/** UI preferences persisted in the global config (mirrors Rust `UiConfig`). */
+export interface UiConfig {
+  theme_mode: "light" | "dark" | "system";
+  theme_light: string;
+  theme_dark: string;
+  right_panel_width: number;
+  right_panel_collapsed: boolean;
 }
 
 export interface AsyncLlmJobStart {

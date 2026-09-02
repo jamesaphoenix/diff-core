@@ -3,7 +3,7 @@
 //! Each `#[cfg_attr(feature = "desktop", tauri::command)]` function is callable from the frontend via `invoke()`.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -19,7 +19,7 @@ use crate::state_shim::State;
 use crate::activity_stream::{self, ActivityEntry, JobHandle};
 use diffcore_core::cache;
 use diffcore_core::cluster;
-use diffcore_core::config::DiffcoreConfig;
+use diffcore_core::config::{DiffcoreConfig, UiConfig};
 use diffcore_core::entrypoint;
 use diffcore_core::flow::{self, FlowConfig};
 use diffcore_core::git;
@@ -1674,7 +1674,7 @@ pub fn get_cached_refinement(
     Ok(None)
 }
 
-/// Store a refinement result in the global cache (~/.diffcore/cache/refinements/).
+/// Store a refinement result in the global cache ($XDG_CACHE_HOME/diffcore/refinements/).
 ///
 /// Stores under both diff-hash key and branch-based key for cross-worktree access.
 #[cfg_attr(feature = "desktop", tauri::command)]
@@ -1793,7 +1793,7 @@ pub fn check_api_key(repo_path: Option<String>) -> Result<bool, CommandError> {
 
 /// Get LLM settings from the shared global config plus repo-local overrides.
 ///
-/// Reads `~/.diffcore/config.toml`, merges in any repo-local `[llm]` overrides, resolves
+/// Reads the global config, merges in any repo-local `[llm]` overrides, resolves
 /// CLI/API availability, and returns a unified `LlmSettings` struct for the settings panel.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, CommandError> {
@@ -1813,6 +1813,8 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
         _ => llm::resolve_api_key(&config.llm, &provider).is_ok(),
     };
 
+    let api_key_in_config = config.llm.key.as_ref().is_some_and(|k| !k.is_empty());
+
     let api_key_source = match provider.as_str() {
         "codex" => match (codex_status.installed, codex_status.authenticated) {
             (true, true) => "Codex CLI login".to_string(),
@@ -1825,9 +1827,7 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
             (false, _) => "Claude Code not installed".to_string(),
         },
         _ if config.llm.key_cmd.is_some() => "key_cmd".to_string(),
-        _ if config.llm.key.as_ref().is_some_and(|k| !k.is_empty()) => {
-            "~/.diffcore/config.toml".to_string()
-        }
+        _ if api_key_in_config => display_global_config_path(),
         _ if std::env::var("DIFFCORE_API_KEY").is_ok() => "DIFFCORE_API_KEY".to_string(),
         _ => {
             let env_var = match provider.as_str() {
@@ -1839,7 +1839,7 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
             if std::env::var(env_var).is_ok() {
                 env_var.to_string()
             } else if workdir.is_some() {
-                "none (configure in ~/.diffcore/config.toml or env)".to_string()
+                format!("none (configure in {} or env)", display_global_config_path())
             } else {
                 "none".to_string()
             }
@@ -1879,6 +1879,7 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
         refinement_model,
         metadata_enabled: config.llm.metadata.enabled,
         global_config_path: display_global_config_path(),
+        api_key_in_config,
         codex_available: codex_status.installed,
         codex_authenticated: codex_status.authenticated,
         claude_available: claude_status.installed,
@@ -1890,7 +1891,7 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
 /// Save LLM settings to the shared global config.
 ///
 /// Loads the existing global config, updates the `[llm]` section with the provided
-/// settings, and writes back to `~/.diffcore/config.toml`.
+/// settings, and writes back to the global config.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub fn save_llm_settings(_repo_path: String, settings: LlmSettings) -> Result<(), CommandError> {
     let mut config =
@@ -1916,7 +1917,7 @@ pub fn save_llm_settings(_repo_path: String, settings: LlmSettings) -> Result<()
     Ok(())
 }
 
-/// Save an API key to `~/.diffcore/config.toml` under `[llm] key = "..."`.
+/// Save an API key to the global config under `[llm] key = "..."`.
 ///
 /// The key is stored directly in the config file. Precedence is maintained:
 /// `key_cmd` > `key` (config) > env vars.
@@ -1934,7 +1935,7 @@ pub fn save_api_key(_repo_path: String, api_key: String) -> Result<(), CommandEr
     Ok(())
 }
 
-/// Remove the stored API key from `~/.diffcore/config.toml`.
+/// Remove the stored API key from the global config.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub fn clear_api_key(_repo_path: String) -> Result<(), CommandError> {
     let mut config =
@@ -1947,6 +1948,26 @@ pub fn clear_api_key(_repo_path: String) -> Result<(), CommandError> {
         .map_err(|e| CommandError::Config(format!("Failed to save config: {}", e)))?;
 
     Ok(())
+}
+
+/// Get UI preferences from `ui.toml`.
+///
+/// Per-user, not per-repo: the same theme and layout apply to every repository
+/// and to both the desktop app and the web build.
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub fn get_ui_settings() -> Result<UiConfig, CommandError> {
+    Ok(UiConfig::load())
+}
+
+/// Save UI preferences to `ui.toml`.
+///
+/// Deliberately does not touch `config.toml`: that file holds the API key and
+/// must not be rewritten on every theme toggle.
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub fn save_ui_settings(settings: UiConfig) -> Result<(), CommandError> {
+    settings
+        .save()
+        .map_err(|e| CommandError::Config(format!("Failed to save UI settings: {}", e)))
 }
 
 /// Get the current ignore paths from `.diffcore.toml`.
@@ -2301,10 +2322,32 @@ fn preferred_model_for_runtime(
     }
 }
 
+/// Path to show the user for "where your settings live".
+///
+/// Reports the file actually being read, which during the migration window is
+/// the pre-XDG one — [`DiffcoreConfig::global_config_path`] names the write
+/// target and would point at a file that does not exist yet.
 fn display_global_config_path() -> String {
-    DiffcoreConfig::global_config_path()
-        .map(|path| path.to_string_lossy().to_string())
-        .unwrap_or_else(|| "~/.diffcore/config.toml".to_string())
+    DiffcoreConfig::global_config_source()
+        .or_else(DiffcoreConfig::global_config_path)
+        .map(|path| abbreviate_home(&path))
+        .unwrap_or_else(|| "~/.config/diffcore/config.toml".to_string())
+}
+
+/// Render `/home/you/.config/...` as `~/.config/...` for display.
+fn abbreviate_home(path: &Path) -> String {
+    let display = path.to_string_lossy().to_string();
+    let Some(home) = std::env::var_os("HOME") else {
+        return display;
+    };
+    let home = home.to_string_lossy().to_string();
+    if home.is_empty() {
+        return display;
+    }
+    match display.strip_prefix(&home) {
+        Some(rest) => format!("~{}", rest),
+        None => display,
+    }
 }
 
 /// LLM settings for the UI — surface for the settings panel.
@@ -2334,6 +2377,9 @@ pub struct LlmSettings {
     pub refinement_model: String,
     /// Where shared LLM settings are stored.
     pub global_config_path: String,
+    /// Whether a key is stored in the config file (so the UI can offer to
+    /// clear it). A flag, not a string comparison against a display path.
+    pub api_key_in_config: bool,
     /// Whether Codex CLI is installed.
     pub codex_available: bool,
     /// Whether Codex CLI is logged in and ready.
@@ -2696,7 +2742,7 @@ fn load_comments_from_file(path: &PathBuf, analysis_hash: &str) -> CommentsFile 
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Branch-based comment cache (~/.diffcore/cache/comments/)
+// Branch-based comment store ($XDG_DATA_HOME/diffcore/comments/)
 // ══════════════════════════════════════════════════════════════════════
 
 /// Resolve the global comment cache directory.
@@ -2704,14 +2750,28 @@ fn load_comments_from_file(path: &PathBuf, analysis_hash: &str) -> CommentsFile 
 fn comment_cache_dir() -> Option<PathBuf> {
     std::env::var_os("DIFFCORE_COMMENT_CACHE_DIR")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| {
-                PathBuf::from(home)
-                    .join(".diffcore")
-                    .join("cache")
-                    .join("comments")
-            })
-        })
+        .or_else(|| diffcore_core::paths::data_dir().map(|dir| dir.join("comments")))
+}
+
+/// Pre-XDG comment location, read-only. Comments are user-authored review
+/// notes; silently orphaning them on upgrade would look like data loss.
+fn legacy_comment_cache_dir() -> Option<PathBuf> {
+    diffcore_core::paths::legacy_dir().map(|dir| dir.join("cache").join("comments"))
+}
+
+/// Resolve the file holding comments for `cache_key`, preferring the current
+/// location and falling back to the pre-XDG one. Writes always use the former.
+fn comment_cache_file_for_read(cache_key: &str) -> Option<PathBuf> {
+    let name = format!("{}.json", cache_key);
+    let current = comment_cache_dir().map(|dir| dir.join(&name));
+    if current.as_ref().is_some_and(|path| path.exists()) {
+        return current;
+    }
+    let legacy = legacy_comment_cache_dir().map(|dir| dir.join(&name));
+    if legacy.as_ref().is_some_and(|path| path.exists()) {
+        return legacy;
+    }
+    current
 }
 
 /// Compute a cache key for a repo+branch combo.
@@ -2776,10 +2836,9 @@ struct CachedCommentsFile {
 
 /// Load comments for the current repo+branch from the global cache.
 fn load_cached_comments_file(cache_key: &str) -> CachedCommentsFile {
-    let Some(dir) = comment_cache_dir() else {
+    let Some(path) = comment_cache_file_for_read(cache_key) else {
         return CachedCommentsFile { comments: vec![] };
     };
-    let path = dir.join(format!("{}.json", cache_key));
     match std::fs::read_to_string(&path) {
         Ok(data) => serde_json::from_str(&data).unwrap_or(CachedCommentsFile { comments: vec![] }),
         Err(_) => CachedCommentsFile { comments: vec![] },
@@ -3242,6 +3301,7 @@ mod tests {
             refinement_provider: "claude".to_string(),
             refinement_model: "default".to_string(),
             global_config_path: "~/.diffcore/config.toml".to_string(),
+            api_key_in_config: false,
             codex_available: true,
             codex_authenticated: true,
             claude_available: true,
@@ -4128,6 +4188,7 @@ mod tests {
             refinement_provider: "codex".to_string(),
             refinement_model: "default".to_string(),
             global_config_path: "~/.diffcore/config.toml".to_string(),
+            api_key_in_config: false,
             codex_available: false,
             codex_authenticated: false,
             claude_available: false,
@@ -4153,6 +4214,7 @@ mod tests {
             refinement_provider: "anthropic".to_string(),
             refinement_model: "claude-sonnet-4-6".to_string(),
             global_config_path: "/tmp/config.toml".to_string(),
+            api_key_in_config: false,
             codex_available: true,
             codex_authenticated: true,
             claude_available: true,
@@ -4178,6 +4240,7 @@ mod tests {
             refinement_provider: "gemini".to_string(),
             refinement_model: "gemini-2.5-flash".to_string(),
             global_config_path: "~/.diffcore/config.toml".to_string(),
+            api_key_in_config: false,
             codex_available: true,
             codex_authenticated: false,
             claude_available: true,

@@ -148,8 +148,13 @@ The app auto-discovers git branches, worktrees, and push status on launch. Enter
 
 Diffcore now splits configuration into:
 
-- `~/.diffcore/config.toml` for shared LLM/onboarding settings across all repos
+- `$XDG_CONFIG_HOME/diffcore/config.toml` (defaults to `~/.config/diffcore/config.toml`)
+  for shared LLM/onboarding settings across all repos
 - `.diffcore.toml` in the repo root for project-specific analysis settings
+
+Every other path — UI preferences, comments, caches, logs — is listed in
+[docs/file-locations.md](docs/file-locations.md), along with the migration
+notes for pre-XDG installs.
 
 New users can usually skip API keys entirely: the desktop app auto-detects `codex` and `claude`, and will use those subscriptions when available.
 
@@ -197,8 +202,8 @@ uncertainty = 0.20
 
 When using direct API providers (`anthropic`, `openai`, `gemini`), Diffcore checks for API keys in this order:
 
-1. `key_cmd` in `~/.diffcore/config.toml` or `.diffcore.toml`
-2. `key` in `~/.diffcore/config.toml` or `.diffcore.toml`
+1. `key_cmd` in `~/.config/diffcore/config.toml` or `.diffcore.toml`
+2. `key` in `~/.config/diffcore/config.toml` or `.diffcore.toml`
 3. `DIFFCORE_API_KEY`
 4. Provider specific env var: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`
 
@@ -220,7 +225,8 @@ DIFFCORE_LOG_FORMAT=json diffcore analyze --base main 2> analyze.log.jsonl
 
 Launched from a terminal the desktop app logs there like the others; launched
 from Finder or a `.desktop` entry — where stderr is discarded — it falls back to
-`~/.diffcore/desktop.log`. `DIFFCORE_LOG_FILE` overrides the path for any binary.
+`~/.local/state/diffcore/desktop.log`. `DIFFCORE_LOG_FILE` overrides the path
+for any binary.
 
 ## Architecture
 

@@ -18,6 +18,7 @@ import type {
   ReviewComment,
   CommentInput,
   InfraSubGroup,
+  UiConfig,
 } from "./types";
 import { LLM_PROVIDERS, MODELS_BY_PROVIDER } from "./types";
 import DiffViewer, { type DiffViewerHandle } from "./components/DiffViewer";
@@ -27,10 +28,13 @@ import SourceExplorer, { type SourceFocusRequest } from "./components/SourceExpl
 // import RiskHeatmap from "./components/RiskHeatmap";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { buildManifestPrompt } from "./buildManifestPrompt";
-import { THEMES, applyTheme, getTheme, loadThemePrefs, saveThemePrefs, resolveThemeId, type ThemeMode, type ThemePrefs } from "./themes";
+import { THEMES, applyTheme, getTheme, loadThemePrefs, saveThemePrefs, normalizeThemePrefs, resolveThemeId, type ThemeMode, type ThemePrefs } from "./themes";
 import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT, MOCK_RESOLVED_PR } from "./mock";
 
 import { IS_TAURI, HAS_BACKEND, DEFAULT_REPO, invoke as tauriInvoke } from "./backend";
+
+/** Panel width bounds, mirroring MIN/MAX_PANEL_WIDTH in diffcore-core. */
+const clampPanelWidth = (width: number) => Math.max(200, Math.min(800, width));
 
 const PROVIDER_LABELS: Record<LlmProvider, string> = {
   codex: "Codex CLI",
@@ -286,13 +290,70 @@ export default function App() {
     applyTheme(activeThemeId);
   }, [activeThemeId]);
 
+  // Global config is the source of truth for UI prefs; localStorage is only a
+  // synchronous cache so the first paint uses the right theme. Demo mode has no
+  // backend, so it stays localStorage-only.
+  const uiSettingsRef = useRef<UiConfig | null>(null);
+  // Set as soon as the user changes a pref. Guards both directions of the
+  // load race: before the fetch lands we must not write (we'd overwrite the
+  // fields we haven't read yet), and once the user has acted the resolved
+  // fetch must not revert them.
+  const uiTouchedRef = useRef(false);
+
+  const persistUiSettings = useCallback((patch: Partial<UiConfig>) => {
+    if (!HAS_BACKEND) return;
+    uiTouchedRef.current = true;
+    const current = uiSettingsRef.current;
+    // No baseline yet: writing would clobber unread fields with guessed
+    // defaults. localStorage still holds the theme, and the next change
+    // after load persists everything.
+    if (!current) return;
+    const next = { ...current, ...patch };
+    uiSettingsRef.current = next;
+    // Fire-and-forget: a failed write must never block the interaction.
+    tauriInvoke("save_ui_settings", { settings: next }).catch((e) => {
+      console.warn("Failed to persist UI settings", e);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!HAS_BACKEND) return;
+    let cancelled = false;
+    tauriInvoke<UiConfig>("get_ui_settings")
+      .then((ui) => {
+        if (cancelled) return;
+        uiSettingsRef.current = ui;
+        if (uiTouchedRef.current) return;
+        const prefs = normalizeThemePrefs({
+          mode: ui.theme_mode,
+          light: ui.theme_light,
+          dark: ui.theme_dark,
+        });
+        setThemePrefs(prefs);
+        saveThemePrefs(prefs);
+        setRightPanelWidth(clampPanelWidth(ui.right_panel_width));
+        setRightPanelCollapsed(ui.right_panel_collapsed);
+      })
+      .catch((e) => {
+        console.warn("Failed to load UI settings; using local defaults", e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const updateThemePrefs = useCallback((patch: Partial<ThemePrefs>) => {
     setThemePrefs((prev) => {
       const next = { ...prev, ...patch };
       saveThemePrefs(next);
+      persistUiSettings({
+        theme_mode: next.mode,
+        theme_light: next.light,
+        theme_dark: next.dark,
+      });
       return next;
     });
-  }, []);
+  }, [persistUiSettings]);
 
   // LLM settings
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
@@ -359,11 +420,21 @@ export default function App() {
 
   // Right panel collapse/resize state
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  // Every collapse/expand routes through here so the pref is persisted once,
+  // not at each of the three call sites.
+  const updateRightPanelCollapsed = useCallback(
+    (collapsed: boolean) => {
+      setRightPanelCollapsed(collapsed);
+      persistUiSettings({ right_panel_collapsed: collapsed });
+    },
+    [persistUiSettings],
+  );
   const [rightPanelWidth, setRightPanelWidth] = useState(320);
   const rightPanelDragging = useRef(false);
   const rightPanelStartX = useRef(0);
   const rightPanelStartWidth = useRef(0);
   const rightPanelRafId = useRef(0);
+  const rightPanelLatestWidth = useRef(320);
 
   // Groups manifest watching state
   const [watchedManifestPath, setWatchedManifestPath] = useState<string | null>(null);
@@ -384,7 +455,8 @@ export default function App() {
       cancelAnimationFrame(rightPanelRafId.current);
       rightPanelRafId.current = requestAnimationFrame(() => {
         const delta = rightPanelStartX.current - clientX;
-        const newWidth = Math.max(200, Math.min(800, rightPanelStartWidth.current + delta));
+        const newWidth = clampPanelWidth(rightPanelStartWidth.current + delta);
+        rightPanelLatestWidth.current = newWidth;
         setRightPanelWidth(newWidth);
       });
     };
@@ -395,6 +467,7 @@ export default function App() {
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         document.querySelector(".panel-right")?.classList.remove("panel-right-dragging");
+        persistUiSettings({ right_panel_width: rightPanelLatestWidth.current });
       }
     };
     window.addEventListener("mousemove", onMouseMove);
@@ -403,13 +476,14 @@ export default function App() {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  }, []);
+  }, [persistUiSettings]);
 
   const startRightPanelDrag = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     rightPanelDragging.current = true;
     rightPanelStartX.current = e.clientX;
     rightPanelStartWidth.current = rightPanelWidth;
+    rightPanelLatestWidth.current = rightPanelWidth;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
     document.querySelector(".panel-right")?.classList.add("panel-right-dragging");
@@ -1513,7 +1587,8 @@ export default function App() {
       annotations_enabled: true,
       provider: apiProviderDraft,
       model: selectedApiModel,
-      api_key_source: "~/.diffcore/config.toml",
+      api_key_source: llmSettings.global_config_path,
+      api_key_in_config: true,
       has_api_key: true,
       refinement_provider: apiProviderDraft,
       refinement_model: selectedApiModel,
@@ -3649,11 +3724,11 @@ export default function App() {
                         className="btn btn-save-key"
                         disabled={!apiKeyInput.trim()}
                         onClick={handleSaveApiKey}
-                        title="Save API key to ~/.diffcore/config.toml"
+                        title={`Save API key to ${llmSettings.global_config_path}`}
                       >
                         Save
                       </button>
-                      {llmSettings.api_key_source === "~/.diffcore/config.toml" && (
+                      {llmSettings.api_key_in_config && (
                         <button
                           className="btn btn-clear-key"
                           onClick={handleClearApiKey}
@@ -3667,7 +3742,7 @@ export default function App() {
                       New users can usually skip keys by using Codex CLI or Claude Code if they are already signed in.
                       If you prefer direct API calls, paste a key above, set <code>DIFFCORE_API_KEY</code>, a provider-specific
                       env var (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>GEMINI_API_KEY</code>), or
-                      configure <code>key_cmd</code> in <code>~/.diffcore/config.toml</code>.
+                      configure <code>key_cmd</code> in <code>{llmSettings.global_config_path}</code>.
                     </p>
                     {recommendedSubscriptionProvider && (
                       <button className="btn" onClick={activatePreferredActivityProvider}>
@@ -4094,7 +4169,7 @@ export default function App() {
                                     e.stopPropagation();
                                     openFileInTab(file.path, group.id);
                                     setRightPanelTab("comments");
-                                    if (rightPanelCollapsed) setRightPanelCollapsed(false);
+                                    if (rightPanelCollapsed) updateRightPanelCollapsed(false);
                                     // Queue scroll to first code-level comment after diff loads
                                     const fc = commentsForFile(file.path);
                                     const first = fc.find((c) => c.start_line != null);
@@ -4405,7 +4480,7 @@ export default function App() {
                 onGlyphClick={(commentId) => {
                   setActiveCommentId(commentId);
                   setRightPanelTab("comments");
-                  if (rightPanelCollapsed) setRightPanelCollapsed(false);
+                  if (rightPanelCollapsed) updateRightPanelCollapsed(false);
                   // Scroll the comment card into view in the comments tab
                   setTimeout(() => {
                     const el = document.querySelector(`.comments-tab-card[data-comment-id="${commentId}"]`);
@@ -4584,7 +4659,7 @@ export default function App() {
           <div className="panel-header panel-header-tabs" data-testid="right-panel-tabs" role="tablist" aria-label="Right panel views">
             <button
               className="panel-collapse-btn"
-              onClick={() => setRightPanelCollapsed(!rightPanelCollapsed)}
+              onClick={() => updateRightPanelCollapsed(!rightPanelCollapsed)}
               title={rightPanelCollapsed ? "Expand panel" : "Collapse panel"}
             >
               {rightPanelCollapsed ? "\u25C0" : "\u25B6"}

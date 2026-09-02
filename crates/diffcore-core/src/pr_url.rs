@@ -528,7 +528,7 @@ fn lock_cache(dir: &Path) -> Result<CacheLock, PrUrlError> {
 pub fn resolve(pr: &PrUrl) -> Result<ResolvedPr, PrUrlError> {
     let root = std::env::var_os("DIFFCORE_REPO_CACHE_DIR")
         .map(PathBuf::from)
-        .or_else(|| crate::config::diffcore_config_home().map(|h| h.join("cache").join("repos")))
+        .or_else(|| crate::paths::cache_dir().map(|dir| dir.join("repos")))
         .ok_or(PrUrlError::NoCacheDir)?;
     resolve_in(pr, &root)
 }

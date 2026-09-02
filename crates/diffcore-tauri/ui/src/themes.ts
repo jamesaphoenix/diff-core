@@ -186,17 +186,25 @@ const DEFAULT_PREFS: ThemePrefs = {
 
 const STORAGE_KEY = "diffcore.theme";
 
+/** Coerce untrusted prefs (localStorage, hand-edited config file) into valid ones. */
+export function normalizeThemePrefs(raw: unknown): ThemePrefs {
+  if (!raw || typeof raw !== "object") return DEFAULT_PREFS;
+  const parsed = raw as Record<string, unknown>;
+  const valid = (id: unknown) => THEMES.some((t) => t.id === id);
+  return {
+    mode: ["light", "dark", "system"].includes(parsed.mode as string)
+      ? (parsed.mode as ThemeMode)
+      : DEFAULT_PREFS.mode,
+    light: valid(parsed.light) ? (parsed.light as string) : DEFAULT_PREFS.light,
+    dark: valid(parsed.dark) ? (parsed.dark as string) : DEFAULT_PREFS.dark,
+  };
+}
+
 export function loadThemePrefs(): ThemePrefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_PREFS;
-    const parsed = JSON.parse(raw);
-    const valid = (id: unknown) => THEMES.some((t) => t.id === id);
-    return {
-      mode: ["light", "dark", "system"].includes(parsed.mode) ? parsed.mode : DEFAULT_PREFS.mode,
-      light: valid(parsed.light) ? parsed.light : DEFAULT_PREFS.light,
-      dark: valid(parsed.dark) ? parsed.dark : DEFAULT_PREFS.dark,
-    };
+    return normalizeThemePrefs(JSON.parse(raw));
   } catch {
     return DEFAULT_PREFS;
   }

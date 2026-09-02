@@ -23,6 +23,7 @@ pub mod llm;
 #[cfg(feature = "logging")]
 pub mod logging;
 pub mod output;
+pub mod paths;
 pub mod pipeline;
 pub mod pr_url;
 pub mod query_engine;

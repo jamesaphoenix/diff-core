@@ -35,7 +35,7 @@ use schema::{
 /// Errors that can occur during LLM operations.
 #[derive(Debug, thiserror::Error)]
 pub enum LlmError {
-    #[error("No API key found. Set DIFFCORE_API_KEY, configure key_cmd in ~/.diffcore/config.toml or .diffcore.toml, or set provider-specific env var ({0})")]
+    #[error("No API key found. Set DIFFCORE_API_KEY, configure key_cmd in the global config or .diffcore.toml, or set provider-specific env var ({0})")]
     NoApiKey(String),
 
     #[error("HTTP request failed: {0}")]
