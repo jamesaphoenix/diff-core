@@ -918,6 +918,21 @@ select:focus-visible {
   font-size: 11px;
 }
 
+.refinement-verdict-details {
+  margin-top: 8px;
+}
+
+.refinement-verdict-details > summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.refinement-verdict-details > summary:hover {
+  color: var(--text-primary);
+}
+
 .refinement-verdict-reasoning {
   margin-top: 8px;
   color: var(--text-secondary);
@@ -1467,6 +1482,47 @@ body {
   color: var(--risk-low);
 }
 
+.group-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 8px 46px;
+  margin-top: -6px;
+}
+
+.group-meta-chip {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0.07em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  background: rgba(var(--text-secondary-rgb), 0.1);
+}
+
+.group-meta-chip-risk[data-risk="low"] {
+  color: var(--risk-low);
+  background: rgba(var(--risk-low-rgb), 0.16);
+}
+
+.group-meta-chip-risk[data-risk="medium"] {
+  color: var(--risk-medium);
+  background: rgba(var(--risk-medium-rgb), 0.16);
+}
+
+.group-meta-chip-risk[data-risk="high"] {
+  color: var(--risk-high);
+  background: rgba(var(--risk-high-rgb), 0.16);
+}
+
+.group-meta-chip-risk[data-risk="critical"] {
+  color: var(--risk-high);
+  background: rgba(var(--risk-high-rgb), 0.22);
+  box-shadow: inset 0 0 0 1px rgba(var(--risk-high-rgb), 0.65);
+}
+
 /* ── Copy Flow Paths Button ── */
 
 .copy-flow-btn {
@@ -1764,6 +1820,110 @@ body {
 .annotation-section {
   padding: 12px;
   border-bottom: 1px solid var(--border);
+}
+
+/* ── Group Review Metadata (fixed-height glance block) ── */
+
+.review-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(var(--accent-rgb), 0.03);
+  border-left: 2px solid rgba(var(--accent-rgb), 0.5);
+}
+
+.review-meta-verdict,
+.review-meta-focus {
+  font-family: var(--font-mono);
+  height: 14px;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.review-meta-item {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+}
+
+.review-meta-item + .review-meta-item::before {
+  content: "\00b7";
+  margin: 0 7px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+
+.review-meta-item-risk[data-risk="low"] { color: var(--risk-low); }
+.review-meta-item-risk[data-risk="medium"] { color: var(--risk-medium); }
+.review-meta-item-risk[data-risk="high"] { color: var(--risk-high); }
+
+.review-meta-item-risk[data-risk="critical"] {
+  color: var(--risk-high);
+  text-shadow: 0 0 12px rgba(var(--risk-high-rgb), 0.55);
+}
+
+.review-meta-focus-text {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.review-meta-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.review-meta .review-meta-description {
+  font-size: 12px;
+  height: 34px;
+  line-height: 17px;
+  color: var(--text-primary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.review-meta .review-meta-invariant {
+  font-size: 11px;
+  height: 32px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.review-meta-invariant .review-meta-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.group-summary .group-summary-text,
+.group-summary .group-summary-list {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.group-summary .group-summary-list {
+  padding-left: 16px;
+}
+
+.group-summary .group-summary-list li {
+  margin-bottom: 4px;
+}
+
+.group-summary .group-summary-list li:last-child {
+  margin-bottom: 0;
 }
 
 .annotation-section h3 {

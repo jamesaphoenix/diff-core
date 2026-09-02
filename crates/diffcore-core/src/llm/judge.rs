@@ -352,6 +352,7 @@ mod tests {
                 }],
                 risk_score: 0.65,
                 review_order: 1,
+                ..Default::default()
             }],
             infrastructure_group: Some(InfrastructureGroup {
                 files: vec!["package.json".to_string()],

@@ -4,7 +4,6 @@ import type {
   FlowGroup,
   FileDiffContent,
   Pass1Response,
-  Pass1GroupAnnotation,
   Pass2Response,
   RepoInfo,
   ResolvedPr,
@@ -29,7 +28,7 @@ import SourceExplorer, { type SourceFocusRequest } from "./components/SourceExpl
 import ErrorBoundary from "./components/ErrorBoundary";
 import { buildManifestPrompt } from "./buildManifestPrompt";
 import { THEMES, applyTheme, getTheme, loadThemePrefs, saveThemePrefs, resolveThemeId, type ThemeMode, type ThemePrefs } from "./themes";
-import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS1, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT, MOCK_RESOLVED_PR } from "./mock";
+import { MOCK_ANALYSIS, MOCK_DIFFS, MOCK_PASS2, MOCK_REPO_INFO, MOCK_LLM_SETTINGS, MOCK_REFINEMENT, MOCK_RESOLVED_PR } from "./mock";
 
 import { IS_TAURI, HAS_BACKEND, DEFAULT_REPO, invoke as tauriInvoke } from "./backend";
 
@@ -123,9 +122,104 @@ function TruncatedText({
   );
 }
 
+function hyphenateVariant(value: string): string {
+  return value.replace(/(?!^)([A-Z])/g, "-$1");
+}
+
+/**
+ * What the active group achieves. Sized to the change by the model: one
+ * sentence renders as prose, several render as bullets.
+ *
+ * Deliberately outside the fixed-layout block — its height varies per group,
+ * and reserving space for the worst case would defeat the glance row above it.
+ */
+function GroupSummary({ group }: { group: FlowGroup }) {
+  const summary = group.summary ?? [];
+  if (summary.length === 0) return null;
+
+  return (
+    <div className="annotation-section group-summary" data-testid="group-summary">
+      <h3>Summary</h3>
+      {summary.length === 1 ? (
+        <p className="group-summary-text">{summary[0]}</p>
+      ) : (
+        <ul className="group-summary-list">
+          {summary.map((point, i) => (
+            <li key={i}>{point}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Fixed-layout review summary. Every row keeps its height for the whole
+ * analysis, so the block never reflows as fields come and go between groups.
+ * A row the analysis never fills is dropped rather than left as dead space.
+ */
+function GroupReviewSummary({ group, groups }: { group: FlowGroup; groups: FlowGroup[] }) {
+  const focus = group.review_focus ?? [];
+  const hasMetadata = Boolean(
+    group.group_type || group.risk || group.impact || group.complexity ||
+    group.description || group.invariant || focus.length > 0,
+  );
+  if (!hasMetadata) return null;
+
+  const reservesFocus = groups.some((g) => (g.review_focus ?? []).length > 0);
+  const reservesDescription = groups.some((g) => g.description);
+  const reservesInvariant = groups.some((g) => g.invariant);
+  const focusText = focus.map((f) => hyphenateVariant(f).toLowerCase()).join(", ");
+
+  return (
+    <div className="annotation-section review-meta" data-testid="group-review-meta">
+      <div className="review-meta-verdict">
+        {group.group_type && (
+          <span className="review-meta-item">{group.group_type.toUpperCase()}</span>
+        )}
+        {group.risk && (
+          <span className="review-meta-item review-meta-item-risk" data-risk={group.risk.toLowerCase()}>
+            {group.risk.toUpperCase()} RISK
+          </span>
+        )}
+        {group.impact && (
+          <span className="review-meta-item">{hyphenateVariant(group.impact).toUpperCase()}</span>
+        )}
+        {group.complexity && (
+          <span className="review-meta-item">{group.complexity.toUpperCase()}</span>
+        )}
+      </div>
+      {reservesFocus && (
+        <div className="review-meta-focus">
+          {focus.length > 0 && (
+            <span className="review-meta-focus-text" title={focusText}>
+              <span className="review-meta-label">Focus:</span> {focusText}
+            </span>
+          )}
+        </div>
+      )}
+      {reservesDescription && (
+        <p className="review-meta-description" title={group.description ?? undefined}>
+          {group.description}
+        </p>
+      )}
+      {reservesInvariant && (
+        <p className="review-meta-invariant" title={group.invariant ?? undefined}>
+          {group.invariant && (
+            <>
+              <span className="review-meta-label">Invariant:</span> {group.invariant}
+            </>
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Three-panel layout: flow groups | diff viewer | annotations */
 export default function App() {
   const [analysis, setAnalysis] = useState<AnalysisOutput | null>(null);
+  const [showPrOverview, setShowPrOverview] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<FlowGroup | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileDiff, setFileDiff] = useState<FileDiffContent | null>(null);
@@ -137,7 +231,6 @@ export default function App() {
   // LLM annotation state
   const [overview, setOverview] = useState<Pass1Response | null>(null);
   const [deepAnalyses, setDeepAnalyses] = useState<Record<string, Pass2Response>>({});
-  const [annotating, setAnnotating] = useState(false);
   const [deepAnalyzing, setDeepAnalyzing] = useState(false);
   // Counter to track concurrent deep analysis requests — prevents premature loading state clear
   const deepAnalyzingCount = useRef(0);
@@ -791,11 +884,51 @@ export default function App() {
     [analysis, openFileInTab, selectedFile],
   );
 
+  /** Show a toast notification that auto-dismisses. */
+  const showToast = useCallback((message: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(message);
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  /**
+   * Run the LLM group metadata pass and fold the result into the current
+   * analysis. Fired after analyze and again after refinement — refinement
+   * rebuilds groups from scratch, so their descriptions go with them.
+   *
+   * Fire-and-forget: a failed description must never break the grouping the
+   * user already has. The backend re-checks `llm.metadata.enabled` too, so a
+   * stale UI flag cannot force a paid call.
+   */
+  const describeGroups = useCallback(async () => {
+    if (!HAS_BACKEND || !llmSettings?.metadata_enabled) return;
+    try {
+      const described = await tauriInvoke<FlowGroup[]>("describe_groups", {
+        repoPath: repoPath || null,
+      });
+      const byId = new Map(described.map((g) => [g.id, g]));
+      setAnalysis((prev) =>
+        prev ? { ...prev, groups: prev.groups.map((g) => byId.get(g.id) ?? g) } : prev,
+      );
+      // The right panel renders `selectedGroup`, which is a snapshot taken when
+      // the user picked it — updating `analysis` alone leaves the description
+      // in state but off the screen.
+      setSelectedGroup((prev) => (prev ? byId.get(prev.id) ?? prev : prev));
+    } catch (e) {
+      // Never break the grouping over a failed description, but never hide the
+      // failure either: a silent catch here is indistinguishable from the pass
+      // working and returning nothing.
+      showToast(`Group descriptions unavailable: ${String(e)}`);
+    }
+  }, [llmSettings, repoPath, showToast]);
+
   const handleSelectGroup = useCallback(
     async (group: FlowGroup) => {
       // Cancel any pending debounced file nav from the previous group
       if (pendingFileNav.current) clearTimeout(pendingFileNav.current);
       setSelectedGroup(group);
+      // Picking a group is a request to read that group, not the PR blurb.
+      setShowPrOverview(false);
       // Exit replay mode when switching groups
       setReplayActive(false);
       setReplayStep(0);
@@ -886,6 +1019,7 @@ export default function App() {
           }
         }).catch(() => {});
       }
+      void describeGroups();
     } catch (e) {
       setError(String(e));
       // Re-focus the repo input so user can fix the path
@@ -894,7 +1028,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [repoPath, baseRef, headRef, handleSelectGroup, closeActivityStream]);
+  }, [repoPath, baseRef, headRef, handleSelectGroup, closeActivityStream, describeGroups]);
 
   /** Analyze whatever is in the repository field — a local path, or a PR/MR URL
    *  that we first clone and resolve to a base/head pair. */
@@ -959,41 +1093,48 @@ export default function App() {
     resolvedRefinementProvider,
   );
   const aiAccessReady = hasApiKey || !!recommendedSubscriptionProvider;
+
+  /**
+   * Run Pass 1 and stash the PR-level overview without taking over the panel.
+   *
+   * Folded into the analyze path rather than sitting behind a button: Pass 1 is
+   * PR-level only now, so there is nothing left to decide about it. Uses the
+   * plain command instead of the streaming job on purpose — a streaming job
+   * switches the right panel to the activity tab, which is intrusive when
+   * nobody asked for it. The result waits behind the PR Overview toggle.
+   */
+  const annotateOverviewInBackground = useCallback(async () => {
+    // Demo mode gets its overview from MOCK_ANALYSIS.annotations, in the same
+    // state update as the analysis itself, so nothing shifts after mount.
+    if (!HAS_BACKEND || !llmSettings?.annotations_enabled || !aiAccessReady) return;
+    try {
+      const result = await tauriInvoke<Pass1Response>("annotate_overview", {
+        repoPath: repoPath || null,
+        llmProvider: resolvedPrimaryProvider,
+        llmModel: resolvedPrimaryModel,
+      });
+      setOverview(result);
+    } catch (e) {
+      // Never block on the PR blurb, but say so rather than leaving the user to
+      // wonder whether it is still coming.
+      showToast(`PR overview unavailable: ${String(e)}`);
+    }
+  }, [aiAccessReady, llmSettings, repoPath, resolvedPrimaryModel, resolvedPrimaryProvider, showToast]);
+
+  // Fire it once per analysis. `analysis` is also rewritten by the metadata
+  // pass and by refinement, so key off the diff rather than object identity.
+  const autoAnnotatedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!analysis) return;
+    const key = `${analysis.diff_source.base_sha ?? ""}:${analysis.diff_source.head_sha ?? ""}`;
+    if (autoAnnotatedRef.current === key) return;
+    autoAnnotatedRef.current = key;
+    void annotateOverviewInBackground();
+  }, [analysis, annotateOverviewInBackground]);
+
   const annotationsEnabled = (llmSettings?.annotations_enabled ?? false) || !!recommendedSubscriptionProvider;
 
   /** Run LLM Pass 1: overview annotation for all groups. */
-  const runAnnotateOverview = useCallback(async () => {
-    setAnnotating(true);
-    setError(null);
-    try {
-      if (HAS_BACKEND) {
-        await runStreamingJob<Pass1Response>("start_annotate_overview", {
-          repoPath: repoPath || null,
-          llmProvider: resolvedPrimaryProvider,
-          llmModel: resolvedPrimaryModel,
-        }, (result) => {
-          setOverview(result);
-        });
-      } else {
-        await runMockActivityJob<Pass1Response>(
-          {
-            job_id: "mock-overview",
-            operation: "overview",
-            provider: resolvedPrimaryProvider ?? "codex",
-            model: resolvedPrimaryModel ?? "default",
-            title: "Summarizing PR",
-          },
-          buildMockActivityEntries("overview", resolvedPrimaryProvider ?? "codex"),
-          MOCK_PASS1,
-          (result) => setOverview(result),
-        );
-      }
-    } catch (e) {
-      setError(`Annotation failed: ${String(e)}`);
-    } finally {
-      setAnnotating(false);
-    }
-  }, [repoPath, resolvedPrimaryModel, resolvedPrimaryProvider, runMockActivityJob, runStreamingJob]);
 
   /** Run LLM Pass 2: deep analysis for the selected group. */
   const runDeepAnalysis = useCallback(async () => {
@@ -1047,13 +1188,6 @@ export default function App() {
     }
   }, [selectedGroup, repoPath, baseRef, resolvedPrimaryModel, resolvedPrimaryProvider, runMockActivityJob, runStreamingJob]);
 
-  /** Show a toast notification that auto-dismisses. */
-  const showToast = useCallback((message: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(message);
-    toastTimer.current = setTimeout(() => setToast(null), 3500);
-  }, []);
-
   const applyRefinementResult = useCallback((result: RefinementResult, opts?: { fromCache?: boolean }) => {
     if (!analysis) return;
 
@@ -1090,6 +1224,9 @@ export default function App() {
       if (sorted.length > 0) {
         handleSelectGroup(sorted[0]);
       }
+      // Refinement rebuilds groups, so their descriptions went with them.
+      // Re-describe rather than making the user hunt for another button.
+      void describeGroups();
     } else {
       setShowRefined(false);
       if (!opts?.fromCache) {
@@ -1101,7 +1238,7 @@ export default function App() {
     if (HAS_BACKEND && !opts?.fromCache) {
       tauriInvoke("store_refinement_cache", { result, repoPath: repoPath || null }).catch(() => {});
     }
-  }, [analysis, originalGroups, handleSelectGroup, showToast]);
+  }, [analysis, originalGroups, handleSelectGroup, showToast, describeGroups, repoPath]);
 
   /** Run LLM refinement pass on the current analysis groups. */
   const runRefinement = useCallback(async () => {
@@ -1464,11 +1601,6 @@ export default function App() {
   );
   sortedGroupsRef.current = sortedGroups;
 
-  // Get the Pass 1 annotation for the currently selected group
-  const groupAnnotation: Pass1GroupAnnotation | undefined = overview?.groups.find(
-    (g) => g.id === selectedGroup?.id,
-  );
-
   // Get the Pass 2 deep analysis for the currently selected group
   const groupDeepAnalysis: Pass2Response | undefined = selectedGroup
     ? deepAnalyses[selectedGroup.id]
@@ -1674,10 +1806,11 @@ export default function App() {
       return;
     }
 
+    const allGroups = analysis?.groups ?? [];
     const orderedGroups = overview.suggested_review_order
-      .map((id) => overview.groups.find((group) => group.id === id))
-      .filter((group): group is Pass1GroupAnnotation => Boolean(group));
-    const fallbackGroups = overview.groups.filter(
+      .map((id) => allGroups.find((group) => group.id === id))
+      .filter((group): group is FlowGroup => Boolean(group));
+    const fallbackGroups = allGroups.filter(
       (group) => !orderedGroups.some((ordered) => ordered.id === group.id),
     );
 
@@ -1688,9 +1821,9 @@ export default function App() {
       "",
       "# Review Flow",
       "",
-      ...[...orderedGroups, ...fallbackGroups].flatMap((group) => [
-        `- ${group.name}: ${group.summary}`,
-      ]),
+      ...[...orderedGroups, ...fallbackGroups].map((group) =>
+        group.description ? `- ${group.name}: ${group.description}` : `- ${group.name}`,
+      ),
     ];
 
     try {
@@ -1699,7 +1832,7 @@ export default function App() {
     } catch {
       showToast("Failed to copy PR description");
     }
-  }, [overview, showToast]);
+  }, [analysis, overview, showToast]);
 
   /** Compute a simple hash of the analysis for comment scoping. */
   const analysisHash = analysis
@@ -2455,6 +2588,21 @@ export default function App() {
 
       {annotationSubTab === "info" && (
         <>
+          {showPrOverview && overview ? (
+            <div className="annotation-section llm-section" data-testid="pr-overview">
+              <h3>PR Overview</h3>
+              <p className="llm-summary">{overview.overall_summary}</p>
+              <button className="btn btn-secondary" onClick={() => setShowPrOverview(false)}>
+                Back to group
+              </button>
+            </div>
+          ) : (
+            <>
+              <GroupReviewSummary group={selectedGroup} groups={sortedGroups} />
+              <GroupSummary group={selectedGroup} />
+            </>
+          )}
+
           <div className="annotation-section" data-testid="annotations-panel">
             <h3>Flow Group</h3>
             <p className="group-detail-name">{selectedGroup.name}</p>
@@ -2497,39 +2645,11 @@ export default function App() {
                 {PROVIDER_LABELS[refinementVerdict.provider as LlmProvider] ?? refinementVerdict.provider}/{refinementVerdict.model}
               </p>
               {refinementVerdict.reasoning && (
-                <p className="refinement-verdict-reasoning">{refinementVerdict.reasoning}</p>
+                <details className="refinement-verdict-details">
+                  <summary>Why these groups</summary>
+                  <p className="refinement-verdict-reasoning">{refinementVerdict.reasoning}</p>
+                </details>
               )}
-            </div>
-          )}
-
-          {overview && !groupAnnotation && (
-            <div className="annotation-section llm-section">
-              <h3>LLM Overview</h3>
-              <p className="llm-summary">{overview.overall_summary}</p>
-            </div>
-          )}
-
-          {groupAnnotation && (
-            <div className="annotation-section llm-section">
-              <h3>LLM Summary</h3>
-              <p className="llm-summary">{groupAnnotation.summary}</p>
-              <p className="llm-rationale">
-                <strong>Review rationale:</strong> {groupAnnotation.review_order_rationale}
-              </p>
-              {groupAnnotation.risk_flags.length > 0 && (
-                <div className="risk-flags">
-                  {groupAnnotation.risk_flags.map((flag, i) => (
-                    <span key={i} className="risk-flag">{flag}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {overview && groupAnnotation && (
-            <div className="annotation-section llm-section">
-              <h3>Overall Summary</h3>
-              <p className="llm-summary">{overview.overall_summary}</p>
             </div>
           )}
 
@@ -3574,6 +3694,24 @@ export default function App() {
                 </p>
               </div>
 
+              {/* Review Metadata Section */}
+              <div className="settings-section">
+                <h3>Review Metadata</h3>
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={llmSettings.metadata_enabled}
+                    onChange={(e) => updateSetting("metadata_enabled", e.target.checked)}
+                  />
+                  <span>Describe groups automatically</span>
+                </label>
+                <p className="settings-hint">
+                  After each analysis, asks the model how each group should be reviewed &mdash; what kind of change it
+                  is, what to look for, and what property to verify. Turn this off to keep the deterministic labels
+                  only and avoid the extra call.
+                </p>
+              </div>
+
               {/* Refinement Section */}
               <div className="settings-section settings-refinement">
                 <h3>Refinement</h3>
@@ -3621,19 +3759,6 @@ export default function App() {
                           ),
                         )}
                       </select>
-                    </div>
-                    <div className="settings-row">
-                      <label>Max iterations</label>
-                      <input
-                        type="number"
-                        className="settings-number"
-                        min={1}
-                        max={10}
-                        value={llmSettings.refinement_max_iterations}
-                        onChange={(e) =>
-                          updateSetting("refinement_max_iterations", Math.max(1, parseInt(e.target.value) || 1))
-                        }
-                      />
                     </div>
                   </>
                 )}
@@ -3912,6 +4037,22 @@ export default function App() {
                         {group.risk_score.toFixed(2)}
                       </span>
                     </div>
+                    {(group.group_type || group.risk) && (
+                      <div className="group-meta-row">
+                        {group.group_type && (
+                          <span className="group-meta-chip">{group.group_type.toUpperCase()}</span>
+                        )}
+                        {group.risk && (
+                          <span
+                            className="group-meta-chip group-meta-chip-risk"
+                            data-risk={group.risk.toLowerCase()}
+                            title={`${group.risk} risk`}
+                          >
+                            {group.risk.toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {changeIndicator && (
                       <div className="change-indicator" title={changeIndicator.reason}>
                         <span className={`change-tag change-${changeIndicator.type}`}>
@@ -4522,14 +4663,10 @@ export default function App() {
                   ? commentsTabContent
                   : annotationsTabContent}
 
-            {(annotating || deepAnalyzing || refining) && rightPanelTab === "activity" && (
+            {(deepAnalyzing || refining) && rightPanelTab === "activity" && (
               <div className="annotation-section llm-loading">
                 <span className="spinner" />
-                {annotating
-                  ? "Generating overview..."
-                  : deepAnalyzing
-                    ? "Analyzing flow group..."
-                    : "Refining groups..."}
+                {deepAnalyzing ? "Analyzing flow group..." : "Refining groups..."}
               </div>
             )}
 
@@ -4544,7 +4681,7 @@ export default function App() {
 
             {selectedGroup && rightPanelTab === "annotations" && (
               <div className="annotation-section annotation-actions">
-                {overview && !annotating && (
+                {overview && (
                   <button
                     className="btn btn-copy-comments-footer"
                     onClick={copyPrDescription}
@@ -4553,18 +4690,13 @@ export default function App() {
                     Copy PR Description
                   </button>
                 )}
-                {!overview && !annotating && !refinedGroups && (
+                {overview && !showPrOverview && (
                   <button
-                    className={`btn btn-summarize ${!aiAccessReady ? "no-api-key" : ""}`}
-                    onClick={runAnnotateOverview}
-                    disabled={annotating || !aiAccessReady || !annotationsEnabled}
-                    title={
-                      aiAccessReady
-                        ? `Run LLM Pass 1 via ${resolvedPrimaryProvider ?? "codex"} (${resolvedPrimaryModel ?? "default"}): generate an overview summary of all flow groups.`
-                        : "AI setup required — choose Codex CLI, Claude Code, or a direct API key"
-                    }
+                    className="btn btn-pr-overview"
+                    onClick={() => setShowPrOverview(true)}
+                    title="Show the PR-level summary. Group summaries stay in the group panel."
                   >
-                    {aiAccessReady ? "Summarize PR" : "Summarize PR (Setup required)"}
+                    PR Overview
                   </button>
                 )}
                 {!groupDeepAnalysis && !deepAnalyzing && (
@@ -4805,7 +4937,7 @@ function resolveInteractiveModel(
 }
 
 function buildMockActivityEntries(
-  operation: "overview" | "group" | "refinement",
+  operation: "group" | "refinement",
   provider: string,
 ): Array<Omit<LlmActivityEntry, "timestamp_ms">> {
   const toolBacked = providerSupportsToolActivity(provider);
@@ -4842,38 +4974,6 @@ function buildMockActivityEntries(
         level: "info",
         message: operation === "refinement" ? "Refinement rationale: keep the current grouping because the changed files already form coherent review flows." : "Structured response ready",
         event_type: "provider.result",
-      },
-    ];
-  }
-
-  if (operation === "overview") {
-    return [
-      ...sharedStart,
-      {
-        source,
-        level: "info",
-        message: `${providerName} is running rg --files crates/diffcore-tauri/ui/src`,
-        event_type: "stdout.command_execution",
-        payload: {
-          command: "rg --files crates/diffcore-tauri/ui/src",
-          cwd: "crates/diffcore-tauri/ui/src",
-        },
-      },
-      {
-        source,
-        level: "info",
-        message: `${providerName} is running sed -n '1,240p' crates/diffcore-tauri/ui/src/App.tsx`,
-        event_type: "stdout.command_execution",
-        payload: {
-          command: "sed -n '1,240p' crates/diffcore-tauri/ui/src/App.tsx",
-          path: "crates/diffcore-tauri/ui/src/App.tsx",
-        },
-      },
-      {
-        source,
-        level: "info",
-        message: "Writing PR-ready summary",
-        event_type: "provider.summary",
       },
     ];
   }

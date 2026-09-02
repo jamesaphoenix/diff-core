@@ -87,7 +87,6 @@ fn valid_anthropic_pass1_tool_use() -> String {
             "id": "toolu_mock",
             "name": "structured_output",
             "input": {
-                "groups": [{"id": "group_1", "name": "Auth flow", "summary": "Changes auth", "review_order_rationale": "Review first", "risk_flags": ["auth_change"]}],
                 "overall_summary": "Auth changes",
                 "suggested_review_order": ["group_1"]
             }
@@ -102,7 +101,7 @@ fn valid_anthropic_pass1_tool_use() -> String {
 fn valid_openai_pass1() -> String {
     r#"{
         "choices": [{
-            "message": {"role": "assistant", "content": "{\"groups\": [{\"id\": \"group_1\", \"name\": \"Auth flow\", \"summary\": \"Changes auth\", \"review_order_rationale\": \"Review first\", \"risk_flags\": [\"auth_change\"]}], \"overall_summary\": \"Auth changes\", \"suggested_review_order\": [\"group_1\"]}"},
+            "message": {"role": "assistant", "content": "{\"overall_summary\": \"Auth changes\", \"suggested_review_order\": [\"group_1\"]}"},
             "finish_reason": "stop"
         }],
         "model": "gpt-4.1",
@@ -116,7 +115,7 @@ fn valid_gemini_pass1() -> String {
     r#"{
         "candidates": [{
             "content": {
-                "parts": [{"text": "{\"groups\": [{\"id\": \"group_1\", \"name\": \"Auth flow\", \"summary\": \"Changes auth\", \"review_order_rationale\": \"Review first\", \"risk_flags\": [\"auth_change\"]}], \"overall_summary\": \"Auth changes\", \"suggested_review_order\": [\"group_1\"]}"}],
+                "parts": [{"text": "{\"overall_summary\": \"Auth changes\", \"suggested_review_order\": [\"group_1\"]}"}],
                 "role": "model"
             },
             "finishReason": "STOP"
@@ -1181,8 +1180,7 @@ async fn test_anthropic_valid_pass1_response() {
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     let response = result.unwrap();
-    assert_eq!(response.groups.len(), 1);
-    assert_eq!(response.groups[0].id, "group_1");
+    assert_eq!(response.suggested_review_order, vec!["group_1".to_string()]);
     assert_eq!(response.overall_summary, "Auth changes");
 }
 
@@ -1198,8 +1196,7 @@ async fn test_openai_valid_pass1_response() {
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     let response = result.unwrap();
-    assert_eq!(response.groups.len(), 1);
-    assert_eq!(response.groups[0].id, "group_1");
+    assert_eq!(response.suggested_review_order, vec!["group_1".to_string()]);
 }
 
 #[tokio::test]
@@ -1215,8 +1212,7 @@ async fn test_gemini_valid_pass1_response() {
     let result = provider.annotate_overview(&sample_pass1_request()).await;
 
     let response = result.unwrap();
-    assert_eq!(response.groups.len(), 1);
-    assert_eq!(response.groups[0].id, "group_1");
+    assert_eq!(response.suggested_review_order, vec!["group_1".to_string()]);
 }
 
 // ═══════════════════════════════════════════════════════════════

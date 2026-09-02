@@ -68,6 +68,18 @@ export const MOCK_ANALYSIS: AnalysisOutput = {
       ],
       risk_score: 0.82,
       review_order: 1,
+      group_type: "Feat",
+      description: "Add user creation with validation and a persisted audit trail.",
+      risk: "High",
+      impact: "CrossCutting",
+      complexity: "Complex",
+      review_focus: ["Correctness", "Security", "DataIntegrity"],
+      summary: [
+        "Validates the POST /api/users payload before it reaches the service layer.",
+        "Rejects duplicate emails with a 409 instead of surfacing a Prisma constraint error.",
+        "Writes the user row and its audit entry together so neither can land alone.",
+      ],
+      invariant: "A user row and its audit entry must be written in the same transaction.",
     },
     {
       id: "group_2",
@@ -107,6 +119,16 @@ export const MOCK_ANALYSIS: AnalysisOutput = {
       ],
       risk_score: 0.74,
       review_order: 2,
+      group_type: "Fix",
+      description: "Move refresh-token rotation behind the rate limiter.",
+      risk: "Critical",
+      impact: "Module",
+      complexity: "Moderate",
+      review_focus: ["Security", "Concurrency"],
+      summary: [
+        "Rotates refresh tokens on use and rate-limits the refresh endpoint.",
+      ],
+      invariant: "A refresh token must never be accepted twice after rotation.",
     },
     {
       id: "group_3",
@@ -138,6 +160,10 @@ export const MOCK_ANALYSIS: AnalysisOutput = {
       ],
       risk_score: 0.35,
       review_order: 3,
+      group_type: "Chore",
+      risk: "Low",
+      impact: "Local",
+      review_focus: [],
     },
   ],
   infrastructure_group: {
@@ -156,7 +182,7 @@ export const MOCK_ANALYSIS: AnalysisOutput = {
     ],
     reason: "Not reachable from any detected entrypoint",
   },
-  annotations: null,
+  annotations: null, // set below, once MOCK_PASS1 is declared
 };
 
 export const MOCK_DIFFS: Record<string, FileDiffContent> = {
@@ -485,35 +511,6 @@ export class EmailService {
 };
 
 export const MOCK_PASS1: Pass1Response = {
-  groups: [
-    {
-      id: "group_1",
-      name: "User creation API with validation and persistence",
-      summary:
-        "Adds input validation middleware, typed DTOs, and duplicate-email checking to the POST /api/users creation flow. The route handler now validates input before passing to the service layer, which hashes passwords before persisting via Prisma.",
-      review_order_rationale:
-        "Review first \u2014 this group changes the public API contract and touches the persistence layer (schema-adjacent). Downstream auth and email flows may depend on user creation succeeding correctly.",
-      risk_flags: ["schema_change", "auth_adjacent", "public_api_change"],
-    },
-    {
-      id: "group_2",
-      name: "Auth token refresh with rotation and rate limiting",
-      summary:
-        "Implements rotating refresh tokens: old tokens are revoked on refresh, and a new refresh token is issued alongside the access token. Adds rate limiting middleware to prevent brute-force attacks on the refresh endpoint.",
-      review_order_rationale:
-        "Review second \u2014 auth token rotation is a security-critical change. A bug here could lock users out or allow token reuse after revocation.",
-      risk_flags: ["auth_change", "security_critical", "breaking_api"],
-    },
-    {
-      id: "group_3",
-      name: "Email worker typed interface and priority routing",
-      summary:
-        "Adds TypeScript interfaces to the email worker queue consumer and introduces priority-based routing (high-priority emails are sent immediately). The email service now uses named templates with variable substitution.",
-      review_order_rationale:
-        "Review last \u2014 lowest risk. Changes are additive (new types, new feature) and isolated to the background worker pipeline.",
-      risk_flags: [],
-    },
-  ],
   overall_summary:
     "This PR strengthens the user-facing API layer with input validation and auth hardening (rotating refresh tokens + rate limiting), then adds typed email templates to the background worker. The highest-risk changes are in auth token rotation \u2014 review the transaction logic carefully.",
   suggested_review_order: ["group_1", "group_2", "group_3"],
@@ -658,6 +655,18 @@ export const MOCK_REFINEMENT: RefinementResult = {
       ],
       risk_score: 0.82,
       review_order: 1,
+      group_type: "Feat",
+      description: "Add user creation with validation and a persisted audit trail.",
+      risk: "High",
+      impact: "CrossCutting",
+      complexity: "Complex",
+      review_focus: ["Correctness", "Security", "DataIntegrity"],
+      summary: [
+        "Validates the POST /api/users payload before it reaches the service layer.",
+        "Rejects duplicate emails with a 409 instead of surfacing a Prisma constraint error.",
+        "Writes the user row and its audit entry together so neither can land alone.",
+      ],
+      invariant: "A user row and its audit entry must be written in the same transaction.",
     },
     {
       id: "group_refined_1",
@@ -675,6 +684,10 @@ export const MOCK_REFINEMENT: RefinementResult = {
       edges: [],
       risk_score: 0.3,
       review_order: 2,
+      group_type: "Refactor",
+      risk: "Low",
+      impact: "Local",
+      review_focus: [],
     },
     {
       id: "group_2",
@@ -712,6 +725,16 @@ export const MOCK_REFINEMENT: RefinementResult = {
       ],
       risk_score: 0.74,
       review_order: 3,
+      group_type: "Fix",
+      description: "Move refresh-token rotation behind the rate limiter.",
+      risk: "Critical",
+      impact: "Module",
+      complexity: "Moderate",
+      review_focus: ["Security", "Concurrency"],
+      summary: [
+        "Rotates refresh tokens on use and rate-limits the refresh endpoint.",
+      ],
+      invariant: "A refresh token must never be accepted twice after rotation.",
     },
     {
       id: "group_3",
@@ -742,6 +765,10 @@ export const MOCK_REFINEMENT: RefinementResult = {
       ],
       risk_score: 0.35,
       review_order: 4,
+      group_type: "Chore",
+      risk: "Low",
+      impact: "Local",
+      review_focus: [],
     },
   ],
   infrastructure_group: {
@@ -786,13 +813,13 @@ export const MOCK_REFINEMENT: RefinementResult = {
 export const MOCK_LLM_SETTINGS: LlmSettings = {
   annotations_enabled: true,
   refinement_enabled: true,
+  metadata_enabled: true,
   provider: "codex",
   model: "default",
   api_key_source: "Codex CLI login",
   has_api_key: true,
   refinement_provider: "claude",
   refinement_model: "default",
-  refinement_max_iterations: 1,
   global_config_path: "~/.diffcore/config.toml",
   codex_available: true,
   codex_authenticated: true,
@@ -833,3 +860,9 @@ export const MOCK_REPO_INFO: RepoInfo = {
   },
   is_worktree: false,
 };
+
+// Demo mode ships the overview with the analysis, exactly as `--annotate` does.
+// Firing it as a separate async pass instead made every demo-mode render change
+// shape on a microtask after mount, which is a race for any test measuring
+// layout.
+MOCK_ANALYSIS.annotations = MOCK_PASS1;

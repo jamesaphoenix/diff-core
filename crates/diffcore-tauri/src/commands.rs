@@ -36,7 +36,10 @@ use diffcore_core::types::AnalysisOutput;
 /// Application state shared across commands.
 pub struct AppState {
     /// The most recent analysis result, available for subsequent queries.
-    pub last_analysis: Mutex<Option<AnalysisOutput>>,
+    ///
+    /// `Arc` because the streaming refinement job persists its result from a
+    /// spawned `'static` task, which cannot borrow `State<'_, AppState>`.
+    pub last_analysis: Arc<Mutex<Option<AnalysisOutput>>>,
     /// Cached diff result from the most recent analysis, for instant file diff lookups.
     pub last_diff: Mutex<Option<CachedDiff>>,
     /// Background LLM job manager for live SSE activity streams.
@@ -45,6 +48,10 @@ pub struct AppState {
     pub activity_stream_base_url: Mutex<Option<String>>,
     /// Cache key from the most recent analysis, for refinement cache lookups.
     pub last_cache_key: Mutex<Option<String>>,
+    /// Per-file centrality from the most recent analysis. Refinement rewrites
+    /// group composition and has to re-score, which needs these; the symbol
+    /// graph they come from is gone by then.
+    pub last_file_centrality: Mutex<Option<HashMap<String, f64>>>,
     /// Path to the currently watched manifest file.
     pub watched_manifest_path: Mutex<Option<PathBuf>>,
     /// In-flight refinement tasks keyed by job_id, so the user can cancel them.
@@ -65,11 +72,12 @@ pub struct CachedDiff {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            last_analysis: Mutex::new(None),
+            last_analysis: Arc::new(Mutex::new(None)),
             last_diff: Mutex::new(None),
             activity_manager: Arc::new(activity_stream::ActivityManager::new()),
             activity_stream_base_url: Mutex::new(None),
             last_cache_key: Mutex::new(None),
+            last_file_centrality: Mutex::new(None),
             watched_manifest_path: Mutex::new(None),
             refinement_jobs: Arc::new(Mutex::new(HashMap::new())),
             git_head_watch_generation: Arc::new(AtomicU64::new(0)),
@@ -335,6 +343,10 @@ pub fn analyze(
     // Store cache key for refinement cache lookups
     if let Ok(mut key) = state.last_cache_key.lock() {
         *key = Some(cache_key);
+    }
+
+    if let Ok(mut centrality) = state.last_file_centrality.lock() {
+        *centrality = Some(file_centrality);
     }
 
     // Store for subsequent queries
@@ -766,11 +778,35 @@ async fn run_group_with_activity(
     .map_err(|e| CommandError::Llm(format!("{}", e)))
 }
 
+/// Bring refined groups back into a consistent state.
+///
+/// `apply_refinement_lenient` rewrites group composition without re-scoring —
+/// merged groups come back at `risk_score: 0.0` — and the heuristic metadata
+/// derived from that score is stale for every group it touched. Both are
+/// recomputed here, before any LLM metadata pass runs on top.
+///
+/// Centrality needs the symbol graph, which is gone by refinement time, so it
+/// comes from `AppState::last_file_centrality`. Without it the scores would be
+/// wrong in a different way, so scoring is skipped rather than guessed.
+fn finalize_refined_groups(
+    groups: &mut [diffcore_core::types::FlowGroup],
+    file_centrality: Option<&HashMap<String, f64>>,
+    weights: &diffcore_core::types::RankWeights,
+) {
+    match file_centrality {
+        Some(centrality) => diffcore_core::rank::rescore_groups(groups, centrality, weights),
+        None => warn!("No cached centrality; refined groups keep their pre-refinement risk scores"),
+    }
+    diffcore_core::group_metadata::apply_heuristic_metadata(groups);
+}
+
 async fn run_refinement_with_activity(
     analysis: AnalysisOutput,
     refinement_llm_config: diffcore_core::config::LlmConfig,
     workdir: Option<PathBuf>,
     job: JobHandle,
+    file_centrality: Option<HashMap<String, f64>>,
+    weights: diffcore_core::types::RankWeights,
 ) -> Result<RefinementResult, CommandError> {
     emit_diffcore_activity(&job, "Preparing refinement request").await;
     let provider = llm::create_provider_for_workdir(&refinement_llm_config, workdir.as_deref())
@@ -837,11 +873,13 @@ async fn run_refinement_with_activity(
         });
     }
 
-    let (refined_groups, infra, warnings) = refinement::apply_refinement_lenient(
+    let (mut refined_groups, infra, warnings) = refinement::apply_refinement_lenient(
         &analysis.groups,
         analysis.infrastructure_group.as_ref(),
         &response,
     );
+
+    finalize_refined_groups(&mut refined_groups, file_centrality.as_ref(), &weights);
 
     for warning in &warnings {
         tracing::warn!(target: "refinement", "repair: {}", warning.message);
@@ -1023,6 +1061,7 @@ pub fn start_refine_groups(
         key: config.llm.key.clone(),
         annotations_enabled: config.llm.annotations_enabled,
         refinement: config.llm.refinement.clone(),
+        metadata: config.llm.metadata.clone(),
     };
 
     let provider_name = refinement_llm_config
@@ -1039,20 +1078,55 @@ pub fn start_refine_groups(
     let job_id = start.job_id.clone();
     let job_id_for_cleanup = job_id.clone();
     let jobs_for_cleanup = Arc::clone(&state.refinement_jobs);
+    let analysis_for_persist = Arc::clone(&state.last_analysis);
+    let file_centrality = state
+        .last_file_centrality
+        .lock()
+        .ok()
+        .and_then(|c| c.clone());
+    let weights = config.ranking.clone();
     let handle = crate::runtime::background().spawn(async move {
-        match run_refinement_with_activity(analysis, refinement_llm_config, workdir, job.clone())
-            .await
+        match run_refinement_with_activity(
+            analysis,
+            refinement_llm_config,
+            workdir,
+            job.clone(),
+            file_centrality,
+            weights,
+        )
+        .await
         {
-            Ok(response) => match serde_json::to_value(&response) {
-                Ok(value) => job.complete("refinement", value).await,
-                Err(error) => {
-                    job.fail(format!(
-                        "Failed to serialize refinement response: {}",
-                        error
-                    ))
-                    .await
+            Ok(response) => {
+                // Persist before completing the job. Every backend command that
+                // reads `last_analysis` — describe_groups, annotate_overview —
+                // would otherwise keep answering about pre-refinement groups.
+                if response.had_changes {
+                    match analysis_for_persist.lock() {
+                        Ok(mut last) => {
+                            if let Some(ref mut a) = *last {
+                                a.groups = response.refined_groups.clone();
+                                a.infrastructure_group = response.infrastructure_group.clone();
+                                a.summary.total_groups = a.groups.len() as u32;
+                            }
+                        }
+                        Err(error) => warn!(
+                            "Failed to persist refined groups (lock poisoned): {}",
+                            error
+                        ),
+                    }
                 }
-            },
+
+                match serde_json::to_value(&response) {
+                    Ok(value) => job.complete("refinement", value).await,
+                    Err(error) => {
+                        job.fail(format!(
+                            "Failed to serialize refinement response: {}",
+                            error
+                        ))
+                        .await
+                    }
+                }
+            }
             Err(error) => job.fail(error.to_string()).await,
         }
         if let Ok(mut map) = jobs_for_cleanup.lock() {
@@ -1300,6 +1374,94 @@ pub async fn annotate_group(
 ///
 /// Takes the deterministic groups (v1) and asks an LLM to suggest structural
 /// improvements: splits, merges, re-ranks, and reclassifications. Applies the
+/// Run the LLM group metadata pass over the cached analysis.
+///
+/// Fills in `description`, `invariant`, `review_focus` and friends on every
+/// group, overriding the deterministic heuristic floor where the model has an
+/// opinion. Returns the updated groups; the cached analysis is updated too, so
+/// a later `get_last_analysis` sees them.
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn describe_groups(
+    repo_path: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<diffcore_core::types::FlowGroup>, CommandError> {
+    let mut groups = {
+        let last = state
+            .last_analysis
+            .lock()
+            .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?;
+        last.as_ref()
+            .ok_or_else(|| {
+                CommandError::Analysis("No analysis available. Run analyze first.".into())
+            })?
+            .groups
+            .clone()
+    };
+
+    let diffs = {
+        let last = state
+            .last_diff
+            .lock()
+            .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?;
+        last.as_ref()
+            .map(|d| d.diff_result.files.clone())
+            .unwrap_or_default()
+    };
+
+    let (config, workdir) = load_config_from_path(repo_path.as_deref());
+    if !config.llm.metadata.enabled {
+        return Ok(groups);
+    }
+
+    let metadata_llm_config = diffcore_core::config::LlmConfig {
+        provider: config
+            .llm
+            .metadata
+            .provider
+            .clone()
+            .or_else(|| config.llm.provider.clone()),
+        model: config
+            .llm
+            .metadata
+            .model
+            .clone()
+            .or_else(|| config.llm.model.clone()),
+        key_cmd: config
+            .llm
+            .metadata
+            .key_cmd
+            .clone()
+            .or_else(|| config.llm.key_cmd.clone()),
+        key: config.llm.metadata.key.clone().or_else(|| config.llm.key.clone()),
+        ..Default::default()
+    };
+
+    let provider: std::sync::Arc<dyn llm::LlmProvider> =
+        llm::create_provider_for_workdir(&metadata_llm_config, workdir.as_deref())
+            .map_err(|e| CommandError::Llm(format!("{}", e)))?
+            .into();
+
+    llm::metadata::run_metadata_pass(
+        provider,
+        &mut groups,
+        &diffs,
+        config.llm.metadata.batch_size,
+    )
+    .await
+    .map_err(|e| CommandError::Llm(format!("{}", e)))?;
+
+    match state.last_analysis.lock() {
+        Ok(mut last) => {
+            if let Some(ref mut a) = *last {
+                a.groups = groups.clone();
+            }
+        }
+        Err(e) => warn!("Failed to update last_analysis groups (lock poisoned): {}", e),
+    }
+
+    Ok(groups)
+}
+
 /// refinement operations and returns the result containing both the refined
 /// groups and the raw refinement response (for change indicators in the UI).
 ///
@@ -1362,6 +1524,7 @@ pub async fn refine_groups(
         key: config.llm.key.clone(),
         annotations_enabled: config.llm.annotations_enabled,
         refinement: config.llm.refinement.clone(),
+        metadata: config.llm.metadata.clone(),
     };
 
     let provider = llm::create_provider_for_workdir(&refinement_llm_config, workdir.as_deref())
@@ -1409,10 +1572,21 @@ pub async fn refine_groups(
 
     // Apply the refinement leniently: repair what we can, drop what we can't,
     // surface warnings instead of erroring on individual hallucinated ops.
-    let (refined_groups, infra, warnings) = refinement::apply_refinement_lenient(
+    let (mut refined_groups, infra, warnings) = refinement::apply_refinement_lenient(
         &analysis.groups,
         analysis.infrastructure_group.as_ref(),
         &response,
+    );
+
+    finalize_refined_groups(
+        &mut refined_groups,
+        state
+            .last_file_centrality
+            .lock()
+            .ok()
+            .and_then(|c| c.clone())
+            .as_ref(),
+        &config.ranking,
     );
 
     for w in &warnings {
@@ -1703,7 +1877,7 @@ pub fn get_llm_settings(repo_path: Option<String>) -> Result<LlmSettings, Comman
         has_api_key,
         refinement_provider,
         refinement_model,
-        refinement_max_iterations: config.llm.refinement.max_iterations,
+        metadata_enabled: config.llm.metadata.enabled,
         global_config_path: display_global_config_path(),
         codex_available: codex_status.installed,
         codex_authenticated: codex_status.authenticated,
@@ -1727,9 +1901,9 @@ pub fn save_llm_settings(_repo_path: String, settings: LlmSettings) -> Result<()
     config.llm.model = Some(settings.model);
     // Don't overwrite key_cmd — that's managed manually
     config.llm.refinement.enabled = settings.refinement_enabled;
+    config.llm.metadata.enabled = settings.metadata_enabled;
     config.llm.refinement.provider = Some(settings.refinement_provider);
     config.llm.refinement.model = Some(settings.refinement_model);
-    config.llm.refinement.max_iterations = settings.refinement_max_iterations;
     config.llm.annotations_enabled = settings.annotations_enabled;
 
     // Update diff behavior
@@ -2144,6 +2318,8 @@ pub struct LlmSettings {
     pub annotations_enabled: bool,
     /// Whether LLM refinement is enabled.
     pub refinement_enabled: bool,
+    /// Whether the group metadata pass runs automatically after analyze.
+    pub metadata_enabled: bool,
     /// Selected LLM backend: subscription-backed CLI or direct API provider.
     pub provider: String,
     /// Selected model identifier.
@@ -2156,8 +2332,6 @@ pub struct LlmSettings {
     pub refinement_provider: String,
     /// Refinement model.
     pub refinement_model: String,
-    /// Maximum refinement iterations.
-    pub refinement_max_iterations: u32,
     /// Where shared LLM settings are stored.
     pub global_config_path: String,
     /// Whether Codex CLI is installed.
@@ -3060,13 +3234,13 @@ mod tests {
         let settings = LlmSettings {
             annotations_enabled: true,
             refinement_enabled: false,
+            metadata_enabled: true,
             provider: "codex".to_string(),
             model: "default".to_string(),
             api_key_source: "Codex CLI login".to_string(),
             has_api_key: true,
             refinement_provider: "claude".to_string(),
             refinement_model: "default".to_string(),
-            refinement_max_iterations: 2,
             global_config_path: "~/.diffcore/config.toml".to_string(),
             codex_available: true,
             codex_authenticated: true,
@@ -3083,7 +3257,6 @@ mod tests {
         assert!(back.has_api_key);
         assert_eq!(back.refinement_provider, "claude");
         assert_eq!(back.refinement_model, "default");
-        assert_eq!(back.refinement_max_iterations, 2);
         assert!(back.codex_available);
         assert!(back.claude_authenticated);
     }
@@ -3225,6 +3398,7 @@ mod tests {
                 edges: vec![],
                 risk_score: 0.5,
                 review_order: 1,
+                ..Default::default()
             }],
             infrastructure_group: None,
             refinement_response: RefinementResponse {
@@ -3946,13 +4120,13 @@ mod tests {
         let settings = LlmSettings {
             annotations_enabled: true,
             refinement_enabled: true,
+            metadata_enabled: true,
             provider: "codex".to_string(),
             model: "default".to_string(),
             api_key_source: "test".to_string(),
             has_api_key: true,
             refinement_provider: "codex".to_string(),
             refinement_model: "default".to_string(),
-            refinement_max_iterations: 1,
             global_config_path: "~/.diffcore/config.toml".to_string(),
             codex_available: false,
             codex_authenticated: false,
@@ -3971,13 +4145,13 @@ mod tests {
         let settings = LlmSettings {
             annotations_enabled: false,
             refinement_enabled: false,
+            metadata_enabled: true,
             provider: "anthropic".to_string(),
             model: "claude-sonnet-4-6".to_string(),
             api_key_source: "env".to_string(),
             has_api_key: false,
             refinement_provider: "anthropic".to_string(),
             refinement_model: "claude-sonnet-4-6".to_string(),
-            refinement_max_iterations: 3,
             global_config_path: "/tmp/config.toml".to_string(),
             codex_available: true,
             codex_authenticated: true,
@@ -3996,13 +4170,13 @@ mod tests {
         let settings = LlmSettings {
             annotations_enabled: true,
             refinement_enabled: true,
+            metadata_enabled: true,
             provider: "openai".to_string(),
             model: "gpt-4.1".to_string(),
             api_key_source: "config".to_string(),
             has_api_key: true,
             refinement_provider: "gemini".to_string(),
             refinement_model: "gemini-2.5-flash".to_string(),
-            refinement_max_iterations: 2,
             global_config_path: "~/.diffcore/config.toml".to_string(),
             codex_available: true,
             codex_authenticated: false,
@@ -4018,7 +4192,6 @@ mod tests {
         assert!(json.contains("has_api_key"));
         assert!(json.contains("refinement_provider"));
         assert!(json.contains("refinement_model"));
-        assert!(json.contains("refinement_max_iterations"));
         assert!(json.contains("global_config_path"));
         assert!(json.contains("include_uncommitted"));
     }

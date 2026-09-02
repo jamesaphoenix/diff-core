@@ -1424,6 +1424,7 @@ mod tests {
             edges: vec![],
             risk_score: 0.0,
             review_order: 1,
+            ..Default::default()
         }
     }
 

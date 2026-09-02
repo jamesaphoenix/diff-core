@@ -315,6 +315,7 @@ pub fn apply_refinement(
             } else {
                 merged_order
             },
+            ..Default::default()
         };
 
         refined_groups.retain(|g| !merge_ids.contains(g.id.as_str()));
@@ -866,6 +867,7 @@ fn apply_split(source: &FlowGroup, split: &RefinementSplit, offset: usize) -> Ve
                 // Sub-groups are read where their source group was read; they stay
                 // adjacent because the reading-order sort is stable.
                 review_order: source.review_order,
+                ..Default::default()
             }
         })
         .collect()
@@ -909,6 +911,7 @@ mod tests {
             edges: vec![],
             risk_score: 0.5,
             review_order: 0,
+            ..Default::default()
         }
     }
 
@@ -1659,6 +1662,7 @@ mod tests {
             }],
             risk_score: 0.82,
             review_order: 1,
+            ..Default::default()
         }];
 
         let request = build_refinement_request(&groups, None, "{}", "10 files changed");

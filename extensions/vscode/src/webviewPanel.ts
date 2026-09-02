@@ -56,7 +56,6 @@ export class AnnotationsPanel {
   }
 
   private buildHtml(group: FlowGroup): string {
-    const pass1Group = this.pass1?.groups.find((g) => g.id === group.id);
     const pass2 = this.pass2Map.get(group.id);
 
     return /* html */ `<!DOCTYPE html>
@@ -105,7 +104,7 @@ export class AnnotationsPanel {
     ${group.entrypoint ? `&middot; Entry: <code>${escapeHtml(group.entrypoint.symbol)}</code> (${group.entrypoint.entrypoint_type})` : ""}
   </div>
 
-  ${pass1Group ? renderPass1(pass1Group) : ""}
+  ${renderReviewMetadata(group)}
 
   ${pass2 ? renderPass2(pass2) : ""}
 
@@ -149,12 +148,40 @@ function riskBadge(score: number): string {
   return `<span class="risk-badge risk-low">LOW ${score.toFixed(2)}</span>`;
 }
 
-function renderPass1(annotation: { summary: string; risk_flags: string[]; review_order_rationale: string }): string {
+function renderReviewMetadata(group: FlowGroup): string {
+  const verdict = [group.group_type, group.risk, group.impact, group.complexity]
+    .flatMap((v) => (v ? [escapeHtml(hyphenateVariant(v).toUpperCase())] : []));
+  const focus = (group.review_focus ?? []).map((f) => hyphenateVariant(f).toLowerCase());
+
+  const summary = group.summary ?? [];
+  if (
+    verdict.length === 0 && focus.length === 0 && summary.length === 0 &&
+    !group.description && !group.invariant
+  ) {
+    return "";
+  }
+
   return `
-  <h2>LLM Summary</h2>
-  <p>${escapeHtml(annotation.summary)}</p>
-  ${annotation.risk_flags.length > 0 ? `<div>${annotation.risk_flags.map((f) => `<span class="flag">${escapeHtml(f)}</span>`).join("")}</div>` : ""}
-  <p><em>${escapeHtml(annotation.review_order_rationale)}</em></p>`;
+  <h2>How to review this</h2>
+  ${verdict.length > 0 ? `<div class="meta">${verdict.join(" &middot; ")}</div>` : ""}
+  ${focus.length > 0 ? `<div>${focus.map((f) => `<span class="flag">${escapeHtml(f)}</span>`).join("")}</div>` : ""}
+  ${group.description ? `<p>${escapeHtml(group.description)}</p>` : ""}
+  ${renderSummary(group.summary ?? [])}
+  ${group.invariant ? `<p class="narrative"><strong>Invariant:</strong> ${escapeHtml(group.invariant)}</p>` : ""}`;
+}
+
+function renderSummary(summary: string[]): string {
+  if (summary.length === 0) {
+    return "";
+  }
+  if (summary.length === 1) {
+    return `<p>${escapeHtml(summary[0])}</p>`;
+  }
+  return `<ul>${summary.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`;
+}
+
+function hyphenateVariant(variant: string): string {
+  return variant.replace(/([a-z])([A-Z])/g, "$1-$2");
 }
 
 function renderPass2(pass2: Pass2Response): string {

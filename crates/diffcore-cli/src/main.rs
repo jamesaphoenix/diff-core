@@ -96,9 +96,13 @@ struct AnalyzeArgs {
     #[arg(short, long)]
     output: Option<PathBuf>,
 
-    /// Enable LLM annotation (Pass 1: overview)
+    /// Enable LLM annotation (Pass 1: PR-level overview)
     #[arg(long)]
     annotate: bool,
+
+    /// Enable the LLM group metadata pass (description, risk, impact, invariant, ...)
+    #[arg(long)]
+    describe: bool,
 
     /// Enable LLM refinement pass (overrides config)
     #[arg(long)]
@@ -510,7 +514,12 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> 
     // or if --no-cache was passed). Cache key incorporates ignore patterns so any
     // ignore-config change (incl. auto-detected subtrees) invalidates the entry.
     let cache_key = cache::compute_cache_key(&diff_result, &config.ignore.paths);
-    if !args.annotate && !args.refine && args.refine_model.is_none() && !args.no_cache {
+    if !args.annotate
+        && !args.refine
+        && !args.describe
+        && args.refine_model.is_none()
+        && !args.no_cache
+    {
         if let Some(cached) = cache::load_cached(&workdir, &cache_key) {
             return write_output(&cached, args.output.as_deref());
         }
@@ -594,6 +603,32 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> 
             Ok(()) => {}
             Err(e) => {
                 warn!("LLM refinement failed, using deterministic groups: {}", e);
+            }
+        }
+    }
+
+    // Refinement rewrites group composition without re-scoring, so the ranking
+    // score and the heuristic metadata derived from it are both stale by here.
+    // Both have to be recomputed before the metadata pass runs on top.
+    rank::rescore_groups(&mut analysis_output.groups, &file_centrality, &weights);
+    diffcore_core::group_metadata::apply_heuristic_metadata(&mut analysis_output.groups);
+
+    // Apply the LLM group metadata pass if requested. Explicit flag only —
+    // `diffcore analyze` in CI must never start billing silently.
+    if args.describe {
+        let rt = tokio::runtime::Runtime::new()?;
+        match rt.block_on(run_metadata(
+            &config,
+            &workdir,
+            &mut analysis_output,
+            &diff_result.files,
+        )) {
+            Ok(()) => {}
+            Err(e) => {
+                warn!(
+                    "LLM metadata pass failed, keeping existing group metadata: {}",
+                    e
+                );
             }
         }
     }
@@ -743,6 +778,54 @@ async fn run_refinement(
     analysis_output.groups = refined_groups;
     analysis_output.infrastructure_group = refined_infra;
     analysis_output.summary.total_groups = analysis_output.groups.len() as u32;
+
+    Ok(())
+}
+
+async fn run_metadata(
+    config: &DiffcoreConfig,
+    workdir: &std::path::Path,
+    analysis_output: &mut AnalysisOutput,
+    diffs: &[diffcore_core::git::FileDiff],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let metadata_llm_config = diffcore_core::config::LlmConfig {
+        provider: config
+            .llm
+            .metadata
+            .provider
+            .clone()
+            .or_else(|| config.llm.provider.clone()),
+        model: config
+            .llm
+            .metadata
+            .model
+            .clone()
+            .or_else(|| config.llm.model.clone()),
+        key_cmd: config
+            .llm
+            .metadata
+            .key_cmd
+            .clone()
+            .or_else(|| config.llm.key_cmd.clone()),
+        key: config
+            .llm
+            .metadata
+            .key
+            .clone()
+            .or_else(|| config.llm.key.clone()),
+        ..Default::default()
+    };
+
+    let provider: std::sync::Arc<dyn llm::LlmProvider> =
+        llm::create_provider_for_workdir(&metadata_llm_config, Some(workdir))?.into();
+
+    llm::metadata::run_metadata_pass(
+        provider,
+        &mut analysis_output.groups,
+        diffs,
+        config.llm.metadata.batch_size,
+    )
+    .await?;
 
     Ok(())
 }
@@ -1132,6 +1215,7 @@ fn run_export_groups(args: ExportGroupsArgs) -> Result<(), Box<dyn std::error::E
             no_include_uncommitted: false,
             output: None,
             annotate: false,
+            describe: false,
             refine: false,
             refine_model: None,
             no_cache: false,
@@ -1174,6 +1258,7 @@ fn run_import_groups(args: ImportGroupsArgs) -> Result<(), Box<dyn std::error::E
         no_include_uncommitted: false,
         output: None,
         annotate: false,
+        describe: false,
         refine: false,
         refine_model: None,
         no_cache: false,
@@ -1312,6 +1397,50 @@ mod tests {
         let cli = Cli::parse_from(["diffcore", "analyze", "--base", "main", "--annotate"]);
         if let Commands::Analyze(args) = cli.command {
             assert!(args.annotate);
+            assert!(!args.describe);
+        } else {
+            panic!("expected Analyze command");
+        }
+    }
+
+    #[test]
+    fn test_parse_analyze_describe() {
+        let cli = Cli::parse_from(["diffcore", "analyze", "--base", "main", "--describe"]);
+        if let Commands::Analyze(args) = cli.command {
+            assert!(args.describe);
+            assert!(!args.refine, "--describe must not imply --refine");
+            assert!(!args.annotate, "--describe must not imply --annotate");
+        } else {
+            panic!("expected Analyze command");
+        }
+    }
+
+    #[test]
+    fn test_parse_analyze_describe_with_refine() {
+        let cli = Cli::parse_from([
+            "diffcore",
+            "analyze",
+            "--base",
+            "main",
+            "--refine",
+            "--describe",
+        ]);
+        if let Commands::Analyze(args) = cli.command {
+            assert!(args.describe);
+            assert!(args.refine);
+        } else {
+            panic!("expected Analyze command");
+        }
+    }
+
+    #[test]
+    fn test_describe_defaults_off() {
+        let cli = Cli::parse_from(["diffcore", "analyze", "--base", "main"]);
+        if let Commands::Analyze(args) = cli.command {
+            assert!(
+                !args.describe,
+                "the metadata pass must never fire without --describe"
+            );
         } else {
             panic!("expected Analyze command");
         }
@@ -1327,6 +1456,7 @@ mod tests {
             "--head",
             "feature",
             "--annotate",
+            "--describe",
             "--refine",
             "--refine-model",
             "gpt-4.1",
@@ -1339,6 +1469,7 @@ mod tests {
             assert_eq!(args.base, Some("main".to_string()));
             assert_eq!(args.head, Some("feature".to_string()));
             assert!(args.annotate);
+            assert!(args.describe);
             assert!(args.refine);
             assert_eq!(args.refine_model, Some("gpt-4.1".to_string()));
             assert_eq!(args.output, Some(PathBuf::from("out.json")));
@@ -1430,8 +1561,8 @@ mod tests {
                     provider: Some("openai".to_string()),
                     model: Some("gpt-4.1".to_string()),
                     key_cmd: Some("echo refinement-key".to_string()),
-                    max_iterations: 2,
                 },
+                metadata: Default::default(),
             },
             ..Default::default()
         };
@@ -1485,8 +1616,8 @@ mod tests {
                     provider: None,
                     model: None,
                     key_cmd: None,
-                    max_iterations: 1,
                 },
+                metadata: Default::default(),
             },
             ..Default::default()
         };

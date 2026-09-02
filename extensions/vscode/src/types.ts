@@ -79,6 +79,15 @@ export interface Entrypoint {
   entrypoint_type: EntrypointType;
 }
 
+export type GroupType =
+  | "Feat" | "Fix" | "Perf" | "Refactor" | "Test" | "Docs" | "Build" | "Ci" | "Chore";
+export type Risk = "Low" | "Medium" | "High" | "Critical";
+export type ImpactScope = "Local" | "Module" | "CrossCutting" | "System";
+export type ReviewComplexity = "Trivial" | "Simple" | "Moderate" | "Complex";
+export type ReviewFocus =
+  | "Correctness" | "Security" | "Concurrency" | "Performance"
+  | "DataIntegrity" | "Compatibility" | "ErrorHandling" | "ApiContract";
+
 export interface FlowGroup {
   id: string;
   name: string;
@@ -87,6 +96,14 @@ export interface FlowGroup {
   edges: FlowEdge[];
   risk_score: number;
   review_order: number;
+  group_type?: GroupType | null;
+  description?: string | null;
+  risk?: Risk | null;
+  impact?: ImpactScope | null;
+  complexity?: ReviewComplexity | null;
+  review_focus?: ReviewFocus[];
+  summary?: string[];
+  invariant?: string | null;
 }
 
 export interface InfrastructureGroup {
@@ -120,16 +137,7 @@ export interface AnalysisOutput {
 
 // LLM annotation types (from schema.rs)
 
-export interface Pass1GroupAnnotation {
-  id: string;
-  name: string;
-  summary: string;
-  review_order_rationale: string;
-  risk_flags: string[];
-}
-
 export interface Pass1Response {
-  groups: Pass1GroupAnnotation[];
   overall_summary: string;
   suggested_review_order: string[];
 }

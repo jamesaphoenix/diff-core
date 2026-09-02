@@ -401,6 +401,7 @@ mod tests {
                 edges: vec![],
                 risk_score: 0.5,
                 review_order: 1,
+                ..Default::default()
             }],
             infrastructure_group: None,
             annotations: None,
@@ -443,6 +444,7 @@ mod tests {
                 edges: vec![],
                 risk_score: 1.5, // Out of bounds
                 review_order: 1,
+                ..Default::default()
             }],
             infrastructure_group: None,
             annotations: None,

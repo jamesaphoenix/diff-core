@@ -13,6 +13,8 @@ expression: v
   },
   "groups": [
     {
+      "complexity": null,
+      "description": null,
       "edges": [],
       "entrypoint": null,
       "files": [
@@ -27,10 +29,16 @@ expression: v
           "symbols_changed": []
         }
       ],
+      "group_type": "Docs",
       "id": "group_1",
+      "impact": "Local",
+      "invariant": null,
       "name": "docs (directory)",
+      "review_focus": [],
       "review_order": 1,
-      "risk_score": 0.35
+      "risk": "Medium",
+      "risk_score": 0.35,
+      "summary": []
     }
   ],
   "infrastructure_group": {

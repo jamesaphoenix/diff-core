@@ -244,6 +244,102 @@ fn test_eval_all_fixtures_risk_bounds() {
     }
 }
 
+/// Structural contract for group review metadata across all fixtures — spec §7.
+///
+/// Content quality of `description` / `invariant` is deliberately not asserted:
+/// scoring prose against a golden string makes the corpus fail whenever a
+/// provider ships a new checkpoint. Structure is asserted on every group of
+/// every run.
+#[test]
+fn test_eval_all_fixtures_group_metadata_contract() {
+    use diffcore_core::types::{MAX_REVIEW_FOCUS, MAX_SUMMARY_BULLETS};
+
+    for &name in FIXTURE_NAMES {
+        let (rb, baseline) = build_fixture(name).unwrap();
+        let branch = find_feature_branch(rb.path());
+        let output = run_pipeline(rb.path(), "main", &branch);
+
+        for group in &output.groups {
+            // The heuristic floor promises risk and impact on every group,
+            // with or without an LLM.
+            assert!(
+                group.risk.is_some(),
+                "[{}] group '{}' has no risk band",
+                baseline.name,
+                group.name,
+            );
+            assert!(
+                group.impact.is_some(),
+                "[{}] group '{}' has no impact scope",
+                baseline.name,
+                group.name,
+            );
+
+            // The floor never invents the subjective fields.
+            assert!(
+                group.description.is_none()
+                    && group.invariant.is_none()
+                    && group.complexity.is_none()
+                    && group.review_focus.is_empty()
+                    && group.summary.is_empty(),
+                "[{}] group '{}' has LLM-only metadata on a deterministic run",
+                baseline.name,
+                group.name,
+            );
+
+            assert!(
+                group.review_focus.len() <= MAX_REVIEW_FOCUS,
+                "[{}] group '{}' has {} review_focus entries, cap is {}",
+                baseline.name,
+                group.name,
+                group.review_focus.len(),
+                MAX_REVIEW_FOCUS,
+            );
+
+            assert!(
+                group.summary.len() <= MAX_SUMMARY_BULLETS,
+                "[{}] group '{}' has {} summary bullets, cap is {}",
+                baseline.name,
+                group.name,
+                group.summary.len(),
+                MAX_SUMMARY_BULLETS,
+            );
+
+            for bullet in &group.summary {
+                assert!(
+                    !bullet.starts_with('-') && !bullet.starts_with('*'),
+                    "[{}] group '{}' summary bullet carries its own marker: {:?}",
+                    baseline.name,
+                    group.name,
+                    bullet,
+                );
+            }
+
+            if let Some(description) = &group.description {
+                assert!(
+                    !description.contains('\n'),
+                    "[{}] group '{}' description is not a single line",
+                    baseline.name,
+                    group.name,
+                );
+            }
+
+            // The risk band must agree with the score it is derived from,
+            // so the label can never contradict the ranking.
+            let expected_band_is_low = group.risk_score < 0.35;
+            assert_eq!(
+                group.risk == Some(diffcore_core::types::Risk::Low),
+                expected_band_is_low,
+                "[{}] group '{}' risk band {:?} disagrees with risk_score {}",
+                baseline.name,
+                group.name,
+                group.risk,
+                group.risk_score,
+            );
+        }
+    }
+}
+
 /// Mermaid diagrams should be generated for all groups across all fixtures.
 #[test]
 fn test_eval_all_fixtures_mermaid() {
@@ -360,6 +456,7 @@ mod scoring_properties {
                 edges: vec![],
                 risk_score: risk_raw.min(1.0),
                 review_order: order,
+                ..Default::default()
             });
 
         (prop::collection::vec(arb_group, 0..5), 0u32..50).prop_map(|(groups, extra_files)| {
@@ -505,6 +602,7 @@ mod scoring_properties {
                     edges: vec![],
                     risk_score: 0.5,
                     review_order: (i + 1) as u32,
+                    ..Default::default()
                 }
             }).collect();
 

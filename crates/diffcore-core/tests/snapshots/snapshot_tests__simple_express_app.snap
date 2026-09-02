@@ -13,6 +13,8 @@ expression: v
   },
   "groups": [
     {
+      "complexity": null,
+      "description": null,
       "edges": [
         {
           "edge_type": "Imports",
@@ -72,12 +74,20 @@ expression: v
           "symbols_changed": []
         }
       ],
+      "group_type": null,
       "id": "group_2",
+      "impact": "Module",
+      "invariant": null,
       "name": "postUser (users) route",
+      "review_focus": [],
       "review_order": 1,
-      "risk_score": 0.4375
+      "risk": "Medium",
+      "risk_score": 0.4375,
+      "summary": []
     },
     {
+      "complexity": null,
+      "description": null,
       "edges": [],
       "entrypoint": {
         "entrypoint_type": "HttpRoute",
@@ -96,10 +106,16 @@ expression: v
           "symbols_changed": []
         }
       ],
+      "group_type": null,
       "id": "group_1",
+      "impact": "Local",
+      "invariant": null,
       "name": "healthCheck (health) route",
+      "review_focus": [],
       "review_order": 2,
-      "risk_score": 0.2924685094576832
+      "risk": "Low",
+      "risk_score": 0.2924685094576832,
+      "summary": []
     }
   ],
   "infrastructure_group": null,

@@ -12,14 +12,17 @@ use serde::{Deserialize, Serialize};
 
 use super::schema::{
     flatten_json_schema, judge_json_schema, pass1_json_schema, pass2_json_schema,
-    refinement_json_schema, JudgeResponse, Pass1Response, Pass2Response, RefinementResponse,
+    refinement_json_schema, JudgeResponse, MetadataResponse, Pass1Response, Pass2Response,
+    RefinementResponse,
 };
 use super::{
     judge_system_prompt, judge_user_prompt, pass1_system_prompt, pass1_user_prompt,
     pass2_system_prompt, pass2_user_prompt, refinement_system_prompt, refinement_user_prompt,
     truncate_to_token_budget, LlmError, LlmProvider,
 };
-use crate::llm::schema::{JudgeRequest, Pass1Request, Pass2Request, RefinementRequest};
+use crate::llm::schema::{
+    JudgeRequest, MetadataRequest, Pass1Request, Pass2Request, RefinementRequest,
+};
 
 const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -260,6 +263,18 @@ impl LlmProvider for GeminiProvider {
             .await?;
         parse_json_response::<RefinementResponse>(&response_text)
     }
+
+    async fn describe_groups(
+        &self,
+        request: &MetadataRequest,
+    ) -> Result<MetadataResponse, LlmError> {
+        let system = crate::llm::metadata::metadata_system_prompt();
+        let user = crate::llm::metadata::metadata_user_prompt(request);
+        let response_text = self
+            .send_structured_message(&system, &user, crate::llm::schema::metadata_json_schema())
+            .await?;
+        parse_json_response::<MetadataResponse>(&response_text)
+    }
 }
 
 /// Parse a JSON response, stripping any markdown fencing the LLM may add.
@@ -450,7 +465,7 @@ mod tests {
         assert!(parsed["responseSchema"].is_object());
         // Schema should reference Pass1Response properties
         let schema_str = serde_json::to_string(&parsed["responseSchema"]).unwrap();
-        assert!(schema_str.contains("groups"));
+        assert!(schema_str.contains("overall_summary"));
     }
 
     #[test]
@@ -555,8 +570,7 @@ mod tests {
             "suggested_review_order": ["group_1"]
         }"#;
         let result: Pass1Response = parse_json_response(json).unwrap();
-        assert_eq!(result.groups.len(), 1);
-        assert_eq!(result.groups[0].id, "group_1");
+        assert_eq!(result.suggested_review_order, vec!["group_1".to_string()]);
         assert_eq!(result.overall_summary, "Auth changes");
     }
 

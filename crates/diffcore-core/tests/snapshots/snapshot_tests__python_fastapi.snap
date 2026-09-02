@@ -13,6 +13,8 @@ expression: v
   },
   "groups": [
     {
+      "complexity": null,
+      "description": null,
       "edges": [],
       "entrypoint": {
         "entrypoint_type": "HttpRoute",
@@ -61,10 +63,16 @@ expression: v
           "symbols_changed": []
         }
       ],
+      "group_type": null,
       "id": "group_1",
+      "impact": "Module",
+      "invariant": null,
       "name": "post_item (items) route",
+      "review_focus": [],
       "review_order": 1,
-      "risk_score": 0.5425
+      "risk": "Medium",
+      "risk_score": 0.5425,
+      "summary": []
     }
   ],
   "infrastructure_group": null,

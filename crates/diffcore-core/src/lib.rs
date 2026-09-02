@@ -17,6 +17,7 @@ pub mod eval;
 pub mod flow;
 pub mod git;
 pub mod graph;
+pub mod group_metadata;
 pub mod ir;
 pub mod llm;
 #[cfg(feature = "logging")]

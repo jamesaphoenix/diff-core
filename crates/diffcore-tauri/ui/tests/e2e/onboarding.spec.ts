@@ -17,13 +17,13 @@ function baseMissingSettings(overrides: Record<string, unknown> = {}) {
   return {
     annotations_enabled: false,
     refinement_enabled: false,
+    metadata_enabled: false,
     provider: "openai",
     model: "gpt-5.4",
     api_key_source: "none",
     has_api_key: false,
     refinement_provider: "openai",
     refinement_model: "gpt-5.4",
-    refinement_max_iterations: 1,
     global_config_path: "~/.diffcore/config.toml",
     codex_available: false,
     codex_authenticated: false,
@@ -47,7 +47,7 @@ test.describe("AI onboarding", () => {
     }));
 
     await expect(page.getByTestId("ai-onboarding")).toHaveCount(0);
-    await expect(page.locator(".btn-summarize")).toBeEnabled();
+    await expect(page.locator(".btn-analyze-flow")).toBeEnabled();
     await expect(page.locator(".llm-provider-badge")).toContainText("Codex CLI/default");
   });
 
@@ -57,7 +57,7 @@ test.describe("AI onboarding", () => {
       codex_authenticated: true,
     }));
 
-    await expect(page.locator(".btn-summarize")).toBeEnabled();
+    await expect(page.locator(".btn-analyze-flow")).toBeEnabled();
     await expect(page.locator(".llm-provider-badge")).toContainText("Codex CLI/default");
 
     await page.evaluate(() => {
@@ -70,7 +70,7 @@ test.describe("AI onboarding", () => {
     await page.getByTestId("ai-card-codex").getByRole("button", { name: "Use Codex CLI" }).click();
 
     await expect(onboarding).not.toBeVisible();
-    await expect(page.locator(".btn-summarize")).toBeEnabled();
+    await expect(page.locator(".btn-analyze-flow")).toBeEnabled();
     await expect(page.locator(".llm-provider-badge")).toContainText("Codex CLI/default");
   });
 
@@ -85,7 +85,7 @@ test.describe("AI onboarding", () => {
     await page.getByTestId("api-key-save").click();
 
     await expect(onboarding).not.toBeVisible();
-    await expect(page.locator(".btn-summarize")).toBeEnabled();
+    await expect(page.locator(".btn-analyze-flow")).toBeEnabled();
     await expect(page.locator(".llm-provider-badge")).toContainText("OpenAI API/gpt-5.4");
   });
 

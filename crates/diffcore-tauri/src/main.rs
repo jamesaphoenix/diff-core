@@ -80,6 +80,7 @@ fn main() {
             commands::save_api_key,
             commands::clear_api_key,
             commands::refine_groups,
+            commands::describe_groups,
             commands::open_in_editor,
             commands::check_editors_available,
             commands::save_comment,

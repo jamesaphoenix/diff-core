@@ -13,7 +13,7 @@ mod embeddings_refine;
 mod infra;
 mod merge;
 mod rescue;
-mod stem;
+pub(crate) mod stem;
 
 #[cfg(test)]
 #[allow(
@@ -183,6 +183,7 @@ fn build_no_entrypoint_component_groups(
                 edges,
                 risk_score: 0.0,
                 review_order: 0,
+                ..Default::default()
             });
         } else {
             isolated_files.extend(component);
@@ -232,6 +233,7 @@ fn build_no_entrypoint_directory_groups(source_files: &[String]) -> Vec<FlowGrou
                 edges: vec![],
                 risk_score: 0.0,
                 review_order: 0,
+                ..Default::default()
             }
         })
         .collect()
@@ -568,6 +570,7 @@ fn cluster_files_internal(
             edges,
             risk_score: 0.0,
             review_order: 0,
+            ..Default::default()
         });
     }
 

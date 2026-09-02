@@ -6,6 +6,11 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::types::{
+    GroupType, ImpactScope, ReviewComplexity, ReviewFocus, Risk, MAX_REVIEW_FOCUS,
+    MAX_SUMMARY_BULLETS,
+};
+
 // ── Pass 1: Overview ──
 
 /// Pass 1 request context sent to the LLM.
@@ -30,29 +35,16 @@ pub struct Pass1GroupInput {
     pub edge_summary: String,
 }
 
-/// Pass 1 structured output: overview annotation.
+/// Pass 1 structured output: PR-level overview annotation.
+///
+/// Per-group narrative lives on the group itself (see `MetadataResponse` and
+/// `specs/group-metadata.md` §9.1), not in a side-car keyed object.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct Pass1Response {
-    /// Per-group annotations.
-    pub groups: Vec<Pass1GroupAnnotation>,
     /// Overall summary of the entire diff.
     pub overall_summary: String,
     /// Suggested review order (group IDs).
     pub suggested_review_order: Vec<String>,
-}
-
-/// Per-group annotation from Pass 1.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
-pub struct Pass1GroupAnnotation {
-    pub id: String,
-    /// Human-readable name (may differ from deterministic name).
-    pub name: String,
-    /// Narrative summary of what this group does.
-    pub summary: String,
-    /// Why the LLM suggests this review order position.
-    pub review_order_rationale: String,
-    /// Risk flags identified by the LLM.
-    pub risk_flags: Vec<String>,
 }
 
 // ── Pass 2: Deep Analysis ──
@@ -265,6 +257,106 @@ pub struct RefinementReclassify {
     pub reason: String,
 }
 
+// ── Group Review Metadata ──
+
+/// Request context for one batch of the group metadata pass.
+///
+/// `groups` carries full detail for the batch's own groups. `index` is a
+/// read-only listing of *every* final group in the analysis, which is what makes
+/// cross-group judgement (`ImpactScope::CrossCutting`) possible from inside a
+/// batch. See `specs/group-metadata.md` §4.1.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MetadataRequest {
+    /// The groups this batch must produce metadata for.
+    pub groups: Vec<MetadataGroupDetail>,
+    /// Every final group in the analysis, without diff content. Read-only context.
+    pub index: Vec<MetadataGroupIndexEntry>,
+}
+
+/// Full detail for a group the batch is responsible for.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MetadataGroupDetail {
+    pub id: String,
+    pub name: String,
+    pub entrypoint: Option<String>,
+    pub risk_score: f64,
+    pub files: Vec<MetadataFileInput>,
+}
+
+/// A changed file as presented to the metadata pass.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MetadataFileInput {
+    pub path: String,
+    /// Role inferred by deterministic analysis.
+    pub role: String,
+    /// The changed regions of the file, hunk by hunk.
+    pub diff: String,
+}
+
+/// A group as it appears in the read-only cross-batch index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MetadataGroupIndexEntry {
+    pub id: String,
+    pub name: String,
+    pub files: Vec<String>,
+    pub risk_score: f64,
+}
+
+/// Structured output of one metadata batch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MetadataResponse {
+    pub groups: Vec<GroupMetadata>,
+}
+
+/// Review metadata for a single group.
+///
+/// Every field but `id` is optional so a partial response still applies what it
+/// did produce instead of discarding the batch. There is deliberately no
+/// `risk_score` — the score drives review ranking and stays deterministic
+/// (`specs/group-metadata.md` §1.3).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct GroupMetadata {
+    pub id: String,
+    #[serde(default)]
+    pub group_type: Option<GroupType>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub risk: Option<Risk>,
+    #[serde(default)]
+    pub impact: Option<ImpactScope>,
+    #[serde(default)]
+    pub complexity: Option<ReviewComplexity>,
+    #[serde(default)]
+    pub review_focus: Vec<ReviewFocus>,
+    #[serde(default)]
+    pub summary: Vec<String>,
+    #[serde(default)]
+    pub invariant: Option<String>,
+}
+
+/// Enum variant names as they appear on the wire, for the hand-written schema below.
+///
+/// The metadata enums live in `crate::types` and do not derive `JsonSchema`, so
+/// the provider-native schema is written out rather than generated. The
+/// `test_metadata_enum_variant_names_match_serde` test pins these to serde.
+const GROUP_TYPE_VARIANTS: &[&str] = &[
+    "Feat", "Fix", "Perf", "Refactor", "Test", "Docs", "Build", "Ci", "Chore",
+];
+const RISK_VARIANTS: &[&str] = &["Low", "Medium", "High", "Critical"];
+const IMPACT_VARIANTS: &[&str] = &["Local", "Module", "CrossCutting", "System"];
+const COMPLEXITY_VARIANTS: &[&str] = &["Trivial", "Simple", "Moderate", "Complex"];
+const REVIEW_FOCUS_VARIANTS: &[&str] = &[
+    "Correctness",
+    "Security",
+    "Concurrency",
+    "Performance",
+    "DataIntegrity",
+    "Compatibility",
+    "ErrorHandling",
+    "ApiContract",
+];
+
 // ── JSON Schema Generation ──
 
 /// Generate the JSON schema description for Pass 1 structured output.
@@ -272,15 +364,6 @@ pub struct RefinementReclassify {
 pub fn pass1_schema_description() -> &'static str {
     r#"Respond with a JSON object matching this exact schema:
 {
-  "groups": [
-    {
-      "id": "string (group ID from input)",
-      "name": "string (human-readable name for this change group)",
-      "summary": "string (1-3 sentence summary of what this group changes)",
-      "review_order_rationale": "string (why review this group at this position)",
-      "risk_flags": ["string (risk flag, e.g. 'auth_change', 'breaking_api', 'schema_change')"]
-    }
-  ],
   "overall_summary": "string (1-3 sentence overall summary of the entire diff)",
   "suggested_review_order": ["string (group IDs in suggested review order)"]
 }"#
@@ -409,6 +492,95 @@ pub fn refinement_json_schema() -> serde_json::Value {
     serde_json::to_value(schemars::schema_for!(RefinementResponse)).unwrap_or_default()
 }
 
+/// Generate the JSON schema description for the group metadata pass.
+pub fn metadata_schema_description() -> String {
+    format!(
+        r#"Respond with a JSON object matching this exact schema:
+{{
+  "groups": [
+    {{
+      "id": "string (the group ID from the input — must be one of the IDs you were asked about)",
+      "group_type": "string (one of: {group_type})",
+      "description": "string (ONE line, plain text, no markdown: what this group changes)",
+      "risk": "string (one of: {risk})",
+      "impact": "string (one of: {impact})",
+      "complexity": "string (one of: {complexity})",
+      "review_focus": ["string (at most {max_focus}, most important first; one of: {focus})"],
+      "summary": ["string (plain text, no markdown, no leading bullet character)"],
+      "invariant": "string (ONE sentence, plain text, no markdown: the property a reviewer must verify still holds)"
+    }}
+  ]
+}}
+
+"summary" explains what the group achieves, sized to the change: return a
+single entry when one sentence covers it, and only reach for multiple entries
+when the group genuinely does several things. At most {max_summary} entries,
+each one short enough to scan. Do not restate the description.
+
+Emit exactly one entry per group you were asked about, and no entries for any other group."#,
+        group_type = GROUP_TYPE_VARIANTS.join(", "),
+        risk = RISK_VARIANTS.join(", "),
+        impact = IMPACT_VARIANTS.join(", "),
+        complexity = COMPLEXITY_VARIANTS.join(", "),
+        focus = REVIEW_FOCUS_VARIANTS.join(", "),
+        max_focus = MAX_REVIEW_FOCUS,
+        max_summary = MAX_SUMMARY_BULLETS,
+    )
+}
+
+/// Generate the JSON Schema for MetadataResponse.
+///
+/// Hand-written rather than derived: the metadata enums live in `crate::types`
+/// and do not derive `JsonSchema`.
+pub fn metadata_json_schema() -> serde_json::Value {
+    let enum_prop = |variants: &[&str]| serde_json::json!({ "type": "string", "enum": variants });
+
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "groups": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" },
+                        "group_type": enum_prop(GROUP_TYPE_VARIANTS),
+                        "description": {
+                            "type": "string",
+                            "description": "One line, plain text, no markdown."
+                        },
+                        "risk": enum_prop(RISK_VARIANTS),
+                        "impact": enum_prop(IMPACT_VARIANTS),
+                        "complexity": enum_prop(COMPLEXITY_VARIANTS),
+                        "review_focus": {
+                            "type": "array",
+                            "maxItems": MAX_REVIEW_FOCUS,
+                            "items": enum_prop(REVIEW_FOCUS_VARIANTS)
+                        },
+                        "summary": {
+                            "type": "array",
+                            "maxItems": MAX_SUMMARY_BULLETS,
+                            "items": {
+                                "type": "string",
+                                "description": "Plain text, no markdown, no leading bullet character."
+                            }
+                        },
+                        "invariant": {
+                            "type": "string",
+                            "description": "One sentence, plain text, no markdown."
+                        }
+                    },
+                    "required": [
+                        "id", "group_type", "description", "risk",
+                        "impact", "complexity", "review_focus", "summary", "invariant"
+                    ]
+                }
+            }
+        },
+        "required": ["groups"]
+    })
+}
+
 /// Flatten a schemars-generated JSON Schema for providers that don't support
 /// `$ref`, `definitions`, or `$schema` (OpenAI strict mode, Gemini).
 ///
@@ -509,16 +681,6 @@ mod tests {
     #[test]
     fn test_pass1_response_roundtrip() {
         let response = Pass1Response {
-            groups: vec![Pass1GroupAnnotation {
-                id: "group_1".to_string(),
-                name: "User authentication token refresh".to_string(),
-                summary: "Changes the token refresh flow to use rotating refresh tokens"
-                    .to_string(),
-                review_order_rationale:
-                    "Review first — changes auth contract that downstream groups depend on"
-                        .to_string(),
-                risk_flags: vec!["auth_change".to_string(), "breaking_api".to_string()],
-            }],
             overall_summary: "Implements rotating refresh tokens and updates downstream consumers"
                 .to_string(),
             suggested_review_order: vec!["group_1".to_string()],
@@ -554,7 +716,6 @@ mod tests {
     fn test_annotations_combined() {
         let annotations = Annotations {
             overview: Some(Pass1Response {
-                groups: vec![],
                 overall_summary: "test".to_string(),
                 suggested_review_order: vec![],
             }),
@@ -612,7 +773,7 @@ mod tests {
         assert!(!pass1_schema_description().is_empty());
         assert!(!pass2_schema_description().is_empty());
         // Should contain JSON structure markers
-        assert!(pass1_schema_description().contains("groups"));
+        assert!(pass1_schema_description().contains("suggested_review_order"));
         assert!(pass1_schema_description().contains("overall_summary"));
         assert!(pass2_schema_description().contains("group_id"));
         assert!(pass2_schema_description().contains("file_annotations"));
@@ -621,14 +782,13 @@ mod tests {
     #[test]
     fn test_empty_pass1_response() {
         let response = Pass1Response {
-            groups: vec![],
             overall_summary: String::new(),
             suggested_review_order: vec![],
         };
         let json = serde_json::to_string(&response).unwrap();
         let deserialized: Pass1Response = serde_json::from_str(&json).unwrap();
         assert_eq!(response, deserialized);
-        assert!(deserialized.groups.is_empty());
+        assert!(deserialized.suggested_review_order.is_empty());
     }
 
     #[test]
@@ -647,28 +807,11 @@ mod tests {
     #[test]
     fn test_pass1_multiple_groups() {
         let response = Pass1Response {
-            groups: vec![
-                Pass1GroupAnnotation {
-                    id: "g1".to_string(),
-                    name: "Auth flow".to_string(),
-                    summary: "Changes auth".to_string(),
-                    review_order_rationale: "Review first".to_string(),
-                    risk_flags: vec!["auth_change".to_string()],
-                },
-                Pass1GroupAnnotation {
-                    id: "g2".to_string(),
-                    name: "DB migration".to_string(),
-                    summary: "Schema update".to_string(),
-                    review_order_rationale: "Review second".to_string(),
-                    risk_flags: vec!["schema_change".to_string(), "breaking_api".to_string()],
-                },
-            ],
             overall_summary: "Auth + DB changes".to_string(),
             suggested_review_order: vec!["g1".to_string(), "g2".to_string()],
         };
         let json = serde_json::to_string(&response).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed["groups"].as_array().unwrap().len(), 2);
         assert_eq!(
             parsed["suggested_review_order"].as_array().unwrap().len(),
             2
@@ -1045,7 +1188,6 @@ mod tests {
         let schema = pass1_json_schema();
         assert!(schema.is_object());
         let schema_str = serde_json::to_string(&schema).unwrap();
-        assert!(schema_str.contains("groups"));
         assert!(schema_str.contains("overall_summary"));
         assert!(schema_str.contains("suggested_review_order"));
     }
@@ -1149,7 +1291,6 @@ mod tests {
         assert_eq!(obj.get("type").and_then(|t| t.as_str()), Some("object"));
         assert!(obj.contains_key("properties"));
         let props = obj["properties"].as_object().unwrap();
-        assert!(props.contains_key("groups"));
         assert!(props.contains_key("overall_summary"));
         assert!(props.contains_key("suggested_review_order"));
     }
@@ -1214,7 +1355,6 @@ mod tests {
         let schema = flatten_json_schema(pass1_json_schema());
         let required = schema["required"].as_array().unwrap();
         let required_strs: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
-        assert!(required_strs.contains(&"groups"));
         assert!(required_strs.contains(&"overall_summary"));
         assert!(required_strs.contains(&"suggested_review_order"));
     }
@@ -1231,5 +1371,71 @@ mod tests {
         assert_ne!(p2, j);
         assert_ne!(p2, r);
         assert_ne!(j, r);
+    }
+
+    #[test]
+    fn test_metadata_enum_variant_names_match_serde() {
+        for v in GROUP_TYPE_VARIANTS {
+            serde_json::from_value::<GroupType>(serde_json::json!(v))
+                .unwrap_or_else(|e| panic!("GroupType variant {v}: {e}"));
+        }
+        for v in RISK_VARIANTS {
+            serde_json::from_value::<Risk>(serde_json::json!(v))
+                .unwrap_or_else(|e| panic!("Risk variant {v}: {e}"));
+        }
+        for v in IMPACT_VARIANTS {
+            serde_json::from_value::<ImpactScope>(serde_json::json!(v))
+                .unwrap_or_else(|e| panic!("ImpactScope variant {v}: {e}"));
+        }
+        for v in COMPLEXITY_VARIANTS {
+            serde_json::from_value::<ReviewComplexity>(serde_json::json!(v))
+                .unwrap_or_else(|e| panic!("ReviewComplexity variant {v}: {e}"));
+        }
+        for v in REVIEW_FOCUS_VARIANTS {
+            serde_json::from_value::<ReviewFocus>(serde_json::json!(v))
+                .unwrap_or_else(|e| panic!("ReviewFocus variant {v}: {e}"));
+        }
+    }
+
+    #[test]
+    fn test_metadata_response_roundtrip() {
+        let response = MetadataResponse {
+            groups: vec![GroupMetadata {
+                id: "group_1".to_string(),
+                group_type: Some(GroupType::Fix),
+                description: Some("Move job claiming behind a Redis lock.".to_string()),
+                risk: Some(Risk::High),
+                impact: Some(ImpactScope::CrossCutting),
+                complexity: Some(ReviewComplexity::Complex),
+                review_focus: vec![ReviewFocus::Concurrency, ReviewFocus::DataIntegrity],
+                summary: vec![
+                    "Claiming now happens under a Redis lock held for the whole claim.".to_string(),
+                    "Workers that lose the race back off instead of proceeding.".to_string(),
+                ],
+                invariant: Some(
+                    "Two workers must never successfully claim the same job.".to_string(),
+                ),
+            }],
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let deserialized: MetadataResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(response, deserialized);
+    }
+
+    #[test]
+    fn test_metadata_response_tolerates_missing_fields() {
+        let parsed: MetadataResponse =
+            serde_json::from_str(r#"{"groups":[{"id":"g1","risk":"Low"}]}"#).unwrap();
+        assert_eq!(parsed.groups[0].risk, Some(Risk::Low));
+        assert_eq!(parsed.groups[0].description, None);
+        assert!(parsed.groups[0].review_focus.is_empty());
+    }
+
+    #[test]
+    fn test_metadata_schema_caps_review_focus() {
+        let schema = metadata_json_schema();
+        let focus = &schema["properties"]["groups"]["items"]["properties"]["review_focus"];
+        assert_eq!(focus["maxItems"].as_u64(), Some(MAX_REVIEW_FOCUS as u64));
+        assert!(metadata_schema_description().contains("at most 3"));
     }
 }

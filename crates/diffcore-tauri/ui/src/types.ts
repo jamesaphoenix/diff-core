@@ -47,6 +47,24 @@ export interface FileChange {
   symbols_changed: string[];
 }
 
+export type GroupType = "Feat" | "Fix" | "Perf" | "Refactor" | "Test" | "Docs" | "Build" | "Ci" | "Chore";
+
+export type Risk = "Low" | "Medium" | "High" | "Critical";
+
+export type ImpactScope = "Local" | "Module" | "CrossCutting" | "System";
+
+export type ReviewComplexity = "Trivial" | "Simple" | "Moderate" | "Complex";
+
+export type ReviewFocus =
+  | "Correctness"
+  | "Security"
+  | "Concurrency"
+  | "Performance"
+  | "DataIntegrity"
+  | "Compatibility"
+  | "ErrorHandling"
+  | "ApiContract";
+
 export interface FlowGroup {
   id: string;
   name: string;
@@ -55,6 +73,15 @@ export interface FlowGroup {
   edges: FlowEdge[];
   risk_score: number;
   review_order: number;
+  /** Review metadata — heuristic floor populates risk/group_type/impact; the rest needs the metadata pass. */
+  group_type?: GroupType | null;
+  description?: string | null;
+  risk?: Risk | null;
+  impact?: ImpactScope | null;
+  complexity?: ReviewComplexity | null;
+  review_focus?: ReviewFocus[];
+  summary?: string[];
+  invariant?: string | null;
 }
 
 export type InfraCategory =
@@ -164,20 +191,10 @@ export interface ResolvedPr {
 
 // ── LLM Annotation Types ──
 
-/** Pass 1 overview response — per-group summaries + overall summary. */
+/** Pass 1 overview response — PR-level only. Per-group metadata lives on FlowGroup. */
 export interface Pass1Response {
-  groups: Pass1GroupAnnotation[];
   overall_summary: string;
   suggested_review_order: string[];
-}
-
-/** Per-group annotation from Pass 1 overview. */
-export interface Pass1GroupAnnotation {
-  id: string;
-  name: string;
-  summary: string;
-  review_order_rationale: string;
-  risk_flags: string[];
 }
 
 /** Pass 2 deep analysis response for a single group. */
@@ -209,13 +226,13 @@ export interface Annotations {
 export interface LlmSettings {
   annotations_enabled: boolean;
   refinement_enabled: boolean;
+  metadata_enabled: boolean;
   provider: string;
   model: string;
   api_key_source: string;
   has_api_key: boolean;
   refinement_provider: string;
   refinement_model: string;
-  refinement_max_iterations: number;
   global_config_path: string;
   codex_available: boolean;
   codex_authenticated: boolean;

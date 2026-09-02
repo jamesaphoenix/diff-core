@@ -40,14 +40,6 @@ async fn test_replay_from_prerecorded_pass1_fixture() {
 
     // Write a pre-recorded fixture
     let fixture_response = Pass1Response {
-        groups: vec![diffcore_core::llm::schema::Pass1GroupAnnotation {
-            id: "group_1".to_string(),
-            name: "User registration flow".to_string(),
-            summary: "Adds a new user registration endpoint with validation and persistence."
-                .to_string(),
-            review_order_rationale: "Core feature change, review first.".to_string(),
-            risk_flags: vec!["new_endpoint".to_string()],
-        }],
         overall_summary: "New user registration flow with validation.".to_string(),
         suggested_review_order: vec!["group_1".to_string(), "group_2".to_string()],
     };
@@ -113,7 +105,7 @@ async fn test_replay_from_prerecorded_pass1_fixture() {
 
     let result = vcr.annotate_overview(&request).await.unwrap();
     assert_eq!(result, fixture_response);
-    assert_eq!(result.groups[0].id, "group_1");
+    assert_eq!(result.suggested_review_order[0], "group_1");
     assert_eq!(
         result.overall_summary,
         "New user registration flow with validation."
@@ -242,7 +234,6 @@ async fn test_auto_mode_records_on_first_call_replays_on_second() {
         ) -> Result<Pass1Response, diffcore_core::llm::LlmError> {
             self.count.fetch_add(1, Ordering::SeqCst);
             Ok(Pass1Response {
-                groups: vec![],
                 overall_summary: "counted".to_string(),
                 suggested_review_order: vec![],
             })
@@ -340,7 +331,6 @@ async fn test_live_vcr_record_replay_anthropic() {
 
     let request = sample_pass1_request();
     let recorded = vcr_record.annotate_overview(&request).await.unwrap();
-    assert!(!recorded.groups.is_empty());
     assert!(!recorded.overall_summary.is_empty());
 
     // Verify cache file was written

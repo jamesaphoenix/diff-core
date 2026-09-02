@@ -40,7 +40,6 @@ async fn test_live_anthropic_pass1() {
     let response = provider.annotate_overview(&request).await.unwrap();
 
     // Verify structured output
-    assert!(!response.groups.is_empty(), "Should have group annotations");
     assert!(
         !response.overall_summary.is_empty(),
         "Should have overall summary"
@@ -51,25 +50,16 @@ async fn test_live_anthropic_pass1() {
     );
 
     // Verify group IDs match input
-    let response_ids: Vec<&str> = response.groups.iter().map(|g| g.id.as_str()).collect();
+    let response_ids: Vec<&str> = response
+        .suggested_review_order
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
     assert!(
         response_ids.contains(&"group_1"),
-        "Should annotate group_1, got: {:?}",
+        "Should order group_1, got: {:?}",
         response_ids
     );
-
-    // Each group should have meaningful content
-    for group in &response.groups {
-        assert!(!group.name.is_empty(), "Group name should not be empty");
-        assert!(
-            !group.summary.is_empty(),
-            "Group summary should not be empty"
-        );
-        assert!(
-            !group.review_order_rationale.is_empty(),
-            "Review rationale should not be empty"
-        );
-    }
 
     eprintln!("Pass 1 response: {:?}", response);
 }
@@ -136,7 +126,6 @@ async fn test_live_openai_pass1() {
     let request = sample_pass1_request();
     let response = provider.annotate_overview(&request).await.unwrap();
 
-    assert!(!response.groups.is_empty(), "Should have group annotations");
     assert!(
         !response.overall_summary.is_empty(),
         "Should have overall summary"
@@ -146,8 +135,12 @@ async fn test_live_openai_pass1() {
         "Should have review order"
     );
 
-    let response_ids: Vec<&str> = response.groups.iter().map(|g| g.id.as_str()).collect();
-    assert!(response_ids.contains(&"group_1"), "Should annotate group_1");
+    let response_ids: Vec<&str> = response
+        .suggested_review_order
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
+    assert!(response_ids.contains(&"group_1"), "Should order group_1");
 
     eprintln!("OpenAI Pass 1 response: {:?}", response);
 }
@@ -257,7 +250,7 @@ async fn test_live_end_to_end_pipeline() {
     // Pass 1: Overview
     let pass1_request = sample_pass1_request();
     let pass1_response = provider.annotate_overview(&pass1_request).await.unwrap();
-    assert!(!pass1_response.groups.is_empty());
+    assert!(!pass1_response.overall_summary.is_empty());
 
     // Pass 2: Deep analysis on the first group
     let pass2_request = sample_pass2_request();
@@ -348,7 +341,6 @@ async fn test_live_gemini_pass1() {
     let response = provider.annotate_overview(&request).await.unwrap();
 
     // Verify structured output
-    assert!(!response.groups.is_empty(), "Should have group annotations");
     assert!(
         !response.overall_summary.is_empty(),
         "Should have overall summary"
@@ -359,25 +351,16 @@ async fn test_live_gemini_pass1() {
     );
 
     // Verify group IDs match input
-    let response_ids: Vec<&str> = response.groups.iter().map(|g| g.id.as_str()).collect();
+    let response_ids: Vec<&str> = response
+        .suggested_review_order
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
     assert!(
         response_ids.contains(&"group_1"),
-        "Should annotate group_1, got: {:?}",
+        "Should order group_1, got: {:?}",
         response_ids
     );
-
-    // Each group should have meaningful content
-    for group in &response.groups {
-        assert!(!group.name.is_empty(), "Group name should not be empty");
-        assert!(
-            !group.summary.is_empty(),
-            "Group summary should not be empty"
-        );
-        assert!(
-            !group.review_order_rationale.is_empty(),
-            "Review rationale should not be empty"
-        );
-    }
 
     eprintln!("Gemini Pass 1 response: {:?}", response);
 }
@@ -479,7 +462,7 @@ async fn test_live_gemini_context_window_handling() {
     // A normal request should work fine within the context window
     let request = sample_pass1_request();
     let response = provider.annotate_overview(&request).await.unwrap();
-    assert!(!response.groups.is_empty());
+    assert!(!response.overall_summary.is_empty());
 }
 
 #[tokio::test]

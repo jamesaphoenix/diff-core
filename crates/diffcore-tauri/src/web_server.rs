@@ -205,6 +205,10 @@ async fn invoke(
             let (a, b, c) = llm_args(&mut args)?;
             return ok(commands::refine_groups(a, b, c, State(&state.app)).await?).map(Json);
         }
+        "describe_groups" => {
+            let (a, _, _) = llm_args(&mut args)?;
+            return ok(commands::describe_groups(a, State(&state.app)).await?).map(Json);
+        }
         "annotate_group" => {
             let group_id = req(&mut args, "groupId")?;
             let d = diff_args(&mut args)?;
