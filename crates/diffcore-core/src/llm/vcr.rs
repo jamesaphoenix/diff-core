@@ -11,9 +11,10 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 
+use super::metadata::metadata_system_prompt;
 use super::schema::{
-    JudgeRequest, JudgeResponse, Pass1Request, Pass1Response, Pass2Request, Pass2Response,
-    RefinementRequest, RefinementResponse,
+    JudgeRequest, JudgeResponse, MetadataRequest, MetadataResponse, Pass1Request, Pass1Response,
+    Pass2Request, Pass2Response, RefinementRequest, RefinementResponse,
 };
 use super::{
     judge_system_prompt, pass1_system_prompt, pass2_system_prompt, refinement_system_prompt,
@@ -107,6 +108,11 @@ impl VcrProvider {
     /// Get the current prompt template hash for refinement.
     pub fn refinement_template_hash() -> String {
         Self::sha256_hex(refinement_system_prompt().as_bytes())
+    }
+
+    /// Get the current prompt template hash for the group metadata pass.
+    pub fn metadata_template_hash() -> String {
+        Self::sha256_hex(metadata_system_prompt().as_bytes())
     }
 
     /// Build the cache file path for a given pass type and cache key.
@@ -362,6 +368,47 @@ impl LlmProvider for VcrProvider {
             }
         }
     }
+
+    async fn describe_groups(
+        &self,
+        request: &MetadataRequest,
+    ) -> Result<MetadataResponse, LlmError> {
+        let request_json = serde_json::to_string(request).map_err(|e| {
+            LlmError::ParseResponse(format!("Failed to serialize request for VCR key: {}", e))
+        })?;
+        let template_hash = Self::metadata_template_hash();
+        let key = Self::cache_key(
+            self.inner.name(),
+            self.inner.model(),
+            &request_json,
+            &template_hash,
+        );
+        let path = self.cache_path("metadata", &key);
+
+        match self.mode {
+            VcrMode::Replay => self
+                .read_cache::<MetadataResponse>(&path, &template_hash)
+                .ok_or_else(|| {
+                    LlmError::ParseResponse(format!(
+                        "VCR replay: no cached entry at {}",
+                        path.display()
+                    ))
+                }),
+            VcrMode::Record => {
+                let response = self.inner.describe_groups(request).await?;
+                self.write_cache(&path, &key, &template_hash, &response)?;
+                Ok(response)
+            }
+            VcrMode::Auto => {
+                if let Some(cached) = self.read_cache::<MetadataResponse>(&path, &template_hash) {
+                    return Ok(cached);
+                }
+                let response = self.inner.describe_groups(request).await?;
+                self.write_cache(&path, &key, &template_hash, &response)?;
+                Ok(response)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -375,8 +422,7 @@ impl LlmProvider for VcrProvider {
 mod tests {
     use super::*;
     use crate::llm::schema::{
-        JudgeCriterionScore, JudgeSourceFile, Pass1GroupAnnotation, Pass1GroupInput,
-        Pass2FileAnnotation, Pass2FileInput, RefinementGroupInput,
+        JudgeCriterionScore, JudgeSourceFile, Pass1GroupInput, Pass2FileAnnotation, Pass2FileInput,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -411,13 +457,6 @@ mod tests {
         ) -> Result<Pass1Response, LlmError> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             Ok(Pass1Response {
-                groups: vec![Pass1GroupAnnotation {
-                    id: "g1".to_string(),
-                    name: "Mock group".to_string(),
-                    summary: "Mock summary".to_string(),
-                    review_order_rationale: "Mock rationale".to_string(),
-                    risk_flags: vec!["mock_flag".to_string()],
-                }],
                 overall_summary: "Mock overall".to_string(),
                 suggested_review_order: vec!["g1".to_string()],
             })
@@ -523,7 +562,7 @@ mod tests {
         // Record
         let vcr = VcrProvider::new(Box::new(mock), tmp.path().to_path_buf(), VcrMode::Record);
         let response = vcr.annotate_overview(&sample_pass1()).await.unwrap();
-        assert_eq!(response.groups[0].id, "g1");
+        assert_eq!(response.suggested_review_order, vec!["g1".to_string()]);
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
 
         // Replay with a new mock (should not be called)
@@ -531,7 +570,7 @@ mod tests {
         let mock2 = MockProvider::new(call_count2.clone());
         let vcr2 = VcrProvider::new(Box::new(mock2), tmp.path().to_path_buf(), VcrMode::Replay);
         let replayed = vcr2.annotate_overview(&sample_pass1()).await.unwrap();
-        assert_eq!(replayed.groups[0].id, "g1");
+        assert_eq!(replayed.suggested_review_order, vec!["g1".to_string()]);
         assert_eq!(replayed.overall_summary, "Mock overall");
         assert_eq!(
             call_count2.load(Ordering::SeqCst),
@@ -856,7 +895,6 @@ mod tests {
             prompt_template_hash: "def456".to_string(),
             recorded_at: "2026-03-19T00:00:00Z".to_string(),
             response: Pass1Response {
-                groups: vec![],
                 overall_summary: "test".to_string(),
                 suggested_review_order: vec![],
             },
@@ -905,7 +943,6 @@ mod tests {
             prompt_template_hash: "old_template_hash".to_string(),
             recorded_at: "2026-01-01T00:00:00Z".to_string(),
             response: Pass1Response {
-                groups: vec![],
                 overall_summary: "stale".to_string(),
                 suggested_review_order: vec![],
             },
@@ -1015,7 +1052,6 @@ mod tests {
                     prompt_template_hash: "tmpl".to_string(),
                     recorded_at: "2026-01-01T00:00:00Z".to_string(),
                     response: Pass1Response {
-                        groups: vec![],
                         overall_summary: summary.clone(),
                         suggested_review_order: vec![],
                     },

@@ -10,15 +10,19 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use super::schema::{
-    judge_json_schema, pass1_json_schema, pass2_json_schema, refinement_json_schema, JudgeResponse,
-    Pass1Response, Pass2Response, RefinementResponse,
+    judge_json_schema, metadata_json_schema, pass1_json_schema, pass2_json_schema,
+    refinement_json_schema, JudgeResponse, MetadataResponse, Pass1Response, Pass2Response,
+    RefinementResponse,
 };
 use super::{
     judge_system_prompt, judge_user_prompt, pass1_system_prompt, pass1_user_prompt,
     pass2_system_prompt, pass2_user_prompt, refinement_system_prompt, refinement_user_prompt,
     truncate_to_token_budget, LlmError, LlmProvider,
 };
-use crate::llm::schema::{JudgeRequest, Pass1Request, Pass2Request, RefinementRequest};
+use crate::llm::metadata::{metadata_system_prompt, metadata_user_prompt};
+use crate::llm::schema::{
+    JudgeRequest, MetadataRequest, Pass1Request, Pass2Request, RefinementRequest,
+};
 
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -266,6 +270,23 @@ impl LlmProvider for AnthropicProvider {
             .await?;
         parse_json_response::<RefinementResponse>(&response_text)
     }
+
+    async fn describe_groups(
+        &self,
+        request: &MetadataRequest,
+    ) -> Result<MetadataResponse, LlmError> {
+        let system = metadata_system_prompt();
+        let user = metadata_user_prompt(request);
+        let response_text = self
+            .send_structured_message(
+                &system,
+                &user,
+                metadata_json_schema(),
+                "Return the review metadata for the flow groups",
+            )
+            .await?;
+        parse_json_response::<MetadataResponse>(&response_text)
+    }
 }
 
 /// Parse a JSON response, stripping any markdown fencing the LLM may add.
@@ -489,8 +510,7 @@ mod tests {
                 assert_eq!(name, "structured_output");
                 // The input should be directly deserializable
                 let pass1: Pass1Response = serde_json::from_value(input.clone()).unwrap();
-                assert_eq!(pass1.groups.len(), 1);
-                assert_eq!(pass1.groups[0].id, "g1");
+                assert_eq!(pass1.suggested_review_order, vec!["g1".to_string()]);
                 assert_eq!(pass1.overall_summary, "Auth changes");
             }
         }
@@ -563,8 +583,7 @@ mod tests {
             "suggested_review_order": ["group_1"]
         }"#;
         let result: Pass1Response = parse_json_response(json).unwrap();
-        assert_eq!(result.groups.len(), 1);
-        assert_eq!(result.groups[0].id, "group_1");
+        assert_eq!(result.suggested_review_order, vec!["group_1".to_string()]);
         assert_eq!(result.overall_summary, "Auth changes");
     }
 
@@ -631,7 +650,7 @@ mod tests {
         assert!(parsed["input_schema"].is_object());
         // Schema should contain the response type properties
         let schema_str = serde_json::to_string(&parsed["input_schema"]).unwrap();
-        assert!(schema_str.contains("groups"));
+        assert!(schema_str.contains("overall_summary"));
     }
 
     #[test]

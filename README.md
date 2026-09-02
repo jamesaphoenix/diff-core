@@ -164,7 +164,6 @@ model = "default"
 enabled = true
 provider = "claude"
 model = "default"
-max_iterations = 1
 ```
 
 Example repo-local config:

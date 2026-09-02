@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::cluster::ClusterResult;
-use crate::types::{GroupRankInput, RankWeights, RankedGroup};
+use crate::types::{FlowGroup, GroupRankInput, RankWeights, RankedGroup};
 
 /// Compute the composite ranking score for a single group.
 ///
@@ -103,26 +103,51 @@ pub fn build_rank_inputs(
     cluster_result
         .groups
         .iter()
-        .map(|group| {
-            let paths: Vec<&str> = group.files.iter().map(|f| f.path.as_str()).collect();
-            let risk_flags = crate::output::compute_group_risk_flags(&paths);
-            let total_add: u32 = group.files.iter().map(|f| f.changes.additions).sum();
-            let total_del: u32 = group.files.iter().map(|f| f.changes.deletions).sum();
-
-            GroupRankInput {
-                group_id: group.id.clone(),
-                risk: compute_risk_score(
-                    risk_flags.has_schema_change,
-                    risk_flags.has_api_change,
-                    risk_flags.has_auth_change,
-                    false,
-                ),
-                centrality: compute_group_centrality(&paths, file_centrality),
-                surface_area: compute_surface_area(total_add, total_del, 1000),
-                uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
-            }
-        })
+        .map(|group| rank_input_for_group(group, file_centrality))
         .collect()
+}
+
+/// Build the ranking input for a single group from its own files.
+pub fn rank_input_for_group(
+    group: &FlowGroup,
+    file_centrality: &HashMap<String, f64>,
+) -> GroupRankInput {
+    let paths: Vec<&str> = group.files.iter().map(|f| f.path.as_str()).collect();
+    let risk_flags = crate::output::compute_group_risk_flags(&paths);
+    let total_add: u32 = group.files.iter().map(|f| f.changes.additions).sum();
+    let total_del: u32 = group.files.iter().map(|f| f.changes.deletions).sum();
+
+    GroupRankInput {
+        group_id: group.id.clone(),
+        risk: compute_risk_score(
+            risk_flags.has_schema_change,
+            risk_flags.has_api_change,
+            risk_flags.has_auth_change,
+            false,
+        ),
+        centrality: compute_group_centrality(&paths, file_centrality),
+        surface_area: compute_surface_area(total_add, total_del, 1000),
+        uncertainty: if risk_flags.has_test_only { 0.1 } else { 0.5 },
+    }
+}
+
+/// Recompute `risk_score` in place for groups whose file composition changed
+/// after the initial ranking.
+///
+/// LLM refinement splits and merges groups without re-scoring: `apply_split`
+/// makes sub-groups inherit their source's score and `apply_merge` leaves the
+/// merged group at 0.0, so a merged group sorts as the least risky thing in the
+/// diff. `review_order` is deliberately left alone — refinement may have
+/// re-ranked on purpose, and that decision outranks the composite score.
+pub fn rescore_groups(
+    groups: &mut [FlowGroup],
+    file_centrality: &HashMap<String, f64>,
+    weights: &RankWeights,
+) {
+    for group in groups.iter_mut() {
+        let input = rank_input_for_group(group, file_centrality);
+        group.risk_score = composite_score(&input, weights);
+    }
 }
 
 /// Compute a risk score from file-level risk indicators.

@@ -98,6 +98,8 @@ pub fn build_analysis_output(
             .then_with(|| crate::rank::natural_group_key(&a.id).cmp(&crate::rank::natural_group_key(&b.id)))
     });
 
+    crate::group_metadata::apply_heuristic_metadata(&mut groups);
+
     let frameworks_detected = crate::flow::detect_frameworks(parsed_files);
 
     let summary = AnalysisSummary {
@@ -460,6 +462,7 @@ mod tests {
             ],
             risk_score: 0.0,
             review_order: 0,
+            ..Default::default()
         }
     }
 
@@ -484,6 +487,7 @@ mod tests {
                     edges: vec![],
                     risk_score: 0.0,
                     review_order: 0,
+                    ..Default::default()
                 },
             ],
             infrastructure: Some(InfrastructureGroup {
@@ -1017,6 +1021,7 @@ mod tests {
             edges: vec![],
             risk_score: 0.0,
             review_order: 0,
+            ..Default::default()
         };
         let mermaid = generate_mermaid(&group);
         assert!(mermaid.contains("graph TD"));
@@ -1065,6 +1070,7 @@ mod tests {
             ],
             risk_score: 0.0,
             review_order: 0,
+            ..Default::default()
         };
         let mermaid = generate_mermaid(&group);
         // Both edges are between the same files, so only one Mermaid edge.
@@ -1098,6 +1104,7 @@ mod tests {
             }],
             risk_score: 0.0,
             review_order: 0,
+            ..Default::default()
         };
         let mermaid = generate_mermaid(&group);
         // Should not have any edges (self-edge on same file).
@@ -1123,6 +1130,7 @@ mod tests {
             edges: vec![],
             risk_score: 0.0,
             review_order: 0,
+            ..Default::default()
         };
         let mermaid = generate_mermaid(&group);
         // Label should be "handlers/auth.ts" not the full path.
@@ -1176,6 +1184,7 @@ mod tests {
                 }],
                 risk_score: 0.0,
                 review_order: 0,
+                ..Default::default()
             };
             let mermaid = generate_mermaid(&group);
             assert!(

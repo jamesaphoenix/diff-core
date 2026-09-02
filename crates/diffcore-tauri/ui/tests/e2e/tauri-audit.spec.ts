@@ -484,7 +484,7 @@ test.describe("State Desync Prevention", () => {
 
     // Click the second group
     const secondGroup = page.locator(".group-item:not(.infra-group)").nth(1);
-    await secondGroup.click();
+    await secondGroup.locator(".group-name").click();
     await page.waitForTimeout(500);
 
     // The selected file should have changed (new group's first file)
@@ -534,7 +534,7 @@ test.describe("State Desync Prevention", () => {
 
     // Click a different group
     const secondGroup = page.locator(".group-item:not(.infra-group)").nth(1);
-    await secondGroup.click();
+    await secondGroup.locator(".group-name").click();
     await page.waitForTimeout(500);
 
     // Replay should be exited

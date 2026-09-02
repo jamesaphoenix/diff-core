@@ -11,8 +11,8 @@ use tokio::time::{sleep, Duration};
 use super::schema;
 use super::{
     redact_api_keys, truncate_to_token_budget, BackendStatus, JudgeRequest, JudgeResponse,
-    LlmError, LlmProvider, Pass1Request, Pass1Response, Pass2Request, Pass2Response,
-    RefinementRequest, RefinementResponse,
+    LlmError, LlmProvider, MetadataRequest, MetadataResponse, Pass1Request, Pass1Response,
+    Pass2Request, Pass2Response, RefinementRequest, RefinementResponse,
 };
 
 const AGENT_ADDENDUM: &str =
@@ -225,6 +225,18 @@ impl LlmProvider for CodexCliProvider {
             super::refinement_system_prompt(),
             super::refinement_user_prompt(request),
             schema::refinement_json_schema(),
+        )
+        .await
+    }
+
+    async fn describe_groups(
+        &self,
+        request: &MetadataRequest,
+    ) -> Result<MetadataResponse, LlmError> {
+        self.run_structured_prompt(
+            super::metadata::metadata_system_prompt(),
+            super::metadata::metadata_user_prompt(request),
+            schema::metadata_json_schema(),
         )
         .await
     }

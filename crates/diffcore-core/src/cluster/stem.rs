@@ -96,7 +96,7 @@ pub(super) fn test_impl_stem(path: &str) -> String {
 }
 
 /// Check if a file is a test file — by filename pattern OR directory.
-pub(super) fn is_test_file_name(path: &str) -> bool {
+pub(crate) fn is_test_file_name(path: &str) -> bool {
     let lower = path.to_lowercase();
     let filename = lower.rsplit('/').next().unwrap_or(&lower);
 

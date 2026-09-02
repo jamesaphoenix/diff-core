@@ -171,13 +171,13 @@ function generateNoApiKeySettings() {
   return {
     annotations_enabled: true,
     refinement_enabled: false,
+    metadata_enabled: false,
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     api_key_source: "",
     has_api_key: false,
     refinement_provider: "anthropic",
     refinement_model: "claude-sonnet-4-6",
-    refinement_max_iterations: 1,
     global_config_path: "~/.diffcore/config.toml",
     codex_available: false,
     codex_authenticated: false,
@@ -458,15 +458,14 @@ test.describe("Hardening — LLM Controls", () => {
 // ═══════════════════════════════════════════════════════════════════
 
 test.describe("Hardening — LLM Annotations", () => {
-  test("27 — summarize PR: idle button state", async ({ page }) => {
+  test("27 — PR overview arrives from the analyze path, with no button", async ({ page }) => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    // Verify summarize button is visible and enabled
-    const btn = page.locator(".btn-summarize");
-    await expect(btn).toBeVisible();
-    await expect(btn).toContainText("Summarize PR");
-    await expect(btn).not.toBeDisabled();
+    // Pass 1 is folded into the analyze path, so there is no button to press:
+    // the overview arrives on its own and waits behind the PR Overview toggle.
+    await expect(page.locator(".btn-summarize")).toHaveCount(0);
+    await expect(page.locator(".btn-pr-overview")).toBeVisible();
 
     // Verify provider badge
     await expect(page.locator(".llm-provider-badge")).toContainText("Codex CLI/default");
@@ -480,23 +479,18 @@ test.describe("Hardening — LLM Annotations", () => {
     await page.goto("/");
     await waitForAnalysis(page);
 
-    // Click summarize — the right panel switches to the LLM activity stream
-    await page.locator(".btn-summarize").click();
-    // Wait for the mock activity job to start and finish
-    await expect(page.locator(".annotation-section.llm-loading:not(.llm-setup-cta)")).toBeVisible();
-    await expect(page.locator(".annotation-section.llm-loading:not(.llm-setup-cta)")).toBeHidden({ timeout: 15_000 });
-    // Results render in the Info tab of the right panel
+    // No click: the overview came in with the analysis. Reveal it.
     await page.getByRole("tab", { name: "Info" }).click();
+    await page.locator(".btn-pr-overview").click();
 
-    // Verify LLM overview rendered
+    await expect(page.getByTestId("pr-overview")).toBeVisible();
     await expect(page.locator(".llm-summary").first()).toBeVisible();
-    // Verify risk flags shown
-    await expect(page.locator(".risk-flag").first()).toBeVisible();
-    // Verify review rationale
-    await expect(page.locator(".llm-rationale")).toBeVisible();
 
-    // Summarize button should be gone (overview loaded)
-    await expect(page.locator(".btn-summarize")).not.toBeVisible();
+    // Going back to the group shows the group's own review metadata instead.
+    await page.locator(".btn", { hasText: "Back to group" }).click();
+    await expect(page.getByTestId("pr-overview")).toHaveCount(0);
+    await expect(page.getByTestId("group-review-meta")).toBeVisible();
+    await expect(page.locator(".review-meta-invariant")).toBeVisible();
 
     await page.locator(".panel-right").screenshot({
       path: path.join(SCREENSHOTS_DIR, "28-summarize-complete.png"),
@@ -546,9 +540,9 @@ test.describe("Hardening — LLM Annotations", () => {
     await dismissAiSetupIfVisible(page);
 
     // Verify buttons show setup-required copy and are disabled
-    const summarizeBtn = page.locator(".btn-summarize");
-    await expect(summarizeBtn).toContainText("Summarize PR (Setup required)");
-    await expect(summarizeBtn).toHaveClass(/no-api-key/);
+    const analyzeFlowBtn = page.locator(".btn-analyze-flow");
+    await expect(analyzeFlowBtn).toContainText("Analyze Flow (Setup required)");
+    await expect(analyzeFlowBtn).toHaveClass(/no-api-key/);
 
     await page.locator(".annotation-actions").screenshot({
       path: path.join(SCREENSHOTS_DIR, "30-buttons-no-api-key.png"),
@@ -571,13 +565,13 @@ test.describe("Hardening — Refinement", () => {
     }, {
       annotations_enabled: true,
       refinement_enabled: true,
+      metadata_enabled: false,
       provider: "anthropic",
       model: "claude-sonnet-4-6",
       api_key_source: "ANTHROPIC_API_KEY",
       has_api_key: true,
       refinement_provider: "anthropic",
       refinement_model: "claude-sonnet-4-6",
-      refinement_max_iterations: 1,
     });
     await page.waitForTimeout(300);
 
@@ -601,13 +595,13 @@ test.describe("Hardening — Refinement", () => {
     }, {
       annotations_enabled: true,
       refinement_enabled: true,
+      metadata_enabled: false,
       provider: "anthropic",
       model: "claude-sonnet-4-6",
       api_key_source: "ANTHROPIC_API_KEY",
       has_api_key: true,
       refinement_provider: "anthropic",
       refinement_model: "claude-sonnet-4-6",
-      refinement_max_iterations: 1,
     });
     await page.waitForTimeout(300);
 
@@ -638,13 +632,13 @@ test.describe("Hardening — Refinement", () => {
     }, {
       annotations_enabled: true,
       refinement_enabled: true,
+      metadata_enabled: false,
       provider: "anthropic",
       model: "claude-sonnet-4-6",
       api_key_source: "ANTHROPIC_API_KEY",
       has_api_key: true,
       refinement_provider: "anthropic",
       refinement_model: "claude-sonnet-4-6",
-      refinement_max_iterations: 1,
     });
     await page.waitForTimeout(300);
 
@@ -672,13 +666,13 @@ test.describe("Hardening — Refinement", () => {
     }, {
       annotations_enabled: true,
       refinement_enabled: true,
+      metadata_enabled: false,
       provider: "anthropic",
       model: "claude-sonnet-4-6",
       api_key_source: "ANTHROPIC_API_KEY",
       has_api_key: true,
       refinement_provider: "anthropic",
       refinement_model: "claude-sonnet-4-6",
-      refinement_max_iterations: 1,
     });
     await page.waitForTimeout(300);
 
@@ -702,6 +696,36 @@ test.describe("Hardening — Refinement", () => {
     });
   });
 
+  test("34c — the PR overview survives a refinement", async ({ page }) => {
+    await page.goto("/");
+    await waitForAnalysis(page);
+
+    await page.evaluate((settings) => {
+      (window as any).__TEST_API__.setLlmSettings(settings);
+    }, {
+      annotations_enabled: true,
+      refinement_enabled: true,
+      metadata_enabled: false,
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      api_key_source: "ANTHROPIC_API_KEY",
+      has_api_key: true,
+      refinement_provider: "anthropic",
+      refinement_model: "claude-sonnet-4-6",
+    });
+    await page.waitForTimeout(300);
+
+    await page.locator(".btn-refine").click();
+    await page.waitForTimeout(2000);
+
+    // Refining must not cost the user their PR overview
+    await page.getByTestId("annotations-tab").click();
+    await page.locator(".btn-pr-overview").click();
+
+    await expect(page.getByTestId("pr-overview")).toBeVisible();
+    await expect(page.locator(".llm-summary").first()).toBeVisible();
+  });
+
   test("34b — refinement toggle crossfades the group list instead of hard-swapping it", async ({ page }) => {
     await page.goto("/");
     await waitForAnalysis(page);
@@ -711,13 +735,13 @@ test.describe("Hardening — Refinement", () => {
     }, {
       annotations_enabled: true,
       refinement_enabled: true,
+      metadata_enabled: false,
       provider: "anthropic",
       model: "claude-sonnet-4-6",
       api_key_source: "ANTHROPIC_API_KEY",
       has_api_key: true,
       refinement_provider: "anthropic",
       refinement_model: "claude-sonnet-4-6",
-      refinement_max_iterations: 1,
     });
     await page.waitForTimeout(300);
 

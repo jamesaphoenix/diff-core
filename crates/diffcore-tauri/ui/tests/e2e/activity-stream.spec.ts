@@ -28,20 +28,16 @@ test.describe("AI activity stream", () => {
     await waitForDemoApp(page);
   });
 
-  test("shows a rich overview timeline and lets the user switch back to annotations", async ({ page }) => {
-    await page.getByRole("button", { name: "Summarize PR" }).click();
+  test("shows a rich deep-analysis timeline and lets the user switch back to annotations", async ({ page }) => {
+    await page.getByRole("button", { name: "Analyze This Flow" }).click();
 
     const panel = page.getByTestId("activity-panel");
     const log = page.getByTestId("activity-log");
 
     await expect(panel).toBeVisible();
-    await expect(panel).toContainText("Summarizing PR");
     await expect(panel).toContainText("Codex CLI/default");
     await expect(page.getByTestId("activity-stats")).toContainText("events");
-    await expect(log).toContainText("Preparing overview request");
-    await expect(log).toContainText("Searching the repo");
-    await expect(log).toContainText("Reading files");
-    await expect(log).toContainText("Writing PR-ready summary");
+    await expect(log).toContainText("Preparing deep analysis request");
     await expect(panel.locator(".activity-live-badge")).toHaveText("Saved");
 
     await page.getByTestId("annotations-tab").click();
@@ -54,13 +50,13 @@ test.describe("AI activity stream", () => {
     await setLlmSettings(page, {
       annotations_enabled: true,
       refinement_enabled: true,
+      metadata_enabled: false,
       provider: "openai",
       model: "gpt-5.4",
       api_key_source: "~/.diffcore/config.toml",
       has_api_key: true,
       refinement_provider: "openai",
       refinement_model: "gpt-5.4",
-      refinement_max_iterations: 1,
       global_config_path: "~/.diffcore/config.toml",
       codex_available: true,
       codex_authenticated: true,
@@ -93,13 +89,13 @@ test.describe("AI activity stream", () => {
     await setLlmSettings(page, {
       annotations_enabled: true,
       refinement_enabled: true,
+      metadata_enabled: false,
       provider: "openai",
       model: "gpt-5.4",
       api_key_source: "~/.diffcore/config.toml",
       has_api_key: true,
       refinement_provider: "openai",
       refinement_model: "gpt-5.4",
-      refinement_max_iterations: 1,
       global_config_path: "~/.diffcore/config.toml",
       codex_available: false,
       codex_authenticated: false,
@@ -107,7 +103,7 @@ test.describe("AI activity stream", () => {
       claude_authenticated: false,
     });
 
-    await page.getByRole("button", { name: "Summarize PR" }).click();
+    await page.getByRole("button", { name: "Analyze This Flow" }).click();
 
     await expect(page.getByTestId("activity-direct-api-note")).toBeVisible();
     await expect(page.getByTestId("activity-direct-api-note")).toContainText("Direct API mode");
@@ -249,13 +245,13 @@ test.describe("AI activity stream", () => {
     await setLlmSettings(page, {
       annotations_enabled: true,
       refinement_enabled: true,
+      metadata_enabled: false,
       provider: "openai",
       model: "gpt-5.4",
       api_key_source: "~/.diffcore/config.toml",
       has_api_key: true,
       refinement_provider: "openai",
       refinement_model: "gpt-5.4",
-      refinement_max_iterations: 1,
       global_config_path: "~/.diffcore/config.toml",
       codex_available: true,
       codex_authenticated: true,

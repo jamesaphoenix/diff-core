@@ -168,6 +168,7 @@ pub fn import_manifest(
             edges,
             risk_score,
             review_order: mg.review_order,
+            ..Default::default()
         });
     }
 
@@ -274,6 +275,7 @@ mod tests {
                     }],
                     risk_score: 0.65,
                     review_order: 1,
+                    ..Default::default()
                 },
                 FlowGroup {
                     id: "group_2".to_string(),
@@ -289,6 +291,7 @@ mod tests {
                     edges: vec![],
                     risk_score: 0.2,
                     review_order: 2,
+                    ..Default::default()
                 },
             ],
             infrastructure_group: Some(InfrastructureGroup {

@@ -8,7 +8,7 @@ Three levels of semantics, each building on the last:
 
 1. **Structural** (free, deterministic) — builds a symbol graph from tree-sitter ASTs, detects entrypoints (HTTP routes, CLI commands, queue consumers, Effect.ts services, etc.), clusters changed files into flow groups via forward reachability, traces data flow across call chains.
 2. **Heuristic** (free, deterministic) — framework detection (Express, Next.js, FastAPI, Effect.ts, 30+ frameworks), risk scoring, review ordering by composite score (risk/centrality/surface-area/uncertainty).
-3. **LLM refinement** (paid, optional) — Anthropic, OpenAI, or Gemini reads the actual diff content and refines groupings: split coincidental coupling, merge scattered refactors, re-rank by semantic review order, reclassify misplaced files. Evaluator-optimizer loop scores v1 vs v2, keeps whichever is better.
+3. **LLM refinement** (paid, optional) — Anthropic, OpenAI, or Gemini reads the actual diff content and refines groupings: split coincidental coupling, merge scattered refactors, re-rank by semantic review order, reclassify misplaced files. Applied as structural patch operations over the deterministic grouping; on failure the deterministic groups are kept unchanged.
 
 ## Target Grouping Strategy
 

@@ -163,14 +163,17 @@ pub struct LlmConfig {
     /// Optional LLM refinement pass configuration.
     #[serde(default)]
     pub refinement: RefinementConfig,
+    /// Optional LLM group metadata pass configuration.
+    #[serde(default)]
+    pub metadata: MetadataConfig,
 }
 
 /// Configuration for the optional LLM refinement pass.
 ///
 /// The refinement pass takes deterministic groups (v1) and asks an LLM to improve them:
 /// split coincidental groupings, merge scattered refactors, re-rank by semantic review
-/// order, reclassify misplaced files. Uses an evaluator-optimizer loop: refine → score →
-/// refine again if score improved, up to `max_iterations`.
+/// order, reclassify misplaced files. It is a single pass — the response is either
+/// applied or discarded, leaving the deterministic groups in place.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RefinementConfig {
     /// Whether refinement is enabled (default: true).
@@ -185,14 +188,6 @@ pub struct RefinementConfig {
     /// Shell command to retrieve the refinement API key.
     #[serde(default)]
     pub key_cmd: Option<String>,
-    /// Maximum evaluator-optimizer loop iterations (default: 1).
-    /// 1 = single refinement pass, 2+ = iterative improvement.
-    #[serde(default = "default_max_iterations")]
-    pub max_iterations: u32,
-}
-
-fn default_max_iterations() -> u32 {
-    1
 }
 
 impl Default for RefinementConfig {
@@ -202,7 +197,55 @@ impl Default for RefinementConfig {
             provider: None,
             model: None,
             key_cmd: None,
-            max_iterations: 1,
+        }
+    }
+}
+
+/// Configuration for the optional LLM group metadata pass.
+///
+/// The metadata pass runs on the *final* groups — after refinement, if refinement
+/// ran — and fills in the review metadata a reviewer glances at: group type, risk
+/// band, impact scope, review complexity, review focus, a one-line description, and
+/// the invariant to verify. It never writes `risk_score`.
+///
+/// It gets its own provider/model because writing a one-line invariant is a much
+/// cheaper task than the structural reasoning refinement does.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MetadataConfig {
+    /// Whether the metadata pass is enabled (default: true).
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Provider for the metadata pass (can differ from the refinement provider).
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// Model for the metadata pass (user-selectable).
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Shell command to retrieve the metadata API key.
+    #[serde(default)]
+    pub key_cmd: Option<String>,
+    /// API key stored directly in the config file.
+    /// Precedence: key_cmd > key > env vars.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Number of groups sent per LLM call (default: 20).
+    #[serde(default = "default_metadata_batch_size")]
+    pub batch_size: usize,
+}
+
+fn default_metadata_batch_size() -> usize {
+    20
+}
+
+impl Default for MetadataConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            provider: None,
+            model: None,
+            key_cmd: None,
+            key: None,
+            batch_size: default_metadata_batch_size(),
         }
     }
 }
@@ -216,6 +259,7 @@ impl Default for LlmConfig {
             key: None,
             annotations_enabled: true,
             refinement: RefinementConfig::default(),
+            metadata: MetadataConfig::default(),
         }
     }
 }
@@ -349,10 +393,22 @@ impl DiffcoreConfig {
             }
         }
 
-        // Validate max_iterations is at least 1
-        if self.llm.refinement.max_iterations == 0 {
+        // Validate metadata provider if specified
+        if let Some(ref provider) = self.llm.metadata.provider {
+            let valid = ["anthropic", "openai", "gemini", "codex", "claude"];
+            if !valid.contains(&provider.as_str()) {
+                return Err(ConfigError::Validation(format!(
+                    "Unknown metadata provider '{}'. Valid providers: {}",
+                    provider,
+                    valid.join(", ")
+                )));
+            }
+        }
+
+        // Validate batch_size is at least 1
+        if self.llm.metadata.batch_size == 0 {
             return Err(ConfigError::Validation(
-                "Refinement max_iterations must be at least 1".to_string(),
+                "Metadata batch_size must be at least 1".to_string(),
             ));
         }
 
@@ -484,8 +540,34 @@ impl DiffcoreConfig {
             .key_cmd
             .clone()
             .or_else(|| global.llm.refinement.key_cmd.clone());
-        if self.llm.refinement.max_iterations == default_max_iterations() {
-            self.llm.refinement.max_iterations = global.llm.refinement.max_iterations;
+
+        self.llm.metadata.enabled = self.llm.metadata.enabled || global.llm.metadata.enabled;
+        self.llm.metadata.provider = self
+            .llm
+            .metadata
+            .provider
+            .clone()
+            .or_else(|| global.llm.metadata.provider.clone());
+        self.llm.metadata.model = self
+            .llm
+            .metadata
+            .model
+            .clone()
+            .or_else(|| global.llm.metadata.model.clone());
+        self.llm.metadata.key_cmd = self
+            .llm
+            .metadata
+            .key_cmd
+            .clone()
+            .or_else(|| global.llm.metadata.key_cmd.clone());
+        self.llm.metadata.key = self
+            .llm
+            .metadata
+            .key
+            .clone()
+            .or_else(|| global.llm.metadata.key.clone());
+        if self.llm.metadata.batch_size == default_metadata_batch_size() {
+            self.llm.metadata.batch_size = global.llm.metadata.batch_size;
         }
     }
 }
@@ -1010,7 +1092,6 @@ events = ["src/handlers/events/**/*.ts"]
         assert_eq!(config.llm.refinement.provider, None);
         assert_eq!(config.llm.refinement.model, None);
         assert_eq!(config.llm.refinement.key_cmd, None);
-        assert_eq!(config.llm.refinement.max_iterations, 1);
     }
 
     #[test]
@@ -1023,13 +1104,11 @@ provider = "anthropic"
 enabled = true
 provider = "openai"
 model = "gpt-4.1"
-max_iterations = 3
 "#;
         let config = DiffcoreConfig::from_str(toml_str).unwrap();
         assert!(config.llm.refinement.enabled);
         assert_eq!(config.llm.refinement.provider, Some("openai".to_string()));
         assert_eq!(config.llm.refinement.model, Some("gpt-4.1".to_string()));
-        assert_eq!(config.llm.refinement.max_iterations, 3);
     }
 
     #[test]
@@ -1040,7 +1119,6 @@ provider = "anthropic"
 "#;
         let config = DiffcoreConfig::from_str(toml_str).unwrap();
         assert!(config.llm.refinement.enabled);
-        assert_eq!(config.llm.refinement.max_iterations, 1);
     }
 
     #[test]
@@ -1061,21 +1139,131 @@ provider = "invalid"
         }
     }
 
+    // ── Metadata Config Tests ──
+
     #[test]
-    fn test_refinement_zero_iterations_rejected() {
+    fn test_metadata_config_defaults() {
+        let config = DiffcoreConfig::default();
+        assert!(config.llm.metadata.enabled);
+        assert_eq!(config.llm.metadata.provider, None);
+        assert_eq!(config.llm.metadata.model, None);
+        assert_eq!(config.llm.metadata.key_cmd, None);
+        assert_eq!(config.llm.metadata.key, None);
+        assert_eq!(config.llm.metadata.batch_size, 20);
+    }
+
+    #[test]
+    fn test_parse_metadata_config() {
         let toml_str = r#"
-[llm.refinement]
+[llm]
+provider = "anthropic"
+
+[llm.metadata]
 enabled = true
-max_iterations = 0
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+key_cmd = "op read op://vault/item/field"
+batch_size = 5
 "#;
-        let result = DiffcoreConfig::from_str(toml_str);
-        assert!(result.is_err());
-        match result.unwrap_err() {
+        let config = DiffcoreConfig::from_str(toml_str).unwrap();
+        assert!(config.llm.metadata.enabled);
+        assert_eq!(config.llm.metadata.provider, Some("anthropic".to_string()));
+        assert_eq!(
+            config.llm.metadata.model,
+            Some("claude-haiku-4-5-20251001".to_string())
+        );
+        assert_eq!(
+            config.llm.metadata.key_cmd,
+            Some("op read op://vault/item/field".to_string())
+        );
+        assert_eq!(config.llm.metadata.batch_size, 5);
+    }
+
+    #[test]
+    fn test_metadata_enabled_by_default() {
+        let config = DiffcoreConfig::from_str("[llm]\nprovider = \"anthropic\"\n").unwrap();
+        assert!(config.llm.metadata.enabled);
+        assert_eq!(config.llm.metadata.batch_size, 20);
+    }
+
+    #[test]
+    fn test_metadata_invalid_provider_rejected() {
+        let toml_str = r#"
+[llm.metadata]
+provider = "invalid"
+"#;
+        match DiffcoreConfig::from_str(toml_str).unwrap_err() {
             ConfigError::Validation(msg) => {
-                assert!(msg.contains("max_iterations"));
+                assert!(msg.contains("metadata provider"));
+                assert!(msg.contains("invalid"));
             }
             err => panic!("Expected validation error, got: {:?}", err),
         }
+    }
+
+    #[test]
+    fn test_metadata_zero_batch_size_rejected() {
+        let toml_str = r#"
+[llm.metadata]
+batch_size = 0
+"#;
+        match DiffcoreConfig::from_str(toml_str).unwrap_err() {
+            ConfigError::Validation(msg) => {
+                assert!(msg.contains("batch_size"));
+            }
+            err => panic!("Expected validation error, got: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_metadata_provider_independent_of_refinement() {
+        let toml_str = r#"
+[llm]
+provider = "anthropic"
+
+[llm.refinement]
+provider = "openai"
+
+[llm.metadata]
+provider = "gemini"
+"#;
+        let config = DiffcoreConfig::from_str(toml_str).unwrap();
+        assert_eq!(config.llm.provider, Some("anthropic".to_string()));
+        assert_eq!(config.llm.refinement.provider, Some("openai".to_string()));
+        assert_eq!(config.llm.metadata.provider, Some("gemini".to_string()));
+    }
+
+    #[test]
+    fn test_metadata_merges_from_global_config() {
+        let mut local = DiffcoreConfig::from_str("[llm.metadata]\nbatch_size = 20\n").unwrap();
+        let mut global = DiffcoreConfig::default();
+        global.llm.metadata.provider = Some("gemini".to_string());
+        global.llm.metadata.model = Some("gemini-2.5-flash".to_string());
+        global.llm.metadata.batch_size = 7;
+
+        local.apply_global_llm_defaults(&global);
+
+        assert_eq!(local.llm.metadata.provider, Some("gemini".to_string()));
+        assert_eq!(
+            local.llm.metadata.model,
+            Some("gemini-2.5-flash".to_string())
+        );
+        assert_eq!(local.llm.metadata.batch_size, 7);
+    }
+
+    #[test]
+    fn test_metadata_local_config_wins_over_global() {
+        let mut local =
+            DiffcoreConfig::from_str("[llm.metadata]\nprovider = \"openai\"\nbatch_size = 3\n")
+                .unwrap();
+        let mut global = DiffcoreConfig::default();
+        global.llm.metadata.provider = Some("gemini".to_string());
+        global.llm.metadata.batch_size = 7;
+
+        local.apply_global_llm_defaults(&global);
+
+        assert_eq!(local.llm.metadata.provider, Some("openai".to_string()));
+        assert_eq!(local.llm.metadata.batch_size, 3);
     }
 
     #[test]
@@ -1089,7 +1277,6 @@ model = "claude-sonnet-4-6"
 enabled = true
 provider = "gemini"
 model = "gemini-2.5-pro"
-max_iterations = 2
 "#;
         let config = DiffcoreConfig::from_str(toml_str).unwrap();
         assert_eq!(config.llm.provider, Some("anthropic".to_string()));

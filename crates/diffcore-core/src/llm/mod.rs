@@ -13,6 +13,7 @@ pub mod claude_cli;
 pub mod codex_cli;
 pub mod gemini;
 pub mod judge;
+pub mod metadata;
 pub mod openai;
 pub mod refinement;
 pub mod schema;
@@ -27,8 +28,8 @@ use std::future::Future;
 
 use crate::config::LlmConfig;
 use schema::{
-    JudgeRequest, JudgeResponse, Pass1Request, Pass1Response, Pass2Request, Pass2Response,
-    RefinementRequest, RefinementResponse,
+    JudgeRequest, JudgeResponse, MetadataRequest, MetadataResponse, Pass1Request, Pass1Response,
+    Pass2Request, Pass2Response, RefinementRequest, RefinementResponse,
 };
 
 /// Errors that can occur during LLM operations.
@@ -373,6 +374,17 @@ pub trait LlmProvider: Send + Sync {
         &self,
         request: &RefinementRequest,
     ) -> Result<RefinementResponse, LlmError>;
+
+    /// Run the group metadata pass on one batch of final flow groups.
+    ///
+    /// Returns review metadata keyed by group id. Providers that cannot serve
+    /// this pass fall back to the default and report themselves unsupported.
+    async fn describe_groups(
+        &self,
+        _request: &MetadataRequest,
+    ) -> Result<MetadataResponse, LlmError> {
+        Err(LlmError::UnsupportedProvider(self.name().to_string()))
+    }
 }
 
 /// Resolve the API key for an LLM provider.
@@ -686,10 +698,11 @@ pub fn pass1_system_prompt() -> String {
         "You are a senior software engineer reviewing a code diff. \
          Your task is to analyze the semantic flow groups identified by static analysis \
          and provide a high-level overview of the changes.\n\n\
-         Write the overall summary and each group summary so they can be reused in a pull request \
-         description or shared with a non-developer reviewer. Prefer concrete behavior changes, \
-         user impact, and review order rationale over jargon.\n\n\
-         For each group, explain what it does, assess its risk, and suggest a review order.\n\n\
+         Write the overall summary so it can be reused in a pull request description or shared \
+         with a non-developer reviewer. Prefer concrete behavior changes and user impact over \
+         jargon.\n\n\
+         Describe the pull request as a whole. Per-group review metadata is produced by a \
+         separate pass — do not restate it here.\n\n\
          {}",
         schema::pass1_schema_description()
     )

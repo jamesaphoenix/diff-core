@@ -33,7 +33,6 @@ The group cap is now configurable through:
 
 Iterative refinement is now configurable through:
 
-- `.diffcore.toml` via `[llm.refinement].max_iterations`
 - `diffcore analyze --refine-iterations <n>`
 
 ### 3. Iterative refinement plumbing

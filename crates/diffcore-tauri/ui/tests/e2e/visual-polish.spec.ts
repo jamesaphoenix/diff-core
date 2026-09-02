@@ -110,7 +110,7 @@ test.describe("Visual Polish — Screenshot Baseline", () => {
 
     // Click on the second group (auth)
     const secondGroup = page.locator(".group-item").nth(1);
-    await secondGroup.click();
+    await secondGroup.locator(".group-name").click();
     await page.waitForTimeout(1500); // Wait for graph re-render
 
     await page.screenshot({

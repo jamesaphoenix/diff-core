@@ -269,7 +269,7 @@ test.describe("Flow Replay Mode", () => {
     const groups = page.locator(".group-item");
     const groupCount = await groups.count();
     if (groupCount >= 2) {
-      await groups.nth(1).click();
+      await groups.nth(1).locator(".group-name").click();
       await page.waitForTimeout(500);
 
       // Replay should be exited

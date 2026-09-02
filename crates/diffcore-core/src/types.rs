@@ -90,8 +90,69 @@ pub enum EntrypointType {
     EffectService,
 }
 
+/// The kind of change a group represents, in conventional-commit terms.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum GroupType {
+    Feat,
+    Fix,
+    Perf,
+    Refactor,
+    Test,
+    Docs,
+    Build,
+    Ci,
+    Chore,
+}
+
+/// Coarse risk band. Derived from [`FlowGroup::risk_score`], never the reverse:
+/// the score drives review ranking and stays deterministic.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum Risk {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+/// How far the blast radius of a group's changes reaches.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum ImpactScope {
+    Local,
+    Module,
+    CrossCutting,
+    System,
+}
+
+/// How much effort reviewing a group is expected to take.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum ReviewComplexity {
+    Trivial,
+    Simple,
+    Moderate,
+    Complex,
+}
+
+/// What a reviewer should be looking for while reading a group.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum ReviewFocus {
+    Correctness,
+    Security,
+    Concurrency,
+    Performance,
+    DataIntegrity,
+    Compatibility,
+    ErrorHandling,
+    ApiContract,
+}
+
+/// Maximum number of [`FlowGroup::summary`] bullets a group may carry.
+pub const MAX_SUMMARY_BULLETS: usize = 5;
+
+/// Maximum number of [`ReviewFocus`] entries a group may carry.
+pub const MAX_REVIEW_FOCUS: usize = 3;
+
 /// A semantic flow group — a set of files participating in the same data flow.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct FlowGroup {
     pub id: String,
     pub name: String,
@@ -100,6 +161,34 @@ pub struct FlowGroup {
     pub edges: Vec<FlowEdge>,
     pub risk_score: f64,
     pub review_order: u32,
+
+    // ── Review metadata (see specs/group-metadata.md) ──
+    /// What kind of change this is.
+    #[serde(default)]
+    pub group_type: Option<GroupType>,
+    /// One line, plain text: what changed.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Risk band derived from `risk_score`.
+    #[serde(default)]
+    pub risk: Option<Risk>,
+    /// Blast radius of the change.
+    #[serde(default)]
+    pub impact: Option<ImpactScope>,
+    /// Expected review effort.
+    #[serde(default)]
+    pub complexity: Option<ReviewComplexity>,
+    /// At most [`MAX_REVIEW_FOCUS`] concerns to review against.
+    #[serde(default)]
+    pub review_focus: Vec<ReviewFocus>,
+    /// What the group achieves, sized to the change: one entry when a single
+    /// sentence covers it, otherwise up to [`MAX_SUMMARY_BULLETS`] bullets.
+    /// Plain-text entries — the list is the structure, so nothing is markdown.
+    #[serde(default)]
+    pub summary: Vec<String>,
+    /// One sentence, plain text: the property a reviewer should verify.
+    #[serde(default)]
+    pub invariant: Option<String>,
 }
 
 /// Risk indicators detected in changed files.
@@ -310,6 +399,7 @@ mod tests {
             edges: vec![sample_flow_edge()],
             risk_score: 0.82,
             review_order: 1,
+            ..Default::default()
         }
     }
 
@@ -496,6 +586,7 @@ mod tests {
             edges: vec![],
             risk_score: 0.1,
             review_order: 5,
+            ..Default::default()
         };
         let json = serde_json::to_string(&g).unwrap();
         let back: FlowGroup = serde_json::from_str(&json).unwrap();
@@ -740,6 +831,7 @@ mod tests {
             edges: vec![],
             risk_score: 0.0,
             review_order: 0,
+            ..Default::default()
         };
         let json = serde_json::to_string(&g).unwrap();
         let back: FlowGroup = serde_json::from_str(&json).unwrap();
@@ -1172,5 +1264,31 @@ mod tests {
             !json.contains("sub_groups"),
             "empty sub_groups should not be serialized"
         );
+    }
+
+    /// Analysis JSON written before review metadata existed must still load.
+    #[test]
+    fn flow_group_without_metadata_fields_deserializes() {
+        let legacy = r#"{
+            "id": "group_1",
+            "name": "Legacy group",
+            "entrypoint": null,
+            "files": [],
+            "edges": [],
+            "risk_score": 0.42,
+            "review_order": 1
+        }"#;
+
+        let group: FlowGroup = serde_json::from_str(legacy).unwrap();
+
+        assert_eq!(group.id, "group_1");
+        assert!((group.risk_score - 0.42).abs() < f64::EPSILON);
+        assert!(group.group_type.is_none());
+        assert!(group.risk.is_none());
+        assert!(group.impact.is_none());
+        assert!(group.complexity.is_none());
+        assert!(group.description.is_none());
+        assert!(group.invariant.is_none());
+        assert!(group.review_focus.is_empty());
     }
 }

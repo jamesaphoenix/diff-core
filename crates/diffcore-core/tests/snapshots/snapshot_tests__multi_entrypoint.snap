@@ -13,6 +13,8 @@ expression: v
   },
   "groups": [
     {
+      "complexity": null,
+      "description": null,
       "edges": [
         {
           "edge_type": "Imports",
@@ -92,10 +94,16 @@ expression: v
           "symbols_changed": []
         }
       ],
+      "group_type": null,
       "id": "group_1",
+      "impact": "Module",
+      "invariant": null,
       "name": "createOrder (orders) route",
+      "review_focus": [],
       "review_order": 1,
-      "risk_score": 0.4375
+      "risk": "Medium",
+      "risk_score": 0.4375,
+      "summary": []
     }
   ],
   "infrastructure_group": {

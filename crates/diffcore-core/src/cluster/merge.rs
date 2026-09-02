@@ -165,6 +165,7 @@ fn merge_group_indices(groups: &[FlowGroup], indices: &[usize], result: &mut Vec
         edges: merged_edges,
         risk_score: 0.0,
         review_order: 0,
+        ..Default::default()
     });
 }
 
