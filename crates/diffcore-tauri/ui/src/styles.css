@@ -1889,6 +1889,13 @@ body {
   line-clamp: 2;
 }
 
+.review-meta .review-meta-description-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
 .review-meta .review-meta-invariant {
   font-size: 11px;
   height: 32px;
