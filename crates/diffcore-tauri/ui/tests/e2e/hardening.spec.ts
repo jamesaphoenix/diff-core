@@ -575,14 +575,34 @@ test.describe("Hardening — Refinement", () => {
     });
     await page.waitForTimeout(300);
 
-    // Verify refinement banner is shown
-    await expect(page.locator(".refinement-banner")).toBeVisible();
-    await expect(page.locator(".refinement-banner")).toContainText("AI can improve");
-    await expect(page.locator(".btn-refine")).toBeVisible();
+    // The top-bar Refine button becomes available after analysis completes
+    await expect(page.getByTestId("refine-btn")).toBeVisible();
+    await expect(page.getByTestId("refine-btn")).toContainText("Refine");
 
-    await page.locator(".refinement-banner").screenshot({
+    await page.getByTestId("refine-btn").screenshot({
       path: path.join(SCREENSHOTS_DIR, "31-refinement-banner.png"),
     });
+  });
+
+  test("31b — new commits bar appears and Refresh re-analyzes", async ({ page }) => {
+    await page.goto("/");
+    await waitForAnalysis(page);
+
+    await page.evaluate(() => {
+      (window as any).__TEST_API__.showNewCommits(true);
+    });
+    const bar = page.getByTestId("new-commits-bar");
+    await expect(bar).toBeVisible();
+    await expect(bar).toContainText("New commits");
+
+    await bar.screenshot({
+      path: path.join(SCREENSHOTS_DIR, "31b-new-commits-bar.png"),
+    });
+
+    // Refresh re-runs analysis and clears the bar
+    await bar.getByRole("button", { name: "Refresh" }).click();
+    await expect(bar).not.toBeVisible();
+    await waitForAnalysis(page);
   });
 
   test("32 — refinement: complete with original/refined toggle", async ({ page }) => {
@@ -606,7 +626,7 @@ test.describe("Hardening — Refinement", () => {
     await page.waitForTimeout(300);
 
     // Click Refine
-    await page.locator(".btn-refine").click();
+    await page.getByTestId("refine-btn").click();
     await page.waitForTimeout(2000); // Mock delay is 1200ms
 
     // Verify toggle exists
@@ -642,7 +662,7 @@ test.describe("Hardening — Refinement", () => {
     });
     await page.waitForTimeout(300);
 
-    await page.locator(".btn-refine").click();
+    await page.getByTestId("refine-btn").click();
     await page.waitForTimeout(2000);
 
     // Verify change indicators are present
@@ -676,7 +696,7 @@ test.describe("Hardening — Refinement", () => {
     });
     await page.waitForTimeout(300);
 
-    await page.locator(".btn-refine").click();
+    await page.getByTestId("refine-btn").click();
     await page.waitForTimeout(2000);
 
     // Switch to Original view
@@ -715,7 +735,7 @@ test.describe("Hardening — Refinement", () => {
     });
     await page.waitForTimeout(300);
 
-    await page.locator(".btn-refine").click();
+    await page.getByTestId("refine-btn").click();
     await page.waitForTimeout(2000);
 
     // Refining must not cost the user their PR overview
@@ -745,7 +765,7 @@ test.describe("Hardening — Refinement", () => {
     });
     await page.waitForTimeout(300);
 
-    await page.locator(".btn-refine").click();
+    await page.getByTestId("refine-btn").click();
     await page.waitForTimeout(2000);
 
     const groupList = page.getByTestId("group-list");

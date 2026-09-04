@@ -9,7 +9,7 @@ async function waitForDemoApp(page: Page) {
 
 async function setLlmSettings(page: Page, settings: Record<string, unknown>) {
   await page.evaluate((value) => {
-    (window as { __TEST_API__: { setLlmSettings: (settings: Record<string, unknown>) => void } }).__TEST_API__.setLlmSettings(value);
+    (window as unknown as { __TEST_API__: { setLlmSettings: (settings: Record<string, unknown>) => void } }).__TEST_API__.setLlmSettings(value);
   }, settings);
 }
 
@@ -61,7 +61,7 @@ test.describe("AI onboarding", () => {
     await expect(page.locator(".llm-provider-badge")).toContainText("Codex CLI/default");
 
     await page.evaluate(() => {
-      (window as { __TEST_API__: { openAiSetup: (step?: "recommended" | "api") => void } }).__TEST_API__.openAiSetup("recommended");
+      (window as unknown as { __TEST_API__: { openAiSetup: (step?: "recommended" | "api") => void } }).__TEST_API__.openAiSetup("recommended");
     });
 
     const onboarding = page.getByTestId("ai-onboarding");

@@ -203,7 +203,9 @@ async fn invoke(
         }
         "refine_groups" => {
             let (a, b, c) = llm_args(&mut args)?;
-            return ok(commands::refine_groups(a, b, c, State(&state.app)).await?).map(Json);
+            let incremental = opt(&mut args, "incremental")?;
+            return ok(commands::refine_groups(a, b, c, incremental, State(&state.app)).await?)
+                .map(Json);
         }
         "describe_groups" => {
             let (a, _, _) = llm_args(&mut args)?;
@@ -318,7 +320,8 @@ fn dispatch_sync(cmd: &str, args: &mut Args, app: &AppState) -> Result<Value, In
         }
         "start_refine_groups" => {
             let (a, b, c) = llm_args(args)?;
-            ok(commands::start_refine_groups(a, b, c, state)?)
+            let incremental = opt(args, "incremental")?;
+            ok(commands::start_refine_groups(a, b, c, incremental, state)?)
         }
         "start_annotate_group" => {
             let group_id = req(args, "groupId")?;
@@ -410,7 +413,7 @@ fn dispatch_sync(cmd: &str, args: &mut Args, app: &AppState) -> Result<Value, In
         )?),
         "unwatch_manifest" => ok(commands::unwatch_manifest(state)?),
         "unwatch_git_head" => ok(commands::unwatch_git_head(state)?),
-        "watch_manifest" | "watch_git_head" => Err(unsupported(
+        "watch_manifest" | "watch_git_head" | "watch_pr_head" => Err(unsupported(
             "file watching is desktop-only; refresh manually in web mode",
         )),
         "open_in_editor" | "check_editors_available" => {

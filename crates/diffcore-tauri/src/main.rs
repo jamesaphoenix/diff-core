@@ -100,6 +100,7 @@ fn main() {
             commands::watch_manifest,
             commands::unwatch_manifest,
             commands::watch_git_head,
+            commands::watch_pr_head,
             commands::unwatch_git_head,
         ])
         .run(tauri::generate_context!())

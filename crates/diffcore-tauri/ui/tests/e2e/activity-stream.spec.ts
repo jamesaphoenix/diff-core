@@ -9,14 +9,14 @@ async function waitForDemoApp(page: Page) {
 
 async function setLlmSettings(page: Page, settings: Record<string, unknown>) {
   await page.evaluate((value) => {
-    (window as { __TEST_API__: { setLlmSettings: (next: Record<string, unknown>) => void } }).__TEST_API__.setLlmSettings(value);
+    (window as unknown as { __TEST_API__: { setLlmSettings: (next: Record<string, unknown>) => void } }).__TEST_API__.setLlmSettings(value);
   }, settings);
 }
 
 async function setActivityEntries(page: Page, entries: Array<Record<string, unknown>>) {
   await page.evaluate((value) => {
     (
-      window as {
+      window as unknown as {
         __TEST_API__: { setActivityEntries: (next: Array<Record<string, unknown>>) => void };
       }
     ).__TEST_API__.setActivityEntries(value);
@@ -64,7 +64,7 @@ test.describe("AI activity stream", () => {
       claude_authenticated: true,
     });
 
-    await page.getByRole("button", { name: "Refine" }).click();
+    await page.getByTestId("refine-btn").click();
 
     const panel = page.getByTestId("activity-panel");
     const log = page.getByTestId("activity-log");
