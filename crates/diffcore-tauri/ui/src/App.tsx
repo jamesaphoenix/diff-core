@@ -92,6 +92,55 @@ function isPrUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
 }
 
+const SESSION_KEY = "diffcore.session";
+const JOBS_KEY = "diffcore.jobs";
+type StoredSession = {
+  repoPath: string;
+  baseRef: string;
+  headRef: string | null;
+  defaultRepo: string | null;
+  analyzedRepo: string | null;
+  refsPinned: boolean;
+};
+type StoredJob = AsyncLlmJobStart & { repoPath: string; baseRef: string; headRef: string | null };
+
+// Desktop never reloads and its SSE URLs carry a per-launch port, so it opts out.
+function loadStored<T>(key: string): T | null {
+  if (IS_TAURI) return null;
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveStored(key: string, value: unknown): void {
+  if (IS_TAURI) return;
+  try {
+    sessionStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Non-fatal: the session just won't survive a reload
+  }
+}
+
+function loadJobs(): StoredJob[] {
+  return loadStored<StoredJob[]>(JOBS_KEY) ?? [];
+}
+
+function forgetJob(jobId: string): void {
+  saveStored(JOBS_KEY, loadJobs().filter((job) => job.job_id !== jobId));
+}
+
+async function jobStreamAlive(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    void res.body?.cancel();
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 function TruncatedText({
   text,
@@ -239,15 +288,22 @@ export default function App() {
   const [activityError, setActivityError] = useState<string | null>(null);
   const [activityViewMode, setActivityViewMode] = useState<ActivityViewMode>("stream");
   const [inspectedActivityId, setInspectedActivityId] = useState<string | null>(null);
-  const activitySourceRef = useRef<EventSource | null>(null);
+  const activitySources = useRef(new Set<EventSource>());
   const activityLogRef = useRef<HTMLDivElement | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("annotations");
   const [sourceFocusRequest, setSourceFocusRequest] = useState<SourceFocusRequest | null>(null);
 
   // Repo and git state
-  const [repoPath, setRepoPath] = useState(HAS_BACKEND ? (DEFAULT_REPO ?? "") : "/demo/repo");
-  const [baseRef, setBaseRef] = useState("main");
-  const [headRef, setHeadRef] = useState<string | null>(null);
+  const [session] = useState(() => loadStored<StoredSession>(SESSION_KEY));
+  const restored =
+    typeof session?.repoPath === "string"
+    && !!session.repoPath
+    && !isPrUrl(session.repoPath)
+    && session.defaultRepo === DEFAULT_REPO;
+  const initialRepo = HAS_BACKEND ? (DEFAULT_REPO ?? "") : "/demo/repo";
+  const [repoPath, setRepoPath] = useState(restored ? session.repoPath : initialRepo);
+  const [baseRef, setBaseRef] = useState(restored ? session.baseRef : "main");
+  const [headRef, setHeadRef] = useState<string | null>(restored ? session.headRef : null);
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   // Set after a PR/MR URL resolves; see the effect below runAnalysis.
   const [pendingAnalysis, setPendingAnalysis] = useState(false);
@@ -259,6 +315,20 @@ export default function App() {
    *  detached, so letting loadRepoInfo auto-detect would replace the PR's fork
    *  point and tip with the checkout's default branch and a bare HEAD. */
   const prRefs = useRef(false);
+  // Refs the user picked win over auto-detect for the restored repo only;
+  // auto-detected refs are re-detected so a reload still sees a new checkout.
+  const refsPinned = useRef(false);
+  const restoredRepo = useRef(restored && session.refsPinned ? session.repoPath : null);
+  useEffect(() => {
+    saveStored(SESSION_KEY, {
+      repoPath,
+      baseRef,
+      headRef,
+      defaultRepo: DEFAULT_REPO,
+      analyzedRepo: analysis ? lastBackendArgs.current.analyze?.repoPath ?? null : null,
+      refsPinned: refsPinned.current,
+    });
+  }, [repoPath, baseRef, headRef, analysis]);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [headBranchDropdownOpen, setHeadBranchDropdownOpen] = useState(false);
 
@@ -511,7 +581,10 @@ export default function App() {
         info = MOCK_REPO_INFO;
       }
       setRepoInfo(info);
-      if (!prRefs.current) {
+      const keepRefs = prRefs.current || restoredRepo.current === path;
+      if (restoredRepo.current !== path) restoredRepo.current = null;
+      if (!keepRefs) {
+        refsPinned.current = false;
         // Auto-set base ref to the detected default branch
         setBaseRef(info.default_branch);
         // Auto-set head ref to the current branch (what we're comparing FROM)
@@ -568,10 +641,8 @@ export default function App() {
   }, [llmSettings]);
 
   const closeActivityStream = useCallback(() => {
-    if (activitySourceRef.current) {
-      activitySourceRef.current.close();
-      activitySourceRef.current = null;
-    }
+    for (const source of activitySources.current) source.close();
+    activitySources.current.clear();
   }, []);
 
   useEffect(() => () => closeActivityStream(), [closeActivityStream]);
@@ -609,21 +680,12 @@ export default function App() {
     [appendActivityEntry, closeActivityStream],
   );
 
-  const runStreamingJob = useCallback(
-    async <T,>(
-      command: string,
-      args: Record<string, unknown>,
-      onComplete: (value: T) => void,
-      onJobId?: (jobId: string) => void,
-    ) => {
-      closeActivityStream();
+  const attachJobStream = useCallback(
+    async <T,>(start: AsyncLlmJobStart, onComplete: (value: T) => void) => {
       setActivityViewMode("stream");
       setInspectedActivityId(null);
       setActivityEntries([]);
       setActivityError(null);
-
-      const start = await tauriInvoke<AsyncLlmJobStart>(command, args);
-      onJobId?.(start.job_id);
       setActivityJob({
         job_id: start.job_id,
         operation: start.operation,
@@ -634,7 +696,11 @@ export default function App() {
 
       await new Promise<void>((resolve, reject) => {
         const source = new EventSource(start.stream_url);
-        activitySourceRef.current = source;
+        activitySources.current.add(source);
+        const close = () => {
+          source.close();
+          activitySources.current.delete(source);
+        };
 
         source.addEventListener("job_started", (event) => {
           try {
@@ -661,7 +727,8 @@ export default function App() {
         });
 
         source.addEventListener("completed", (event) => {
-          closeActivityStream();
+          forgetJob(start.job_id);
+          close();
           try {
             const payload = JSON.parse((event as MessageEvent).data) as { result: T };
             onComplete(payload.result);
@@ -675,7 +742,8 @@ export default function App() {
         });
 
         source.addEventListener("failed", (event) => {
-          closeActivityStream();
+          forgetJob(start.job_id);
+          close();
           try {
             const payload = JSON.parse((event as MessageEvent).data) as { error: string };
             setActivityError(payload.error);
@@ -696,14 +764,30 @@ export default function App() {
         });
 
         source.onerror = () => {
-          closeActivityStream();
+          close();
           setActivityError("Activity stream disconnected");
           setActivityJob(null);
           reject(new Error("Activity stream disconnected"));
         };
       });
     },
-    [appendActivityEntry, closeActivityStream],
+    [appendActivityEntry],
+  );
+
+  const runStreamingJob = useCallback(
+    async <T,>(
+      command: string,
+      args: Record<string, unknown>,
+      onComplete: (value: T) => void,
+      onJobId?: (jobId: string) => void,
+    ) => {
+      closeActivityStream();
+      const start = await tauriInvoke<AsyncLlmJobStart>(command, args);
+      onJobId?.(start.job_id);
+      saveStored(JOBS_KEY, [...loadJobs(), { ...start, repoPath: repoPath.trim(), baseRef, headRef }]);
+      await attachJobStream(start, onComplete);
+    },
+    [attachJobStream, closeActivityStream, repoPath, baseRef, headRef],
   );
 
   const handleSelectFile = useCallback(
@@ -969,6 +1053,7 @@ export default function App() {
     setRefinementModel(null);
     setRefinementHadChanges(null);
     setShowRefined(false);
+    refinementApplied.current = false;
     // Reset review tick-off state
     setReviewedGroupIds(new Set());
     setDismissedEmptyGroupIds(new Set());
@@ -1028,7 +1113,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [repoPath, baseRef, headRef, handleSelectGroup, closeActivityStream, describeGroups]);
+  }, [repoPath, baseRef, headRef, includeUncommitted, handleSelectGroup, closeActivityStream, describeGroups]);
 
   /** Analyze whatever is in the repository field — a local path, or a PR/MR URL
    *  that we first clone and resolve to a base/head pair. */
@@ -1054,6 +1139,7 @@ export default function App() {
       return;
     }
     prRefs.current = true;
+    refsPinned.current = true;
     setRepoPath(resolved.path);
     setBaseRef(resolved.base);
     setHeadRef(resolved.head);
@@ -1188,12 +1274,16 @@ export default function App() {
     }
   }, [selectedGroup, repoPath, baseRef, resolvedPrimaryModel, resolvedPrimaryProvider, runMockActivityJob, runStreamingJob]);
 
+  const refinementApplied = useRef(false);
+  const analysisRef = useRef<AnalysisOutput | null>(null);
+  analysisRef.current = analysis;
   const applyRefinementResult = useCallback((result: RefinementResult, opts?: { fromCache?: boolean }) => {
-    if (!analysis) return;
+    const current = analysisRef.current;
+    if (!current) return;
+    if (opts?.fromCache && refinementApplied.current) return;
+    refinementApplied.current = true;
 
-    if (!originalGroups) {
-      setOriginalGroups(analysis.groups);
-    }
+    setOriginalGroups((prev) => prev ?? current.groups);
 
     setRefinedGroups(result.refined_groups);
     setRefinementResponse(result.refinement_response);
@@ -1238,7 +1328,7 @@ export default function App() {
     if (HAS_BACKEND && !opts?.fromCache) {
       tauriInvoke("store_refinement_cache", { result, repoPath: repoPath || null }).catch(() => {});
     }
-  }, [analysis, originalGroups, handleSelectGroup, showToast, describeGroups, repoPath]);
+  }, [handleSelectGroup, showToast, describeGroups, repoPath]);
 
   /** Run LLM refinement pass on the current analysis groups. */
   const runRefinement = useCallback(async () => {
@@ -1297,6 +1387,56 @@ export default function App() {
       setError(`Cancel failed: ${String(e)}`);
     }
   }, []);
+
+  const reattachJobs = useCallback(async () => {
+    const jobs = loadJobs().slice(-1);
+    saveStored(JOBS_KEY, jobs);
+    const alive = await Promise.all(jobs.map((job) => jobStreamAlive(job.stream_url)));
+    jobs.forEach((job, i) => {
+      const stale = job.repoPath !== repoPath.trim() || job.baseRef !== baseRef || job.headRef !== headRef;
+      if (!alive[i] || stale) {
+        forgetJob(job.job_id);
+        return;
+      }
+      const isRefinement = job.operation === "refinement";
+      if (isRefinement) {
+        refinementJobIdRef.current = job.job_id;
+        setRefining(true);
+      } else {
+        deepAnalyzingCount.current += 1;
+        setDeepAnalyzing(true);
+      }
+      attachJobStream(job, (result) => {
+        if (isRefinement) {
+          applyRefinementResult(result as RefinementResult);
+        } else {
+          const analysisResult = result as Pass2Response;
+          setDeepAnalyses((prev) => ({ ...prev, [analysisResult.group_id]: analysisResult }));
+        }
+      })
+        .catch((e) => {
+          const message = String(e);
+          if (message.includes("Cancelled by user")) return;
+          setError(`${isRefinement ? "Refinement" : "Deep analysis"} failed: ${message}`);
+        })
+        .finally(() => {
+          if (isRefinement) {
+            refinementJobIdRef.current = null;
+            setRefining(false);
+          } else {
+            deepAnalyzingCount.current = Math.max(0, deepAnalyzingCount.current - 1);
+            if (deepAnalyzingCount.current === 0) setDeepAnalyzing(false);
+          }
+        });
+    });
+  }, [attachJobStream, applyRefinementResult, repoPath, baseRef, headRef]);
+
+  const restorePending = useRef(HAS_BACKEND && restored && session.analyzedRepo === session.repoPath.trim());
+  useEffect(() => {
+    if (!restorePending.current || !llmSettings) return;
+    restorePending.current = false;
+    runAnalysis().then(reattachJobs);
+  }, [llmSettings, runAnalysis, reattachJobs]);
 
   /** Toggle between original and refined groups. */
   const toggleRefinedView = useCallback(
@@ -1384,7 +1524,7 @@ export default function App() {
         setActivityEntries(entries);
       },
       setError: (msg: string | null) => setError(msg),
-      clearAnalysis: () => { setAnalysis(null); setSelectedGroup(null); setSelectedFile(null); setFileDiff(null); setOverview(null); setDeepAnalyses({}); setOriginalGroups(null); setRefinedGroups(null); setRefinementResponse(null); setRefinementProvider(null); setRefinementModel(null); setRefinementHadChanges(null); setShowRefined(false); setReviewedGroupIds(new Set()); setComments([]); setCommentInput(null); setCommentText(""); setRightPanelTab("annotations"); setSourceFocusRequest(null); setActivityJob(null); setActivityEntries([]); setActivityError(null); setActivityViewMode("stream"); setInspectedActivityId(null); },
+      clearAnalysis: () => { setAnalysis(null); setSelectedGroup(null); setSelectedFile(null); setFileDiff(null); setOverview(null); setDeepAnalyses({}); setOriginalGroups(null); setRefinedGroups(null); setRefinementResponse(null); setRefinementProvider(null); setRefinementModel(null); setRefinementHadChanges(null); setShowRefined(false); refinementApplied.current = false; setReviewedGroupIds(new Set()); setComments([]); setCommentInput(null); setCommentText(""); setRightPanelTab("annotations"); setSourceFocusRequest(null); setActivityJob(null); setActivityEntries([]); setActivityError(null); setActivityViewMode("stream"); setInspectedActivityId(null); },
       openAiSetup: (step: OnboardingStep = "recommended") => openAiSetup(step),
       dismissAiSetup: () => dismissAiSetup(),
       getAiSetupState: () => ({ open: aiSetupOpen, step: aiSetupStep }),
@@ -2527,11 +2667,13 @@ export default function App() {
   }, [handleSelectFile, handleSelectFileDebounced, handleSelectGroup, enterReplay, exitReplay, goToReplayStep, toggleGroupReviewed, copyFilePath, copyFlowPaths, openCommentInput, exportComments, closeTab]);
 
   const handleSelectBase = useCallback((branch: string) => {
+    refsPinned.current = true;
     setBaseRef(branch);
     setBranchDropdownOpen(false);
   }, []);
 
   const handleSelectHead = useCallback((branch: string) => {
+    refsPinned.current = true;
     setHeadBranchDropdownOpen(false);
     // If the picked branch is checked out in a different worktree, switch
     // the nav bar to that worktree's path. Otherwise the fallback diff
