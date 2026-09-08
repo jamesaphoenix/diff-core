@@ -24,11 +24,15 @@ use super::{LlmError, LlmProvider};
 /// Per-file cap on the changed-code excerpt sent to the model.
 const MAX_FILE_EXCERPT_TOKENS: usize = 600;
 
+/// Cap on metadata batches in flight. A large diff produces dozens of batches and
+/// providers rate-limit per account, so the fan-out has to be bounded.
+const MAX_CONCURRENT_BATCHES: usize = 3;
+
 /// Run the metadata pass over `groups`, mutating them in place.
 ///
-/// Batches are dispatched concurrently and their results merged by group id, so
-/// completion order cannot reach the output. Groups are left sorted by
-/// `review_order`.
+/// Batches are dispatched concurrently — at most `MAX_CONCURRENT_BATCHES` at a
+/// time — and their results merged by group id, so completion order cannot reach
+/// the output. Groups are left sorted by `review_order`.
 ///
 /// A batch that fails is logged and skipped; the groups it covered keep whatever
 /// the deterministic floor gave them.
@@ -43,11 +47,16 @@ pub async fn run_metadata_pass(
         return Ok(());
     }
 
+    let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_BATCHES));
     let handles: Vec<_> = requests
         .into_iter()
         .map(|request| {
             let provider = Arc::clone(&provider);
-            tokio::spawn(async move { provider.describe_groups(&request).await })
+            let permits = Arc::clone(&permits);
+            tokio::spawn(async move {
+                let _permit = permits.acquire_owned().await;
+                provider.describe_groups(&request).await
+            })
         })
         .collect();
 
@@ -354,6 +363,8 @@ pub fn metadata_user_prompt(request: &MetadataRequest) -> String {
     clippy::print_stderr
 )]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
     use crate::git::{DiffHunk, FileStatus};
     use crate::types::{
@@ -594,10 +605,14 @@ mod tests {
     }
 
     /// A provider that answers every batch, after a delay that inverts completion
-    /// order relative to dispatch order.
+    /// order relative to dispatch order, recording the peak number of calls it was
+    /// ever handling at once.
+    #[derive(Default)]
     struct BatchingProvider {
         batches_seen: Arc<std::sync::Mutex<Vec<usize>>>,
         delay_ms: u64,
+        in_flight: AtomicUsize,
+        max_in_flight: AtomicUsize,
     }
 
     #[async_trait::async_trait]
@@ -644,10 +659,13 @@ mod tests {
                 .trim_start_matches('g')
                 .parse()
                 .unwrap();
+            let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_in_flight.fetch_max(now, Ordering::SeqCst);
             tokio::time::sleep(std::time::Duration::from_millis(
                 self.delay_ms * (10 - first as u64),
             ))
             .await;
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
             if let Ok(mut seen) = self.batches_seen.lock() {
                 seen.push(first);
             }
@@ -674,6 +692,7 @@ mod tests {
         let provider = Arc::new(BatchingProvider {
             batches_seen: Arc::new(std::sync::Mutex::new(Vec::new())),
             delay_ms: 5,
+            ..Default::default()
         });
 
         run_metadata_pass(provider.clone(), &mut groups, &[], 3)
@@ -696,6 +715,32 @@ mod tests {
 
         let seen = provider.batches_seen.lock().unwrap().clone();
         assert_eq!(seen, vec![6, 3, 0], "batches completed out of dispatch order");
+    }
+
+    #[tokio::test]
+    async fn batch_fan_out_stays_within_the_concurrency_cap() {
+        let mut groups: Vec<FlowGroup> = (0..9)
+            .map(|i| make_group(&format!("g{}", i), i, &["src/a.ts"]))
+            .collect();
+        let provider = Arc::new(BatchingProvider {
+            batches_seen: Arc::new(std::sync::Mutex::new(Vec::new())),
+            delay_ms: 2,
+            ..Default::default()
+        });
+
+        run_metadata_pass(provider.clone(), &mut groups, &[], 1)
+            .await
+            .unwrap();
+
+        let peak = provider.max_in_flight.load(Ordering::SeqCst);
+        assert!(
+            peak <= MAX_CONCURRENT_BATCHES,
+            "{} batches in flight at once, cap is {}",
+            peak,
+            MAX_CONCURRENT_BATCHES
+        );
+        assert!(peak > 1, "batches must still overlap");
+        assert!(groups.iter().all(|g| g.description.is_some()));
     }
 
     struct FailingProvider;

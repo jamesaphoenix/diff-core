@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
 
 use async_trait::async_trait;
@@ -15,9 +15,9 @@ use super::{
 };
 
 const AGENT_ADDENDUM: &str =
-    "You are running inside the target repository root. Use your built-in \
-read/search tools or safe inspection commands when needed to inspect files, plans, and git state. \
-Do not modify files. Return only the final JSON object that matches the provided schema.";
+    "The prompt already contains every diff and file excerpt you need. Do not read files, run \
+commands, or otherwise inspect the repository. Do not modify files. Return only the final JSON \
+object that matches the provided schema.";
 
 #[derive(Debug, Clone)]
 pub struct ClaudeCliProvider {
@@ -65,97 +65,150 @@ impl ClaudeCliProvider {
         let schema_text = serde_json::to_string(&schema::flatten_json_schema(json_schema))
             .map_err(|e| LlmError::ParseResponse(format!("Failed to serialize schema: {}", e)))?;
 
-        let mut command = Command::new(&claude_path);
-        command
-            .current_dir(self.workdir())
-            .arg("--print")
-            .arg("--output-format")
-            .arg("stream-json")
-            .arg("--verbose")
-            .arg("--json-schema")
-            .arg(schema_text)
-            .arg("--system-prompt")
-            .arg(format!("{}\n\n{}", system_prompt, AGENT_ADDENDUM))
-            .arg(user_prompt);
+        let workdir = self.workdir();
+        let args = build_args(&schema_text, &system_prompt, self.selected_model());
+        let stdout = run_claude(&claude_path, &workdir, &args, &user_prompt).await?;
 
-        if let Some(model) = self.selected_model() {
-            command.arg("--model").arg(model);
-        }
-
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
-        super::emit_activity(super::ActivityUpdate::info(
-            "claude",
-            "Launching Claude Code",
-            Some("claude.launch".to_string()),
-        ));
-
-        let mut child = command
-            .spawn()
-            .map_err(|e| LlmError::CommandFailed(format!("Failed to launch claude: {}", e)))?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            LlmError::CommandFailed("Failed to capture claude stdout".to_string())
-        })?;
-        let stderr = child.stderr.take().ok_or_else(|| {
-            LlmError::CommandFailed("Failed to capture claude stderr".to_string())
-        })?;
-        let activity_callback = super::current_activity_callback();
-
-        let stdout_activity_callback = activity_callback.clone();
-        let stdout_task = tokio::spawn(async move {
-            collect_claude_stream(stdout, "stdout", true, stdout_activity_callback).await
-        });
-        let stderr_task = tokio::spawn(async move {
-            collect_claude_stream(stderr, "stderr", false, activity_callback).await
-        });
-
-        let timeout_sleep = sleep(Duration::from_secs(cli_timeout_secs()));
-        tokio::pin!(timeout_sleep);
-
-        let status = tokio::select! {
-            result = child.wait() => result.map_err(|e| LlmError::CommandFailed(format!("Failed to wait for claude: {}", e)))?,
-            _ = &mut timeout_sleep => {
-                let _ = child.kill().await;
-                return Err(LlmError::Timeout(cli_timeout_secs()));
-            }
-        };
-
-        let stdout = stdout_task
-            .await
-            .map_err(|e| {
-                LlmError::CommandFailed(format!("Failed to join claude stdout task: {}", e))
-            })?
-            .map_err(|e| LlmError::CommandFailed(format!("Failed to read claude stdout: {}", e)))?;
-        let stderr = stderr_task
-            .await
-            .map_err(|e| {
-                LlmError::CommandFailed(format!("Failed to join claude stderr task: {}", e))
-            })?
-            .map_err(|e| LlmError::CommandFailed(format!("Failed to read claude stderr: {}", e)))?;
-
-        if !status.success() {
-            let combined = format!("{}\n{}", stderr, stdout);
-            let message = redact_api_keys(&truncate_to_token_budget(&combined, 400));
-            return Err(LlmError::CommandFailed(format!(
-                "claude --print exited with {}: {}",
-                status, message
-            )));
-        }
-
-        let structured = parse_claude_structured_output(&stdout).ok_or_else(|| {
-            LlmError::ParseResponse(format!(
-                "Claude response did not include structured_output: {}",
-                redact_api_keys(&truncate_to_token_budget(&stdout, 400))
-            ))
-        })?;
-
-        serde_json::from_value(structured).map_err(|e| {
-            LlmError::ParseResponse(format!(
-                "Failed to parse Claude structured output: {} — response: {}",
-                e,
-                redact_api_keys(&truncate_to_token_budget(&stdout, 400))
-            ))
-        })
+        parse_structured_response(&stdout)
     }
+}
+
+fn build_args(schema_text: &str, system_prompt: &str, model: Option<&str>) -> Vec<String> {
+    let mut args = vec![
+        "--print".to_string(),
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--verbose".to_string(),
+        "--json-schema".to_string(),
+        schema_text.to_string(),
+        "--system-prompt".to_string(),
+        format!("{}\n\n{}", system_prompt, AGENT_ADDENDUM),
+        // The user's MCP servers, plugins and slash commands are loaded into every
+        // spawn's prefix and none of them are reachable from a --print run.
+        "--strict-mcp-config".to_string(),
+        "--mcp-config".to_string(),
+        r#"{"mcpServers":{}}"#.to_string(),
+        "--disable-slash-commands".to_string(),
+    ];
+
+    if let Some(model) = model {
+        args.push("--model".to_string());
+        args.push(model.to_string());
+    }
+
+    args
+}
+
+fn parse_structured_response<T: DeserializeOwned>(stdout: &str) -> Result<T, LlmError> {
+    let structured = parse_claude_structured_output(stdout).ok_or_else(|| {
+        LlmError::ParseResponse(format!(
+            "Claude response did not include structured_output: {}",
+            redact_api_keys(&truncate_to_token_budget(stdout, 400))
+        ))
+    })?;
+
+    serde_json::from_value(structured).map_err(|e| {
+        LlmError::ParseResponse(format!(
+            "Failed to parse Claude structured output: {} — response: {}",
+            e,
+            redact_api_keys(&truncate_to_token_budget(stdout, 400))
+        ))
+    })
+}
+
+async fn run_claude(
+    claude_path: &Path,
+    workdir: &Path,
+    args: &[String],
+    prompt: &str,
+) -> Result<String, LlmError> {
+    let mut command = Command::new(claude_path);
+    command.current_dir(workdir).args(args);
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    log::debug!(
+        target: "claude_cli",
+        "spawn {} with {} args (cwd {}, {} byte prompt on stdin)",
+        claude_path.display(),
+        args.len(),
+        workdir.display(),
+        prompt.len()
+    );
+    super::emit_activity(super::ActivityUpdate::info(
+        "claude",
+        format!("Launching Claude Code ({} KiB prompt)", prompt.len() / 1024),
+        Some("claude.launch".to_string()),
+    ));
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| LlmError::CommandFailed(format!("Failed to launch claude: {}", e)))?;
+
+    // The prompt goes on stdin, never argv: Linux caps a single argument at
+    // MAX_ARG_STRLEN (128 KiB) and a group's diff routinely exceeds that.
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| LlmError::CommandFailed("Failed to capture claude stdin".to_string()))?;
+    let prompt = prompt.to_string();
+    let stdin_task = tokio::spawn(async move {
+        use tokio::io::AsyncWriteExt;
+        let _ = stdin.write_all(prompt.as_bytes()).await;
+        let _ = stdin.shutdown().await;
+    });
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| LlmError::CommandFailed("Failed to capture claude stdout".to_string()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| LlmError::CommandFailed("Failed to capture claude stderr".to_string()))?;
+    let activity_callback = super::current_activity_callback();
+
+    let stdout_activity_callback = activity_callback.clone();
+    let stdout_task = tokio::spawn(async move {
+        collect_claude_stream(stdout, "stdout", true, stdout_activity_callback).await
+    });
+    let stderr_task = tokio::spawn(async move {
+        collect_claude_stream(stderr, "stderr", false, activity_callback).await
+    });
+
+    let timeout_sleep = sleep(Duration::from_secs(cli_timeout_secs()));
+    tokio::pin!(timeout_sleep);
+
+    let status = tokio::select! {
+        result = child.wait() => result.map_err(|e| LlmError::CommandFailed(format!("Failed to wait for claude: {}", e)))?,
+        _ = &mut timeout_sleep => {
+            let _ = child.kill().await;
+            return Err(LlmError::Timeout(cli_timeout_secs()));
+        }
+    };
+
+    let _ = stdin_task.await;
+    let stdout = stdout_task
+        .await
+        .map_err(|e| LlmError::CommandFailed(format!("Failed to join claude stdout task: {}", e)))?
+        .map_err(|e| LlmError::CommandFailed(format!("Failed to read claude stdout: {}", e)))?;
+    let stderr = stderr_task
+        .await
+        .map_err(|e| LlmError::CommandFailed(format!("Failed to join claude stderr task: {}", e)))?
+        .map_err(|e| LlmError::CommandFailed(format!("Failed to read claude stderr: {}", e)))?;
+
+    if !status.success() {
+        let combined = format!("{}\n{}", stderr, stdout);
+        let message = redact_api_keys(&truncate_to_token_budget(&combined, 400));
+        return Err(LlmError::CommandFailed(format!(
+            "claude --print exited with {}: {}",
+            status, message
+        )));
+    }
+
+    Ok(stdout)
 }
 
 pub fn cli_timeout_secs() -> u64 {
@@ -509,16 +562,11 @@ fn extract_claude_structured_output(parsed: &serde_json::Value) -> Option<serde_
     content.iter().find_map(|item| {
         let is_structured_tool = item.get("type").and_then(serde_json::Value::as_str)
             == Some("tool_use")
-            && item.get("name").and_then(serde_json::Value::as_str)
-                == Some("structured_output");
+            && item.get("name").and_then(serde_json::Value::as_str) == Some("structured_output");
 
         if is_structured_tool {
             item.get("input").cloned()
-        } else if item
-            .get("type")
-            .and_then(serde_json::Value::as_str)
-            == Some("text")
-        {
+        } else if item.get("type").and_then(serde_json::Value::as_str) == Some("text") {
             item.get("text")
                 .and_then(serde_json::Value::as_str)
                 .and_then(extract_json_from_text)
@@ -565,9 +613,11 @@ mod tests {
 
     use std::sync::{Arc, Mutex};
 
+    use std::path::Path;
+
     use super::{
-        collect_claude_stream, parse_claude_structured_output, summarize_claude_assistant,
-        summarize_claude_tool_input,
+        build_args, collect_claude_stream, parse_claude_structured_output, run_claude,
+        summarize_claude_assistant, summarize_claude_tool_input,
     };
     use crate::llm::activity_logging_tests::capture_logs;
     use crate::llm::{ActivityCallback, ActivityUpdate};
@@ -653,7 +703,9 @@ mod tests {
         let structured = parse_claude_structured_output(output).expect("structured output");
 
         assert_eq!(
-            structured.get("reasoning").and_then(serde_json::Value::as_str),
+            structured
+                .get("reasoning")
+                .and_then(serde_json::Value::as_str),
             Some("keep current grouping")
         );
     }
@@ -667,8 +719,25 @@ mod tests {
         let structured = parse_claude_structured_output(output).expect("structured output");
 
         assert_eq!(
-            structured.get("reasoning").and_then(serde_json::Value::as_str),
+            structured
+                .get("reasoning")
+                .and_then(serde_json::Value::as_str),
             Some("text fallback")
         );
+    }
+
+    /// Regression: the prompt used to be an argv entry, so any group whose diff
+    /// exceeded the kernel's 128 KiB per-argument cap (MAX_ARG_STRLEN) failed
+    /// the spawn outright with `Argument list too long`.
+    #[tokio::test]
+    async fn a_prompt_over_the_kernel_arg_limit_reaches_the_child() {
+        let cat = crate::llm::resolve_cli_executable("cat").expect("cat must be on PATH");
+        let prompt = "x".repeat(200_000);
+
+        let echoed = run_claude(&cat, Path::new("."), &[], &prompt)
+            .await
+            .expect("a 200 KiB prompt must reach the child on stdin");
+
+        assert_eq!(echoed.trim_end().len(), prompt.len());
     }
 }
