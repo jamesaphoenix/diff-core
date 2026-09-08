@@ -114,20 +114,14 @@ pub fn clear_cache(workdir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-// ── Global refinement cache (~/.diffcore/cache/refinements/) ──
+// ── Global refinement cache ($XDG_CACHE_HOME/diffcore/refinements/) ──
 
 /// Resolve the global refinement cache directory.
+/// Respects `DIFFCORE_REFINEMENT_CACHE_DIR` for testing.
 fn refinement_cache_dir() -> Option<PathBuf> {
     std::env::var_os("DIFFCORE_REFINEMENT_CACHE_DIR")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| {
-                PathBuf::from(home)
-                    .join(".diffcore")
-                    .join("cache")
-                    .join("refinements")
-            })
-        })
+        .or_else(|| crate::paths::cache_dir().map(|dir| dir.join("refinements")))
 }
 
 /// Load a cached refinement result for the given analysis cache key.

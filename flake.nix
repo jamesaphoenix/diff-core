@@ -47,6 +47,8 @@
         default = pkgs.mkShell {
           inputsFrom = [ (diffCoreFor pkgs) ];
           packages = [
+            pkgs.clippy
+            pkgs.rustfmt
             pkgs.sccache
             pkgs.mold
             pkgs.nodejs

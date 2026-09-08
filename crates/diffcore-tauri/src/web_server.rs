@@ -363,6 +363,8 @@ fn dispatch_sync(cmd: &str, args: &mut Args, app: &AppState) -> Result<Value, In
             req(args, "apiKey")?,
         )?),
         "clear_api_key" => ok(commands::clear_api_key(opt(args, "repoPath")?)?),
+        "get_ui_settings" => ok(commands::get_ui_settings()?),
+        "save_ui_settings" => ok(commands::save_ui_settings(req(args, "settings")?)?),
         "get_ignore_paths" => ok(commands::get_ignore_paths(opt(args, "repoPath")?)?),
         "save_ignore_paths" => ok(commands::save_ignore_paths(
             req(args, "repoPath")?,

@@ -6,7 +6,6 @@
 //! See spec §6.2 for the full config file format.
 
 use std::collections::HashMap;
-use std::env;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -139,6 +138,149 @@ impl Default for DiffConfig {
             include_uncommitted: true,
         }
     }
+}
+
+/// UI preferences, shared across the desktop app and the web build.
+///
+/// Deliberately its own file (`ui.toml`), not a section of `config.toml`.
+/// UI prefs are written on every theme toggle and panel resize; `config.toml`
+/// holds a plaintext API key and is written rarely. Sharing one
+/// read-modify-write file would mean a theme toggle could drop a credential
+/// written concurrently by another instance.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UiConfig {
+    /// Theme mode.
+    #[serde(default)]
+    pub theme_mode: ThemeMode,
+    /// Theme id used when resolving to light.
+    #[serde(default = "default_theme_light")]
+    pub theme_light: String,
+    /// Theme id used when resolving to dark.
+    #[serde(default = "default_theme_dark")]
+    pub theme_dark: String,
+    /// Width of the right-hand panel in pixels.
+    #[serde(default = "default_right_panel_width")]
+    pub right_panel_width: u32,
+    /// Whether the right-hand panel is collapsed.
+    #[serde(default)]
+    pub right_panel_collapsed: bool,
+}
+
+/// How the active theme is chosen. An enum so serde rejects garbage at parse
+/// time instead of leaving the frontend to sanitise a free-form string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeMode {
+    Light,
+    #[default]
+    Dark,
+    System,
+}
+
+fn default_theme_light() -> String {
+    "catppuccin-latte".to_string()
+}
+
+fn default_theme_dark() -> String {
+    "catppuccin-mocha".to_string()
+}
+
+fn default_right_panel_width() -> u32 {
+    320
+}
+
+/// Panel width bounds, mirroring the drag clamp in the UI. A width outside
+/// this range renders an unusable layout, so it is clamped on both read and
+/// write rather than trusted.
+const MIN_PANEL_WIDTH: u32 = 200;
+const MAX_PANEL_WIDTH: u32 = 800;
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            theme_mode: ThemeMode::default(),
+            theme_light: default_theme_light(),
+            theme_dark: default_theme_dark(),
+            right_panel_width: default_right_panel_width(),
+            right_panel_collapsed: false,
+        }
+    }
+}
+
+impl UiConfig {
+    /// Path to `ui.toml` in the XDG config dir.
+    pub fn path() -> Option<PathBuf> {
+        crate::paths::config_dir().map(|dir| dir.join("ui.toml"))
+    }
+
+    /// Load UI preferences, falling back to defaults.
+    ///
+    /// Never returns an error: a corrupt or hand-mangled prefs file must not
+    /// be able to take down the app, so it degrades to defaults.
+    pub fn load() -> Self {
+        let Some(path) = Self::path() else {
+            return Self::default();
+        };
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            return Self::default();
+        };
+        match toml::from_str::<Self>(&contents) {
+            Ok(mut config) => {
+                config.clamp();
+                config
+            }
+            Err(e) => {
+                tracing::warn!("ignoring unparseable {}: {e}", path.display());
+                Self::default()
+            }
+        }
+    }
+
+    /// Write UI preferences to `ui.toml`.
+    pub fn save(&self) -> Result<(), ConfigError> {
+        let Some(path) = Self::path() else {
+            return Err(ConfigError::Validation(
+                "Could not resolve a config directory for UI settings".to_string(),
+            ));
+        };
+        let mut config = self.clone();
+        config.clamp();
+        let toml_str = toml::to_string_pretty(&config).map_err(|e| {
+            ConfigError::Validation(format!("Failed to serialize UI settings: {}", e))
+        })?;
+        write_atomically(&path, &toml_str)
+    }
+
+    fn clamp(&mut self) {
+        self.right_panel_width = self
+            .right_panel_width
+            .clamp(MIN_PANEL_WIDTH, MAX_PANEL_WIDTH);
+    }
+}
+
+/// Write to a sibling temp file then rename, so a reader never observes a
+/// half-written file and a crash mid-write cannot truncate the old one.
+fn write_atomically(path: &Path, contents: &str) -> Result<(), ConfigError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, contents)?;
+    restrict_permissions(&tmp);
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// Owner-only permissions. `config.toml` carries a plaintext API key, and
+/// `fs::write` would otherwise create it 0644.
+fn restrict_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 /// LLM provider configuration.
@@ -276,27 +418,47 @@ pub enum ConfigError {
 }
 
 impl DiffcoreConfig {
-    /// Return the global diffcore config path in the user's home directory.
+    /// Return the global diffcore config path, following XDG base directories.
     ///
-    /// Resolution order:
-    /// 1. `DIFFCORE_CONFIG_HOME`
-    /// 2. `HOME/.diffcore`
+    /// Resolution order: `DIFFCORE_CONFIG_HOME`, `XDG_CONFIG_HOME/diffcore`,
+    /// `HOME/.config/diffcore`. This is always where writes go; see
+    /// [`Self::load_global`] for the pre-XDG read fallback.
     pub fn global_config_path() -> Option<PathBuf> {
-        diffcore_config_home().map(|dir| dir.join("config.toml"))
+        crate::paths::config_dir().map(|dir| dir.join("config.toml"))
+    }
+
+    /// Pre-XDG global config (`~/.diffcore/config.toml`), read-only.
+    fn legacy_global_config_path() -> Option<PathBuf> {
+        crate::paths::legacy_dir().map(|dir| dir.join("config.toml"))
+    }
+
+    /// The global config file actually in use, or `None` when none exists yet.
+    ///
+    /// Resolution order matches [`Self::load_global`]: the XDG path, then the
+    /// pre-XDG `~/.diffcore/config.toml`. Callers displaying "your key lives
+    /// here" must use this, not [`Self::global_config_path`], which always
+    /// names the write target and so lies during the migration window.
+    pub fn global_config_source() -> Option<PathBuf> {
+        Self::global_config_path()
+            .filter(|path| path.exists())
+            .or_else(|| Self::legacy_global_config_path().filter(|path| path.exists()))
+    }
+
+    /// Whether settings are still being read from the pre-XDG location.
+    pub fn using_legacy_global_config() -> bool {
+        Self::global_config_path().is_none_or(|path| !path.exists())
+            && Self::legacy_global_config_path().is_some_and(|path| path.exists())
     }
 
     /// Load configuration from the user's global config file.
     ///
-    /// Returns defaults when the file is missing or the home directory cannot be resolved.
+    /// Reads the XDG path when it exists, otherwise falls back to the pre-XDG
+    /// `~/.diffcore/config.toml` so existing installs keep their settings.
+    /// Returns defaults when neither is present.
     pub fn load_global() -> Result<Self, ConfigError> {
-        if let Some(path) = Self::global_config_path() {
-            if path.exists() {
-                Self::from_file(&path)
-            } else {
-                Ok(Self::default())
-            }
-        } else {
-            Ok(Self::default())
+        match Self::global_config_source() {
+            Some(path) => Self::from_file(&path),
+            None => Ok(Self::default()),
         }
     }
 
@@ -327,7 +489,7 @@ impl DiffcoreConfig {
         }
     }
 
-    /// Load repo-local config and merge in global LLM defaults from `~/.diffcore/config.toml`.
+    /// Load repo-local config and merge in global LLM defaults from the global config.
     ///
     /// Repo-local project settings remain authoritative; only the `[llm]` section falls back
     /// to the global config when values are not set locally.
@@ -338,7 +500,7 @@ impl DiffcoreConfig {
         Ok(local)
     }
 
-    /// Save configuration to the global diffcore config in the user's home directory.
+    /// Save configuration to the global diffcore config (always the XDG path).
     pub fn save_global(&self) -> Result<(), ConfigError> {
         let Some(config_path) = Self::global_config_path() else {
             return Err(ConfigError::Validation(
@@ -346,14 +508,10 @@ impl DiffcoreConfig {
             ));
         };
 
-        if let Some(parent) = config_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
         let toml_str = toml::to_string_pretty(self)
             .map_err(|e| ConfigError::Validation(format!("Failed to serialize config: {}", e)))?;
-        std::fs::write(&config_path, toml_str)?;
-        Ok(())
+        // Atomic + owner-only: this file holds a plaintext API key.
+        write_atomically(&config_path, &toml_str)
     }
 
     /// Validate the configuration for consistency.
@@ -570,12 +728,6 @@ impl DiffcoreConfig {
             self.llm.metadata.batch_size = global.llm.metadata.batch_size;
         }
     }
-}
-
-pub(crate) fn diffcore_config_home() -> Option<PathBuf> {
-    env::var_os("DIFFCORE_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".diffcore")))
 }
 
 #[cfg(test)]
@@ -1534,22 +1686,142 @@ provider = "openai"
         assert!(local.llm.refinement.enabled);
     }
 
+    /// The whole global-config surface in one test.
+    ///
+    /// `DIFFCORE_CONFIG_HOME` and `HOME` are process-global, so every case that
+    /// needs them lives here rather than in parallel tests that would race.
     #[test]
-    fn test_save_global_roundtrip_annotations_enabled() {
-        // Test that annotations_enabled survives save_global / load_global cycle
-        let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("DIFFCORE_GLOBAL_CONFIG_DIR", dir.path().to_str().unwrap());
+    fn test_global_config_roundtrip_legacy_fallback_and_ui() {
+        let xdg = tempfile::tempdir().unwrap();
+        let fake_home = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var_os("HOME");
+        std::env::set_var("DIFFCORE_CONFIG_HOME", xdg.path());
+        std::env::set_var("HOME", fake_home.path());
 
-        let mut config = DiffcoreConfig::default();
+        // 1. Nothing anywhere: defaults.
+        assert_eq!(DiffcoreConfig::global_config_source(), None);
+        assert_eq!(UiConfig::load(), UiConfig::default());
+
+        // 2. Only the pre-XDG `~/.diffcore/config.toml` exists: it is read.
+        let legacy_dir = fake_home.path().join(".diffcore");
+        std::fs::create_dir_all(&legacy_dir).unwrap();
+        std::fs::write(
+            legacy_dir.join("config.toml"),
+            "[llm]\nkey = \"sk-legacy\"\n",
+        )
+        .unwrap();
+        let loaded = DiffcoreConfig::load_global().unwrap();
+        assert_eq!(
+            loaded.llm.key.as_deref(),
+            Some("sk-legacy"),
+            "legacy config should be read when no XDG config exists"
+        );
+        assert!(DiffcoreConfig::using_legacy_global_config());
+        assert_eq!(
+            DiffcoreConfig::global_config_source(),
+            Some(legacy_dir.join("config.toml")),
+            "the migration window must report the file actually in use"
+        );
+
+        // 3. Saving writes to the XDG path and leaves the legacy file alone.
+        let mut config = loaded;
         config.llm.annotations_enabled = false;
         config.llm.refinement.enabled = false;
         config.save_global().unwrap();
 
-        let loaded = DiffcoreConfig::load_global().unwrap();
-        assert!(!loaded.llm.annotations_enabled, "annotations_enabled should survive save/load");
-        assert!(!loaded.llm.refinement.enabled, "refinement.enabled should survive save/load");
+        assert!(xdg.path().join("config.toml").exists());
+        assert!(
+            legacy_dir.join("config.toml").exists(),
+            "legacy config must never be moved or deleted"
+        );
 
-        std::env::remove_var("DIFFCORE_GLOBAL_CONFIG_DIR");
+        // 4. Everything survives the round trip, and XDG now wins over legacy.
+        let loaded = DiffcoreConfig::load_global().unwrap();
+        assert!(!loaded.llm.annotations_enabled);
+        assert!(!loaded.llm.refinement.enabled);
+        assert_eq!(loaded.llm.key.as_deref(), Some("sk-legacy"));
+
+        // 5. UI prefs round-trip through their own file, untouched by the above.
+        let ui = UiConfig {
+            theme_mode: ThemeMode::Light,
+            right_panel_width: 612,
+            right_panel_collapsed: true,
+            ..Default::default()
+        };
+        ui.save().unwrap();
+        assert_eq!(UiConfig::load(), ui);
+        assert!(xdg.path().join("ui.toml").exists());
+
+        // 6. A corrupt prefs file degrades to defaults instead of erroring.
+        std::fs::write(xdg.path().join("ui.toml"), "not = [valid").unwrap();
+        assert_eq!(UiConfig::load(), UiConfig::default());
+
+        // 7. The config file holding the API key is owner-only.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(xdg.path().join("config.toml"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600, "config.toml must not be world-readable");
+        }
+
+        // 8. During the migration window the reported source is the real one.
+        assert_eq!(
+            DiffcoreConfig::global_config_source(),
+            Some(xdg.path().join("config.toml"))
+        );
+        assert!(!DiffcoreConfig::using_legacy_global_config());
+
+        std::env::remove_var("DIFFCORE_CONFIG_HOME");
+        match prev_home {
+            Some(home) => std::env::set_var("HOME", home),
+            None => std::env::remove_var("HOME"),
+        }
+    }
+
+    #[test]
+    fn ui_config_partial_fields_fall_back_to_defaults() {
+        let ui: UiConfig = toml::from_str("theme_mode = \"system\"\n").unwrap();
+        assert_eq!(ui.theme_mode, ThemeMode::System);
+        assert_eq!(ui.right_panel_width, 320);
+        assert_eq!(ui.theme_dark, "catppuccin-mocha");
+    }
+
+    #[test]
+    fn ui_config_rejects_unknown_theme_mode() {
+        assert!(toml::from_str::<UiConfig>("theme_mode = \"neon\"\n").is_err());
+    }
+
+    #[test]
+    fn ui_config_clamps_absurd_panel_width() {
+        let mut wide: UiConfig = toml::from_str("right_panel_width = 4000000\n").unwrap();
+        wide.clamp();
+        assert_eq!(wide.right_panel_width, MAX_PANEL_WIDTH);
+        let mut narrow: UiConfig = toml::from_str("right_panel_width = 1\n").unwrap();
+        narrow.clamp();
+        assert_eq!(narrow.right_panel_width, MIN_PANEL_WIDTH);
+    }
+
+    /// A negative width must not be able to break the whole prefs file.
+    #[test]
+    fn ui_config_survives_invalid_toml() {
+        assert!(toml::from_str::<UiConfig>("right_panel_width = -5\n").is_err());
+    }
+
+    /// `.diffcore.toml` comes from a potentially untrusted cloned repo; it must
+    /// not be able to carry UI preferences at all.
+    #[test]
+    fn project_config_does_not_carry_ui_prefs() {
+        // Unknown sections are ignored by serde, which is what we want: a
+        // cloned repo's `[ui]` is inert rather than an error the user must fix.
+        let config = DiffcoreConfig::from_str("[ui]\ntheme_mode = \"light\"\n").unwrap();
+        let reserialized = toml::to_string_pretty(&config).unwrap();
+        assert!(
+            !reserialized.contains("[ui]"),
+            "UI prefs must not round-trip through project config"
+        );
     }
 
     // ── auto_subtrees Tests ──

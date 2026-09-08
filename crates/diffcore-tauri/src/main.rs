@@ -42,9 +42,10 @@ fn main() {
     // Used only when stderr is not a terminal: GUI bundles discard it (no
     // console on Windows release, Finder/.desktop launches drop it). Launched
     // from a terminal, the desktop app still logs there.
-    // `~/.diffcore` matches the cache convention and is not world-writable.
-    let log_file = std::env::var_os("HOME")
-        .map(|home| std::path::PathBuf::from(home).join(".diffcore").join("desktop.log"))
+    // `$XDG_STATE_HOME/diffcore` is the XDG home for logs and is not
+    // world-writable; the temp dir is a last resort when it cannot be resolved.
+    let log_file = diffcore_core::paths::state_dir()
+        .map(|dir| dir.join("desktop.log"))
         .unwrap_or_else(|| std::env::temp_dir().join("diffcore-desktop.log"));
     diffcore_core::logging::init(Some(log_file));
     if let Err(e) = tauri::Builder::default()
@@ -87,6 +88,8 @@ fn main() {
             commands::delete_comment,
             commands::load_comments,
             commands::export_comments,
+            commands::get_ui_settings,
+            commands::save_ui_settings,
             commands::get_ignore_paths,
             commands::save_ignore_paths,
             commands::get_cached_refinement,

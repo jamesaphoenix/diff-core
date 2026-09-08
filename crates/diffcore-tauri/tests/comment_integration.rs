@@ -3,7 +3,7 @@
 //!
 //! Tests the full lifecycle: save → load → delete → export
 //! using real git repositories and the `.diffcore/comments.json` file.
-//! Also tests branch-based comment caching in `~/.diffcore/cache/comments/`.
+//! Also tests the branch-based comment store in `$XDG_DATA_HOME/diffcore/comments/`.
 //!
 //! Run with:
 //!   cargo test --test comment_integration
@@ -829,4 +829,79 @@ fn refinement_cache_branch_key_deterministic() {
     let key2 = comment_cache_key(&repo_path).unwrap();
     assert_eq!(key1, key2);
     assert_eq!(key1.len(), 64); // SHA-256 hex
+}
+
+// ── Pre-XDG comment migration ───────────────────────────────────────
+//
+// Comments are user-authored review notes, not regenerable cache. Moving the
+// store must not orphan them: `load_cached_comments_file` returns an empty
+// list on any read failure, so an unreachable file looks like deletion.
+
+/// Set HOME + XDG_DATA_HOME (no `DIFFCORE_COMMENT_CACHE_DIR`, which would
+/// short-circuit the fallback being tested). Shares ENV_LOCK with the others.
+fn with_home_and_data_dir<F: FnOnce()>(home: &std::path::Path, data: &std::path::Path, f: F) {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let prev_home = std::env::var_os("HOME");
+    let prev_data = std::env::var_os("XDG_DATA_HOME");
+    std::env::remove_var("DIFFCORE_COMMENT_CACHE_DIR");
+    std::env::set_var("HOME", home.as_os_str());
+    std::env::set_var("XDG_DATA_HOME", data.as_os_str());
+    f();
+    match prev_home {
+        Some(v) => std::env::set_var("HOME", v),
+        None => std::env::remove_var("HOME"),
+    }
+    match prev_data {
+        Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+        None => std::env::remove_var("XDG_DATA_HOME"),
+    }
+}
+
+#[test]
+fn legacy_comments_survive_the_move_to_xdg_data_home() {
+    let home = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let (_repo_tmp, repo_path) = create_test_repo_on_branch("feature-legacy");
+
+    with_home_and_data_dir(home.path(), data.path(), || {
+        let key = comment_cache_key(&repo_path).unwrap();
+
+        // A comment written by a pre-XDG install.
+        let legacy_dir = home.path().join(".diffcore").join("cache").join("comments");
+        std::fs::create_dir_all(&legacy_dir).unwrap();
+        // Serialised from the real struct: a hand-written shape that fails to
+        // deserialise would silently read as "no comments" and pass a weaker test.
+        let legacy_payload = serde_json::json!({
+            "comments": [make_comment("old", "file", "pre-XDG note")],
+        });
+        std::fs::write(
+            legacy_dir.join(format!("{}.json", key)),
+            serde_json::to_string(&legacy_payload).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = load_comments_cached(repo_path.clone()).unwrap();
+        assert_eq!(loaded.len(), 1, "pre-XDG comments must remain reachable");
+        assert_eq!(loaded[0].text, "pre-XDG note");
+
+        // Writing goes to the new location; the old file is left alone.
+        let comment = make_comment("new", "code", "post-XDG note");
+        save_comment_cached(repo_path.clone(), comment).unwrap();
+        assert!(
+            data.path()
+                .join("diffcore")
+                .join("comments")
+                .join(format!("{}.json", key))
+                .exists(),
+            "writes must go to XDG_DATA_HOME"
+        );
+        assert!(
+            legacy_dir.join(format!("{}.json", key)).exists(),
+            "the pre-XDG file must never be moved or deleted"
+        );
+
+        // Once the new file exists it wins.
+        let loaded = load_comments_cached(repo_path.clone()).unwrap();
+        assert!(loaded.iter().any(|c| c.id == "new"));
+    });
 }
