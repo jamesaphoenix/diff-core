@@ -162,13 +162,15 @@ function GroupSummary({ group }: { group: FlowGroup }) {
  * analysis, so the block never reflows as fields come and go between groups.
  * A row the analysis never fills is dropped rather than left as dead space.
  */
-function GroupReviewSummary({ group, groups }: { group: FlowGroup; groups: FlowGroup[] }) {
+function GroupReviewSummary(
+  { group, groups, describing }: { group: FlowGroup; groups: FlowGroup[]; describing: boolean },
+) {
   const focus = group.review_focus ?? [];
   const hasMetadata = Boolean(
     group.group_type || group.risk || group.impact || group.complexity ||
     group.description || group.invariant || focus.length > 0,
   );
-  if (!hasMetadata) return null;
+  if (!hasMetadata && !describing) return null;
 
   const reservesFocus = groups.some((g) => (g.review_focus ?? []).length > 0);
   const reservesDescription = groups.some((g) => g.description);
@@ -202,11 +204,16 @@ function GroupReviewSummary({ group, groups }: { group: FlowGroup; groups: FlowG
           )}
         </div>
       )}
-      {reservesDescription && (
+      {describing && !group.description ? (
+        <p className="review-meta-description review-meta-description-pending">
+          <span className="refine-spinner" />
+          Writing group description...
+        </p>
+      ) : reservesDescription ? (
         <p className="review-meta-description" title={group.description ?? undefined}>
           {group.description}
         </p>
-      )}
+      ) : null}
       {reservesInvariant && (
         <p className="review-meta-invariant" title={group.invariant ?? undefined}>
           {group.invariant && (
@@ -236,6 +243,9 @@ export default function App() {
   const [overview, setOverview] = useState<Pass1Response | null>(null);
   const [deepAnalyses, setDeepAnalyses] = useState<Record<string, Pass2Response>>({});
   const [deepAnalyzing, setDeepAnalyzing] = useState(false);
+  // The metadata pass runs in the background after analyze; without this the
+  // descriptions just appear minutes later with nothing having said they were coming.
+  const [describing, setDescribing] = useState(false);
   // Counter to track concurrent deep analysis requests — prevents premature loading state clear
   const deepAnalyzingCount = useRef(0);
   const [activityJob, setActivityJob] = useState<LlmActivityJob | null>(null);
@@ -976,6 +986,7 @@ export default function App() {
    */
   const describeGroups = useCallback(async () => {
     if (!HAS_BACKEND || !llmSettings?.metadata_enabled) return;
+    setDescribing(true);
     try {
       const described = await tauriInvoke<FlowGroup[]>("describe_groups", {
         repoPath: repoPath || null,
@@ -993,6 +1004,8 @@ export default function App() {
       // failure either: a silent catch here is indistinguishable from the pass
       // working and returning nothing.
       showToast(`Group descriptions unavailable: ${String(e)}`);
+    } finally {
+      setDescribing(false);
     }
   }, [llmSettings, repoPath, showToast]);
 
@@ -2673,7 +2686,7 @@ export default function App() {
             </div>
           ) : (
             <>
-              <GroupReviewSummary group={selectedGroup} groups={sortedGroups} />
+              <GroupReviewSummary group={selectedGroup} groups={sortedGroups} describing={describing} />
               <GroupSummary group={selectedGroup} />
             </>
           )}
