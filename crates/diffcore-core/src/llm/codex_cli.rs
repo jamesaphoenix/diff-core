@@ -16,9 +16,9 @@ use super::{
 };
 
 const AGENT_ADDENDUM: &str =
-    "You are running inside the target repository root. Use your built-in \
-read/search tools or read-only shell commands when needed to inspect files, plans, and git state. \
-Do not modify files. Return only the final JSON object that matches the provided schema.";
+    "The prompt already contains every diff and file excerpt you need. Do not read files, run \
+commands, or otherwise inspect the repository. Do not modify files. Return only the final JSON \
+object that matches the provided schema.";
 
 #[derive(Debug, Clone)]
 pub struct CodexCliProvider {
@@ -90,13 +90,24 @@ impl CodexCliProvider {
             .arg("--json")
             .arg("-o")
             .arg(output_file.path())
-            .arg(prompt);
+            .arg("-");
 
         if let Some(model) = self.selected_model() {
             command.arg("--model").arg(model);
         }
 
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        log::debug!(
+            target: "codex_cli",
+            "spawn {} (cwd {}, {} byte prompt on stdin)",
+            codex_path.display(),
+            self.workdir().display(),
+            prompt.len()
+        );
         super::emit_activity(super::ActivityUpdate::info(
             "codex",
             "Launching Codex CLI",
@@ -106,6 +117,19 @@ impl CodexCliProvider {
         let mut child = command
             .spawn()
             .map_err(|e| LlmError::CommandFailed(format!("Failed to launch codex: {}", e)))?;
+
+        // `-` makes codex read the prompt from stdin; as argv it would trip the
+        // kernel's 128 KiB MAX_ARG_STRLEN cap on any sizeable group diff.
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| LlmError::CommandFailed("Failed to capture codex stdin".to_string()))?;
+        let stdin_task = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let _ = stdin.write_all(prompt.as_bytes()).await;
+            let _ = stdin.shutdown().await;
+        });
+
         let stdout = child
             .stdout
             .take()
@@ -136,6 +160,7 @@ impl CodexCliProvider {
             }
         };
 
+        let _ = stdin_task.await;
         let stdout = stdout_task
             .await
             .map_err(|e| {

@@ -49,6 +49,8 @@
           packages = [
             pkgs.sccache
             pkgs.mold
+            pkgs.rustfmt
+            pkgs.clippy
             pkgs.nodejs
             pkgs.playwright-driver.browsers
           ];
