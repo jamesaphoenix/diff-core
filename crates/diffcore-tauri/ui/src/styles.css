@@ -1078,6 +1078,54 @@ body {
   background: var(--accent-hover);
 }
 
+/* ── Analyze / Refine ── */
+
+.btn-analyze-destructive {
+  background: var(--risk-high);
+  border-color: var(--risk-high);
+  color: var(--bg-primary);
+  font-weight: 600;
+}
+
+.btn-analyze-destructive:hover:not(:disabled) {
+  background: rgba(var(--risk-high-rgb), 0.85);
+}
+
+/* ── New commits bar ── */
+
+.new-commits-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: rgba(var(--accent-rgb), 0.08);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.new-commits-indicator {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.15);
+  animation: activity-live-pulse 2s ease-in-out infinite;
+}
+
+.new-commits-text {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.new-commits-bar .btn-close {
+  color: var(--text-muted);
+}
+
 /* ── Error Bar ── */
 
 .error-bar {
@@ -3678,20 +3726,6 @@ body {
 
 .btn-refine:hover {
   background: var(--accent-hover);
-}
-
-.refinement-banner-running {
-  background: rgba(var(--risk-medium-rgb), 0.1);
-}
-
-.btn-refine-cancel {
-  background: rgba(var(--risk-high-rgb), 0.95);
-  border-color: rgba(var(--risk-high-rgb), 0.95);
-  color: var(--bg-primary);
-}
-
-.btn-refine-cancel:hover {
-  background: rgba(var(--risk-high-rgb), 0.78);
 }
 
 /* Refinement loading indicator */

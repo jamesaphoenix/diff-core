@@ -56,6 +56,10 @@ pub struct AppState {
     pub watched_manifest_path: Mutex<Option<PathBuf>>,
     /// In-flight refinement tasks keyed by job_id, so the user can cancel them.
     pub refinement_jobs: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
+    /// The most recent refinement result, used as the baseline for incremental
+    /// refinement. `Arc` for the same reason as `last_analysis`: the streaming
+    /// job persists it from a spawned `'static` task.
+    pub last_refinement: Arc<Mutex<Option<RefinementResult>>>,
     /// Generation counter for the git HEAD watcher: each `watch_git_head` call bumps this,
     /// and the polling thread exits once it sees a value that no longer matches its own,
     /// so switching repos or unwatching cleanly stops the previous thread.
@@ -80,6 +84,7 @@ impl AppState {
             last_file_centrality: Mutex::new(None),
             watched_manifest_path: Mutex::new(None),
             refinement_jobs: Arc::new(Mutex::new(HashMap::new())),
+            last_refinement: Arc::new(Mutex::new(None)),
             git_head_watch_generation: Arc::new(AtomicU64::new(0)),
         }
     }
@@ -192,6 +197,12 @@ pub fn analyze(
     let repo_path = PathBuf::from(&repo_path);
     let repo_path = std::fs::canonicalize(&repo_path)
         .map_err(|e| CommandError::Io(format!("Invalid repo path: {}", e)))?;
+
+    // The in-memory refinement baseline belongs to the previous analysis;
+    // get_cached_refinement re-seeds it from disk for this one.
+    if let Ok(mut last) = state.last_refinement.lock() {
+        *last = None;
+    }
 
     let repo = git2::Repository::discover(&repo_path)
         .map_err(|e| CommandError::Git(format!("Not a git repository: {}", e)))?;
@@ -807,6 +818,11 @@ async fn run_refinement_with_activity(
     job: JobHandle,
     file_centrality: Option<HashMap<String, f64>>,
     weights: diffcore_core::types::RankWeights,
+    diff_summary: String,
+    // Incremental refinement carries the previous grouping onto the fresh
+    // analysis before the LLM sees it, so the result differs from the
+    // deterministic groups even when the LLM proposes no further ops.
+    baseline_changed: bool,
 ) -> Result<RefinementResult, CommandError> {
     emit_diffcore_activity(&job, "Preparing refinement request").await;
     let provider = llm::create_provider_for_workdir(&refinement_llm_config, workdir.as_deref())
@@ -822,10 +838,6 @@ async fn run_refinement_with_activity(
 
     let analysis_json = serde_json::to_string_pretty(&analysis)
         .map_err(|e| CommandError::Llm(format!("Failed to serialize analysis: {}", e)))?;
-    let diff_summary = format!(
-        "{} files changed across {} groups",
-        analysis.summary.total_files_changed, analysis.summary.total_groups,
-    );
     let request = refinement::build_refinement_request(
         &analysis.groups,
         analysis.infrastructure_group.as_ref(),
@@ -863,12 +875,14 @@ async fn run_refinement_with_activity(
     if !refinement::has_refinements(&response) {
         emit_diffcore_activity(&job, "Refinement kept the current grouping").await;
         return Ok(RefinementResult {
+            head_sha: analysis.diff_source.head_sha.clone(),
+            files: refinement_files(&analysis.groups, analysis.infrastructure_group.as_ref()),
             refined_groups: analysis.groups.clone(),
             infrastructure_group: analysis.infrastructure_group.clone(),
             refinement_response: response,
             provider: provider_name,
             model: model_name,
-            had_changes: false,
+            had_changes: baseline_changed,
             warnings: Vec::new(),
         });
     }
@@ -901,6 +915,8 @@ async fn run_refinement_with_activity(
     .await;
 
     Ok(RefinementResult {
+        head_sha: analysis.diff_source.head_sha.clone(),
+        files: refinement_files(&refined_groups, infra.as_ref()),
         refined_groups,
         infrastructure_group: infra,
         refinement_response: response,
@@ -1022,9 +1038,15 @@ pub fn start_refine_groups(
     repo_path: Option<String>,
     llm_provider: Option<String>,
     llm_model: Option<String>,
+    incremental: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<AsyncLlmJobStart, CommandError> {
-    let analysis = load_cached_analysis(&state)?;
+    let (analysis, diff_summary, baseline_changed) = refinement_baseline(
+        &state,
+        load_cached_analysis(&state)?,
+        repo_path.as_deref(),
+        incremental.unwrap_or(false),
+    );
     let (mut config, workdir) = load_config_from_path(repo_path.as_deref());
     if let Some(provider) = llm_provider {
         config.llm.refinement.provider = Some(provider.clone());
@@ -1079,6 +1101,7 @@ pub fn start_refine_groups(
     let job_id_for_cleanup = job_id.clone();
     let jobs_for_cleanup = Arc::clone(&state.refinement_jobs);
     let analysis_for_persist = Arc::clone(&state.last_analysis);
+    let refinement_for_persist = Arc::clone(&state.last_refinement);
     let file_centrality = state
         .last_file_centrality
         .lock()
@@ -1093,6 +1116,8 @@ pub fn start_refine_groups(
             job.clone(),
             file_centrality,
             weights,
+            diff_summary,
+            baseline_changed,
         )
         .await
         {
@@ -1100,20 +1125,32 @@ pub fn start_refine_groups(
                 // Persist before completing the job. Every backend command that
                 // reads `last_analysis` — describe_groups, annotate_overview —
                 // would otherwise keep answering about pre-refinement groups.
-                if response.had_changes {
-                    match analysis_for_persist.lock() {
-                        Ok(mut last) => {
-                            if let Some(ref mut a) = *last {
-                                a.groups = response.refined_groups.clone();
-                                a.infrastructure_group = response.infrastructure_group.clone();
-                                a.summary.total_groups = a.groups.len() as u32;
+                // Skip when a fresh analyze replaced the analysis this job
+                // started from; its groups would name files of the old diff.
+                match analysis_for_persist.lock() {
+                    Ok(mut last) => {
+                        let same_analysis = last
+                            .as_ref()
+                            .is_some_and(|a| a.diff_source.head_sha == response.head_sha);
+                        if !same_analysis {
+                            warn!("Analysis changed while refinement ran; discarding stale refinement result");
+                        } else {
+                            if response.had_changes {
+                                if let Some(a) = last.as_mut() {
+                                    a.groups = response.refined_groups.clone();
+                                    a.infrastructure_group = response.infrastructure_group.clone();
+                                    a.summary.total_groups = a.groups.len() as u32;
+                                }
+                            }
+                            if let Ok(mut prev) = refinement_for_persist.lock() {
+                                *prev = Some(response.clone());
                             }
                         }
-                        Err(error) => warn!(
-                            "Failed to persist refined groups (lock poisoned): {}",
-                            error
-                        ),
                     }
+                    Err(error) => warn!(
+                        "Failed to persist refined groups (lock poisoned): {}",
+                        error
+                    ),
                 }
 
                 match serde_json::to_value(&response) {
@@ -1472,18 +1509,15 @@ pub async fn refine_groups(
     repo_path: Option<String>,
     llm_provider: Option<String>,
     llm_model: Option<String>,
+    incremental: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<RefinementResult, CommandError> {
-    // Get the cached analysis
-    let analysis = {
-        let last = state
-            .last_analysis
-            .lock()
-            .map_err(|e| CommandError::Analysis(format!("Lock poisoned: {}", e)))?;
-        last.clone().ok_or_else(|| {
-            CommandError::Analysis("No analysis available. Run analyze first.".into())
-        })?
-    };
+    let (analysis, diff_summary, baseline_changed) = refinement_baseline(
+        &state,
+        load_cached_analysis(&state)?,
+        repo_path.as_deref(),
+        incremental.unwrap_or(false),
+    );
 
     // Load config, applying frontend overrides
     let (mut config, workdir) = load_config_from_path(repo_path.as_deref());
@@ -1534,11 +1568,6 @@ pub async fn refine_groups(
     let analysis_json = serde_json::to_string_pretty(&analysis)
         .map_err(|e| CommandError::Llm(format!("Failed to serialize analysis: {}", e)))?;
 
-    let diff_summary = format!(
-        "{} files changed across {} groups",
-        analysis.summary.total_files_changed, analysis.summary.total_groups,
-    );
-
     let request = refinement::build_refinement_request(
         &analysis.groups,
         analysis.infrastructure_group.as_ref(),
@@ -1559,15 +1588,21 @@ pub async fn refine_groups(
         .unwrap_or_else(|| default_model_for_provider(&provider_name).to_string());
 
     if !refinement::has_refinements(&response) {
-        return Ok(RefinementResult {
+        let result = RefinementResult {
+            head_sha: analysis.diff_source.head_sha.clone(),
+            files: refinement_files(&analysis.groups, analysis.infrastructure_group.as_ref()),
             refined_groups: analysis.groups.clone(),
             infrastructure_group: analysis.infrastructure_group.clone(),
             refinement_response: response,
             provider: provider_name,
             model: model_name,
-            had_changes: false,
+            had_changes: baseline_changed,
             warnings: Vec::new(),
-        });
+        };
+        if let Ok(mut last) = state.last_refinement.lock() {
+            *last = Some(result.clone());
+        }
+        return Ok(result);
     }
 
     // Apply the refinement leniently: repair what we can, drop what we can't,
@@ -1607,7 +1642,9 @@ pub async fn refine_groups(
         ),
     }
 
-    Ok(RefinementResult {
+    let result = RefinementResult {
+        head_sha: analysis.diff_source.head_sha.clone(),
+        files: refinement_files(&refined_groups, infra.as_ref()),
         refined_groups,
         infrastructure_group: infra,
         refinement_response: response,
@@ -1615,7 +1652,11 @@ pub async fn refine_groups(
         model: model_name,
         had_changes: true,
         warnings,
-    })
+    };
+    if let Ok(mut last) = state.last_refinement.lock() {
+        *last = Some(result.clone());
+    }
+    Ok(result)
 }
 
 /// Result of a refinement pass, including both the refined groups and
@@ -1638,6 +1679,26 @@ pub struct RefinementResult {
     /// dropped operations. Empty in the common case.
     #[serde(default)]
     pub warnings: Vec<diffcore_core::llm::refinement::RefinementWarning>,
+    /// Head commit the refined diff was computed against. `None` on cache
+    /// entries written before this field existed.
+    #[serde(default)]
+    pub head_sha: Option<String>,
+    /// Every file path covered by the refinement (grouped + infrastructure),
+    /// so the file set at refinement time survives alongside the result.
+    #[serde(default)]
+    pub files: Vec<String>,
+}
+
+/// All file paths a refinement result covers: grouped files plus infrastructure.
+fn refinement_files(
+    groups: &[diffcore_core::types::FlowGroup],
+    infra: Option<&diffcore_core::types::InfrastructureGroup>,
+) -> Vec<String> {
+    groups
+        .iter()
+        .flat_map(|g| g.files.iter().map(|f| f.path.clone()))
+        .chain(infra.iter().flat_map(|ig| ig.files.iter().cloned()))
+        .collect()
 }
 
 /// Load cached refinement result for the current analysis.
@@ -1649,29 +1710,87 @@ pub fn get_cached_refinement(
     repo_path: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Option<RefinementResult>, CommandError> {
-    // Try diff-hash key first (exact content match)
+    let result = lookup_cached_refinement(&state, repo_path.as_deref());
+    // A disk hit is the refinement baseline for this session — remember it so
+    // incremental refinement can build on it even after a fresh analyze.
+    if let Some(ref r) = result {
+        if let Ok(mut last) = state.last_refinement.lock() {
+            *last = Some(r.clone());
+        }
+    }
+    Ok(result)
+}
+
+/// Disk-cache lookup: diff-hash key first (exact content match), then
+/// branch-based key (same branch across worktrees, even with different
+/// uncommitted changes).
+fn lookup_cached_refinement(state: &AppState, repo_path: Option<&str>) -> Option<RefinementResult> {
     let diff_key = state.last_cache_key.lock().ok().and_then(|k| k.clone());
     if let Some(ref key) = diff_key {
         if let Some(json) = cache::load_cached_refinement(key) {
             if let Ok(result) = serde_json::from_str::<RefinementResult>(&json) {
-                return Ok(Some(result));
+                return Some(result);
             }
         }
     }
 
-    // Fallback: try branch-based key (works across worktrees on same branch)
-    if let Some(ref repo) = repo_path {
+    if let Some(repo) = repo_path {
         if let Ok(branch_key) = comment_cache_key(repo) {
             let branch_refine_key = format!("branch_{}", branch_key);
             if let Some(json) = cache::load_cached_refinement(&branch_refine_key) {
                 if let Ok(result) = serde_json::from_str::<RefinementResult>(&json) {
-                    return Ok(Some(result));
+                    return Some(result);
                 }
             }
         }
     }
 
-    Ok(None)
+    None
+}
+
+/// The baseline for incremental refinement: this session's last refinement,
+/// falling back to the disk cache (whose branch key survives new commits).
+fn load_previous_refinement(state: &AppState, repo_path: Option<&str>) -> Option<RefinementResult> {
+    state
+        .last_refinement
+        .lock()
+        .ok()
+        .and_then(|last| last.clone())
+        .or_else(|| lookup_cached_refinement(state, repo_path))
+}
+
+/// Baseline for a refinement pass: the cached analysis as-is, or in
+/// incremental mode the previous refined grouping carried onto it so the LLM
+/// is asked only for adjustments. With no previous refinement to build on,
+/// incremental falls through to a from-scratch refine.
+/// ponytail: without incremental, the baseline is whatever last_analysis
+/// holds — after an earlier refinement that's the refined groups, not the
+/// deterministic ones. Keep a pristine copy in AppState if "from scratch"
+/// must mean the deterministic grouping without a fresh analyze.
+fn refinement_baseline(
+    state: &AppState,
+    analysis: AnalysisOutput,
+    repo_path: Option<&str>,
+    incremental: bool,
+) -> (AnalysisOutput, String, bool) {
+    let summary = format!(
+        "{} files changed across {} groups",
+        analysis.summary.total_files_changed, analysis.summary.total_groups,
+    );
+    if !incremental {
+        return (analysis, summary, false);
+    }
+    match load_previous_refinement(state, repo_path) {
+        Some(prev) => {
+            let (carried, delta) = refinement::carry_over_grouping(
+                &analysis,
+                &prev.refined_groups,
+                prev.infrastructure_group.as_ref(),
+            );
+            (carried, delta, true)
+        }
+        None => (analysis, summary, false),
+    }
 }
 
 /// Store a refinement result in the global cache ($XDG_CACHE_HOME/diffcore/refinements/).
@@ -3067,6 +3186,52 @@ pub fn unwatch_git_head(state: State<'_, AppState>) -> Result<(), CommandError> 
     Ok(())
 }
 
+/// Start watching a PR/MR URL's remote tip for new commits. Polls `git ls-remote`
+/// every 60 seconds and emits a "pr-head-changed" event with the URL when the
+/// tip SHA moves. Shares the generation counter with `watch_git_head`, so only
+/// one repo watcher runs at a time and `unwatch_git_head` stops both kinds.
+#[cfg(feature = "desktop")]
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub fn watch_pr_head(
+    url: String,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), CommandError> {
+    let pr = pr_url::parse(&url)
+        .ok_or_else(|| CommandError::Git(format!("Not a recognized PR/MR URL: {}", url)))?;
+    let generation = state.git_head_watch_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let generation_counter = state.git_head_watch_generation.clone();
+
+    std::thread::spawn(move || {
+        // Seed with the current remote tip so only future pushes fire the event.
+        let mut last = pr_url::remote_head_sha(&pr).ok();
+
+        'outer: loop {
+            // Sleep in 1s slices so unwatching stops the thread promptly
+            // instead of after a full poll interval.
+            for _ in 0..60 {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                if generation_counter.load(Ordering::SeqCst) != generation {
+                    break 'outer;
+                }
+            }
+
+            match pr_url::remote_head_sha(&pr) {
+                Ok(sha) => {
+                    if last.as_deref().is_some_and(|prev| prev != sha) {
+                        let _ = app_handle.emit("pr-head-changed", &url);
+                    }
+                    last = Some(sha);
+                }
+                // Transient network/auth failures: skip this poll, never surface.
+                Err(e) => tracing::debug!(target: "activity", "PR watch poll failed: {}", e),
+            }
+        }
+    });
+
+    Ok(())
+}
+
 fn detect_language(path: &str) -> String {
     match path.rsplit('.').next() {
         Some("ts" | "tsx") => "typescript".to_string(),
@@ -3099,6 +3264,25 @@ fn detect_language(path: &str) -> String {
 )]
 mod tests {
     use super::*;
+
+    /// Cache entries written before head_sha/files existed must still load.
+    #[test]
+    fn refinement_result_deserializes_without_new_fields() {
+        let json = r#"{
+            "refined_groups": [],
+            "infrastructure_group": null,
+            "refinement_response": {
+                "splits": [], "merges": [], "re_ranks": [],
+                "reclassifications": [], "reasoning": ""
+            },
+            "provider": "anthropic",
+            "model": "m",
+            "had_changes": false
+        }"#;
+        let result: RefinementResult = serde_json::from_str(json).unwrap();
+        assert_eq!(result.head_sha, None);
+        assert!(result.files.is_empty());
+    }
 
     #[test]
     fn test_detect_language_typescript() {
@@ -3424,6 +3608,8 @@ mod tests {
             model: "claude-sonnet-4-6".to_string(),
             had_changes: false,
             warnings: Vec::new(),
+            head_sha: None,
+            files: Vec::new(),
         };
         let json = serde_json::to_string(&result).unwrap();
         let back: RefinementResult = serde_json::from_str(&json).unwrap();
@@ -3479,6 +3665,8 @@ mod tests {
             model: "gpt-4.1".to_string(),
             had_changes: true,
             warnings: Vec::new(),
+            head_sha: Some("abc123".to_string()),
+            files: vec!["test.ts".to_string()],
         };
         let json = serde_json::to_string(&result).unwrap();
         let back: RefinementResult = serde_json::from_str(&json).unwrap();

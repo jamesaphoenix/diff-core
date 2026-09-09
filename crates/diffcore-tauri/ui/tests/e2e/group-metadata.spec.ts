@@ -164,7 +164,7 @@ test.describe("Group metadata — right panel", () => {
     await expect(page.getByTestId("group-summary")).toBeVisible();
     const before = await page.locator(".review-meta-description").textContent();
 
-    await page.locator(".btn-refine").click();
+    await page.getByTestId("refine-btn").click();
     await page.waitForTimeout(2000);
     await page.getByTestId("annotations-tab").click();
 
@@ -177,7 +177,7 @@ test.describe("Group metadata — right panel", () => {
   });
 
   test("13c — the refinement rationale stays collapsed instead of burying the group", async ({ page }) => {
-    await page.locator(".btn-refine").click();
+    await page.getByTestId("refine-btn").click();
     await page.waitForTimeout(2000);
     await page.getByTestId("annotations-tab").click();
 

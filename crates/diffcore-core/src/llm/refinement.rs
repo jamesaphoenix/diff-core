@@ -713,6 +713,97 @@ pub fn has_refinements(response: &RefinementResponse) -> bool {
         || !response.reclassifications.is_empty()
 }
 
+/// Carry a previously refined grouping onto a fresh analysis for incremental
+/// refinement.
+///
+/// Rebuilds the fresh analysis's groups from the previous refinement's
+/// name+files layout (via the manifest import path, which preserves fresh file
+/// metadata and intra-group edges), dropping files that no longer exist and
+/// routing files new since the previous refinement into the unassigned set —
+/// where the refinement prompt already asks the LLM to place them.
+///
+/// Returns the carried-over analysis and a delta summary for the prompt's
+/// `diff_summary` slot.
+// ponytail: delta is path add/remove only; add per-file change stats if
+// refinement quality on modified-only pushes demands it.
+pub fn carry_over_grouping(
+    fresh: &crate::types::AnalysisOutput,
+    prev_groups: &[FlowGroup],
+    prev_infra: Option<&InfrastructureGroup>,
+) -> (crate::types::AnalysisOutput, String) {
+    let fresh_paths: HashSet<&str> = fresh
+        .groups
+        .iter()
+        .flat_map(|g| g.files.iter().map(|f| f.path.as_str()))
+        .chain(
+            fresh
+                .infrastructure_group
+                .iter()
+                .flat_map(|ig| ig.files.iter().map(String::as_str)),
+        )
+        .collect();
+    let fresh_grouped: HashSet<&str> = fresh
+        .groups
+        .iter()
+        .flat_map(|g| g.files.iter().map(|f| f.path.as_str()))
+        .collect();
+    let prev_paths: HashSet<&str> = prev_groups
+        .iter()
+        .flat_map(|g| g.files.iter().map(|f| f.path.as_str()))
+        .chain(
+            prev_infra
+                .iter()
+                .flat_map(|ig| ig.files.iter().map(String::as_str)),
+        )
+        .collect();
+
+    let added = fresh_paths.difference(&prev_paths).count();
+    let removed = prev_paths.difference(&fresh_paths).count();
+
+    let groups: Vec<crate::manifest::ManifestGroup> = prev_groups
+        .iter()
+        .map(|g| crate::manifest::ManifestGroup {
+            name: g.name.clone(),
+            files: g
+                .files
+                .iter()
+                .map(|f| f.path.clone())
+                .filter(|p| fresh_grouped.contains(p.as_str()))
+                .collect(),
+            review_order: g.review_order,
+            description: None,
+        })
+        .filter(|mg| !mg.files.is_empty())
+        .collect();
+
+    let assigned: HashSet<&str> = groups
+        .iter()
+        .flat_map(|mg| mg.files.iter().map(String::as_str))
+        .collect();
+    let mut unassigned_files: Vec<String> = fresh_paths
+        .difference(&assigned)
+        .map(|p| p.to_string())
+        .collect();
+    unassigned_files.sort();
+
+    let manifest = crate::manifest::GroupsManifest {
+        version: crate::manifest::GroupsManifest::VERSION.to_string(),
+        groups,
+        unassigned_files,
+    };
+    let carried = crate::manifest::import_manifest(fresh, &manifest);
+
+    let delta_summary = format!(
+        "Incremental update to a previously AI-refined grouping. Since the last \
+         refinement: {} files added (listed under Ungrouped), {} files removed. \
+         The groups below already reflect the previous refinement — only adjust \
+         where the new files or removals warrant; otherwise return empty arrays.",
+        added, removed,
+    );
+
+    (carried, delta_summary)
+}
+
 // ── Internal helpers ──
 
 fn remove_file_from_group_or_infra(
@@ -2475,5 +2566,136 @@ mod tests {
         assert!(prompt.contains("group_2"));
         assert!(prompt.contains("infrastructure]"));
         assert!(prompt.contains("NEVER substitute"));
+    }
+
+    // ── carry_over_grouping tests ──
+
+    fn make_carry_analysis(
+        groups: Vec<FlowGroup>,
+        infra_files: Vec<&str>,
+    ) -> crate::types::AnalysisOutput {
+        crate::types::AnalysisOutput {
+            version: "1.0.0".to_string(),
+            diff_source: crate::types::DiffSource {
+                diff_type: crate::types::DiffType::BranchComparison,
+                base: None,
+                head: None,
+                base_sha: None,
+                head_sha: Some("head2".to_string()),
+            },
+            summary: crate::types::AnalysisSummary {
+                total_files_changed: 0,
+                total_groups: groups.len() as u32,
+                languages_detected: vec![],
+                frameworks_detected: vec![],
+            },
+            groups,
+            infrastructure_group: if infra_files.is_empty() {
+                None
+            } else {
+                Some(InfrastructureGroup {
+                    files: infra_files.iter().map(|s| s.to_string()).collect(),
+                    sub_groups: vec![],
+                    reason: "test".to_string(),
+                })
+            },
+            annotations: None,
+        }
+    }
+
+    #[test]
+    fn carry_over_keeps_previous_groups_and_routes_new_files_to_unassigned() {
+        let fresh = make_carry_analysis(
+            vec![make_group(
+                "group_1",
+                "fresh grouping",
+                vec![
+                    make_file("a.ts", 0),
+                    make_file("b.ts", 1),
+                    make_file("d.ts", 2),
+                ],
+            )],
+            vec![],
+        );
+        let prev = vec![
+            make_group("group_refined_1", "auth", vec![make_file("a.ts", 0)]),
+            make_group("group_refined_2", "billing", vec![make_file("b.ts", 0)]),
+        ];
+
+        let (carried, delta) = carry_over_grouping(&fresh, &prev, None);
+
+        let names: Vec<&str> = carried.groups.iter().map(|g| g.name.as_str()).collect();
+        assert_eq!(names, vec!["auth", "billing"]);
+        let infra = carried.infrastructure_group.expect("new file goes unassigned");
+        assert_eq!(infra.files, vec!["d.ts"]);
+        assert!(delta.contains("1 files added"));
+        assert!(delta.contains("0 files removed"));
+    }
+
+    #[test]
+    fn carry_over_drops_removed_files_and_prunes_empty_groups() {
+        let fresh = make_carry_analysis(
+            vec![make_group("group_1", "g", vec![make_file("a.ts", 0)])],
+            vec![],
+        );
+        let prev = vec![
+            make_group(
+                "r1",
+                "keep",
+                vec![make_file("a.ts", 0), make_file("gone.ts", 1)],
+            ),
+            make_group("r2", "all gone", vec![make_file("gone2.ts", 0)]),
+        ];
+
+        let (carried, delta) = carry_over_grouping(&fresh, &prev, None);
+
+        assert_eq!(carried.groups.len(), 1);
+        assert_eq!(carried.groups[0].name, "keep");
+        let paths: Vec<&str> = carried.groups[0].files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, vec!["a.ts"]);
+        assert!(carried.infrastructure_group.is_none());
+        assert!(delta.contains("2 files removed"));
+    }
+
+    #[test]
+    fn carry_over_preserves_review_order_and_previous_infra_stays_unassigned() {
+        let fresh = make_carry_analysis(
+            vec![make_group(
+                "group_1",
+                "g",
+                vec![make_file("a.ts", 0), make_file("b.ts", 1)],
+            )],
+            vec!["infra.toml"],
+        );
+        let prev_groups = vec![
+            FlowGroup {
+                review_order: 2,
+                ..make_group("r1", "second", vec![make_file("a.ts", 0)])
+            },
+            FlowGroup {
+                review_order: 1,
+                ..make_group("r2", "first", vec![make_file("b.ts", 0)])
+            },
+        ];
+        let prev_infra = InfrastructureGroup {
+            files: vec!["infra.toml".to_string()],
+            sub_groups: vec![],
+            reason: "prev".to_string(),
+        };
+
+        let (carried, delta) =
+            carry_over_grouping(&fresh, &prev_groups, Some(&prev_infra));
+
+        let orders: Vec<(String, u32)> = carried
+            .groups
+            .iter()
+            .map(|g| (g.name.clone(), g.review_order))
+            .collect();
+        assert!(orders.contains(&("second".to_string(), 2)));
+        assert!(orders.contains(&("first".to_string(), 1)));
+        let infra = carried.infrastructure_group.expect("infra file stays unassigned");
+        assert_eq!(infra.files, vec!["infra.toml"]);
+        assert!(delta.contains("0 files added"));
+        assert!(delta.contains("0 files removed"));
     }
 }

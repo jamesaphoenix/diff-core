@@ -533,6 +533,31 @@ pub fn resolve(pr: &PrUrl) -> Result<ResolvedPr, PrUrlError> {
     resolve_in(pr, &root)
 }
 
+/// SHA of the PR's tip on the remote, via a single `ls-remote` — no clone, no
+/// checkout. Providers that publish only a merge ref (Azure DevOps) report that
+/// ref's SHA instead; it moves whenever either side of the PR does, which is
+/// all a change watcher needs.
+pub fn remote_head_sha(pr: &PrUrl) -> Result<String, PrUrlError> {
+    let glob = pr
+        .ref_glob()
+        .ok_or(PrUrlError::NoGitRefs(pr.provider.name()))?;
+    let listing = git(Path::new("."), &["ls-remote", &pr.clone_url, &glob])?;
+    let pairs: Vec<(&str, &str)> = listing
+        .lines()
+        .filter_map(|l| l.split_once('\t').map(|(sha, r)| (sha.trim(), r.trim())))
+        .collect();
+    let refs: Vec<String> = pairs.iter().map(|(_, r)| r.to_string()).collect();
+    let not_found =
+        || PrUrlError::NotFound(pr.provider.unit(), pr.number, pr.clone_url.clone());
+    let (head_ref, merge_ref) = pr.pick_refs(&refs).ok_or_else(not_found)?;
+    let want = head_ref.or(merge_ref).ok_or_else(not_found)?;
+    pairs
+        .iter()
+        .find(|(_, r)| *r == want)
+        .map(|(sha, _)| sha.to_string())
+        .ok_or_else(not_found)
+}
+
 /// `resolve`, against an explicit cache root. Tests use this so they never have
 /// to mutate the process environment, which races every other thread's getenv.
 pub(crate) fn resolve_in(pr: &PrUrl, root: &Path) -> Result<ResolvedPr, PrUrlError> {
@@ -908,6 +933,24 @@ mod tests {
             Ok(o) => o.trim().to_string(),
             Err(e) => panic!("diff: {e}"),
         }
+    }
+
+    #[test]
+    fn remote_head_sha_tracks_the_pr_tip_without_cloning() {
+        with_cache(|root, _cache| {
+            let o = Origin::new(root, "origin");
+            let tip = o.open_pr(1, "feature.txt");
+            let pr = local_pr(&o, 1);
+            assert_eq!(remote_head_sha(&pr).unwrap(), tip);
+
+            // New commits land on the PR branch and the provider republishes
+            // the head ref — the watcher must see the new SHA.
+            o.run(&["checkout", "-q", "pr1"]);
+            let new_tip = o.commit("feature.txt", "more work\n", "more work");
+            o.run(&["checkout", "-q", "main"]);
+            o.run(&["update-ref", "refs/pull/1/head", &new_tip]);
+            assert_eq!(remote_head_sha(&pr).unwrap(), new_tip);
+        });
     }
 
     #[test]
