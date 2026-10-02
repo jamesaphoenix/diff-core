@@ -14,6 +14,20 @@ async function waitForAnalysis(page: Page) {
   await expect(page.locator(".group-item.selected .file-list")).toBeVisible({ timeout: 5_000 });
 }
 
+/** Trigger the LLM pass the way the top bar does it now: the Refine checkbox is
+ *  on by default, so Analyze (confirmed) re-runs the analysis and chains the
+ *  refinement onto it. */
+async function refineViaTopBar(page: Page) {
+  await expect(page.getByTestId("refine-checkbox")).toBeChecked();
+  const analyze = page.getByTestId("analyze-btn");
+  await analyze.click();
+  await expect(analyze).toHaveText("Confirm?");
+  await analyze.click();
+  await expect(analyze).toHaveText("Reanalyze");
+  // The original/refined toggle only exists once the refinement has applied.
+  await expect(page.locator(".refinement-toggle")).toBeVisible({ timeout: 15_000 });
+}
+
 /** The group with every metadata field populated. */
 function fullGroup(page: Page): Locator {
   return page.locator(".group-item", { hasText: "POST /api/users creation flow" });
@@ -164,8 +178,7 @@ test.describe("Group metadata — right panel", () => {
     await expect(page.getByTestId("group-summary")).toBeVisible();
     const before = await page.locator(".review-meta-description").textContent();
 
-    await page.locator(".btn-refine").click();
-    await page.waitForTimeout(2000);
+    await refineViaTopBar(page);
     await page.getByTestId("annotations-tab").click();
 
     // Refinement rebuilds groups from scratch; the review metadata has to come
@@ -177,8 +190,7 @@ test.describe("Group metadata — right panel", () => {
   });
 
   test("13c — the refinement rationale stays collapsed instead of burying the group", async ({ page }) => {
-    await page.locator(".btn-refine").click();
-    await page.waitForTimeout(2000);
+    await refineViaTopBar(page);
     await page.getByTestId("annotations-tab").click();
 
     const verdict = page.getByTestId("refinement-verdict");

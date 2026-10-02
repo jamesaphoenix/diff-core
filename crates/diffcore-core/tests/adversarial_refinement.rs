@@ -1187,3 +1187,105 @@ fn adversarial_fixtures_deterministic_consistency() {
         );
     }
 }
+
+/// Incremental refinement: refine, land a new commit, carry the refined
+/// grouping onto the fresh analysis, refine again with the delta summary.
+/// The incremental result must not score materially worse than refining
+/// the updated diff from scratch would have started from.
+#[test]
+fn incremental_refinement_carries_previous_grouping() {
+    if !should_run_live() {
+        eprintln!("Skipping incremental refinement test (set DIFFCORE_RUN_LIVE_LLM_TESTS=1)");
+        return;
+    }
+
+    use diffcore_core::llm::refinement::carry_over_grouping;
+
+    let provider = create_vcr_provider();
+    let (name, builder) = ADVERSARIAL_FIXTURES[0];
+    let (rb, baseline) = builder();
+    let actual_branch = {
+        let repo = git2::Repository::open(rb.path()).unwrap();
+        let branches = repo.branches(Some(git2::BranchType::Local)).unwrap();
+        let mut found = None;
+        for branch in branches {
+            let (b, _) = branch.unwrap();
+            let bname = b.name().unwrap().unwrap().to_string();
+            if bname != "main" {
+                found = Some(bname);
+                break;
+            }
+        }
+        found.expect("Should have a feature branch")
+    };
+
+    // 1. Deterministic analysis + from-scratch refinement.
+    let det = run_full_pipeline(&rb, "main", &actual_branch);
+    let (scratch, _) = apply_refinement_to_output(&det, provider.as_ref(), &vcr_cache_dir());
+    let scratch_scores = score_output(&scratch, &baseline);
+    eprintln!("  {}: from-scratch refined overall={:.4}", name, scratch_scores.overall);
+
+    // 2. A new commit lands on the feature branch after the refinement.
+    rb.checkout(&actual_branch);
+    rb.write_file("src/modules/late_addition.ts", "export const late = 1;\n");
+    rb.commit("late addition");
+
+    // 3. Fresh deterministic analysis, previous refinement carried onto it.
+    let fresh = run_full_pipeline(&rb, "main", &actual_branch);
+    let (carried, delta_summary) =
+        carry_over_grouping(&fresh, &scratch.groups, scratch.infrastructure_group.as_ref());
+    assert!(
+        carried
+            .infrastructure_group
+            .as_ref()
+            .is_some_and(|ig| ig.files.iter().any(|f| f.contains("late_addition"))),
+        "new file must land in the unassigned set for the LLM to place"
+    );
+    assert!(delta_summary.contains("Incremental update"));
+
+    // 4. Incremental refine: same op machinery, delta summary in diff_summary.
+    let analysis_json = serde_json::to_string_pretty(&carried).unwrap();
+    let request = build_refinement_request(
+        &carried.groups,
+        carried.infrastructure_group.as_ref(),
+        &analysis_json,
+        &delta_summary,
+    );
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let incremental = match rt.block_on(provider.refine_groups(&request)) {
+        Ok(ref r) if has_refinements(r) => {
+            let (groups, infra, warnings) = apply_refinement_lenient(
+                &carried.groups,
+                carried.infrastructure_group.as_ref(),
+                r,
+            );
+            for w in &warnings {
+                eprintln!("  Refinement repair: {}", w.message);
+            }
+            let mut out = carried.clone();
+            out.groups = groups;
+            out.infrastructure_group = infra;
+            out.summary.total_groups = out.groups.len() as u32;
+            out
+        }
+        Ok(_) => carried.clone(),
+        Err(e) => {
+            eprintln!("  LLM incremental refinement call failed: {}", e);
+            carried.clone()
+        }
+    };
+
+    let inc_scores = score_output(&incremental, &baseline);
+    eprintln!(
+        "  {}: incremental refined overall={:.4} (delta {:+.4})",
+        name,
+        inc_scores.overall,
+        inc_scores.overall - scratch_scores.overall
+    );
+    assert!(
+        inc_scores.overall >= scratch_scores.overall - 0.20,
+        "incremental refinement degraded too far: incremental={:.4}, from-scratch={:.4}",
+        inc_scores.overall,
+        scratch_scores.overall
+    );
+}

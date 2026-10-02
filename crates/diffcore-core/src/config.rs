@@ -665,6 +665,14 @@ impl DiffcoreConfig {
         None
     }
 
+    /// Fold the global LLM config into this (repo-local) one.
+    ///
+    /// Optional settings take the local value when it is set and fall back to
+    /// the global one. The enable flags are plain bools defaulting to `true`,
+    /// so "the repo never mentioned this" and "the repo asked for it" are the
+    /// same value — an OR would make a global opt-out unreachable for the many
+    /// repos with no `.diffcore.toml` at all. These passes cost the user money,
+    /// so either side may switch one off and neither can force it back on.
     fn apply_global_llm_defaults(&mut self, global: &Self) {
         self.llm.provider = self
             .llm
@@ -678,8 +686,10 @@ impl DiffcoreConfig {
             .clone()
             .or_else(|| global.llm.key_cmd.clone());
         self.llm.key = self.llm.key.clone().or_else(|| global.llm.key.clone());
+        self.llm.annotations_enabled =
+            self.llm.annotations_enabled && global.llm.annotations_enabled;
 
-        self.llm.refinement.enabled = self.llm.refinement.enabled || global.llm.refinement.enabled;
+        self.llm.refinement.enabled = self.llm.refinement.enabled && global.llm.refinement.enabled;
         self.llm.refinement.provider = self
             .llm
             .refinement
@@ -699,7 +709,7 @@ impl DiffcoreConfig {
             .clone()
             .or_else(|| global.llm.refinement.key_cmd.clone());
 
-        self.llm.metadata.enabled = self.llm.metadata.enabled || global.llm.metadata.enabled;
+        self.llm.metadata.enabled = self.llm.metadata.enabled && global.llm.metadata.enabled;
         self.llm.metadata.provider = self
             .llm
             .metadata
@@ -901,6 +911,24 @@ paths = ["dist/**"]
         assert_eq!(merged.llm.model, Some("default".to_string()));
         assert!(merged.llm.refinement.enabled);
         assert_eq!(merged.llm.refinement.provider, Some("claude".to_string()));
+    }
+
+    #[test]
+    fn global_opt_out_survives_a_repo_that_never_mentions_the_flag() {
+        // The desktop app only ever writes the global config, so turning a pass
+        // off there must not be undone by a repo whose .diffcore.toml is silent
+        // on the subject.
+        let mut global = DiffcoreConfig::default();
+        global.llm.annotations_enabled = false;
+        global.llm.refinement.enabled = false;
+        global.llm.metadata.enabled = false;
+
+        let mut merged = DiffcoreConfig::default();
+        merged.apply_global_llm_defaults(&global);
+
+        assert!(!merged.llm.annotations_enabled, "annotations should stay off");
+        assert!(!merged.llm.refinement.enabled, "refinement should stay off");
+        assert!(!merged.llm.metadata.enabled, "metadata should stay off");
     }
 
     #[test]

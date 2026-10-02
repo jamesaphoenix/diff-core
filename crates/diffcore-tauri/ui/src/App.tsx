@@ -284,6 +284,12 @@ export default function App() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileDiff, setFileDiff] = useState<FileDiffContent | null>(null);
   const [loading, setLoading] = useState(false);
+  const [analyzeArmed, setAnalyzeArmed] = useState(false);
+  useEffect(() => {
+    if (!analyzeArmed) return;
+    const t = setTimeout(() => setAnalyzeArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [analyzeArmed]);
   const [error, setError] = useState<string | null>(null);
   // Test-only: when set, the named panel's ErrorBoundary will catch a deliberate crash
   const [crashPanel, setCrashPanel] = useState<string | null>(null);
@@ -343,6 +349,9 @@ export default function App() {
       refsPinned: refsPinned.current,
     });
   }, [repoPath, baseRef, headRef, analysis]);
+  /** The PR/MR URL behind the current checkout, so refresh can re-resolve it
+   *  (which updates the cached checkout) and the watcher can poll the remote. */
+  const prUrlRef = useRef<string | null>(null);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [headBranchDropdownOpen, setHeadBranchDropdownOpen] = useState(false);
 
@@ -469,6 +478,12 @@ export default function App() {
   const groupListTransitionTimers = useRef<number[]>([]);
   const [refining, setRefining] = useState(false);
   const refinementJobIdRef = useRef<string | null>(null);
+  // Armed by an explicit Analyze click when "Refine" is checked, so the LLM
+  // pass chains onto that one click. Auto-analysis on load never arms it and
+  // so never spends tokens.
+  const refineAfterAnalysisRef = useRef(false);
+  const activityAbortRef = useRef<(() => void) | null>(null);
+  const [newCommitsAvailable, setNewCommitsAvailable] = useState(false);
 
   // Context menu state (right-click on file items)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; filePath: string } | null>(null);
@@ -693,11 +708,19 @@ export default function App() {
     }
   }, [repoPath, loadRepoInfo]);
 
-  // Watch the repo's HEAD for changes made outside the app (git pull/checkout/merge in a
-  // terminal). The watcher lives in Rust and emits "git-head-changed"; see the listener below.
+  // Watch for new commits made outside the app. Local repos poll HEAD via git2;
+  // PR/MR checkouts poll the remote tip via ls-remote. Both watchers live in
+  // Rust ("git-head-changed" / "pr-head-changed"); see the listeners below.
+  // unwatch_git_head stops either kind.
   useEffect(() => {
-    if (!IS_TAURI || !repoPath || isPrUrl(repoPath) || prRefs.current) return;
-    tauriInvoke("watch_git_head", { repoPath }).catch(() => {});
+    if (!IS_TAURI || !repoPath) return;
+    if (prRefs.current && prUrlRef.current) {
+      tauriInvoke("watch_pr_head", { url: prUrlRef.current }).catch(() => {});
+    } else if (!isPrUrl(repoPath) && !prRefs.current) {
+      tauriInvoke("watch_git_head", { repoPath }).catch(() => {});
+    } else {
+      return;
+    }
     return () => {
       tauriInvoke("unwatch_git_head", {}).catch(() => {});
     };
@@ -784,6 +807,10 @@ export default function App() {
         const close = () => {
           source.close();
           activitySources.current.delete(source);
+        };
+        activityAbortRef.current = () => {
+          close();
+          reject(new Error("Cancelled by user"));
         };
 
         source.addEventListener("job_started", (event) => {
@@ -1123,6 +1150,14 @@ export default function App() {
     lastBackendArgs.current.analyze = { repoPath: path, base: baseRef, head: headRef };
     setLoading(true);
     setError(null);
+    // A refinement still in flight would otherwise never settle once its
+    // stream is closed below, leaving the top bar stuck on "Refining…".
+    if (refinementJobIdRef.current) {
+      if (HAS_BACKEND) {
+        await tauriInvoke<boolean>("cancel_refine_groups", { jobId: refinementJobIdRef.current }).catch(() => {});
+      }
+      activityAbortRef.current?.();
+    }
     // Reset LLM state on new analysis
     setOverview(null);
     setDeepAnalyses({});
@@ -1141,6 +1176,7 @@ export default function App() {
     setRefinementHadChanges(null);
     setShowRefined(false);
     refinementApplied.current = false;
+    setNewCommitsAvailable(false);
     // Reset review tick-off state
     setReviewedGroupIds(new Set());
     setDismissedEmptyGroupIds(new Set());
@@ -1183,10 +1219,30 @@ export default function App() {
         );
         handleSelectGroup(sorted[0]);
       }
-      // Check for cached refinement and auto-apply if found
+      // Check for cached refinement. Auto-apply only when it was computed
+      // against this head commit (legacy entries without a SHA still apply)
+      // and it covers exactly the files in the fresh diff; a stale one is
+      // left for the backend to carry over on the next incremental refine.
       if (HAS_BACKEND) {
         tauriInvoke<RefinementResult | null>("get_cached_refinement", { repoPath: path || null }).then((cached) => {
-          if (cached) {
+          if (!cached) return;
+          const cachedSha = cached.head_sha ?? null;
+          const freshSha = result.diff_source.head_sha ?? null;
+          const freshFiles = new Set([
+            ...result.groups.flatMap((g) => g.files.map((f) => f.path)),
+            ...(result.infrastructure_group?.files ?? []),
+          ]);
+          const cachedFiles = new Set(
+            cached.files?.length
+              ? cached.files
+              : [
+                  ...cached.refined_groups.flatMap((g) => g.files.map((f) => f.path)),
+                  ...(cached.infrastructure_group?.files ?? []),
+                ],
+          );
+          const sameFiles =
+            cachedFiles.size === freshFiles.size && [...cachedFiles].every((p) => freshFiles.has(p));
+          if (sameFiles && (!cachedSha || !freshSha || cachedSha === freshSha)) {
             applyRefinementResult(cached, { fromCache: true });
           }
         }).catch(() => {});
@@ -1227,12 +1283,40 @@ export default function App() {
     }
     prRefs.current = true;
     refsPinned.current = true;
+    prUrlRef.current = value;
     setRepoPath(resolved.path);
     setBaseRef(resolved.base);
     setHeadRef(resolved.head);
     // Stay in the loading state until the queued analysis picks it up.
     setPendingAnalysis(true);
   }, [repoPath, loading, runAnalysis]);
+
+  /** Re-run analysis after new commits. For a PR/MR this re-resolves the URL,
+   *  which updates the cached checkout to the new tip before analyzing. */
+  const refreshAnalysis = useCallback(async () => {
+    setNewCommitsAvailable(false);
+    const url = prUrlRef.current;
+    if (url && HAS_BACKEND) {
+      setLoading(true);
+      setError(null);
+      try {
+        const resolved = await tauriInvoke<ResolvedPr>("resolve_pr_url", { url });
+        prRefs.current = true;
+        setRepoPath(resolved.path);
+        setBaseRef(resolved.base);
+        setHeadRef(resolved.head);
+        setPendingAnalysis(true);
+      } catch (e) {
+        setLoading(false);
+        setError(String(e));
+      }
+      return;
+    }
+    if (repoPath && !isPrUrl(repoPath)) {
+      loadRepoInfo(repoPath);
+    }
+    runAnalysis();
+  }, [repoPath, loadRepoInfo, runAnalysis]);
 
   // Runs once the resolved repo path has committed, so runAnalysis and every
   // callback it triggers close over the checkout rather than the URL.
@@ -1266,6 +1350,24 @@ export default function App() {
     resolvedRefinementProvider,
   );
   const aiAccessReady = hasApiKey || !!recommendedSubscriptionProvider;
+  /** The top-bar "Refine" checkbox. Backed by the persisted refinement
+   *  setting, so ticking it off is also how the user changes the default. */
+  const refineOnAnalyze = llmSettings?.refinement_enabled ?? true;
+
+  /** Every explicit "analyze now" action. Arms the refine chain from the
+   *  checkbox; `refresh` re-resolves a PR/MR URL first so new upstream commits
+   *  are picked up. */
+  const startAnalysis = useCallback(
+    (opts?: { refresh?: boolean }) => {
+      refineAfterAnalysisRef.current = refineOnAnalyze;
+      if (opts?.refresh) {
+        refreshAnalysis();
+      } else {
+        submitRepoInput();
+      }
+    },
+    [refineOnAnalyze, refreshAnalysis, submitRepoInput],
+  );
 
   /**
    * Run Pass 1 and stash the PR-level overview without taking over the panel.
@@ -1417,8 +1519,9 @@ export default function App() {
     }
   }, [handleSelectGroup, showToast, describeGroups, repoPath]);
 
-  /** Run LLM refinement pass on the current analysis groups. */
-  const runRefinement = useCallback(async () => {
+  /** Run LLM refinement pass on the current analysis groups. Incremental mode
+   *  builds on the previous refinement instead of refining from scratch. */
+  const runRefinement = useCallback(async (opts?: { incremental?: boolean }) => {
     if (!analysis) return;
     setRefining(true);
     setError(null);
@@ -1428,6 +1531,7 @@ export default function App() {
           repoPath: repoPath || null,
           llmProvider: resolvedRefinementProvider,
           llmModel: resolvedRefinementModel,
+          incremental: opts?.incremental ?? false,
         }, (result) => {
           applyRefinementResult(result);
         }, (jobId) => {
@@ -1524,6 +1628,16 @@ export default function App() {
     restorePending.current = false;
     runAnalysis().then(reattachJobs);
   }, [llmSettings, runAnalysis, reattachJobs]);
+  // One click: an explicit Analyze with "Refine" checked runs the LLM pass as
+  // soon as the fresh groups land. Always incremental — the backend carries
+  // over the previous refinement when the diff has barely moved and falls
+  // back to a from-scratch pass when it has.
+  useEffect(() => {
+    if (!refineAfterAnalysisRef.current || loading) return;
+    refineAfterAnalysisRef.current = false;
+    if (!analysis || error || !aiAccessReady) return;
+    void runRefinement({ incremental: true });
+  }, [analysis, loading, error, aiAccessReady, runRefinement]);
 
   /** Toggle between original and refined groups. */
   const toggleRefinedView = useCallback(
@@ -1611,6 +1725,7 @@ export default function App() {
         setActivityEntries(entries);
       },
       setError: (msg: string | null) => setError(msg),
+      showNewCommits: (v: boolean) => setNewCommitsAvailable(v),
       clearAnalysis: () => { setAnalysis(null); setSelectedGroup(null); setSelectedFile(null); setFileDiff(null); setOverview(null); setDeepAnalyses({}); setOriginalGroups(null); setRefinedGroups(null); setRefinementResponse(null); setRefinementProvider(null); setRefinementModel(null); setRefinementHadChanges(null); setShowRefined(false); refinementApplied.current = false; setReviewedGroupIds(new Set()); setComments([]); setCommentInput(null); setCommentText(""); setRightPanelTab("annotations"); setSourceFocusRequest(null); setActivityJob(null); setActivityEntries([]); setActivityError(null); setActivityViewMode("stream"); setInspectedActivityId(null); },
       openAiSetup: (step: OnboardingStep = "recommended") => openAiSetup(step),
       dismissAiSetup: () => dismissAiSetup(),
@@ -2349,38 +2464,45 @@ export default function App() {
   useEffect(() => { loadingRef.current = loading; }, [loading]);
   const gitHeadDebounceRef = useRef<number | null>(null);
 
-  // Listen for git-head-changed events and re-analyze so the left panel picks up
-  // commits pulled/merged/checked out outside the app. Debounced since operations like
-  // rebase can move HEAD several times in quick succession.
+  // Listen for new-commit events from the Rust watchers and surface a "New
+  // commits" bar instead of re-analyzing under the user mid-review — analysis
+  // only re-runs when they click Refresh. The local-HEAD event is debounced
+  // since operations like rebase move HEAD several times in quick succession.
   useEffect(() => {
     if (!IS_TAURI || !repoPath) return;
     let cancelled = false;
-    let unlisten: (() => void) | undefined;
+    const unlistens: Array<() => void> = [];
 
     (async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      const fn = await listen<string>("git-head-changed", (event) => {
+      const onHead = await listen<string>("git-head-changed", (event) => {
         if (cancelled || event.payload !== repoPath) return;
         if (gitHeadDebounceRef.current) window.clearTimeout(gitHeadDebounceRef.current);
         gitHeadDebounceRef.current = window.setTimeout(() => {
           if (loadingRef.current) return;
           loadRepoInfo(repoPath);
-          runAnalysis();
+          setNewCommitsAvailable(true);
         }, 600);
       });
+      const onPrHead = await listen<string>("pr-head-changed", (event) => {
+        if (cancelled || event.payload !== prUrlRef.current) return;
+        if (loadingRef.current) return;
+        setNewCommitsAvailable(true);
+      });
       if (cancelled) {
-        fn();
+        onHead();
+        onPrHead();
         return;
       }
-      unlisten = fn;
+      unlistens.push(onHead, onPrHead);
     })();
 
     return () => {
       cancelled = true;
-      unlisten?.();
+      unlistens.forEach((fn) => fn());
       if (gitHeadDebounceRef.current) window.clearTimeout(gitHeadDebounceRef.current);
     };
-  }, [repoPath, loadRepoInfo, runAnalysis]);
+  }, [repoPath, loadRepoInfo]);
 
   /** Pre-indexed comment counts by group for O(1) lookup. */
   const commentsByGroupMap = useMemo(() => {
@@ -3378,12 +3500,13 @@ export default function App() {
             value={repoPath}
             onChange={(e) => {
               prRefs.current = false;
+              prUrlRef.current = null;
               setRepoPath(e.target.value);
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && repoPath && !loading) {
                 (e.target as HTMLInputElement).blur();
-                submitRepoInput();
+                startAnalysis();
               }
             }}
           />
@@ -3472,12 +3595,65 @@ export default function App() {
           </div>
 
           <button
-            className="btn btn-primary"
-            onClick={() => submitRepoInput()}
+            className={`btn btn-analyze ${newCommitsAvailable || analyzeArmed ? "btn-analyze-destructive" : "btn-primary"}`}
+            data-testid="analyze-btn"
+            onClick={() => {
+              if (analysis && !loading && !analyzeArmed) {
+                setAnalyzeArmed(true);
+                return;
+              }
+              setAnalyzeArmed(false);
+              startAnalysis({ refresh: newCommitsAvailable });
+            }}
+            onBlur={() => setAnalyzeArmed(false)}
             disabled={loading || !repoPath}
+            title={
+              analysis && !loading
+                ? analyzeArmed
+                  ? "Click again to discard the current groups and any refinement"
+                  : newCommitsAvailable
+                    ? "New commits upstream. Re-run analysis — discards the current groups and any refinement, so it asks for a second click"
+                    : "Re-run analysis. Discards the current groups and any refinement, so it asks for a second click"
+                : "Analyze the diff between the selected branches"
+            }
           >
-            {loading ? "Analyzing..." : "Analyze"}
+            {loading
+              ? "Analyzing…"
+              : analyzeArmed
+                ? "Confirm?"
+                : analysis
+                  ? "Reanalyze"
+                  : "Analyze"}
           </button>
+          {refining ? (
+            <button
+              className="btn btn-primary"
+              onClick={cancelRefinement}
+              title="Stop the in-flight refinement"
+              data-testid="refinement-cancel"
+            >
+              Refining&#8230; &#10005;
+            </button>
+          ) : (
+            <label
+              className={`refine-toggle${aiAccessReady ? "" : " disabled"}`}
+              data-testid="refine-toggle"
+              title={
+                aiAccessReady
+                  ? `Run an LLM refinement pass right after Analyze, using ${resolvedRefinementProvider ?? "anthropic"} (${resolvedRefinementModel ?? "default"})`
+                  : "AI setup required — choose Codex CLI, Claude Code, or a direct API key"
+              }
+            >
+              <input
+                type="checkbox"
+                data-testid="refine-checkbox"
+                checked={refineOnAnalyze}
+                disabled={!aiAccessReady || !llmSettings}
+                onChange={(e) => updateSetting("refinement_enabled", e.target.checked)}
+              />
+              Refine
+            </label>
+          )}
         </div>
         <div className="top-bar-right">
           {!aiAccessReady && llmSettings && (
@@ -4053,6 +4229,27 @@ export default function App() {
         </div>
       )}
 
+      {/* New commits detected on the analyzed branch/PR — refresh on request,
+          never yank the groups out from under a review in progress. */}
+      {newCommitsAvailable && (
+        <div className="new-commits-bar" data-testid="new-commits-bar">
+          <span className="new-commits-indicator">New commits</span>
+          <span className="new-commits-text">
+            {prUrlRef.current ? "This pull request was updated." : "This branch was updated."}
+          </span>
+          <button className="btn" onClick={() => startAnalysis({ refresh: true })}>
+            Refresh
+          </button>
+          <button
+            className="btn-close"
+            onClick={() => setNewCommitsAvailable(false)}
+            title="Dismiss"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
       {/* Three-panel layout */}
       <div className="panels">
         {/* Left panel: Flow Groups */}
@@ -4075,34 +4272,6 @@ export default function App() {
             )}
           </div>
           <div className="panel-body">
-            {/* Refinement banner — shown after analysis when LLM access is available */}
-            {analysis && !refinedGroups && !refining && aiAccessReady && (
-              <div className="refinement-banner">
-                <span>AI can improve these groupings</span>
-                <button
-                  className="btn btn-refine"
-                  onClick={runRefinement}
-                  title={`Refine groupings using ${resolvedRefinementProvider ?? "anthropic"} (${resolvedRefinementModel ?? "default"})`}
-                >
-                  Refine
-                </button>
-              </div>
-            )}
-
-            {analysis && refining && (
-              <div className="refinement-banner refinement-banner-running">
-                <span>Refining groups…</span>
-                <button
-                  className="btn btn-refine btn-refine-cancel"
-                  onClick={cancelRefinement}
-                  title="Stop the in-flight refinement"
-                  data-testid="refinement-cancel"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-
             {/* Manifest export & watch — allows CLI/agent refinement loop */}
             {analysis && IS_TAURI && !watchedManifestPath && (
               <div className="refinement-banner">

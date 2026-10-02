@@ -287,6 +287,10 @@ export interface RefinementResult {
   provider: string;
   model: string;
   had_changes: boolean;
+  /** Head commit the refinement was computed against; absent on legacy cache entries. */
+  head_sha?: string | null;
+  /** File paths covered by the refinement (grouped + infrastructure). */
+  files?: string[];
 }
 
 /** Raw refinement response with structural operations. */

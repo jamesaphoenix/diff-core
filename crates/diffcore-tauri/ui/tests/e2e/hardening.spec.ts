@@ -555,6 +555,20 @@ test.describe("Hardening — LLM Annotations", () => {
 // Refinement
 // ═══════════════════════════════════════════════════════════════════
 
+/** Trigger the LLM pass the way the top bar does it now: the Refine checkbox is
+ *  on by default, so Analyze (confirmed) re-runs the analysis and chains the
+ *  refinement onto it. */
+async function refineViaTopBar(page: Page) {
+  await expect(page.getByTestId("refine-checkbox")).toBeChecked();
+  const analyze = page.getByTestId("analyze-btn");
+  await analyze.click();
+  await expect(analyze).toHaveText("Confirm?");
+  await analyze.click();
+  await expect(analyze).toHaveText("Reanalyze");
+  // The original/refined toggle only exists once the refinement has applied.
+  await expect(page.locator(".refinement-toggle")).toBeVisible({ timeout: 15_000 });
+}
+
 test.describe("Hardening — Refinement", () => {
   test("31 — refinement banner visible when enabled", async ({ page }) => {
     await page.goto("/");
@@ -576,14 +590,43 @@ test.describe("Hardening — Refinement", () => {
     });
     await page.waitForTimeout(300);
 
-    // Verify refinement banner is shown
-    await expect(page.locator(".refinement-banner")).toBeVisible();
-    await expect(page.locator(".refinement-banner")).toContainText("AI can improve");
-    await expect(page.locator(".btn-refine")).toBeVisible();
+    // The LLM pass rides along with Analyze via a pre-checked box, so the
+    // single-click path is the default one.
+    const toggle = page.getByTestId("refine-toggle");
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toContainText("Refine");
+    await expect(page.getByTestId("refine-checkbox")).toBeChecked();
 
-    await page.locator(".refinement-banner").screenshot({
+    await page.locator(".top-bar-left").screenshot({
       path: path.join(SCREENSHOTS_DIR, "31-refinement-banner.png"),
     });
+  });
+
+  test("31b — new commits bar appears and Refresh re-analyzes", async ({ page }) => {
+    await page.goto("/");
+    await waitForAnalysis(page);
+
+    await page.evaluate(() => {
+      (window as any).__TEST_API__.showNewCommits(true);
+    });
+    const bar = page.getByTestId("new-commits-bar");
+    await expect(bar).toBeVisible();
+    await expect(bar).toContainText("New commits");
+
+    // New commits upstream are the one case that turns Analyze red, so stale
+    // groups are obvious without reading the bar.
+    const analyze = page.getByTestId("analyze-btn");
+    await expect(analyze).toHaveClass(/btn-analyze-destructive/);
+    await expect(analyze).toHaveText("Reanalyze");
+
+    await bar.screenshot({
+      path: path.join(SCREENSHOTS_DIR, "31b-new-commits-bar.png"),
+    });
+
+    // Refresh re-runs analysis and clears the bar
+    await bar.getByRole("button", { name: "Refresh" }).click();
+    await expect(bar).not.toBeVisible();
+    await waitForAnalysis(page);
   });
 
   test("32 — refinement: complete with original/refined toggle", async ({ page }) => {
@@ -607,8 +650,7 @@ test.describe("Hardening — Refinement", () => {
     await page.waitForTimeout(300);
 
     // Click Refine
-    await page.locator(".btn-refine").click();
-    await page.waitForTimeout(2000); // Mock delay is 1200ms
+    await refineViaTopBar(page);
 
     // Verify toggle exists
     await expect(page.locator(".refinement-toggle")).toBeVisible();
@@ -643,8 +685,7 @@ test.describe("Hardening — Refinement", () => {
     });
     await page.waitForTimeout(300);
 
-    await page.locator(".btn-refine").click();
-    await page.waitForTimeout(2000);
+    await refineViaTopBar(page);
 
     // Verify change indicators are present
     const changeIndicators = page.locator(".change-indicator");
@@ -677,8 +718,7 @@ test.describe("Hardening — Refinement", () => {
     });
     await page.waitForTimeout(300);
 
-    await page.locator(".btn-refine").click();
-    await page.waitForTimeout(2000);
+    await refineViaTopBar(page);
 
     // Switch to Original view
     await page.locator(".toggle-btn").filter({ hasText: "Original" }).click();
@@ -716,8 +756,7 @@ test.describe("Hardening — Refinement", () => {
     });
     await page.waitForTimeout(300);
 
-    await page.locator(".btn-refine").click();
-    await page.waitForTimeout(2000);
+    await refineViaTopBar(page);
 
     // Refining must not cost the user their PR overview
     await page.getByTestId("annotations-tab").click();
@@ -746,8 +785,7 @@ test.describe("Hardening — Refinement", () => {
     });
     await page.waitForTimeout(300);
 
-    await page.locator(".btn-refine").click();
-    await page.waitForTimeout(2000);
+    await refineViaTopBar(page);
 
     const groupList = page.getByTestId("group-list");
 
