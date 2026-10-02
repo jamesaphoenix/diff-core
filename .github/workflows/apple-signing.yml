@@ -1,0 +1,74 @@
+name: Apple signing check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apple-signing.yml
+      - .github/workflows/release.yml
+      - scripts/import-apple-certificate.sh
+      - scripts/verify-apple-certificate.sh
+
+permissions:
+  contents: read
+
+jobs:
+  signing:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Import and validate G2 certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: bash scripts/import-apple-certificate.sh
+
+      - name: Download a copy of the released app for signing validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern 'Diffcore.app.tar.gz' --dir "$RUNNER_TEMP/validation"
+          tar -xzf "$RUNNER_TEMP/validation/Diffcore.app.tar.gz" -C "$RUNNER_TEMP/validation"
+
+      - name: Sign the validation copy with G2 and a secure timestamp
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/validation/Diffcore.app"
+          codesign --force --options runtime --timestamp --preserve-metadata=identifier,entitlements --sign "$APPLE_SIGNING_IDENTITY" "$app"
+          codesign --verify --deep --strict "$app"
+          codesign -dvvv "$app" 2>&1 | tee "$RUNNER_TEMP/signature.txt"
+          grep -q '^Timestamp=' "$RUNNER_TEMP/signature.txt"
+          codesign -d --extract-certificates="$RUNNER_TEMP/app-cert-" "$app"
+          /usr/bin/openssl x509 -inform DER -in "$RUNNER_TEMP/app-cert-0" -out "$RUNNER_TEMP/app-cert.pem"
+          bash scripts/verify-apple-certificate.sh "$RUNNER_TEMP/app-cert.pem" "$APPLE_SIGNING_IDENTITY"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/validation.zip"
+
+      - name: Notarise, staple and assess the validation copy
+        env:
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_CONTENT" > "$key"
+          xcrun notarytool submit "$RUNNER_TEMP/validation.zip" --key "$key" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait --timeout 10m --output-format json > "$RUNNER_TEMP/notarisation.json"
+          cat "$RUNNER_TEMP/notarisation.json"
+          python3 -c 'import json,sys; result=json.load(open(sys.argv[1])); assert result["status"] == "Accepted", result' "$RUNNER_TEMP/notarisation.json"
+          xcrun stapler staple "$RUNNER_TEMP/validation/Diffcore.app"
+          xcrun stapler validate "$RUNNER_TEMP/validation/Diffcore.app"
+          spctl --assess --type execute --verbose "$RUNNER_TEMP/validation/Diffcore.app"
+
+      - name: Clean up signing credentials
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP"/AuthKey_*.p8

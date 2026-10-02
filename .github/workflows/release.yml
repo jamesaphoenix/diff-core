@@ -69,16 +69,8 @@ jobs:
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          CERTIFICATE_PATH="$RUNNER_TEMP/certificate.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$CERTIFICATE_PATH"
-          security create-keychain -p "" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple: -k "" "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: bash scripts/import-apple-certificate.sh
 
       - name: Write Apple API key
         env:
@@ -101,6 +93,7 @@ jobs:
 
       - name: Verify code signing and notarization
         env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
@@ -152,6 +145,14 @@ jobs:
             exit 1
           fi
           echo "Signed by: $IDENTITY"
+          SIGNATURE_DETAILS=$(codesign -dvvv "$APP_PATH" 2>&1)
+          if ! grep -q '^Timestamp=' <<< "$SIGNATURE_DETAILS"; then
+            echo "::error::App signature has no secure timestamp"
+            exit 1
+          fi
+          codesign -d --extract-certificates="$RUNNER_TEMP/app-cert-" "$APP_PATH"
+          /usr/bin/openssl x509 -inform DER -in "$RUNNER_TEMP/app-cert-0" -out "$RUNNER_TEMP/app-cert.pem"
+          bash scripts/verify-apple-certificate.sh "$RUNNER_TEMP/app-cert.pem" "$APPLE_SIGNING_IDENTITY"
           echo "::endgroup::"
 
           echo "::group::Gatekeeper assessment (.app)"
@@ -191,6 +192,12 @@ jobs:
             target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz
             target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz.sig
           if-no-files-found: warn
+
+      - name: Clean up Apple signing credentials
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP"/AuthKey_*.p8
 
   build-linux:
     needs: [verify, validate-release-version]
@@ -344,14 +351,14 @@ jobs:
           mac_sig=""
           linux_sig=""
           win_nsis_sig=""
-          for f in $(find artifacts -name "*.sig" -type f); do
+          while IFS= read -r -d '' f; do
             content="$(cat "$f")"
             case "$f" in
               *.tar.gz.sig) mac_sig="$content" ;;
               *.AppImage.sig) linux_sig="$content" ;;
               *.exe.sig) win_nsis_sig="$content" ;;
             esac
-          done
+          done < <(find artifacts -name "*.sig" -type f -print0)
 
           # Find artifact filenames
           mac_tar="$(find artifacts -name '*.tar.gz' ! -name '*.sig' -type f | head -1 | xargs basename 2>/dev/null || echo '')"
